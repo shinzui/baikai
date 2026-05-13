@@ -10,3 +10,4 @@ cabal.project.local
 result
 result-*
 .pre-commit-config.yaml
+CLAUDE.local.md
