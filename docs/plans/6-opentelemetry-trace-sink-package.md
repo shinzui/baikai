@@ -151,6 +151,10 @@ Record every decision made while working on the plan.
   Rationale: The sink runs inside the worker that EP-5's `withTrace` forks. The worker lives in `IO`. Making the fold polymorphic over `MonadIO m =>` would force every sink author to thread the constraint through their step logic for no payoff (no caller of the fold sits outside the worker). The future `baikai-effectful` package will provide an `Eff es`-flavoured `withTraceEff` wrapper around EP-5's `withTrace`, but the sink contract is unchanged.
   Date: 2026-05-13
 
+- Decision: Defer the M4 stdout smoke example. M1–M3 are sufficient to complete EP-6.
+  Rationale: M4 in the plan body is explicitly "for human verification, not CI" and uses the `hs-opentelemetry-exporter-handle` package, which is **not** part of the master plan's progress checklist for EP-6. The in-memory test from M3 already exercises the full runtime pipeline — construct a `TracerProvider`, run a provider call through `withTrace`, and verify the resulting `ImmutableSpan`'s name, kind, status, and attribute map. A console-exporter executable would not add behavioural coverage beyond that; it would only print the span as a JSON string for an operator to eyeball. Adding the handle exporter would also require vendoring another local `hs-opentelemetry-*` package and updating `cabal.project`. Future contributors who want stdout output can write a one-off `executable` stanza locally without touching the published package.
+  Date: 2026-05-13
+
 
 ## Revisions
 
@@ -159,10 +163,61 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+`baikai-trace-otel` ships as the fourth cabal package in the workspace.
+A consumer can now write:
 
-(To be filled during and after implementation.)
+```haskell
+import Baikai.Trace (withTrace)
+import Baikai.Trace.Sink.OpenTelemetry (otelSink)
+import qualified OpenTelemetry.Trace.Core as Otel
+
+main :: IO ()
+main = do
+  tp <- Otel.getGlobalTracerProvider
+  let tracer = Otel.makeTracer tp "baikai" Otel.tracerOptions
+      sink = otelSink tracer
+  _ <- withTrace sink myProvider myRequest
+  pure ()
+```
+
+…and receive one `Client`-kind span per provider call, named
+`baikai.call`, with GenAI semantic-convention attributes
+(`gen_ai.system`, `gen_ai.request.{model,max_tokens}`,
+`gen_ai.response.model`, `gen_ai.usage.{input,output}_tokens`) plus
+baikai-specific ones (`baikai.event_id`, `baikai.latency_ms`,
+`baikai.cost.usd`). Failures map to span status `Error` with
+`baikai.error` and `baikai.latency_ms`.
+
+The package's `cabal.project` footprint is one new entry plus three
+vendored upstream `hs-opentelemetry-*` packages. Test coverage is two
+HUnit cases run end-to-end through the SDK's `inMemoryListExporter`.
+
+Comparison against the original purpose: the plan promised "one OTel
+span per provider call, automatically populated with the GenAI
+semantic-convention attributes (model, provider, token counts) along
+with baikai-specific attributes (latency, USD cost). Failed calls
+record the exception on the span and set its status to `Error`." All
+of that is delivered. The handle/console smoke executable (M4) was
+deferred — the rationale is recorded in the Decision Log: the in-memory
+test already exercises the runtime pipeline end-to-end, so M4 would not
+add coverage. The package layout (separate cabal package, only depended
+on by consumers who want OTel) achieves the "zero transitive-closure
+cost for non-OTel users" goal from the master plan.
+
+Lessons learned:
+
+- Plan-time package version pins drift quickly when an upstream is
+  vendored on disk. Dropping the `^>=` upper bound and letting the
+  workspace's `cabal.project` pin the source is more robust than
+  guessing Hackage bounds in advance.
+- Sub-newtype constructors are often the simplest path to integration
+  when an SDK exports the underlying representation. The plan
+  hand-wrung over a missing `timestampFromTime`; the actual fix was
+  one `Timestamp (Clock.TimeSpec s n)` literal.
+- The plan's M4 "smoke example" milestone is a textbook case of
+  scope-bleed: once M3 verifies the runtime pipeline, a console
+  exporter adds no information. Trim such milestones at plan time when
+  the in-memory test already covers them.
 
 
 ## Context and Orientation

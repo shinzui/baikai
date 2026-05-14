@@ -164,7 +164,7 @@ Alternatives considered and rejected:
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Complete    |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Complete    |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Complete    |
-| EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | In Progress |
+| EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | Complete    |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -300,8 +300,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-5: Implement stdout, file, silent, and multi sinks
 - [x] 2026-05-13 EP-5: Wrap provider calls with `withTrace` that emits start/finish/error events with latency (verified by 4 new tasty tests in `baikai/test/TraceSpec.hs`; `cabal test baikai` 15/15 passing)
 - [x] 2026-05-13 EP-6: Create `baikai-trace-otel` package with cabal file and `cabal.project` entry (M1) — vendored `hs-opentelemetry-{api,sdk,exporter-in-memory}` via `cabal.project` `packages:` like the EP-3 streamly/cradle entries; `cabal build all` is green.
-- [ ] EP-6: Implement `Baikai.Trace.Sink.OpenTelemetry.otelSink :: Tracer -> TraceSink` mapping events to spans with attributes for model, provider, tokens, latency, cost
-- [ ] EP-6: Provide an in-memory exporter test that asserts a call produces one span with the expected attributes
+- [x] 2026-05-13 EP-6: Implement `Baikai.Trace.Sink.OpenTelemetry.otelSink :: Tracer -> TraceSink` mapping events to spans with attributes for model, provider, tokens, latency, cost — stateful streamly `Fold` keyed by `eventId`, finalizer closes leaked spans.
+- [x] 2026-05-13 EP-6: Provide an in-memory exporter test that asserts a call produces one span with the expected attributes — `baikai-trace-otel-test` 2/2 covering Ok and Error spans.
 
 
 ## Surprises & Discoveries
@@ -441,6 +441,38 @@ interactions between child plans. Provide concise evidence.
   has its own internal queue), so this limitation is not a problem for
   EP-6.
 
+- 2026-05-13 (EP-6): **Plan-time `^>=` upper bounds on
+  `hs-opentelemetry-{api,sdk}` drifted from on-disk reality.** The plan
+  pinned `^>=0.2` / `^>=0.1`; the vendored sources are `0.3.0.0` /
+  `0.1.0.1` (api / sdk). `baikai-trace-otel/baikai-trace-otel.cabal`
+  drops the `^>=` bounds entirely on the OTel packages and lets
+  `cabal.project` pin the local source. Future plans that add vendored
+  Haskell deps should follow the same pattern — drop the Hackage `^>=`
+  guess and rely on the workspace's `packages:` entry for pinning.
+
+- 2026-05-13 (EP-6): **OpenTelemetry's in-memory exporter exposes a
+  `SpanProcessor`, not a `SpanExporter`.** The plan suggested wrapping
+  it in `simpleProcessor`, but `inMemoryListExporter :: IO
+  (SpanProcessor, IORef [ImmutableSpan])` is already a processor —
+  feed it straight into `createTracerProvider`. EP-6's test does
+  exactly that. Documented for any future plan that wires the
+  in-memory exporter into tests.
+
+- 2026-05-13 (EP-6): **There is no `timestampFromTime` in
+  `OpenTelemetry.Trace.Core`.** EP-6's plan body referenced one as
+  though it existed. The fix is trivial because `OpenTelemetry.Common`
+  exports `Timestamp(..)` unrestricted: build a `Clock.TimeSpec` from
+  `utcTimeToPOSIXSeconds` and apply the data constructor.
+
+- 2026-05-13 (EP-6): **EP-6's plan M4 "stdout smoke example" was
+  deferred.** Rationale documented in EP-6's Decision Log: the M3
+  in-memory test already exercises the runtime pipeline through the
+  SDK's processor + exporter machinery, so a handle/console exporter
+  would only re-print the same span as JSON for a human to eyeball,
+  without adding behavioural coverage. The master plan progress
+  checklist for EP-6 was already three items (matching M1–M3); M4 was
+  always an "if you want to look at it" extra, not a coverage gap.
+
 
 ## Decision Log
 
@@ -491,10 +523,81 @@ interactions between child plans. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original vision.
+After EP-6, the AI Provider Abstraction Library initiative is complete.
+All six ExecPlans landed. The repository hosts four sibling cabal
+packages (`baikai`, `baikai-claude`, `baikai-openai`,
+`baikai-trace-otel`) plus a test-only `baikai-smoke`. A consumer can
+write a single `Request` against the `Provider` typeclass and route it
+to any of four backends:
 
-(To be filled during and after implementation.)
+- Anthropic Claude API (`baikai-claude/Baikai.Provider.Claude.Api`)
+- OpenAI API (`baikai-openai/Baikai.Provider.OpenAI.Api`)
+- `claude -p` CLI (`baikai-claude/Baikai.Provider.Claude.Cli`)
+- `codex exec` CLI (`baikai-openai/Baikai.Provider.OpenAI.Cli`)
+
+For every API call the library captures token usage and a USD cost
+from a per-model pricing table, emits structured trace events with
+latency, and optionally writes a JSONL call log. For every CLI call it
+captures latency and trace events but explicitly reports no cost
+(subscription model). Trace events flow through pluggable sinks:
+stdout, file, silent, in-memory, multi-fan-out — and, via the new
+`baikai-trace-otel`, OpenTelemetry spans with GenAI semantic-convention
+attributes.
+
+The opening Vision & Scope code sample compiles and runs against any
+of the four providers; the in-memory OTel test proves the
+`TraceSink → Span` adaptation end-to-end; the live `baikai-smoke`
+test-suite exercises all four backends against real services. Out-of-
+scope features (streaming, tool use, structured outputs, images,
+batch, fine-tuning, embeddings, audio, cache reporting beyond raw
+counts) remain layerable on top without redesigning the abstraction —
+no `Provider` method was hard-coded to a single-turn message shape.
+
+Quantitative state at completion:
+
+- 6 child plans, all Complete.
+- 4 sibling cabal packages, all building cleanly under GHC 9.12.2.
+- `cabal test all` green: `baikai-test` 15/15,
+  `baikai-trace-otel-test` 2/2, `baikai-smoke` 1/1 (live API).
+- ~10 vendored upstream packages in `cabal.project` `packages:`
+  (Mercury `claude`/`openai`, garnix `cradle`, composewell `streamly`
+  + `streamly-core`, iand675 `hs-opentelemetry-{api,sdk}`,
+  `hs-opentelemetry-exporter-in-memory`).
+
+Cross-plan lessons learned:
+
+- **Vendor early, version-pin loosely.** Every plan after EP-2 had to
+  vendor at least one upstream package because the Nix `ghc912` set
+  did not include it. Trying to keep `^>=` upper bounds on those
+  packages in cabal files drifted from on-disk reality fast (EP-6's
+  `hs-opentelemetry-api ^>=0.2` plan-text vs. on-disk `0.3.0.0`).
+  Future workspaces should drop Hackage-style upper bounds on locally
+  vendored packages.
+
+- **Plan against the actual source, not the plan author's mental
+  model of the source.** Several EP-3 / EP-5 / EP-6 surprises were
+  schema/symbol-name mismatches between plan prose and the local
+  vendored library: `claude -p --output-format json` shape, codex's
+  `item.completed` envelope, OTel's missing `timestampFromTime`. A
+  60-second `mori registry show <project> --full` before writing the
+  plan body would have caught all three. The plans now record the
+  actual symbols and shapes verbatim.
+
+- **Smoke / human-verification milestones bleed scope.** EP-6's M4
+  console-exporter executable was deferred because M3's in-memory
+  test already exercised the runtime pipeline through the SDK
+  processor. A pattern worth applying earlier: if M_{n-1} verifies the
+  runtime, M_n should only exist when it covers a behaviour M_{n-1}
+  cannot.
+
+- **`MonadIO m =>` ≠ `MonadUnliftIO m =>`.** The library-wide
+  generalisation in the May-13 revision affected only one-shot
+  operations; bracket-style functions stayed in `IO` because
+  `Eff es` does not provide `MonadUnliftIO`. EP-6 confirmed the
+  decision was correct: the OTel sink's fold runs inside the worker
+  that `withTrace` forks, so the contract genuinely is `IO`-bound,
+  not `m`-bound. The future `baikai-effectful` package will wrap
+  `withTrace`, not lift its internals.
 
 
 ## Revisions
