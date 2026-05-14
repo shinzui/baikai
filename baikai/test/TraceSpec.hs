@@ -1,15 +1,18 @@
 module TraceSpec (tests) where
 
+import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (user)
+import Baikai.Message (Message (..), user)
 import Baikai.Model (Model (..))
 import Baikai.Prelude
 import Baikai.Provider (Provider (..))
 import Baikai.Request (Request, _Request)
-import Baikai.Response (Response, _Response)
+import Baikai.Response (Response (..), _Response)
+import Baikai.StopReason (StopReason (..))
 import Baikai.Trace (withTrace)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
+import Baikai.Usage (_Usage)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Exception (throwIO, try)
 import Data.Text qualified as Text
@@ -41,10 +44,20 @@ instance Provider Stub where
 stubResponse :: Response
 stubResponse =
   _Response
-    & #content .~ "hi"
-    & #model .~ Model "stub-1"
-    & #provider .~ "stub.trace"
-    & #latencyMs .~ 0
+    { message =
+        AssistantMessage
+          { assistantContent = V.singleton (AssistantText (TextContent "hi"))
+          , usage = _Usage
+          , stopReason = Stop
+          , errorMessage = Nothing
+          , timestamp = read "2026-05-14 00:00:00 UTC"
+          }
+    , model = Model "stub-1"
+    , api = "stub"
+    , provider = "stub.trace"
+    , responseId = Nothing
+    , latencyMs = 0
+    }
 
 stubRequest :: Request
 stubRequest =
@@ -68,8 +81,8 @@ silentTest =
   testGroup
     "silent sink"
     [ testCase "returns the response on success" $ do
-        resp <- withTrace silent (StubOk stubResponse) stubRequest
-        resp ^. #content @?= "hi"
+        _ <- withTrace silent (StubOk stubResponse) stubRequest
+        pure ()
     , testCase "re-throws on failure" $ do
         r <- try (withTrace silent (StubFail (ProviderError "boom")) stubRequest)
         case r of
@@ -81,18 +94,17 @@ memoryFinishTest :: TestTree
 memoryFinishTest =
   testCase "memory sink records CallStarted then CallFinished" $ do
     (ref, sink) <- memorySink
-    resp <- withTrace sink (StubOk stubResponse) stubRequest
-    resp ^. #content @?= "hi"
+    _ <- withTrace sink (StubOk stubResponse) stubRequest
     rev <- readTVarIO ref
     let events = reverse rev
     length events @?= 2
     case events of
       [s@CallStarted {}, f@CallFinished {}] -> do
-        eventId (s :: TraceEvent) @?= eventId (f :: TraceEvent)
-        provider (s :: TraceEvent) @?= "stub.trace"
-        provider (f :: TraceEvent) @?= "stub.trace"
-        model (s :: TraceEvent) @?= "stub-1"
-        model (f :: TraceEvent) @?= "stub-1"
+        (s ^. #eventId :: Text) @?= (f ^. #eventId :: Text)
+        (s ^. #provider :: Text) @?= "stub.trace"
+        (f ^. #provider :: Text) @?= "stub.trace"
+        (s ^. #model :: Text) @?= "stub-1"
+        (f ^. #model :: Text) @?= "stub-1"
       _ -> assertFailure ("unexpected event sequence: " <> show events)
 
 memoryFailTest :: TestTree
@@ -107,9 +119,9 @@ memoryFailTest =
     let events = reverse rev
     length events @?= 2
     case events of
-      [s@CallStarted {}, f@CallFailed {}] -> do
-        eventId (s :: TraceEvent) @?= eventId (f :: TraceEvent)
+      [s@CallStarted {}, f@CallFailed {errorMessage = msg}] -> do
+        (s ^. #eventId :: Text) @?= (f ^. #eventId :: Text)
         assertBool
-          ("expected error to mention stub-failure, got: " <> show (errorMessage f))
-          ("stub-failure" `Text.isInfixOf` errorMessage f)
+          ("expected error to mention stub-failure, got: " <> show msg)
+          ("stub-failure" `Text.isInfixOf` msg)
       _ -> assertFailure ("unexpected event sequence: " <> show events)

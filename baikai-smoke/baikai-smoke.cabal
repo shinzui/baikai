@@ -46,6 +46,8 @@ test-suite baikai-smoke
     , baikai
     , baikai-claude
     , baikai-openai
+    , base64-bytestring
+    , bytestring
     , directory
     , generic-lens
     , lens ^>=5.3

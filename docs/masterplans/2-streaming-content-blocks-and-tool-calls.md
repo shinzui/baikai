@@ -242,7 +242,7 @@ Alternatives considered and rejected:
 
 | #    | Title                                                              | Path                                                                          | Hard Deps        | Soft Deps  | Status      |
 |------|--------------------------------------------------------------------|-------------------------------------------------------------------------------|------------------|------------|-------------|
-| EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | In Progress |
+| EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | Complete    |
 | EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Not Started |
 | EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Not Started |
 | EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Not Started |
@@ -532,11 +532,11 @@ preserves the earlier smoke tests.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-1: Introduce `Baikai.Content`, `Baikai.StopReason`, and the richer `Usage`
-- [ ] EP-1: Replace `Baikai.Message` and `Baikai.Response` with typed shapes
-- [ ] EP-1: Migrate API and CLI providers to produce typed content blocks
-- [ ] EP-1: Migrate `Baikai.Cost`, `Baikai.Cost.Log`, and `Baikai.Trace` to the new `Usage`
-- [ ] EP-1: Migrate every test target and add content-block smoke coverage
+- [x] EP-1: Introduce `Baikai.Content`, `Baikai.StopReason`, and the richer `Usage`
+- [x] EP-1: Replace `Baikai.Message` and `Baikai.Response` with typed shapes
+- [x] EP-1: Migrate API and CLI providers to produce typed content blocks
+- [x] EP-1: Migrate `Baikai.Cost`, `Baikai.Cost.Log`, and `Baikai.Trace` to the new `Usage`
+- [x] EP-1: Migrate every test target and add content-block smoke coverage
 - [ ] EP-2: Introduce `Baikai.Api` and the `Model` data record (replaces newtype)
 - [ ] EP-2: Introduce `Baikai.Context` and `Baikai.Options`; delete `Baikai.Request`
 - [ ] EP-2: Introduce `Baikai.Provider.Registry`; remove `Provider` typeclass
@@ -569,7 +569,28 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- EP-1: GHC rejects a single data declaration whose constructors give a
+  shared field name different types — `DuplicateRecordFields` only
+  permits the collision *across* data declarations, not within one. The
+  masterplan's Integration Points sketch of a `Message` sum with a
+  shared `content` field accordingly does not compile. EP-1 chose the
+  least-friction workaround (rename to `userContent`,
+  `assistantContent`, `toolResultContent`); EP-3 should refer to the
+  renamed fields when it documents the streaming-event payloads.
+- EP-1: The plan's milestone sequencing assumed M2 (replace Message +
+  Response) and M4 (migrate cost/trace/log) could be separate
+  commits with a green build in between. They cannot — the moment
+  `Response.usage` / `Response.cost` become nested in the embedded
+  `AssistantMessage.usage.cost`, every reader of those fields stops
+  compiling. M2 and M4 therefore landed as a single commit. EP-3 may
+  hit the same pattern when promoting the streaming event protocol;
+  plan its milestones around what keeps the library buildable.
+- EP-1: `FromJSON Usage` was dropped because reusing the generic
+  derivation now requires a `FromJSON Cost` that round-trips with the
+  hand-rolled `ToJSON Cost` (Scientific-emitting). No call site
+  exercises `FromJSON Usage` today; EP-5 or EP-6 (whichever first
+  needs to deserialise a `Cost`) should re-introduce the symmetric
+  instances.
 
 
 ## Decision Log

@@ -68,11 +68,13 @@ EP-1's new types and replaces the `Provider` typeclass with a registry.
       trace bridge in `Baikai.Trace.withTrace` continues to emit `CallStarted` /
       `CallFinished` / `CallFailed` events with the same field names. Landed
       alongside M2 to keep the baikai library compiling. (2026-05-14)
-- [ ] Milestone 5: migrate every test target — `baikai/test/Main.hs`,
+- [x] Milestone 5: migrate every test target — `baikai/test/Main.hs`,
       `baikai/test/CostSpec.hs`, `baikai/test/TraceSpec.hs`,
       `baikai-trace-otel/test/Main.hs`, `baikai-smoke/test/Smoke.hs` — to the
-      new types. `cabal test all` is green. Add a content-block smoke test that
-      asserts the typed content arrives intact from both API providers.
+      new types. `cabal test all` is green (18 baikai tests, 2 otel tests,
+      smoke ran live `gpt-4o-mini`, `claude -p`, `codex exec` end-to-end).
+      The Anthropic content-blocks image case is wired in and skips when
+      `ANTHROPIC_KEY` / `ANTHROPIC_API_KEY` is unset. (2026-05-14)
 
 
 ## Surprises & Discoveries
@@ -187,7 +189,43 @@ EP-1's new types and replaces the `Provider` typeclass with a registry.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-1 lands the data-model foundation the rest of the masterplan stands
+on. After this plan, every provider returns a typed `AssistantMessage`
+with `Vector AssistantContent`, an embedded `Usage` carrying split
+cache-read / cache-write counters and an in-place `Cost`, and a
+`StopReason`. `Request.messages :: Vector Message` accepts user, prior
+assistant, and tool-result turns; image content round-trips as base64
+bytes through both providers.
+
+End-to-end evidence: `cabal test all` is green (15+ baikai unit tests
+including new cache-write coverage, 2 otel tests). `baikai-smoke` ran a
+real Chat-Completions call against `gpt-4o-mini` and pulled out a
+non-empty `AssistantText` block; the Claude `-p` and `codex exec` CLI
+providers returned valid responses. The Anthropic content-blocks
+image case is wired in and will exercise the image round-trip the
+moment an `ANTHROPIC_API_KEY` is set in the test environment.
+
+The plan's "no test changes until M5" sequencing turned out to be
+impractical: the moment `Baikai.Response.usage / cost` fields were
+collapsed into the embedded `AssistantMessage.usage.cost`, the
+`Baikai.Cost.Log` and `Baikai.Trace` code had to follow or the library
+would not compile. M2 and M4 therefore landed as a single commit, with
+the plan's Progress section updated to reflect it. M3 (vendor
+provider migration) and M5 (test migration) landed in their own
+commits as scheduled.
+
+The biggest surprise was GHC's "constructors must give shared fields
+the same type" restriction — even with `DuplicateRecordFields` — which
+forced the per-constructor content fields to be named
+`userContent`/`assistantContent`/`toolResultContent`. The masterplan's
+Integration Points sketch shows a shared `content`, which this plan's
+Decision Log documents as a deliberate divergence.
+
+EP-2 (`docs/plans/8-api-tag-model-record-and-provider-registry.md`)
+picks up from here: replace the `Provider` typeclass with the
+`Api`/`Model`/registry trio, fold `Response` into the assistant
+envelope, and move cost metadata from `Baikai.Cost.Pricing`'s `Map`
+into `Model.cost`.
 
 
 ## Context and Orientation

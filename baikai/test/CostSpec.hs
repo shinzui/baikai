@@ -1,5 +1,8 @@
 module CostSpec (tests) where
 
+import Baikai.Content (AssistantContent (..), TextContent (..))
+import Baikai.Cost (_Cost)
+import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogConfig (..)
   , CallLogEntry
@@ -7,13 +10,15 @@ import Baikai.Cost.Log
   , withCallLog
   )
 import Baikai.Cost.Pricing (attachCost, compute, defaultPricing)
-import Baikai.Message (user)
+import Baikai.Message (Message (..), user)
 import Baikai.Model (Model (..))
 import Baikai.Prelude
 import Baikai.Provider (Provider (..))
 import Baikai.Request (Request, _Request)
-import Baikai.Response (Response, _Response)
+import Baikai.Response (Response (..), _Response, flattenAssistantBlocks)
+import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (Usage, _Usage)
+import Baikai.Usage qualified as Usage
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
@@ -53,18 +58,24 @@ computeTests =
   testGroup
     "compute"
     [ testCase "deterministic cost for claude-haiku-4-5-20251001" $
-        fmap (^. #usd) (compute defaultPricing knownModel sampleUsage)
-          @?= Just (7 / 2000)
-    , testCase "Nothing for unknown models" $
-        compute defaultPricing unknownModel sampleUsage @?= Nothing
+        Cost.usd (compute defaultPricing knownModel sampleUsage)
+          @?= 7 / 2000
+    , testCase "zero cost for unknown models" $
+        compute defaultPricing unknownModel sampleUsage @?= _Cost
     , testCase "cacheReadTokens contribute when present" $ do
         let u :: Usage
             u =
               _Usage
                 & #cacheReadTokens .~ 1000
         -- claude-haiku cached rate: $0.10/M → 1000 * (1/10_000_000) = 1/10_000
-        fmap (^. #usd) (compute defaultPricing knownModel u)
-          @?= Just (1 / 10000)
+        Cost.usd (compute defaultPricing knownModel u) @?= 1 / 10000
+    , testCase "cacheWriteTokens contribute against claude-haiku" $ do
+        let u :: Usage
+            u =
+              _Usage
+                & #cacheWriteTokens .~ 1000
+        -- claude-haiku cache-write rate: $1.25/M → 1000 * (1.25/1_000_000) = 1/800
+        Cost.usd (compute defaultPricing knownModel u) @?= 1 / 800
     ]
 
 attachCostTests :: TestTree
@@ -72,26 +83,35 @@ attachCostTests =
   testGroup
     "attachCost"
     [ testCase "fills the cost field on known models" $
-        fmap (^. #usd) (attachCost defaultPricing (mkResp knownModel) ^. #cost)
-          @?= Just (7 / 2000)
-    , testCase "leaves cost Nothing on unknown models" $
-        (attachCost defaultPricing (mkResp unknownModel) ^. #cost) @?= Nothing
-    , testCase "leaves the response untouched when usage is Nothing" $
-        ( attachCost
-            defaultPricing
-            (_Response & #model .~ knownModel)
-            ^. #cost
-        )
-          @?= Nothing
+        attachedUsd knownModel @?= 7 / 2000
+    , testCase "leaves cost zero on unknown models" $
+        attachedUsd unknownModel @?= 0
+    , testCase "leaves the response's empty content alone" $ do
+        let resp = attachCost defaultPricing (mkResp knownModel)
+        flattenAssistantBlocks resp
+          @?= V.singleton (AssistantText (TextContent "hi"))
     ]
   where
+    attachedUsd m =
+      let resp = attachCost defaultPricing (mkResp m)
+          AssistantMessage {usage = u} = message resp
+       in Cost.usd (Usage.cost u)
     mkResp m =
       _Response
-        & #content .~ "hi"
-        & #model .~ m
-        & #usage .~ Just sampleUsage
-        & #provider .~ "claude-api"
-        & #latencyMs .~ 100
+        { message =
+            AssistantMessage
+              { assistantContent = V.singleton (AssistantText (TextContent "hi"))
+              , usage = sampleUsage
+              , stopReason = Stop
+              , errorMessage = Nothing
+              , timestamp = read "2026-05-14 00:00:00 UTC"
+              }
+        , model = m
+        , api = "test"
+        , provider = "claude-api"
+        , responseId = Nothing
+        , latencyMs = 100
+        }
 
 -- A trivial in-memory provider for the call-log test.
 data CannedProvider = CannedProvider {cannedResp :: !Response}
@@ -102,13 +122,22 @@ instance Provider CannedProvider where
 
 cannedHaiku :: Response
 cannedHaiku =
-  _Response
-    & #content .~ "ok"
-    & #model .~ knownModel
-    & #usage .~ Just sampleUsage
-    & #cost .~ compute defaultPricing knownModel sampleUsage
-    & #provider .~ "canned"
-    & #latencyMs .~ 7
+  let u = sampleUsage & #cost .~ compute defaultPricing knownModel sampleUsage
+   in _Response
+        { message =
+            AssistantMessage
+              { assistantContent = V.singleton (AssistantText (TextContent "ok"))
+              , usage = u
+              , stopReason = Stop
+              , errorMessage = Nothing
+              , timestamp = read "2026-05-14 00:00:00 UTC"
+              }
+        , model = knownModel
+        , api = "test"
+        , provider = "canned"
+        , responseId = Nothing
+        , latencyMs = 7
+        }
 
 reqHello :: Request
 reqHello =
@@ -125,7 +154,8 @@ callLogTests =
             pr = CannedProvider {cannedResp = cannedHaiku}
         withCallLog cfg $ \h -> do
           resp <- runRequestWithLog h pr reqHello
-          resp ^. #content @?= "ok"
+          flattenAssistantBlocks resp
+            @?= V.singleton (AssistantText (TextContent "ok"))
     , testCase "enabled handle writes one JSONL record per call" $ do
         tmp <- getTemporaryDirectory
         let path' = tmp </> "baikai-cost-test.jsonl"

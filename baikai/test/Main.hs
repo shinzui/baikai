@@ -14,14 +14,14 @@ instance Provider TestProvider where
   providerName _ = "test"
   runRequest TestProvider {cannedContent} _ =
     pure
-      Response
-        { content = cannedContent
-        , model = Model "test"
-        , usage = Nothing
-        , cost = Nothing
-        , provider = "test"
-        , latencyMs = 0
-        }
+      ( _Response
+          { message =
+              assistant cannedContent
+          , model = Model "test"
+          , api = "test"
+          , provider = "test"
+          }
+      )
 
 main :: IO ()
 main =
@@ -50,11 +50,24 @@ tests =
                 & #messages .~ V.fromList [user "ping"]
             tp = TestProvider {cannedContent = "hello from the test provider"}
         resp <- runRequest tp req :: IO Response
-        resp ^. #content @?= "hello from the test provider"
+        flattenAssistantBlocks resp
+          @?= V.singleton (AssistantText (TextContent "hello from the test provider"))
         unModel (resp ^. #model) @?= "test"
         resp ^. #provider @?= "test"
     , testCase "SomeProvider wraps and dispatches" $ do
         let tp = TestProvider {cannedContent = "hello from the test provider"}
         resp <- runSome (SomeProvider tp) _Request :: IO Response
-        resp ^. #content @?= "hello from the test provider"
+        flattenAssistantBlocks resp
+          @?= V.singleton (AssistantText (TextContent "hello from the test provider"))
+    , testCase "user smart constructor produces a UserMessage" $ do
+        case user "hello" of
+          UserMessage {userContent = uc} ->
+            uc @?= V.singleton (UserText (TextContent "hello"))
+          _ -> error "expected UserMessage"
+    , testCase "assistant smart constructor produces an AssistantMessage" $ do
+        case assistant "world" of
+          AssistantMessage {assistantContent = ac, stopReason = sr} -> do
+            ac @?= V.singleton (AssistantText (TextContent "world"))
+            sr @?= Stop
+          _ -> error "expected AssistantMessage"
     ]

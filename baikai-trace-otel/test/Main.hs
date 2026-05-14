@@ -2,18 +2,21 @@
 
 module Main (main) where
 
+import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (user)
+import Baikai.Message (Message (..), user)
 import Baikai.Model (Model (..))
 import Baikai.Provider (Provider (..))
-import Baikai.Request (Request (..))
-import Baikai.Response (Response (..))
+import Baikai.Request (Request (..), _Request)
+import Baikai.Response (Response (..), _Response)
+import Baikai.StopReason (StopReason (..))
 import Baikai.Trace (withTrace)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
+import Baikai.Usage (_Usage)
 import Control.Exception (throwIO, try)
 import Control.Monad.IO.Class (liftIO)
-import Data.IORef (IORef, readIORef)
 import Data.HashMap.Strict qualified as HashMap
+import Data.IORef (IORef, readIORef)
 import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
@@ -31,7 +34,7 @@ main =
       ]
 
 -- | Stub provider that either returns a canned 'Response' or throws a
--- 'BaikaiError'. Same shape as the stub used in the EP-5 TraceSpec tests.
+-- 'BaikaiError'. Same shape as the stub used in baikai's TraceSpec tests.
 data Stub
   = StubOk Response
   | StubFail BaikaiError
@@ -43,18 +46,25 @@ instance Provider Stub where
 
 stubResponse :: Response
 stubResponse =
-  Response
-    { content = "hi"
+  _Response
+    { message =
+        AssistantMessage
+          { assistantContent = V.singleton (AssistantText (TextContent "hi"))
+          , usage = _Usage
+          , stopReason = Stop
+          , errorMessage = Nothing
+          , timestamp = read "2026-05-14 00:00:00 UTC"
+          }
     , model = Model "stub-1"
-    , usage = Nothing
-    , cost = Nothing
+    , api = "stub"
     , provider = "stub.otel"
+    , responseId = Nothing
     , latencyMs = 0
     }
 
 stubRequest :: Request
 stubRequest =
-  Request
+  _Request
     { model = Model "stub-1"
     , messages = V.fromList [user "hello"]
     , maxTokens = 16
