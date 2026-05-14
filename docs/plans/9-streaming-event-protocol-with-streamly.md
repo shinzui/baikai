@@ -96,12 +96,13 @@ main = do
       tool-call delta — OpenAI omits those on continuation chunks
       and the typed parse fails. We parse each chunk manually with
       partial-field tolerance instead. Completed 2026-05-14.
-- [ ] Milestone 4: wrap CLI providers in one-shot synthetic streams.
-      `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` register
-      streaming handlers that produce four events:
-      `EventStart`, `TextStart 0`, `TextDelta 0 wholeBody`, `TextEnd 0`,
-      `EventDone`. The existing batch execution path runs to completion before
-      the first event is emitted; the stream is just a wrapper.
+- [x] Milestone 4: CLI providers expose a synthetic one-shot stream via
+      `liftCompleteToStream complete` (landed in M1). `complete` stays on the
+      direct batch path so 'Response.latencyMs' / 'Response.responseId' are
+      preserved — see this plan's Decision Log for the divergence from the
+      "complete = streamingComplete . stream" default. Module docs on
+      `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` explain
+      the wiring. Completed 2026-05-14.
 - [ ] Milestone 5: rebuild `Baikai.Trace.withTrace` around the event stream.
       The new shape is:
       `withTrace :: TraceSink -> Model -> Context -> Options
@@ -211,6 +212,39 @@ main = do
   shape would force every consumer to write a default match. EP-4 adds
   no new constructors (only refines `ToolCallDelta` semantics); EP-5 adds
   none either. EP-6 does not touch the algebra.
+  Date: 2026-05-14
+
+- Decision: CLI providers register `complete` as the direct batch
+  path (`runClaudeCli` / `runCodexCli`), not as
+  `streamingComplete stream`.
+  Rationale: The plan's default derivation
+  (`complete = streamingComplete . stream`) sends a synchronous call
+  through the synthetic stream and back through 'reassembleResponse',
+  which loses 'Response.responseId' (the reassembler has no way to
+  propagate it) and recomputes 'Response.latencyMs' from event
+  timestamps rather than the actual measured subprocess duration.
+  For CLI providers the round trip buys nothing — the subprocess is
+  inherently batch — and costs both fields. The deviation keeps the
+  direct synchronous path on `complete` and the synthetic stream on
+  `stream`. API providers (Claude, OpenAI) accept the responseId
+  regression because their producers do not yet have a way to thread
+  it through the reassembler; a future plan may add a producer-owned
+  drain that preserves it.
+  Date: 2026-05-14
+
+- Decision: 'reassembleResponse' recovers 'Response.latencyMs' by
+  reading the EventStart message's timestamp and the EventDone /
+  EventError message's timestamp, computing the difference.
+  Rationale: Without this, every call routed through
+  'streamingComplete' (i.e. every API provider call) regressed
+  'latencyMs' to zero — a real loss for the call log and any
+  observer reading 'Response.latencyMs'. The trace bridge is
+  unaffected (it measures latency itself), but the cost-log entry
+  produced by 'runRequestWithLog' depends on the response's
+  'latencyMs'. The fix lives in 'Baikai.Stream.finalizeState'.
+  'liftCompleteToStream' captures the pre-call time and stamps it
+  onto the synthesised 'EventStart' so the CLI-path synthetic
+  streams compute the right latency too.
   Date: 2026-05-14
 
 - Decision: The OpenAI Chat Completions stream's `<thinking>...</thinking>`

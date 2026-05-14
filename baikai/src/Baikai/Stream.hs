@@ -50,6 +50,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Time (UTCTime, getCurrentTime)
+import Data.Time.Clock qualified
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Streamly.Data.Fold (Fold)
@@ -92,6 +93,8 @@ data ReassemblyState = ReassemblyState
   { rsModel :: !Model
   , rsSkeleton :: !(Maybe Message)
     -- ^ 'Just' once 'EventStart' has been observed.
+  , rsStartTime :: !(Maybe UTCTime)
+    -- ^ Captured from the EventStart message's timestamp.
   , rsBlocks :: !(IntMap AssistantContent)
     -- ^ Content blocks closed so far, keyed by @contentIndex@.
   , rsTextBuf :: !(IntMap Text)
@@ -108,6 +111,7 @@ initialState m =
   ReassemblyState
     { rsModel = m
     , rsSkeleton = Nothing
+    , rsStartTime = Nothing
     , rsBlocks = IntMap.empty
     , rsTextBuf = IntMap.empty
     , rsThinkBuf = IntMap.empty
@@ -118,7 +122,10 @@ initialState m =
 step :: ReassemblyState -> AssistantMessageEvent -> ReassemblyState
 step s = \case
   EventStart {partial = sk} ->
-    s {rsSkeleton = Just sk}
+    let t = case sk of
+          AssistantMessage {Msg.timestamp = ts} -> Just ts
+          _ -> Nothing
+     in s {rsSkeleton = Just sk, rsStartTime = t}
   TextStart {contentIndex = i} ->
     s {rsTextBuf = IntMap.insert i Text.empty (rsTextBuf s)}
   TextDelta {contentIndex = i, delta = d} ->
@@ -169,6 +176,13 @@ finalizeState s = do
         Just (r, msg) -> (msg, r)
         Nothing -> (synthesizeTerminal now assembled, Stop)
       message' = overrideBlocksAndReason terminalReason terminalMsg assembled
+      endTs = case message' of
+        AssistantMessage {Msg.timestamp = ts} -> ts
+        _ -> now
+      latency = case rsStartTime s of
+        Just startTs ->
+          round (realToFrac (Data.Time.Clock.diffUTCTime endTs startTs) * (1000 :: Double))
+        Nothing -> 0
   pure
     Response
       { Resp.message = message'
@@ -176,7 +190,7 @@ finalizeState s = do
       , Resp.api = m ^. #api
       , Resp.provider = m ^. #provider
       , Resp.responseId = Nothing
-      , Resp.latencyMs = 0
+      , Resp.latencyMs = latency
       }
 
 -- | Project the closed content blocks in 'contentIndex' order, plus
@@ -251,9 +265,10 @@ liftCompleteToStream
   -> Stream IO AssistantMessageEvent
 liftCompleteToStream f m ctx opts =
   Stream.concatEffect $ do
+    startTs <- getCurrentTime
     er <- tryAny (f m ctx opts)
     case er of
-      Right resp -> pure (Stream.fromList (eventsFor resp))
+      Right resp -> pure (Stream.fromList (eventsFor startTs resp))
       Left e -> pure (Stream.fromEffect (errorEvent e))
 
 -- | A typed 'try' over any synchronous exception.
@@ -261,17 +276,20 @@ tryAny :: IO a -> IO (Either Control.Exception.SomeException a)
 tryAny = Control.Exception.try
 
 -- | Build the synthetic event list for a fully resolved 'Response'.
-eventsFor :: Response -> [AssistantMessageEvent]
-eventsFor resp =
+-- The 'EventStart' carries the supplied @startTs@ on its message
+-- skeleton so 'reassembleResponse' can recover 'latencyMs' from the
+-- start/end timestamps.
+eventsFor :: UTCTime -> Response -> [AssistantMessageEvent]
+eventsFor startTs resp =
   let msg = Resp.message resp
       skeleton = case msg of
-        AssistantMessage {Msg.usage = u, Msg.stopReason = sr, Msg.errorMessage = em, Msg.timestamp = ts} ->
+        AssistantMessage {Msg.usage = u, Msg.stopReason = sr, Msg.errorMessage = em} ->
           AssistantMessage
             { Msg.assistantContent = Vector.empty
             , Msg.usage = u
             , Msg.stopReason = sr
             , Msg.errorMessage = em
-            , Msg.timestamp = ts
+            , Msg.timestamp = startTs
             }
         other -> other
       blocks = case msg of

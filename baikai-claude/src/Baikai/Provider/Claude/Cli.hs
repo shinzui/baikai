@@ -79,6 +79,19 @@ register :: IO ()
 register = registerWith defaultClaudeCliConfig
 
 -- | Install the CLI handler with a caller-supplied config.
+--
+-- The CLI binary runs in batch mode; there is no intra-response
+-- streaming on the wire. The 'stream' field therefore wraps the
+-- batch 'runClaudeCli' through 'liftCompleteToStream', producing a
+-- synthetic one-shot event stream
+-- (@EventStart, TextStart 0, TextDelta 0 body, TextEnd 0, EventDone@)
+-- the moment the subprocess returns. 'complete' is left as the
+-- direct batch path so it preserves 'Response.responseId' and the
+-- measured 'Response.latencyMs' (going through a
+-- 'streamingComplete' round trip would lose the former and recompute
+-- the latter from synthetic events). EP-3's Decision Log explains
+-- the deviation from the plan's "complete = streamingComplete .
+-- stream" default.
 registerWith :: ClaudeCliConfig -> IO ()
 registerWith cfg =
   registerApiProvider

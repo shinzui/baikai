@@ -65,6 +65,15 @@ register :: IO ()
 register = registerWith defaultCodexCliConfig
 
 -- | Install the Codex CLI handler with a caller-supplied config.
+--
+-- The Codex binary runs in batch mode. 'stream' wraps the batch
+-- output in a synthetic one-shot event stream
+-- (@EventStart, TextStart 0, TextDelta 0 body, TextEnd 0, EventDone@)
+-- emitted after the subprocess exits. 'complete' stays on the
+-- direct batch path so it preserves 'Response.latencyMs' rather than
+-- recomputing it from synthetic event timestamps. EP-3's Decision
+-- Log records the deviation from "complete = streamingComplete .
+-- stream".
 registerWith :: CodexCliConfig -> IO ()
 registerWith cfg =
   registerApiProvider
