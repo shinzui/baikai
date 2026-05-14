@@ -15,11 +15,11 @@ module Baikai.Provider.Claude.Cli
   ) where
 
 import Baikai.Error (BaikaiError (..))
-import qualified Baikai.Model as Model
+import Baikai.Model qualified as Model
 import Baikai.Provider (Provider (..))
-import qualified Baikai.Provider.Cli.Internal as Internal
-import qualified Baikai.Request as Req
-import qualified Baikai.Response as Resp
+import Baikai.Provider.Cli.Internal qualified as Internal
+import Baikai.Request qualified as Req
+import Baikai.Response qualified as Resp
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -34,17 +34,17 @@ import Cradle
   , setWorkingDir
   )
 import Data.Aeson (FromJSON, Value (..), eitherDecodeStrict)
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither, parseJSON)
 import Data.ByteString (ByteString)
 import Data.Function ((&))
 import Data.Generics.Labels ()
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
+import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 
 -- | Configuration for the @claude -p@ subprocess.

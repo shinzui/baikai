@@ -13,27 +13,27 @@ module Baikai.Provider.Cli.Internal
   , parseCodexJsonlStream
   ) where
 
-import qualified Baikai.Message as Msg
-import qualified Baikai.Request as Req
+import Baikai.Message qualified as Msg
+import Baikai.Request qualified as Req
 import Control.Lens ((^.))
 import Data.Aeson (Value)
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseMaybe, (.:?))
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Function ((&))
 import Data.Generics.Labels ()
 import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
-import qualified Data.Text.Encoding.Error as Text
-import qualified Data.Vector as Vector
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Data.Text.Encoding.Error qualified as Text
+import Data.Vector qualified as Vector
 import Data.Word (Word8)
-import qualified Streamly.Data.Fold as Fold
+import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream (Stream)
-import qualified Streamly.Data.Stream as Stream
-import qualified Streamly.Data.Unfold as Unfold
+import Streamly.Data.Stream qualified as Stream
+import Streamly.Data.Unfold qualified as Unfold
 
 -- | Flatten 'Req.Request.messages' into a single prompt string suitable for a
 -- one-shot CLI invocation.

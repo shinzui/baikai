@@ -2,11 +2,11 @@ module Main (main) where
 
 import Baikai
 import Baikai.Prelude
-import qualified CostSpec
-import qualified Data.Vector as V
+import CostSpec qualified
+import Data.Vector qualified as V
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
-import qualified TraceSpec
+import TraceSpec qualified
 
 data TestProvider = TestProvider {cannedContent :: !Text}
 

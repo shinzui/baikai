@@ -4,7 +4,7 @@ import Baikai.Message (Message)
 import Baikai.Model (Model (..))
 import Data.Text (Text)
 import Data.Vector (Vector)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 

@@ -18,27 +18,27 @@ module Baikai.Provider.OpenAI.Cli
   ) where
 
 import Baikai.Error (BaikaiError (..))
-import qualified Baikai.Model as Model
+import Baikai.Model qualified as Model
 import Baikai.Provider (Provider (..))
-import qualified Baikai.Provider.Cli.Internal as Internal
-import qualified Baikai.Request as Req
-import qualified Baikai.Response as Resp
+import Baikai.Provider.Cli.Internal qualified as Internal
+import Baikai.Request qualified as Req
+import Baikai.Response qualified as Resp
 import Control.Exception (bracket, throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
+import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Streamly.Data.Stream (Stream)
-import qualified Streamly.Data.Stream as Stream
+import Streamly.Data.Stream qualified as Stream
 import System.Exit (ExitCode (..))
 import System.IO (Handle, hClose)
-import qualified System.Process as P
+import System.Process qualified as P
 
 -- | Configuration for the @codex exec --json@ subprocess.
 --

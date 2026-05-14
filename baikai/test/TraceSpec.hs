@@ -12,9 +12,9 @@ import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Exception (throwIO, try)
-import qualified Data.Text as Text
-import qualified Data.Vector as V
-import qualified Streamly.Data.Fold as Fold
+import Data.Text qualified as Text
+import Data.Vector qualified as V
+import Streamly.Data.Fold qualified as Fold
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 

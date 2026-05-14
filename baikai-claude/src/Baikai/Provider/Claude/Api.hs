@@ -13,27 +13,27 @@ module Baikai.Provider.Claude.Api
   , claudeApi
   ) where
 
-import qualified Baikai.Auth as Auth
-import qualified Baikai.Cost.Pricing as Pricing
+import Baikai.Auth qualified as Auth
+import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError (..))
-import qualified Baikai.Message as Msg
-import qualified Baikai.Model as Model
+import Baikai.Message qualified as Msg
+import Baikai.Model qualified as Model
 import Baikai.Provider (Provider (..))
-import qualified Baikai.Request as Req
-import qualified Baikai.Response as Resp
-import qualified Baikai.Usage as Usage
-import qualified Claude.V1 as Claude
-import qualified Claude.V1.Messages as Messages
+import Baikai.Request qualified as Req
+import Baikai.Response qualified as Resp
+import Baikai.Usage qualified as Usage
+import Claude.V1 qualified as Claude
+import Claude.V1.Messages qualified as Messages
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
+import Data.Vector qualified as Vector
 
 -- | A configured Anthropic Messages API provider. 'pricing' defaults to
 -- 'Pricing.defaultPricing'; override per-provider by constructing the record

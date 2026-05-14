@@ -36,20 +36,20 @@ import Control.Exception (bracket)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (FromJSON, ToJSON)
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy as BSL
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Generics.Labels ()
 import Data.Scientific (Scientific)
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time (UTCTime, getCurrentTime)
-import qualified Data.Vector as Vector
+import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
-import qualified Streamly.Data.Fold as Fold
-import qualified Streamly.Data.Stream as Stream
+import Streamly.Data.Fold qualified as Fold
+import Streamly.Data.Stream qualified as Stream
 import System.IO (BufferMode (LineBuffering), IOMode (AppendMode), hSetBuffering, withFile)
 
 -- | Where (and whether) to write the call log.

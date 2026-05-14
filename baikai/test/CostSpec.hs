@@ -14,11 +14,11 @@ import Baikai.Provider (Provider (..))
 import Baikai.Request (Request, _Request)
 import Baikai.Response (Response, _Response)
 import Baikai.Usage (Usage, _Usage)
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy.Char8 as BSL
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
 import Data.Maybe (fromJust, isJust)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)

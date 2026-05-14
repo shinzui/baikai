@@ -25,19 +25,19 @@ module Baikai.Trace.Sink.OpenTelemetry
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Control.Monad (forM_)
-import qualified Data.HashMap.Strict as HashMap
+import Data.HashMap.Strict qualified as HashMap
 import Data.Int (Int64)
-import qualified Data.Map.Strict as Map
-import qualified Data.Scientific as Scientific
+import Data.Map.Strict qualified as Map
+import Data.Scientific qualified as Scientific
 import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
-import qualified OpenTelemetry.Attributes as Attr
+import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Common (Timestamp (..))
-import qualified OpenTelemetry.Context as Context
-import qualified OpenTelemetry.Trace.Core as Otel
-import qualified Streamly.Data.Fold as Fold
-import qualified System.Clock as Clock
+import OpenTelemetry.Context qualified as Context
+import OpenTelemetry.Trace.Core qualified as Otel
+import Streamly.Data.Fold qualified as Fold
+import System.Clock qualified as Clock
 
 -- | Tunable knobs for 'otelSinkWith'.
 data OtelSinkOptions = OtelSinkOptions

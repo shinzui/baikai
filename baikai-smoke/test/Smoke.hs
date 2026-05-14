@@ -8,15 +8,15 @@ import Baikai.Provider.Claude.Api (claudeApi)
 import Baikai.Provider.Claude.Cli (claudeCli, defaultClaudeCliConfig)
 import Baikai.Provider.OpenAI.Api (openaiApi)
 import Baikai.Provider.OpenAI.Cli (codexCli, defaultCodexCliConfig)
-import qualified Baikai.Request as Req
-import qualified Baikai.Response as Resp
+import Baikai.Request qualified as Req
+import Baikai.Response qualified as Resp
 import Control.Lens ((^.))
 import Control.Monad (unless, when)
 import Data.Foldable (find)
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
-import qualified Data.Text as Text
-import qualified Data.Vector as Vector
+import Data.Text qualified as Text
+import Data.Vector qualified as Vector
 import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)

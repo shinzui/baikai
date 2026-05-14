@@ -11,29 +11,29 @@ module Baikai.Provider.OpenAI.Api
   , openaiApi
   ) where
 
-import qualified Baikai.Auth as Auth
-import qualified Baikai.Cost.Pricing as Pricing
+import Baikai.Auth qualified as Auth
+import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError (..))
-import qualified Baikai.Message as Msg
-import qualified Baikai.Model as Model
+import Baikai.Message qualified as Msg
+import Baikai.Model qualified as Model
 import Baikai.Provider (Provider (..))
-import qualified Baikai.Request as Req
-import qualified Baikai.Response as Resp
-import qualified Baikai.Usage as Usage
+import Baikai.Request qualified as Req
+import Baikai.Response qualified as Resp
+import Baikai.Usage qualified as Usage
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Text (Text)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector (Vector)
-import qualified Data.Vector as Vector
-import qualified OpenAI.V1 as OpenAI
-import qualified OpenAI.V1.Chat.Completions as Chat
-import qualified OpenAI.V1.Models as OpenAIModels
-import qualified OpenAI.V1.Usage as OpenAIUsage
+import Data.Vector qualified as Vector
+import OpenAI.V1 qualified as OpenAI
+import OpenAI.V1.Chat.Completions qualified as Chat
+import OpenAI.V1.Models qualified as OpenAIModels
+import OpenAI.V1.Usage qualified as OpenAIUsage
 
 -- | A configured OpenAI Chat Completions provider. 'pricing' defaults to
 -- 'Pricing.defaultPricing'; override per-provider by constructing the record

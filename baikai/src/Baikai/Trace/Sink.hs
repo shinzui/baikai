@@ -17,14 +17,14 @@ module Baikai.Trace.Sink
   ) where
 
 import Baikai.Trace.Event (TraceEvent (..))
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy as BSL
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as BSL
 import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Text.IO as Text.IO
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 import Data.Time (defaultTimeLocale, formatTime)
 import Streamly.Data.Fold (Fold)
-import qualified Streamly.Data.Fold as Fold
+import Streamly.Data.Fold qualified as Fold
 import System.IO (IOMode (AppendMode), withFile)
 
 -- | A trace sink is a streamly fold over 'TraceEvent' values. Folds

@@ -13,11 +13,11 @@ import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 import Control.Exception (throwIO, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef (IORef, readIORef)
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Vector as V
-import qualified OpenTelemetry.Attributes as Attr
+import Data.HashMap.Strict qualified as HashMap
+import Data.Vector qualified as V
+import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
-import qualified OpenTelemetry.Trace.Core as Otel
+import OpenTelemetry.Trace.Core qualified as Otel
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase, (@?=))
 

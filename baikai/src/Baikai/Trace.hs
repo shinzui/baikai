@@ -49,12 +49,12 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, displayException, throwIO, try)
 import Data.Bits (unsafeShiftL, (.&.), (.|.))
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
-import qualified Data.Text as Text
+import Data.Text qualified as Text
 import Data.Time (diffUTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import qualified Data.Vector as V
+import Data.Vector qualified as V
 import Numeric (showHex)
-import qualified Streamly.Data.Stream as Stream
+import Streamly.Data.Stream qualified as Stream
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | Wrap a provider call with structured tracing.

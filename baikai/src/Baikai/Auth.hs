@@ -15,8 +15,8 @@ import Baikai.Error (BaikaiError (..))
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified System.Environment as Environment
+import Data.Text qualified as Text
+import System.Environment qualified as Environment
 
 data ApiKeySource
   = ApiKeyLiteral !Text
