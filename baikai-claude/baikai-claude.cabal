@@ -44,6 +44,7 @@ library
     , base >=4.20 && <5
     , aeson
     , baikai
+    , base64-bytestring
     , bytestring
     , claude
     , containers

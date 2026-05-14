@@ -8,8 +8,8 @@
 -- Stdout is consumed as a streamly byte stream, split on newlines, decoded as
 -- JSON, and folded to the concatenation of all @agent_message@ payloads. The
 -- subprocess handle is guarded by 'bracket' so it is reaped on any exception.
--- The provider always returns 'Baikai.Response.Response' with
--- @usage = Nothing@ and @cost = Nothing@.
+-- The provider always returns 'Baikai.Response.Response' whose embedded
+-- assistant message carries zero token counts (and therefore zero cost).
 module Baikai.Provider.OpenAI.Cli
   ( CodexCli
   , CodexCliConfig (..)
@@ -17,12 +17,16 @@ module Baikai.Provider.OpenAI.Cli
   , codexCli
   ) where
 
+import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError (..))
+import Baikai.Message (Message (..))
 import Baikai.Model qualified as Model
 import Baikai.Provider (Provider (..))
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Request qualified as Req
 import Baikai.Response qualified as Resp
+import Baikai.StopReason (StopReason (..))
+import Baikai.Usage (_Usage)
 import Control.Exception (bracket, throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -144,11 +148,19 @@ consume start req (_, mOut, mErr, ph) = do
     ExitSuccess ->
       pure
         Resp.Response
-          { Resp.content = Text.strip body
+          { Resp.message =
+              AssistantMessage
+                { assistantContent =
+                    Vector.singleton (AssistantText (TextContent (Text.strip body)))
+                , usage = _Usage
+                , stopReason = Stop
+                , errorMessage = Nothing
+                , timestamp = end
+                }
           , Resp.model = req ^. #model
-          , Resp.usage = Nothing
-          , Resp.cost = Nothing
+          , Resp.api = "openai.codex.cli"
           , Resp.provider = "openai.codex.cli"
+          , Resp.responseId = Nothing
           , Resp.latencyMs = millisBetween start end
           }
 

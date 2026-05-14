@@ -59,10 +59,10 @@ EP-1's new types and replaces the `Provider` typeclass with a registry.
       Baikai.Provider.Cli.Internal were migrated to the new shape as part of
       this milestone to keep the library compiling; the larger M4 work (cost
       reporting redesign) is therefore folded into this milestone. (2026-05-14)
-- [ ] Milestone 3: migrate `Baikai.Provider.Claude.Api` and
+- [x] Milestone 3: migrate `Baikai.Provider.Claude.Api` and
       `Baikai.Provider.OpenAI.Api` (both in their respective vendor packages) to
       produce the new shapes. CLI providers wrap their text output in a
-      single `AssistantText` block.
+      single `AssistantText` block. (2026-05-14)
 - [x] Milestone 4: migrate `Baikai.Cost`, `Baikai.Cost.Pricing`, `Baikai.Cost.Log`,
       and `Baikai.Trace` to consume the new `Usage` and `Response` shapes. The
       trace bridge in `Baikai.Trace.withTrace` continues to emit `CallStarted` /

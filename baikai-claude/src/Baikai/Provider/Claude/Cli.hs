@@ -4,9 +4,11 @@
 -- (or just 'defaultClaudeCliConfig'), then call 'Baikai.Provider.runRequest'
 -- like any other provider. The provider name is @"anthropic.claude.cli"@.
 --
--- The provider always returns 'Baikai.Response.Response' with
--- @usage = Nothing@ and @cost = Nothing@: the @claude@ CLI runs under a flat
--- subscription, so per-token billing does not apply.
+-- The provider always returns 'Baikai.Response.Response' whose embedded
+-- assistant message carries zero token counts (and therefore zero cost):
+-- the @claude@ CLI runs under a flat subscription, so per-token billing
+-- does not apply. CLI providers do not participate in tool calling — the
+-- masterplan's Decision Log records the reasoning.
 module Baikai.Provider.Claude.Cli
   ( ClaudeCli
   , ClaudeCliConfig (..)
@@ -14,12 +16,16 @@ module Baikai.Provider.Claude.Cli
   , claudeCli
   ) where
 
+import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError (..))
+import Baikai.Message (Message (..))
 import Baikai.Model qualified as Model
 import Baikai.Provider (Provider (..))
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Request qualified as Req
 import Baikai.Response qualified as Resp
+import Baikai.StopReason (StopReason (..))
+import Baikai.Usage (_Usage)
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -158,11 +164,18 @@ instance Provider ClaudeCli where
 mkResponse :: Req.Request -> UTCTime -> UTCTime -> Text -> Resp.Response
 mkResponse req start end body =
   Resp.Response
-    { Resp.content = body
+    { Resp.message =
+        AssistantMessage
+          { assistantContent = Vector.singleton (AssistantText (TextContent body))
+          , usage = _Usage
+          , stopReason = Stop
+          , errorMessage = Nothing
+          , timestamp = end
+          }
     , Resp.model = req ^. #model
-    , Resp.usage = Nothing
-    , Resp.cost = Nothing
+    , Resp.api = "anthropic.claude.cli"
     , Resp.provider = "anthropic.claude.cli"
+    , Resp.responseId = Nothing
     , Resp.latencyMs = millisBetween start end
     }
 
