@@ -550,7 +550,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-3: Rebuild `Baikai.Trace.withTrace` around the event stream
 - [x] EP-3: Add streaming smoke coverage in `baikai-smoke`
 - [x] EP-4: Introduce `Baikai.Tool`; extend `Context.tools`, `Options.toolChoice`
-- [ ] EP-4: Anthropic tool encoding/decoding wired in
+- [x] EP-4: Anthropic tool encoding/decoding wired in
 - [ ] EP-4: OpenAI tool encoding/decoding wired in
 - [ ] EP-4: Tool round-trip smoke test passes on both providers
 - [ ] EP-5: Introduce compat records + auto-detection from `baseUrl`

@@ -36,9 +36,11 @@ import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
 import Claude.V1 qualified as Claude
 import Claude.V1.Messages qualified as Messages
+import Claude.V1.Tool qualified as ClaudeTool
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, try)
@@ -47,6 +49,7 @@ import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as BSL
+import Data.Char (isAlphaNum, isAscii)
 import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
@@ -493,6 +496,22 @@ mapRequest :: Model -> Context -> Options -> Either Text Messages.CreateMessage
 mapRequest m ctx opts = do
   msgs <- traverse mapMessage (Vector.toList (ctx ^. #messages))
   let mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
+      -- `ToolChoiceNone` is not a first-class Anthropic value; the
+      -- standard way to disable tool use on a per-call basis is to
+      -- omit the @tools@ field entirely. Suppress both fields when
+      -- the caller asked for `None`.
+      suppressTools = case opts ^. #toolChoice of
+        Just Tool.ToolChoiceNone -> True
+        _ -> False
+      toolsVec = if suppressTools then Vector.empty else ctx ^. #tools
+      toolsField =
+        if Vector.null toolsVec
+          then Nothing
+          else Just (Vector.map mkAnthropicTool toolsVec)
+      toolChoiceField = case opts ^. #toolChoice of
+        Just Tool.ToolChoiceNone -> Nothing
+        Just tc -> Just (mkAnthropicToolChoice tc)
+        Nothing -> Nothing
   pure
     Messages._CreateMessage
       { Messages.model = m ^. #modelId
@@ -500,7 +519,50 @@ mapRequest m ctx opts = do
       , Messages.max_tokens = mt
       , Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt)
       , Messages.temperature = opts ^. #temperature
+      , Messages.tools = toolsField
+      , Messages.tool_choice = toolChoiceField
       }
+
+-- | Map a baikai 'Tool.Tool' into the upstream Anthropic
+-- 'ClaudeTool.ToolDefinition'. The JSON Schema is passed through
+-- verbatim; 'ClaudeTool.functionTool' extracts @properties@ and
+-- @required@ off the top-level schema if present.
+mkAnthropicTool :: Tool.Tool -> ClaudeTool.ToolDefinition
+mkAnthropicTool t =
+  ClaudeTool.inlineTool
+    ( ClaudeTool.functionTool
+        (Tool.name t)
+        (Just (Tool.description t))
+        (Tool.parameters t)
+    )
+
+-- | Map a baikai 'Tool.ToolChoice' into the upstream Anthropic
+-- 'ClaudeTool.ToolChoice'. 'Tool.ToolChoiceNone' is handled at the
+-- call site by suppressing the @tools@ field — it never reaches
+-- this function. 'Tool.ToolChoiceRequired' maps to Anthropic's
+-- @any@ which is the closest equivalent ("must call some tool").
+mkAnthropicToolChoice :: Tool.ToolChoice -> ClaudeTool.ToolChoice
+mkAnthropicToolChoice = \case
+  Tool.ToolChoiceAuto -> ClaudeTool.ToolChoice_Auto
+  Tool.ToolChoiceRequired -> ClaudeTool.ToolChoice_Any
+  Tool.ToolChoiceSpecific n -> ClaudeTool.ToolChoice_Tool {ClaudeTool.name = n}
+  -- Unreachable: ToolChoiceNone is suppressed in 'mapRequest'.
+  Tool.ToolChoiceNone -> ClaudeTool.ToolChoice_Auto
+
+-- | Anthropic enforces @[a-zA-Z0-9_-]+@ on tool-call ids and caps
+-- their length at 64 characters. Callers may have used any
+-- naming convention, so the provider boundary normalizes here
+-- whenever an id is round-tripped back to Anthropic — both on
+-- assistant turn replay ('Content_Tool_Use') and on tool-result
+-- messages ('Content_Tool_Result').
+normalizeToolCallId :: Text -> Text
+normalizeToolCallId =
+  Text.take 64 . Text.map sanitise
+  where
+    sanitise c
+      | isAscii c && isAlphaNum c = c
+      | c == '_' || c == '-' = c
+      | otherwise = '_'
 
 mapMessage :: Msg.Message -> Either Text Messages.Message
 mapMessage = \case
@@ -529,7 +591,7 @@ mapMessage = \case
           , Messages.content =
               Vector.singleton
                 Messages.Content_Tool_Result
-                  { Messages.tool_use_id = tid
+                  { Messages.tool_use_id = normalizeToolCallId tid
                   , Messages.content = nonEmpty (concatToolResultText trc)
                   , Messages.is_error = Just err
                   }
@@ -565,7 +627,7 @@ assistantContentToBlock = \case
   Content.AssistantToolCall tc ->
     Just
       Messages.Content_Tool_Use
-        { Messages.id = Content.id_ tc
+        { Messages.id = normalizeToolCallId (Content.id_ tc)
         , Messages.name = Content.name tc
         , Messages.input = Content.arguments tc
         , Messages.caller = Nothing

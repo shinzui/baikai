@@ -82,13 +82,28 @@ main = do
       `Baikai.Options`. `appendToolResult` lives in `Baikai.Context` (not
       `Baikai.Tool`) to break the cycle — see Decision Log. `cabal test
       baikai baikai-trace-otel` is green (20/20).
-- [ ] Milestone 2: implement tool encoding/decoding in
+- [x] Milestone 2: implement tool encoding/decoding in
       `Baikai.Provider.Claude.Api`. Map `Context.tools` into Anthropic
       `ToolDefinition`s; decode `Content_Block_Start { content_block =
       ToolUse }` into `AssistantToolCall` and `Content_Block_Delta {
       Delta_Input_Json_Delta }` into `ToolCallDelta`. Decode
-      `ToolResultMessage` entries into Anthropic `ContentBlock_ToolResult`
+      `ToolResultMessage` entries into Anthropic `Content_Tool_Result`
       blocks on the request side.
+      Landed 2026-05-14: `mapRequest` now populates `Messages.tools`
+      and `Messages.tool_choice`; `mkAnthropicTool` /
+      `mkAnthropicToolChoice` translate baikai's `Tool`/`ToolChoice`
+      into upstream `ClaudeTool.ToolDefinition` /
+      `ClaudeTool.ToolChoice`. `ToolChoiceNone` is implemented by
+      suppressing both `tools` and `tool_choice` since Anthropic has
+      no native @"none"@ value. `normalizeToolCallId` (ASCII
+      alphanumeric / `_` / `-`, 64-char cap) is applied to every
+      tool-call id round-tripped back to Anthropic — both in
+      `Content_Tool_Use` (assistant turn replay) and
+      `Content_Tool_Result` (caller-supplied tool results). The
+      streaming-side decoding from `Content_Block_Start { content_block
+      = ContentBlock_Tool_Use }` and `Delta_Input_Json_Delta` into
+      `ToolCallStart`/`ToolCallDelta`/`ToolCallEnd` was already
+      delivered by EP-3. `cabal build baikai-claude` is green.
 - [ ] Milestone 3: implement tool encoding/decoding in
       `Baikai.Provider.OpenAI.Api`. Map `Context.tools` into OpenAI Chat
       Completions `Tool` definitions; decode `tool_calls` deltas into
