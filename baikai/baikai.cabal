@@ -57,6 +57,7 @@ library
     Baikai.StopReason
     Baikai.Stream
     Baikai.Stream.Event
+    Baikai.Tool
     Baikai.Trace
     Baikai.Trace.Event
     Baikai.Trace.Sink

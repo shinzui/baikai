@@ -14,6 +14,7 @@ module Baikai.Options
   , _Options
   ) where
 
+import Baikai.Tool (ToolChoice)
 import Data.Aeson (ToJSON, Value)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -28,6 +29,7 @@ data Options = Options
   , timeoutMs :: !(Maybe Int)
   , headers :: !(Map Text Text)
   , metadata :: !(Map Text Value)
+  , toolChoice :: !(Maybe ToolChoice)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -41,4 +43,5 @@ _Options =
     , timeoutMs = Nothing
     , headers = Map.empty
     , metadata = Map.empty
+    , toolChoice = Nothing
     }

@@ -245,7 +245,7 @@ Alternatives considered and rejected:
 | EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | Complete    |
 | EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Complete    |
 | EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Complete    |
-| EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Not Started |
+| EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | In Progress |
 | EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Not Started |
 | EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | Not Started |
 
@@ -549,7 +549,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-3: Wrap CLI providers in synthetic one-shot streams (via `liftCompleteToStream`)
 - [x] EP-3: Rebuild `Baikai.Trace.withTrace` around the event stream
 - [x] EP-3: Add streaming smoke coverage in `baikai-smoke`
-- [ ] EP-4: Introduce `Baikai.Tool`; extend `Context.tools`, `Options.toolChoice`
+- [x] EP-4: Introduce `Baikai.Tool`; extend `Context.tools`, `Options.toolChoice`
 - [ ] EP-4: Anthropic tool encoding/decoding wired in
 - [ ] EP-4: OpenAI tool encoding/decoding wired in
 - [ ] EP-4: Tool round-trip smoke test passes on both providers
@@ -633,6 +633,17 @@ interactions between child plans. Provide concise evidence.
   every importer would emit a warning. Renamed to `errorPartial`
   in the actual algebra. EP-4 must use the renamed field when
   documenting tool-error flows.
+- EP-4 M1: The masterplan's Integration Points section sketches a
+  `Baikai.Tool` module that owns both the `Tool` data type and an
+  `appendToolResult` helper. Implementing it that way creates an
+  unavoidable module cycle because `Baikai.Context.Context.tools ::
+  Vector Tool` forces `Baikai.Context` to import `Baikai.Tool`,
+  while the helper itself must return a `Context`. The fix
+  (`Baikai.Tool` is types-only; `appendToolResult` lives in
+  `Baikai.Context`) is now reflected in EP-4's Decision Log. EP-5
+  and EP-6 should keep `Baikai.Tool` types-only when adding cache-
+  control / strict-mode / catalog metadata; helper functions go in
+  the consuming modules.
 
 
 ## Decision Log

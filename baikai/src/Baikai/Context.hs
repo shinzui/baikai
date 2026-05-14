@@ -1,17 +1,28 @@
 -- | The 'Context' record — the part of a request that defines the
--- conversation: the optional system prompt and the message vector.
+-- conversation: the optional system prompt, the message vector, and
+-- the declared tools the model may invoke.
 --
 -- 'Context' replaces the prior 'Baikai.Request.Request' record's
 -- conversation-related fields. The per-call knobs that previously
 -- lived alongside the messages (max tokens, temperature, API key)
--- now live on 'Baikai.Options.Options' instead. EP-4 will extend
--- 'Context' with a @tools@ vector.
+-- now live on 'Baikai.Options.Options' instead.
+--
+-- EP-4 adds the @tools@ field and the 'appendToolResult' helper
+-- that builds the follow-up request after the model invoked one or
+-- more tools. The helper lives here rather than in 'Baikai.Tool' so
+-- that 'Baikai.Tool' can stay imports-light (the 'Tool' type is
+-- referenced by the @tools@ field, so 'Baikai.Tool' cannot itself
+-- depend on 'Context').
 module Baikai.Context
   ( Context (..)
   , _Context
+  , appendToolResult
   ) where
 
-import Baikai.Message (Message)
+import Baikai.Content (AssistantContent (..), ToolCall (..))
+import Baikai.Message (Message (..), toolResult)
+import Baikai.Response (Response (..))
+import Baikai.Tool (Tool)
 import Data.Aeson (ToJSON)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -21,9 +32,50 @@ import GHC.Generics (Generic)
 data Context = Context
   { systemPrompt :: !(Maybe Text)
   , messages :: !(Vector Message)
+  , tools :: !(Vector Tool)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
 _Context :: Context
-_Context = Context {systemPrompt = Nothing, messages = V.empty}
+_Context =
+  Context
+    { systemPrompt = Nothing
+    , messages = V.empty
+    , tools = V.empty
+    }
+
+-- | Execute every 'AssistantToolCall' in @resp@'s message via the
+-- caller-supplied dispatcher, then append the assistant message and
+-- one 'Baikai.Message.ToolResultMessage' per call to @ctx@. The
+-- returned 'Context' is ready to drive the follow-up request that
+-- gives the model the tool results.
+--
+-- The dispatcher receives one 'ToolCall' at a time and must return
+-- the textual result. Any error handling (timeouts, sandboxing,
+-- multi-call concurrency) lives in the dispatcher.
+appendToolResult
+  :: Context
+  -> Response
+  -> (ToolCall -> IO Text)
+  -> IO Context
+appendToolResult ctx resp dispatcher = do
+  let respMsg = message resp
+      toolCalls = case respMsg of
+        AssistantMessage {assistantContent = blocks} ->
+          [tc | AssistantToolCall tc <- V.toList blocks]
+        _ -> []
+  results <-
+    traverse
+      ( \tc -> do
+          body <- dispatcher tc
+          pure (toolResult (id_ tc) (name tc) body False)
+      )
+      toolCalls
+  pure
+    ctx
+      { messages =
+          messages ctx
+            <> V.singleton respMsg
+            <> V.fromList results
+      }

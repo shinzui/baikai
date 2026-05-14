@@ -9,6 +9,7 @@ module Baikai
   , module Baikai.Content
   , module Baikai.StopReason
   , module Baikai.Message
+  , module Baikai.Tool
   , module Baikai.Context
   , module Baikai.Options
   , module Baikai.Response
@@ -37,4 +38,5 @@ import Baikai.Response
 import Baikai.StopReason
 import Baikai.Stream
 import Baikai.Stream.Event
+import Baikai.Tool
 import Baikai.Usage

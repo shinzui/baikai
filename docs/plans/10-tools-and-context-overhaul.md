@@ -73,9 +73,15 @@ main = do
 
 ## Progress
 
-- [ ] Milestone 1: introduce `Baikai.Tool`. Extend `Baikai.Context` with
+- [x] Milestone 1: introduce `Baikai.Tool`. Extend `Baikai.Context` with
       `tools :: Vector Tool`. Extend `Baikai.Options` with `toolChoice :: Maybe
       ToolChoice`. No provider exercises tools yet at the end of this milestone.
+      Landed 2026-05-14: `Tool`, `ToolChoice`, `_Tool` ship in
+      `baikai/src/Baikai/Tool.hs`; `tools :: Vector Tool` added to
+      `Baikai.Context`; `toolChoice :: Maybe ToolChoice` added to
+      `Baikai.Options`. `appendToolResult` lives in `Baikai.Context` (not
+      `Baikai.Tool`) to break the cycle — see Decision Log. `cabal test
+      baikai baikai-trace-otel` is green (20/20).
 - [ ] Milestone 2: implement tool encoding/decoding in
       `Baikai.Provider.Claude.Api`. Map `Context.tools` into Anthropic
       `ToolDefinition`s; decode `Content_Block_Start { content_block =
@@ -95,7 +101,22 @@ main = do
 
 ## Surprises & Discoveries
 
-(None yet.)
+- M1: The plan's sketch of an `appendToolResult` living in
+  `Baikai.Tool` creates an unavoidable module cycle. `Baikai.Context`
+  must import `Baikai.Tool` for the `tools :: Vector Tool` field
+  type, but `appendToolResult :: Context -> Response -> ...` needs
+  `Baikai.Context` and `Baikai.Response`. The fix landed:
+  `Baikai.Tool` exports just `Tool`, `ToolChoice`, `_Tool` (no
+  baikai-internal imports); `appendToolResult` was moved into
+  `Baikai.Context`, where the cycle does not exist. Future plans
+  that add helper combinators around tools should follow the same
+  layering — keep `Baikai.Tool` types-only, hang operations off
+  the consuming modules (`Context` for conversation building,
+  later `Response` for tool-call extraction).
+- M1: GHC's `-Wpartial-fields` is happy with the new `tools` field
+  on `Context` because `Context` is a record-type, not a sum. The
+  same pattern (adding a field) on `Message` would warn since the
+  `tools` field would not exist on every constructor.
 
 
 ## Decision Log
@@ -137,14 +158,40 @@ main = do
   Date: 2026-05-14
 
 - Decision: A helper `appendToolResult :: Context -> Response -> (ToolCall ->
-  IO Text) -> IO Context` lives in `Baikai.Tool` for the common case where
-  every tool call in the previous response produces a single text result.
+  IO Text) -> IO Context` lives in `Baikai.Context` (not `Baikai.Tool` as
+  the plan originally sketched) for the common case where every tool call
+  in the previous response produces a single text result.
   Rationale: Most callers want the obvious helper. Power users build the
   `ToolResultMessage` records by hand. The helper is a thin wrapper that
-  finds every `AssistantToolCall` in `Response.message.content`, calls the
-  caller-supplied dispatcher to produce a result text per call, builds a
-  `ToolResultMessage` per call, appends the assistant message and the
-  tool-result messages to the context, and returns the updated `Context`.
+  finds every `AssistantToolCall` in `Response.message.assistantContent`,
+  calls the caller-supplied dispatcher to produce a result text per call,
+  builds a `ToolResultMessage` per call, appends the assistant message and
+  the tool-result messages to the context, and returns the updated
+  `Context`. The home-module choice (`Baikai.Context` rather than
+  `Baikai.Tool`) avoids a module cycle: `Baikai.Tool` exports `Tool`, which
+  `Baikai.Context.Context.tools` references, so `Baikai.Tool` cannot itself
+  depend on `Baikai.Context`. Keeping the helper next to `Context` is also
+  the most natural layering since the helper's sole job is building a new
+  `Context`. The plan's original suggestion that the helper lives in
+  `Baikai.Tool` is superseded by this entry.
+  Date: 2026-05-14
+
+- Decision: `Baikai.Tool` exports just `Tool`, `ToolChoice`, and `_Tool`
+  — no operations.
+  Rationale: Cycle avoidance (see the previous entry). Future combinator
+  work can either extend `Baikai.Context` (when the operation produces a
+  `Context`) or introduce a new sibling module (`Baikai.Tool.Combinators`
+  or similar) without revising this decision.
+  Date: 2026-05-14
+
+- Decision: The existing `Baikai.Message.toolResult :: Text -> Text ->
+  Text -> Bool -> Message` helper (introduced by EP-1) is reused by
+  `appendToolResult` rather than introducing a new `mkToolResult`.
+  Rationale: The plan's sketched `mkToolResult` is functionally identical
+  to the existing `toolResult` modulo a `UTCTime` parameter. The existing
+  helper samples the clock via `unsafePerformIO getCurrentTime` with a
+  `NOINLINE` pragma, which is what `appendToolResult` would do anyway.
+  No new public surface is added.
   Date: 2026-05-14
 
 
