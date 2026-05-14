@@ -52,18 +52,22 @@ EP-1's new types and replaces the `Provider` typeclass with a registry.
 - [x] Milestone 1: introduce `Baikai.Content`, `Baikai.StopReason`, and the new
       `Usage` record with cache-read/write split and an in-place `Cost`. Build is
       green; legacy modules still import the old types. (2026-05-14)
-- [ ] Milestone 2: replace `Baikai.Message` and `Baikai.Response` with the typed
+- [x] Milestone 2: replace `Baikai.Message` and `Baikai.Response` with the typed
       shapes (`UserMessage` / `AssistantMessage` / `ToolResultMessage` and a
       `Response` wrapping an `AssistantMessage`). Update the public re-exports
-      in `Baikai`.
+      in `Baikai`. Baikai.Trace, Baikai.Cost.Log, Baikai.Cost.Pricing, and
+      Baikai.Provider.Cli.Internal were migrated to the new shape as part of
+      this milestone to keep the library compiling; the larger M4 work (cost
+      reporting redesign) is therefore folded into this milestone. (2026-05-14)
 - [ ] Milestone 3: migrate `Baikai.Provider.Claude.Api` and
       `Baikai.Provider.OpenAI.Api` (both in their respective vendor packages) to
       produce the new shapes. CLI providers wrap their text output in a
       single `AssistantText` block.
-- [ ] Milestone 4: migrate `Baikai.Cost`, `Baikai.Cost.Pricing`, `Baikai.Cost.Log`,
+- [x] Milestone 4: migrate `Baikai.Cost`, `Baikai.Cost.Pricing`, `Baikai.Cost.Log`,
       and `Baikai.Trace` to consume the new `Usage` and `Response` shapes. The
       trace bridge in `Baikai.Trace.withTrace` continues to emit `CallStarted` /
-      `CallFinished` / `CallFailed` events with the same field names.
+      `CallFinished` / `CallFailed` events with the same field names. Landed
+      alongside M2 to keep the baikai library compiling. (2026-05-14)
 - [ ] Milestone 5: migrate every test target — `baikai/test/Main.hs`,
       `baikai/test/CostSpec.hs`, `baikai/test/TraceSpec.hs`,
       `baikai-trace-otel/test/Main.hs`, `baikai-smoke/test/Smoke.hs` — to the
@@ -126,6 +130,49 @@ EP-1's new types and replaces the `Provider` typeclass with a registry.
   baikai's API without waiting for EP-4. EP-4 only adds the encoding/decoding
   logic in the existing providers and the smoke test. The masterplan's
   Decomposition Strategy section spells this out.
+  Date: 2026-05-14
+
+- Decision: Per-constructor content fields on `Message` are named
+  distinctly (`userContent`, `assistantContent`, `toolResultContent`),
+  not all `content`.
+  Rationale: GHC rejects a single data declaration whose constructors
+  give the same field name different types — even with
+  `DuplicateRecordFields`. The sum has three constructors carrying three
+  different content types (`Vector UserContent`, `Vector AssistantContent`,
+  `Vector ToolResultContent`), so a shared `content` field is impossible.
+  Renaming is a small ergonomic cost paid once; the alternative (wrapping
+  each constructor in its own data type) would force every pattern match
+  to bracket through an extra layer. The masterplan's Integration Points
+  sketch shows a shared `content`; this plan diverges from that sketch.
+  Date: 2026-05-14
+
+- Decision: `Baikai.Response.message` is a `Message`, not a typed
+  `AssistantTurn` newtype or pattern synonym. A `flattenAssistantBlocks
+  :: Response -> Vector AssistantContent` accessor pattern-matches and
+  falls back to empty when the message constructor is not
+  `AssistantMessage`; the test for "providers never construct another
+  constructor" is a property of the provider code, not a type-level
+  guarantee.
+  Rationale: Wrapping in a newtype churns every construction site to
+  build through `AssistantTurn (AssistantMessage {..})` without buying
+  anything that downstream code actually uses. A pattern synonym hides
+  the underlying constructor and complicates JSON derivation. The
+  accessor approach matches the existing partial-field idiom already
+  used by `Baikai.Trace.Event` and keeps the type surface flat. EP-2
+  may revisit when collapsing `Response` into a single `AssistantMessage`
+  envelope.
+  Date: 2026-05-14
+
+- Decision: `FromJSON` is dropped from `Usage` and `Message`. Only
+  `ToJSON` is derived. `CallLogEntry` keeps both because it is the only
+  type the test suite round-trips.
+  Rationale: No call site in the workspace deserialises a `Usage` or
+  `Message`. Re-introducing `FromJSON Usage` would force a `FromJSON Cost`
+  that consistently round-trips with the hand-rolled `ToJSON Cost`
+  (which emits `Scientific`, not `Rational`); writing that pair correctly
+  is non-trivial busywork for a milestone whose theme is data-shape
+  changes. A later plan (likely EP-5 or EP-6, when the generated catalog
+  JSON enters the picture) can add the missing instances.
   Date: 2026-05-14
 
 - Decision: Image content is restricted to base64 inline data with an explicit

@@ -13,7 +13,13 @@ module Baikai.Provider.Cli.Internal
   , parseCodexJsonlStream
   ) where
 
-import Baikai.Message qualified as Msg
+import Baikai.Content
+  ( AssistantContent (..)
+  , TextContent (..)
+  , ToolResultContent (..)
+  , UserContent (..)
+  )
+import Baikai.Message (Message (..))
 import Baikai.Request qualified as Req
 import Control.Lens ((^.))
 import Data.Aeson (Value)
@@ -28,6 +34,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
+import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Data.Word (Word8)
 import Streamly.Data.Fold qualified as Fold
@@ -35,23 +42,50 @@ import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import Streamly.Data.Unfold qualified as Unfold
 
--- | Flatten 'Req.Request.messages' into a single prompt string suitable for a
--- one-shot CLI invocation.
+-- | Flatten 'Req.Request.messages' into a single prompt string suitable
+-- for a one-shot CLI invocation.
 --
--- A request with exactly one 'Msg.User' message is returned verbatim. Anything
--- else is joined with @[role]:@ markers so the CLI still sees a coherent
--- transcript. EP-3 documents this as a deliberate simplification: first-class
--- multi-turn support belongs in a later ExecPlan.
+-- A request whose only message is a 'UserMessage' with a single
+-- 'UserText' block is returned verbatim. Anything else is joined with
+-- @[role]:@ markers so the CLI still sees a coherent transcript.
+-- Image content and tool calls are dropped (CLI providers do not
+-- participate in tool use; image bytes cannot be passed verbatim
+-- through a CLI). The masterplan documents CLI providers as text-only
+-- and tool-incapable.
 renderPrompt :: Req.Request -> Text
 renderPrompt req =
   let msgs = Vector.toList (req ^. #messages)
-      tag m = case m ^. #role of
-        Msg.User -> "[user]: " <> m ^. #content
-        Msg.Assistant -> "[assistant]: " <> m ^. #content
-        Msg.System -> "[system]: " <> m ^. #content
    in case msgs of
-        [m] | m ^. #role == Msg.User -> m ^. #content
+        [UserMessage {userContent = uc}]
+          | [UserText (TextContent t)] <- Vector.toList uc ->
+              t
         _ -> Text.intercalate "\n" (fmap tag msgs)
+  where
+    tag :: Message -> Text
+    tag (UserMessage {userContent = uc}) =
+      "[user]: " <> flattenUser uc
+    tag (AssistantMessage {assistantContent = ac}) =
+      "[assistant]: " <> flattenAssistant ac
+    tag (ToolResultMessage {toolName = n, toolResultContent = trc}) =
+      "[tool:" <> n <> "]: " <> flattenToolResult trc
+
+    flattenUser :: Vector UserContent -> Text
+    flattenUser = Text.concat . Vector.toList . Vector.mapMaybe pickU
+      where
+        pickU (UserText (TextContent t)) = Just t
+        pickU _ = Nothing
+
+    flattenAssistant :: Vector AssistantContent -> Text
+    flattenAssistant = Text.concat . Vector.toList . Vector.mapMaybe pickA
+      where
+        pickA (AssistantText (TextContent t)) = Just t
+        pickA _ = Nothing
+
+    flattenToolResult :: Vector ToolResultContent -> Text
+    flattenToolResult = Text.concat . Vector.toList . Vector.mapMaybe pickT
+      where
+        pickT (ToolResultText (TextContent t)) = Just t
+        pickT _ = Nothing
 
 -- | @maybeApply ma f x@ applies @f a x@ when @ma = Just a@, otherwise returns
 -- @x@. Useful for threading optional configuration into a cradle pipeline.

@@ -20,15 +20,18 @@ module Baikai.Cost.Log
   , withCallLog
   , appendEntry
   , runRequestWithLog
+  , summarizeRequest
   ) where
 
+import Baikai.Content (TextContent (..), UserContent (..))
 import Baikai.Cost (usdAsScientific)
-import Baikai.Message (Role (..))
+import Baikai.Message (Message (..))
 import Baikai.Model (Model (..))
 import Baikai.Provider (Provider, runRequest)
 import Baikai.Request (Request)
 import Baikai.Response (Response)
 import Baikai.Usage (Usage)
+import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
@@ -65,6 +68,11 @@ data CallLogConfig = CallLogConfig
   deriving stock (Eq, Show, Generic)
 
 -- | One line of the JSONL call log.
+--
+-- The wire shape is preserved from EP-0: @cachedInputTokens@ keeps its
+-- name so existing log readers continue to parse. EP-1 projects the new
+-- 'Baikai.Usage.cacheReadTokens' (always-present 'Natural') into the
+-- prior 'Maybe Natural' field, mapping zero to 'Nothing'.
 data CallLogEntry = CallLogEntry
   { timestamp :: !UTCTime
   , provider :: !Text
@@ -130,7 +138,9 @@ appendEntry h entry
   | otherwise = liftIO (writeChan (chan h) (Just entry))
 
 -- | Run a request through the provider and, if logging is enabled, enqueue a
--- single JSONL record summarizing the call.
+-- single JSONL record summarizing the call. Reads usage and cost out of
+-- the response's assistant message; CLI providers populate them with
+-- zero, which projects to 'Nothing' in the JSONL.
 runRequestWithLog ::
   (Provider p, MonadIO m) =>
   CallLogHandle ->
@@ -140,27 +150,29 @@ runRequestWithLog ::
 runRequestWithLog h pr req = do
   resp <- runRequest pr req
   now <- liftIO getCurrentTime
-  let u :: Maybe Usage
-      u = resp ^. #usage
+  let u :: Usage
+      u = case (resp ^. #message) of
+        AssistantMessage {usage = uu} -> uu
+        _ -> error "runRequestWithLog: provider returned a non-assistant message"
+      meaningfulCost = (Usage.cost u) ^. #usd > 0
       entry =
         CallLogEntry
           { timestamp = now
           , provider = resp ^. #provider
           , model = unModel (resp ^. #model)
-          , inputTokens = fmap (^. #inputTokens) u
-          , outputTokens = fmap (^. #outputTokens) u
-          , cachedInputTokens = u >>= positive . (^. #cacheReadTokens)
-          , reasoningTokens = u >>= (^. #reasoningTokens)
-          , usd = fmap usdAsScientific (resp ^. #cost)
+          , inputTokens = positive (Usage.inputTokens u)
+          , outputTokens = positive (Usage.outputTokens u)
+          , cachedInputTokens = positive (Usage.cacheReadTokens u)
+          , reasoningTokens = Usage.reasoningTokens u
+          , usd = if meaningfulCost then Just (usdAsScientific (Usage.cost u)) else Nothing
           , latencyMs = resp ^. #latencyMs
-          , promptSummary = Text.take 200 (firstUserMessage req)
+          , promptSummary = summarizeRequest req
           }
   appendEntry h entry
   pure resp
 
--- | Helper: 'Just n' when @n > 0@, otherwise 'Nothing'. Used to keep
--- cache-read counts out of the JSONL when the call did not exercise a
--- prompt cache.
+-- | Helper: 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero
+-- counts out of the JSONL when the call did not exercise that dimension.
 positive :: Natural -> Maybe Natural
 positive 0 = Nothing
 positive n = Just n
@@ -185,11 +197,21 @@ worker p ch d =
     writeEntry fh entry =
       BSL.hPut fh (Aeson.encode entry <> "\n")
 
--- | First user-role message body in the request, or empty when absent.
-firstUserMessage :: Request -> Text
-firstUserMessage req =
+-- | Concatenate the first user message's text blocks, truncated to 200
+-- characters. Returns empty when no user message is present.
+summarizeRequest :: Request -> Text
+summarizeRequest req =
   case find isUser (Vector.toList (req ^. #messages)) of
-    Just m -> m ^. #content
-    Nothing -> Text.empty
+    Just (UserMessage {userContent = cs}) -> Text.take 200 (concatUserText cs)
+    _ -> Text.empty
   where
-    isUser m = m ^. #role == User
+    isUser UserMessage {} = True
+    isUser _ = False
+
+-- | Concatenate the text-block payloads of a 'UserContent' vector.
+-- Image blocks contribute nothing.
+concatUserText :: Vector.Vector UserContent -> Text
+concatUserText = Text.concat . Vector.toList . Vector.mapMaybe pickText
+  where
+    pickText (UserText (TextContent t)) = Just t
+    pickText _ = Nothing

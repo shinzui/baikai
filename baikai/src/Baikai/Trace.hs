@@ -28,13 +28,15 @@ module Baikai.Trace
   , summarizePrompt
   ) where
 
+import Baikai.Content (TextContent (..), UserContent (..))
 import Baikai.Cost (usdAsScientific)
+import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogEntry (..)
   , CallLogHandle
   , appendEntry
   )
-import Baikai.Message (Role (..))
+import Baikai.Message (Message (..))
 import Baikai.Model (Model (..))
 import Baikai.Prelude
 import Baikai.Provider (Provider (..))
@@ -43,6 +45,7 @@ import Baikai.Response (Response)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Usage (Usage)
+import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
@@ -101,8 +104,8 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
       latency = round (1000 * diffUTCTime end start)
   case result of
     Right resp -> do
-      let u :: Maybe Usage
-          u = resp ^. #usage
+      let mu = assistantUsage resp
+          meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
       writeChan chan $
         Just
           CallFinished
@@ -111,9 +114,9 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
             , provider = providerName p
             , model = unModel (resp ^. #model)
             , latencyMs = latency
-            , inputTokens = fmap (^. #inputTokens) u
-            , outputTokens = fmap (^. #outputTokens) u
-            , usd = fmap usdAsScientific (resp ^. #cost)
+            , inputTokens = fmap Usage.inputTokens mu
+            , outputTokens = fmap Usage.outputTokens mu
+            , usd = if meaningfulCost then fmap (usdAsScientific . Usage.cost) mu else Nothing
             }
       writeChan chan Nothing
       takeMVar done
@@ -133,8 +136,8 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
       takeMVar done
       throwIO e
 
--- | Convenience: combine EP-5 tracing with EP-4 call-log persistence in
--- one call. Traces the call, then appends a 'CallLogEntry' to the given
+-- | Convenience: combine tracing with the call-log persistence in one
+-- call. Traces the call, then appends a 'CallLogEntry' to the given
 -- handle. The entry build mirrors 'Baikai.Cost.Log.runRequestWithLog'.
 runRequestWith
   :: (Provider p, MonadUnliftIO m)
@@ -146,27 +149,39 @@ runRequestWith
 runRequestWith sink h p req = do
   resp <- withTrace sink p req
   now <- liftIO getCurrentTime
-  let u :: Maybe Usage
-      u = resp ^. #usage
+  let mu = assistantUsage resp
+      meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
       entry =
         CallLogEntry
           { timestamp = now
           , provider = resp ^. #provider
           , model = unModel (resp ^. #model)
-          , inputTokens = fmap (^. #inputTokens) u
-          , outputTokens = fmap (^. #outputTokens) u
-          , cachedInputTokens = u >>= positiveNat . (^. #cacheReadTokens)
-          , reasoningTokens = u >>= (^. #reasoningTokens)
-          , usd = fmap usdAsScientific (resp ^. #cost)
+          , inputTokens = mu >>= positiveNat . Usage.inputTokens
+          , outputTokens = mu >>= positiveNat . Usage.outputTokens
+          , cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens
+          , reasoningTokens = mu >>= Usage.reasoningTokens
+          , usd = if meaningfulCost then fmap (usdAsScientific . Usage.cost) mu else Nothing
           , latencyMs = resp ^. #latencyMs
           , promptSummary = summarizePrompt req
           }
   appendEntry h entry
   pure resp
 
--- | 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero-valued cache
--- counts out of the trace event when the call did not exercise a prompt
--- cache.
+-- | Project the assistant turn's 'Usage' out of a response. Returns
+-- 'Nothing' when the response carries a non-assistant message (which
+-- providers never produce in practice).
+assistantUsage :: Response -> Maybe Usage
+assistantUsage resp = case resp ^. #message of
+  AssistantMessage {usage = u} -> Just u
+  _ -> Nothing
+
+-- | 'Cost.usd' accessor named to avoid colliding with the
+-- 'TraceEvent.usd' field selector.
+usdRat :: Cost.Cost -> Rational
+usdRat = Cost.usd
+
+-- | 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero-valued
+-- counters out of the trace event when the dimension was not exercised.
 positiveNat :: Natural -> Maybe Natural
 positiveNat 0 = Nothing
 positiveNat n = Just n
@@ -197,11 +212,26 @@ eventBase = unsafePerformIO $ do
   pure (fromIntegral (floor t :: Integer))
 {-# NOINLINE eventBase #-}
 
--- | Extract the first 200 characters of the most recent user message in
--- the request. Returns empty when no user message is present.
+-- | Extract up to 200 characters of the most recent user message's text
+-- content. Returns empty when no 'UserMessage' is present.
 summarizePrompt :: Request -> Text
 summarizePrompt req =
-  let users = V.filter (\m -> m ^. #role == User) (req ^. #messages)
+  let users = V.filter isUser (req ^. #messages)
    in if V.null users
         then Text.empty
-        else Text.take 200 ((V.last users) ^. #content)
+        else case V.last users of
+          UserMessage {userContent = cs} -> Text.take 200 (concatUserText cs)
+          _ -> Text.empty
+  where
+    isUser UserMessage {} = True
+    isUser _ = False
+
+concatUserText :: V.Vector UserContent -> Text
+concatUserText =
+  Text.concat
+    . V.toList
+    . V.mapMaybe
+      ( \case
+          UserText (TextContent t) -> Just t
+          _ -> Nothing
+      )

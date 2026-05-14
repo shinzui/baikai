@@ -16,7 +16,8 @@ module Baikai.Cost.Pricing
   , attachCost
   ) where
 
-import Baikai.Cost (Cost (..), CostBreakdown (..))
+import Baikai.Cost (Cost (..), CostBreakdown (..), _Cost)
+import Baikai.Message (Message (..))
 import Baikai.Model (Model (..))
 import Baikai.Response (Response (..))
 import Baikai.Usage (Usage (..))
@@ -132,13 +133,15 @@ defaultPricing = claudePricing <> openaiPricing
 lookupRate :: Map Text PricingRate -> Model -> Maybe PricingRate
 lookupRate pricing (Model m) = Map.lookup m pricing
 
--- | Compute a 'Cost' from a model and its token 'Usage' against a pricing
--- table. Returns 'Nothing' when the model is not in the table; that is the
--- truthful signal that the library does not know the price.
-compute :: Map Text PricingRate -> Model -> Usage -> Maybe Cost
+-- | Compute a 'Cost' from a model and its token 'Usage' against a
+-- pricing table. Returns '_Cost' (zero across all rates) when the model
+-- is not in the table — that is the truthful signal for providers
+-- without pricing information. EP-1 dropped the prior 'Maybe Cost'
+-- because every caller had to handle the 'Nothing' case redundantly.
+compute :: Map Text PricingRate -> Model -> Usage -> Cost
 compute pricing model usage =
   case lookupRate pricing model of
-    Nothing -> Nothing
+    Nothing -> _Cost
     Just rate ->
       let inUsd =
             toRational (inputTokens usage)
@@ -155,21 +158,33 @@ compute pricing model usage =
             Just r -> toRational (cacheWriteTokens usage) * r / 1_000_000
             Nothing -> 0
           total = inUsd + outUsd + cachedUsd + cacheWriteUsd
-       in Just
-            Cost
-              { usd = total
-              , breakdown =
-                  CostBreakdown
-                    { inputUsd = inUsd
-                    , outputUsd = outUsd
-                    , cachedInputUsd = cachedUsd
-                    , cachedWriteUsd = cacheWriteUsd
-                    }
-              }
+       in Cost
+            { usd = total
+            , breakdown =
+                CostBreakdown
+                  { inputUsd = inUsd
+                  , outputUsd = outUsd
+                  , cachedInputUsd = cachedUsd
+                  , cachedWriteUsd = cacheWriteUsd
+                  }
+            }
 
--- | Fill a 'Response's 'cost' field from the pricing table when 'usage' is
--- present and the model is known. Leaves the response untouched otherwise.
+-- | Replace the assistant message's embedded 'Cost' with one computed
+-- from the pricing table. Leaves the response untouched when the
+-- response's 'message' is not an 'AssistantMessage' — providers always
+-- construct it that way, so the fallthrough is purely defensive.
 attachCost :: Map Text PricingRate -> Response -> Response
-attachCost pricing resp = case usage resp of
-  Nothing -> resp
-  Just u -> resp {cost = compute pricing (model resp) u}
+attachCost pricing resp = case message resp of
+  AssistantMessage {usage = u, assistantContent = c, stopReason = sr, errorMessage = em, timestamp = ts} ->
+    let computed = compute pricing (model resp) u
+        u' = u {cost = computed}
+        msg' =
+          AssistantMessage
+            { assistantContent = c
+            , usage = u'
+            , stopReason = sr
+            , errorMessage = em
+            , timestamp = ts
+            }
+     in resp {message = msg'}
+  _ -> resp
