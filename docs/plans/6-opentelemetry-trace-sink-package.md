@@ -46,12 +46,12 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 - [x] 2026-05-13 Write the `baikai-trace-otel/baikai-trace-otel.cabal` file with library + test-suite stanzas (matched the existing `baikai` cabal style: `cabal-version: 3.4`, `common common-options`, GHC2024). Dropped the `^>=` bounds the plan suggested for `hs-opentelemetry-*` because the on-disk vendored sources are `0.3.x` / `0.1.x` / `0.0.x` — Hackage versions match.
 - [x] 2026-05-13 Update `cabal.project` to add `baikai-trace-otel` to the `packages:` list. Also vendored the three local OTel sources (api, sdk, exporters/in-memory) the same way EP-3 vendored `cradle`/`streamly`, and added `tests: False` stanzas so their upstream test-suites do not break `cabal test all`.
 - [x] 2026-05-13 Create `baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs` with the module header and imports.
-- [ ] Implement `OtelSinkOptions` and `defaultOtelSinkOptions`.
-- [ ] Implement `otelSink :: Tracer -> TraceSink` as a thin wrapper over `otelSinkWith`.
-- [ ] Implement `otelSinkWith :: Tracer -> OtelSinkOptions -> TraceSink` as a stateful `Fold` keyed by `eventId`.
-- [ ] Implement the attribute-construction helpers for `CallStarted`, `CallFinished`, `CallFailed`.
-- [ ] Implement the fold finalizer that closes leaked spans.
-- [ ] Verify the `OpenTelemetry.Trace.Core` API names against the local mori-registered source.
+- [x] 2026-05-13 Implement `OtelSinkOptions` and `defaultOtelSinkOptions`.
+- [x] 2026-05-13 Implement `otelSink :: Tracer -> TraceSink` as a thin wrapper over `otelSinkWith`.
+- [x] 2026-05-13 Implement `otelSinkWith :: Tracer -> OtelSinkOptions -> TraceSink` as a stateful `Fold` keyed by `eventId`.
+- [x] 2026-05-13 Implement the attribute-construction helpers for `CallStarted`, `CallFinished`, `CallFailed`.
+- [x] 2026-05-13 Implement the fold finalizer that closes leaked spans (calls `endSpan _ Nothing` so the SDK fills in the current time).
+- [x] 2026-05-13 Verify the `OpenTelemetry.Trace.Core` API names against the local mori-registered source — used `createSpan`, `addAttributes`, `setStatus`, `endSpan`, `defaultSpanArguments`, `Context.empty`, `Timestamp(..)` constructor from `OpenTelemetry.Common`, and rolled our own `utcToTimestamp` helper because no `timestampFromTime` exists upstream.
 - [ ] Create `baikai-trace-otel/test/Main.hs` with the tasty test suite using the in-memory exporter.
 - [ ] Add the success-path test: one span, status Ok, expected attributes.
 - [ ] Add the failure-path test: one span, status Error, error message attribute.
