@@ -52,10 +52,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 - [x] 2026-05-13 Implement the attribute-construction helpers for `CallStarted`, `CallFinished`, `CallFailed`.
 - [x] 2026-05-13 Implement the fold finalizer that closes leaked spans (calls `endSpan _ Nothing` so the SDK fills in the current time).
 - [x] 2026-05-13 Verify the `OpenTelemetry.Trace.Core` API names against the local mori-registered source — used `createSpan`, `addAttributes`, `setStatus`, `endSpan`, `defaultSpanArguments`, `Context.empty`, `Timestamp(..)` constructor from `OpenTelemetry.Common`, and rolled our own `utcToTimestamp` helper because no `timestampFromTime` exists upstream.
-- [ ] Create `baikai-trace-otel/test/Main.hs` with the tasty test suite using the in-memory exporter.
-- [ ] Add the success-path test: one span, status Ok, expected attributes.
-- [ ] Add the failure-path test: one span, status Error, error message attribute.
-- [ ] Run `cabal build all` and `cabal test all` from the project root and confirm green.
+- [x] 2026-05-13 Create `baikai-trace-otel/test/Main.hs` with the tasty test suite using the in-memory exporter (`inMemoryListExporter` returns `(SpanProcessor, IORef [ImmutableSpan])` directly — no `simpleProcessor` wrapping needed; threaded through `createTracerProvider [proc] emptyTracerProviderOptions`).
+- [x] 2026-05-13 Add the success-path test: one span, status Ok, kind Client, attributes include `gen_ai.system`, `gen_ai.request.model`, `gen_ai.request.max_tokens`, `gen_ai.response.model`, `baikai.event_id`, `baikai.latency_ms`.
+- [x] 2026-05-13 Add the failure-path test: one span, status Error, attributes include `baikai.error` and `baikai.latency_ms`; re-throw preserves the original `BaikaiError`.
+- [x] 2026-05-13 Run `cabal build all` and `cabal test all` from the project root and confirm green. `baikai-test` 15/15, `baikai-trace-otel-test` 2/2, `baikai-smoke` 1/1 (live API).
 
 
 ## Surprises & Discoveries
@@ -92,6 +92,27 @@ implementation. Provide concise evidence.
   `Maybe Rational` as the EP-6 plan body assumed. The OTel `baikai.cost.usd`
   attribute is built via `Scientific.toRealFloat` rather than
   `fromRational`.
+
+- 2026-05-13 (M3): `inMemoryListExporter` returns
+  `(SpanProcessor, IORef [ImmutableSpan])` — a fully-formed
+  `SpanProcessor`, **not** a `SpanExporter` that needs wrapping in
+  `simpleProcessor`. The test plugs the processor straight into
+  `createTracerProvider [proc] emptyTracerProviderOptions` with no
+  intermediate exporter glue. Plan prose suggesting "a simple processor"
+  is unnecessary for this exporter.
+
+- 2026-05-13 (M3): With `DuplicateRecordFields` enabled, naked record
+  update syntax `_Response { content = "hi", model = ... }` fails to
+  resolve `model` (Request and Response both export a `model` field).
+  The test sidesteps this by importing `Response (..)` / `Request (..)`
+  and using positional record construction. The EP-5 TraceSpec avoids
+  the same trap by going through `Baikai.Prelude`'s lens vocabulary
+  (`& #content .~ "hi"`); either approach works.
+
+- 2026-05-13 (M3): `baikai-trace-otel-test`'s `build-depends` needed an
+  explicit `vector` entry — `Data.Vector` is not transitively visible
+  via `baikai` (it is buried inside `Baikai.Prelude` re-exports). Added
+  to the cabal file.
 
 
 ## Decision Log

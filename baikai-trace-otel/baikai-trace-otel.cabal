@@ -71,3 +71,4 @@ test-suite baikai-trace-otel-test
     text,
     time,
     unordered-containers,
+    vector,
