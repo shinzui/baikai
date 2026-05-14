@@ -12,15 +12,15 @@
 -- present, falling back to the @ANTHROPIC_API_KEY@ env var via
 -- 'Baikai.Auth.resolveApiKey'.
 --
--- Message mapping (unchanged from EP-1):
---
--- * 'UserMessage' → @role = User@ with one Claude content block per
---   'UserContent' block.
--- * 'AssistantMessage' → @role = Assistant@.
--- * 'ToolResultMessage' → a 'User'-role Claude message whose only
---   content block is @Content_Tool_Result@.
+-- EP-3 promotes streaming to the primary entry point. The handler
+-- exposes a 'streamly' 'Stream' of 'AssistantMessageEvent' values
+-- bridged from the upstream SDK's typed 'createMessageStreamTyped'
+-- callback. The synchronous 'complete' field is derived via
+-- 'streamingComplete', so callers that drain the stream get the
+-- same fully-assembled 'Response' they had before.
 module Baikai.Provider.Claude.Api
   ( register
+  , claudeMessagesStream
   ) where
 
 import Baikai.Api (Api (..))
@@ -29,28 +29,37 @@ import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
-import Baikai.Error (BaikaiError (..))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
-import Baikai.Stream (liftCompleteToStream)
-import Baikai.Response qualified as Resp
 import Baikai.StopReason qualified as Stop
+import Baikai.Stream (streamingComplete)
+import Baikai.Stream.Event (AssistantMessageEvent (..))
 import Baikai.Usage qualified as Usage
 import Claude.V1 qualified as Claude
 import Claude.V1.Messages qualified as Messages
-import Control.Exception (throwIO)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
+import Control.Exception (SomeException, displayException, try)
 import Control.Lens ((^.))
+import Data.Aeson (Value)
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
+import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
-import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
+import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Streamly.Data.Stream (Stream)
+import Streamly.Data.Stream qualified as Stream
 
 -- | Install the Anthropic Messages handler into the registry.
 -- Calling 'register' twice keeps only the second handler — the
@@ -60,31 +69,425 @@ register =
   registerApiProvider
     ApiProvider
       { apiTag = AnthropicMessages
-      , stream = liftCompleteToStream runClaudeMessages
-      , complete = runClaudeMessages
+      , stream = claudeMessagesStream
+      , complete = streamingComplete claudeMessagesStream
       }
 
-runClaudeMessages :: Model -> Context -> Options -> IO Resp.Response
-runClaudeMessages m ctx opts = do
-  key <- resolveKey opts
-  let url = case m ^. #baseUrl of
-        "" -> "https://api.anthropic.com"
-        u -> u
-  env <- Claude.getClientEnv url
-  let methods = Claude.makeMethods env key (Just "2023-06-01")
-      Claude.Methods {Claude.createMessage} = methods
-  createReq <- either (throwIO . RequestInvalid) pure (mapRequest m ctx opts)
-  start <- getCurrentTime
-  resp <- createMessage createReq
-  end <- getCurrentTime
-  pure (Pricing.attachCost m (mapResponse m start end resp))
+-- | Streaming producer for the Anthropic Messages API.
+--
+-- Forks one worker thread per call that drives
+-- 'Claude.createMessageStreamTyped'; the worker pushes typed
+-- 'Messages.MessageStreamEvent' values onto a bounded 'Chan'
+-- terminated by 'Nothing'. The returned 'Stream' is a translator:
+-- it pulls raw events from the channel and emits zero or more
+-- 'AssistantMessageEvent' values per upstream event, terminating
+-- with exactly one 'EventDone' or 'EventError'.
+--
+-- Producer-side exceptions (HTTP failure, decode failure inside the
+-- SDK, etc.) are caught with 'try' and re-encoded into an
+-- 'EventError' carrying whatever content was already assembled —
+-- the masterplan's "partial output is always recoverable" promise.
+claudeMessagesStream
+  :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
+claudeMessagesStream m ctx opts =
+  Stream.concatEffect $ do
+    setup <- prepareCall m ctx opts
+    case setup of
+      Left err -> pure (Stream.fromEffect (immediateError err))
+      Right call -> do
+        chan <- newChan :: IO (Chan (Maybe Messages.MessageStreamEvent))
+        terminalRef <- newIORef False
+        _ <- forkIO (worker call chan terminalRef)
+        startTime <- getCurrentTime
+        let initialState =
+              ProducerState
+                { psChan = chan
+                , psPending = []
+                , psAssembler = emptyAssembler m startTime
+                , psFinished = False
+                , psTerminalRef = terminalRef
+                }
+        pure (Stream.unfoldrM step initialState)
 
--- | Resolve the per-call API key. 'Options.apiKey' wins when set;
--- otherwise read @ANTHROPIC_API_KEY@ from the environment.
+-- | Per-call prepared values: the typed SDK request, plus the
+-- methods record to invoke the streaming endpoint.
+data ClaudeCall = ClaudeCall
+  { ccMethods :: !Claude.Methods
+  , ccRequest :: !Messages.CreateMessage
+  }
+
+prepareCall
+  :: Model -> Context -> Options -> IO (Either Text ClaudeCall)
+prepareCall m ctx opts = do
+  case mapRequest m ctx opts of
+    Left e -> pure (Left e)
+    Right req -> do
+      key <- resolveKey opts
+      let url = case m ^. #baseUrl of
+            "" -> "https://api.anthropic.com"
+            u -> u
+      env <- Claude.getClientEnv url
+      let methods = Claude.makeMethods env key (Just "2023-06-01")
+      pure (Right ClaudeCall {ccMethods = methods, ccRequest = req})
+
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
   Just k -> pure k
   Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "ANTHROPIC_API_KEY")
+
+-- | Worker body: drive the SDK's typed callback, forwarding events
+-- onto the channel. Any exception is converted into a synthetic
+-- @Error@ raw event so the consumer side can translate it through
+-- the normal channel. After the SDK call returns (success or
+-- handled failure) we close the channel with 'Nothing'.
+worker
+  :: ClaudeCall
+  -> Chan (Maybe Messages.MessageStreamEvent)
+  -> IORef Bool
+  -> IO ()
+worker call chan _terminalRef = do
+  let Claude.Methods {Claude.createMessageStreamTyped = stream'} = ccMethods call
+  r <-
+    try @SomeException $
+      stream' (ccRequest call) $ \case
+        Left errText -> writeChan chan (Just (errorEvent errText))
+        Right ev -> writeChan chan (Just ev)
+  case r of
+    Right () -> pure ()
+    Left e -> writeChan chan (Just (errorEvent (Text.pack (displayException e))))
+  writeChan chan Nothing
+  where
+    errorEvent :: Text -> Messages.MessageStreamEvent
+    errorEvent t = Messages.Error {Messages.error = Aeson.String t}
+
+-- | The streaming 'Stream' state.
+data ProducerState = ProducerState
+  { psChan :: !(Chan (Maybe Messages.MessageStreamEvent))
+  , psPending :: ![AssistantMessageEvent]
+  , psAssembler :: !Assembler
+  , psFinished :: !Bool
+  , psTerminalRef :: !(IORef Bool)
+  }
+
+step :: ProducerState -> IO (Maybe (AssistantMessageEvent, ProducerState))
+step s
+  | (e : rest) <- psPending s = do
+      writeTerminal s e
+      pure (Just (e, s {psPending = rest, psFinished = psFinished s || terminal e}))
+  | psFinished s = pure Nothing
+  | otherwise = do
+      mRaw <- readChan (psChan s)
+      case mRaw of
+        Nothing -> do
+          alreadyTerminal <- readIORef (psTerminalRef s)
+          if alreadyTerminal
+            then pure Nothing
+            else do
+              now <- getCurrentTime
+              let (ev, ass') = unexpectedEoS now (psAssembler s)
+              writeTerminal s ev
+              pure (Just (ev, s {psAssembler = ass', psFinished = True}))
+        Just raw -> do
+          now <- getCurrentTime
+          let (events, ass') = translate raw (psAssembler s) now
+          case events of
+            [] -> step (s {psAssembler = ass'})
+            (e : rest) -> do
+              writeTerminal s e
+              pure
+                ( Just
+                    ( e
+                    , s
+                        { psPending = rest
+                        , psAssembler = ass'
+                        , psFinished = psFinished s || terminal e
+                        }
+                    )
+                )
+
+writeTerminal :: ProducerState -> AssistantMessageEvent -> IO ()
+writeTerminal s ev
+  | terminal ev = writeIORef (psTerminalRef s) True
+  | otherwise = pure ()
+
+terminal :: AssistantMessageEvent -> Bool
+terminal = \case
+  EventDone {} -> True
+  EventError {} -> True
+  _ -> False
+
+-- | The recovery path: channel closed before any terminal event.
+unexpectedEoS :: UTCTime -> Assembler -> (AssistantMessageEvent, Assembler)
+unexpectedEoS now ass =
+  let msg =
+        finalMessageOnError
+          ass
+          now
+          "claude stream ended without message_stop"
+   in (EventError {reason = Stop.ErrorReason, errorPartial = msg}, ass)
+
+-- | Translation state across one streaming call.
+data Assembler = Assembler
+  { abModel :: !Model
+  , abStart :: !UTCTime
+  , abResponseId :: !(Maybe Text)
+  , abClosed :: !(IntMap Content.AssistantContent)
+  , abTextBuf :: !(IntMap Text)
+  , abThinkBuf :: !(IntMap Text)
+  , abThinkSig :: !(IntMap Text)
+  , abToolArgsBuf :: !(IntMap Text)
+  , abToolMeta :: !(IntMap (Text, Text))
+  , abUsage :: !Usage.Usage
+  , abStopReason :: !Stop.StopReason
+  }
+
+emptyAssembler :: Model -> UTCTime -> Assembler
+emptyAssembler m start =
+  Assembler
+    { abModel = m
+    , abStart = start
+    , abResponseId = Nothing
+    , abClosed = IntMap.empty
+    , abTextBuf = IntMap.empty
+    , abThinkBuf = IntMap.empty
+    , abThinkSig = IntMap.empty
+    , abToolArgsBuf = IntMap.empty
+    , abToolMeta = IntMap.empty
+    , abUsage = Usage._Usage
+    , abStopReason = Stop.Stop
+    }
+
+translate
+  :: Messages.MessageStreamEvent
+  -> Assembler
+  -> UTCTime
+  -> ([AssistantMessageEvent], Assembler)
+translate raw ass now = case raw of
+  Messages.Ping -> ([], ass)
+  Messages.Message_Start {Messages.message = mr} ->
+    let usage0 = anthroUsageToBaikai (mr ^. #usage)
+        ass' = ass {abResponseId = Just (mr ^. #id), abUsage = usage0}
+        skeleton = skeletonMessage ass' now
+     in ([EventStart {partial = skeleton}], ass')
+  Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
+    handleBlockStart (fromIntegral idx) block ass
+  Messages.Content_Block_Delta {Messages.index = idx, Messages.delta = d} ->
+    handleBlockDelta (fromIntegral idx) d ass
+  Messages.Content_Block_Stop {Messages.index = idx} ->
+    handleBlockStop (fromIntegral idx) ass
+  Messages.Message_Delta {Messages.message_delta = md, Messages.usage = su} ->
+    let stopR = mapStopReason (md ^. #stop_reason)
+        u = abUsage ass
+        outputTokensFinal = fromMaybe (Usage.outputTokens u) (Just (su ^. #output_tokens))
+        u' = u {Usage.outputTokens = outputTokensFinal, Usage.totalTokens = Usage.inputTokens u + outputTokensFinal + Usage.cacheReadTokens u + Usage.cacheWriteTokens u}
+     in ([], ass {abStopReason = stopR, abUsage = u'})
+  Messages.Message_Stop ->
+    let msg = finalMessage ass now
+     in ([EventDone {reason = abStopReason ass, message = msg}], ass)
+  Messages.Error {Messages.error = errVal} ->
+    let errText = renderAnthropicError errVal
+        msg = finalMessageOnError ass now errText
+     in ([EventError {reason = Stop.ErrorReason, errorPartial = msg}], ass)
+
+handleBlockStart
+  :: Int
+  -> Messages.ContentBlock
+  -> Assembler
+  -> ([AssistantMessageEvent], Assembler)
+handleBlockStart i block ass = case block of
+  Messages.ContentBlock_Text {} ->
+    ( [TextStart {contentIndex = i}]
+    , ass {abTextBuf = IntMap.insert i Text.empty (abTextBuf ass)}
+    )
+  Messages.ContentBlock_Thinking {} ->
+    ( [ThinkingStart {contentIndex = i}]
+    , ass {abThinkBuf = IntMap.insert i Text.empty (abThinkBuf ass)}
+    )
+  Messages.ContentBlock_Redacted_Thinking {} ->
+    ( [ThinkingStart {contentIndex = i}]
+    , ass {abThinkBuf = IntMap.insert i Text.empty (abThinkBuf ass)}
+    )
+  Messages.ContentBlock_Tool_Use {Messages.id = tid, Messages.name = tn} ->
+    ( [ToolCallStart {contentIndex = i}]
+    , ass
+        { abToolArgsBuf = IntMap.insert i Text.empty (abToolArgsBuf ass)
+        , abToolMeta = IntMap.insert i (tid, tn) (abToolMeta ass)
+        }
+    )
+  _ ->
+    -- Server-tool, code-execution-tool, unknown — pass-through with no events.
+    ([], ass)
+
+handleBlockDelta
+  :: Int
+  -> Messages.ContentBlockDelta
+  -> Assembler
+  -> ([AssistantMessageEvent], Assembler)
+handleBlockDelta i d ass = case d of
+  Messages.Delta_Text_Delta {Messages.text = t} ->
+    ( [TextDelta {contentIndex = i, delta = t}]
+    , ass {abTextBuf = IntMap.insertWith (\new old -> old <> new) i t (abTextBuf ass)}
+    )
+  Messages.Delta_Thinking_Delta {Messages.thinking = t} ->
+    ( [ThinkingDelta {contentIndex = i, delta = t}]
+    , ass {abThinkBuf = IntMap.insertWith (\new old -> old <> new) i t (abThinkBuf ass)}
+    )
+  Messages.Delta_Signature_Delta {Messages.signature = sig} ->
+    -- Signatures are tail-end metadata on thinking blocks; they
+    -- attach to the ThinkingEnd event's content build, not a public
+    -- delta event.
+    ( []
+    , ass {abThinkSig = IntMap.insertWith (\new old -> old <> new) i sig (abThinkSig ass)}
+    )
+  Messages.Delta_Input_Json_Delta {Messages.partial_json = j} ->
+    ( [ToolCallDelta {contentIndex = i, delta = j}]
+    , ass {abToolArgsBuf = IntMap.insertWith (\new old -> old <> new) i j (abToolArgsBuf ass)}
+    )
+
+handleBlockStop
+  :: Int -> Assembler -> ([AssistantMessageEvent], Assembler)
+handleBlockStop i ass
+  | Just body <- IntMap.lookup i (abTextBuf ass) =
+      let block = Content.AssistantText (Content.TextContent body)
+       in ( [TextEnd {contentIndex = i, content = body}]
+          , ass
+              { abClosed = IntMap.insert i block (abClosed ass)
+              , abTextBuf = IntMap.delete i (abTextBuf ass)
+              }
+          )
+  | Just body <- IntMap.lookup i (abThinkBuf ass) =
+      let sig = IntMap.lookup i (abThinkSig ass)
+          block =
+            Content.AssistantThinking
+              Content.ThinkingContent
+                { Content.thinking = body
+                , Content.signature = if maybe True Text.null sig then Nothing else sig
+                , Content.redacted = False
+                }
+       in ( [ThinkingEnd {contentIndex = i, content = body}]
+          , ass
+              { abClosed = IntMap.insert i block (abClosed ass)
+              , abThinkBuf = IntMap.delete i (abThinkBuf ass)
+              , abThinkSig = IntMap.delete i (abThinkSig ass)
+              }
+          )
+  | Just argsText <- IntMap.lookup i (abToolArgsBuf ass) =
+      let (tid, tn) = fromMaybe ("", "") (IntMap.lookup i (abToolMeta ass))
+          decoded :: Value
+          decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 argsText) of
+            Right v -> v
+            Left _ ->
+              -- Anthropic sometimes opens a tool_use block with an
+              -- empty input that never streams any delta. Fall back
+              -- to an empty object so the resulting ToolCall is
+              -- well-formed.
+              Aeson.Object mempty
+          tc =
+            Content.ToolCall
+              { Content.id_ = tid
+              , Content.name = tn
+              , Content.arguments = decoded
+              }
+          block = Content.AssistantToolCall tc
+       in ( [ToolCallEnd {contentIndex = i, toolCall = tc}]
+          , ass
+              { abClosed = IntMap.insert i block (abClosed ass)
+              , abToolArgsBuf = IntMap.delete i (abToolArgsBuf ass)
+              , abToolMeta = IntMap.delete i (abToolMeta ass)
+              }
+          )
+  | otherwise = ([], ass)
+
+-- | The 'EventStart' message skeleton (empty content; usage/etc.
+-- carried for downstream consumers that want metadata up front).
+skeletonMessage :: Assembler -> UTCTime -> Msg.Message
+skeletonMessage ass _now =
+  Msg.AssistantMessage
+    { Msg.assistantContent = Vector.empty
+    , Msg.usage = abUsage ass
+    , Msg.stopReason = Stop.Stop
+    , Msg.errorMessage = Nothing
+    , Msg.timestamp = abStart ass
+    }
+
+finalMessage :: Assembler -> UTCTime -> Msg.Message
+finalMessage ass now =
+  let blocks = blocksInOrder ass
+      m = abModel ass
+      usageBare = abUsage ass
+      computed = Pricing.computeCost m usageBare
+      usage' = usageBare {Usage.cost = computed}
+   in Msg.AssistantMessage
+        { Msg.assistantContent = blocks
+        , Msg.usage = usage'
+        , Msg.stopReason = abStopReason ass
+        , Msg.errorMessage = Nothing
+        , Msg.timestamp = now
+        }
+
+finalMessageOnError :: Assembler -> UTCTime -> Text -> Msg.Message
+finalMessageOnError ass now reason =
+  let blocks = blocksInOrder ass
+      m = abModel ass
+      usageBare = abUsage ass
+      computed = Pricing.computeCost m usageBare
+      usage' = usageBare {Usage.cost = computed}
+   in Msg.AssistantMessage
+        { Msg.assistantContent = blocks
+        , Msg.usage = usage'
+        , Msg.stopReason = Stop.ErrorReason
+        , Msg.errorMessage = Just reason
+        , Msg.timestamp = now
+        }
+
+blocksInOrder :: Assembler -> Vector Content.AssistantContent
+blocksInOrder ass = Vector.fromList (IntMap.elems (abClosed ass))
+
+-- | The immediate "request invalid" stream — emitted when
+-- 'mapRequest' fails or 'prepareCall' is otherwise unable to build
+-- a valid SDK request.
+immediateError :: Text -> IO AssistantMessageEvent
+immediateError errText = do
+  now <- getCurrentTime
+  let msg =
+        Msg.AssistantMessage
+          { Msg.assistantContent = Vector.empty
+          , Msg.usage = Usage._Usage
+          , Msg.stopReason = Stop.ErrorReason
+          , Msg.errorMessage = Just errText
+          , Msg.timestamp = now
+          }
+  pure EventError {reason = Stop.ErrorReason, errorPartial = msg}
+
+renderAnthropicError :: Value -> Text
+renderAnthropicError v = case v of
+  Aeson.String t -> t
+  _ -> Text.decodeUtf8 (BSL.toStrict (Aeson.encode v))
+
+-- | Map the Anthropic streaming 'Message_Start.message.usage' value
+-- into baikai's 'Usage' shape. Cache-related counters are populated
+-- where present; cost is left at zero (the terminal event
+-- recomputes it).
+anthroUsageToBaikai :: Messages.Usage -> Usage.Usage
+anthroUsageToBaikai u =
+  let i = u ^. #input_tokens
+      o = u ^. #output_tokens
+      cr = fromMaybe 0 (u ^. #cache_read_input_tokens)
+      cw = fromMaybe 0 (u ^. #cache_creation_input_tokens)
+   in Usage.Usage
+        { Usage.inputTokens = i
+        , Usage.outputTokens = o
+        , Usage.cacheReadTokens = cr
+        , Usage.cacheWriteTokens = cw
+        , Usage.reasoningTokens = Nothing
+        , Usage.totalTokens = i + o + cr + cw
+        , Usage.cost = _Cost
+        }
+
+-- ============================================================
+-- Request mapping (preserved from EP-2 with minor refactoring to
+-- accept Context/Options directly).
+-- ============================================================
 
 mapRequest :: Model -> Context -> Options -> Either Text Messages.CreateMessage
 mapRequest m ctx opts = do
@@ -183,76 +586,6 @@ nonEmpty t
   | Text.null t = Nothing
   | otherwise = Just t
 
-mapResponse :: Model -> UTCTime -> UTCTime -> Messages.MessageResponse -> Resp.Response
-mapResponse m start end resp =
-  Resp.Response
-    { Resp.message =
-        Msg.AssistantMessage
-          { Msg.assistantContent = Vector.mapMaybe contentBlockToAssistant (resp ^. #content)
-          , Msg.usage = mapUsage (resp ^. #usage)
-          , Msg.stopReason = mapStopReason (resp ^. #stop_reason)
-          , Msg.errorMessage = Nothing
-          , Msg.timestamp = end
-          }
-    , Resp.model = m
-    , Resp.api = AnthropicMessages
-    , Resp.provider = m ^. #provider
-    , Resp.responseId = Just (resp ^. #id)
-    , Resp.latencyMs = millisBetween start end
-    }
-
-contentBlockToAssistant :: Messages.ContentBlock -> Maybe Content.AssistantContent
-contentBlockToAssistant = \case
-  Messages.ContentBlock_Text t ->
-    Just (Content.AssistantText (Content.TextContent t))
-  Messages.ContentBlock_Thinking t sig ->
-    Just
-      ( Content.AssistantThinking
-          Content.ThinkingContent
-            { Content.thinking = t
-            , Content.signature = if Text.null sig then Nothing else Just sig
-            , Content.redacted = False
-            }
-      )
-  Messages.ContentBlock_Redacted_Thinking _ ->
-    Just
-      ( Content.AssistantThinking
-          Content.ThinkingContent
-            { Content.thinking = ""
-            , Content.signature = Nothing
-            , Content.redacted = True
-            }
-      )
-  Messages.ContentBlock_Tool_Use toolId toolName toolInput _caller ->
-    Just
-      ( Content.AssistantToolCall
-          Content.ToolCall
-            { Content.id_ = toolId
-            , Content.name = toolName
-            , Content.arguments = toolInput
-            }
-      )
-  Messages.ContentBlock_Server_Tool_Use {} -> Nothing
-  Messages.ContentBlock_Tool_Search_Tool_Result {} -> Nothing
-  Messages.ContentBlock_Code_Execution_Tool_Result {} -> Nothing
-  Messages.ContentBlock_Unknown {} -> Nothing
-
-mapUsage :: Messages.Usage -> Usage.Usage
-mapUsage u =
-  let i = u ^. #input_tokens
-      o = u ^. #output_tokens
-      cr = fromMaybe 0 (u ^. #cache_read_input_tokens)
-      cw = fromMaybe 0 (u ^. #cache_creation_input_tokens)
-   in Usage.Usage
-        { Usage.inputTokens = i
-        , Usage.outputTokens = o
-        , Usage.cacheReadTokens = cr
-        , Usage.cacheWriteTokens = cw
-        , Usage.reasoningTokens = Nothing
-        , Usage.totalTokens = i + o + cr + cw
-        , Usage.cost = _Cost
-        }
-
 mapStopReason :: Maybe Messages.StopReason -> Stop.StopReason
 mapStopReason = \case
   Just Messages.End_Turn -> Stop.Stop
@@ -263,5 +596,3 @@ mapStopReason = \case
   Just Messages.Model_Context_Window_Exceeded -> Stop.Length
   Nothing -> Stop.Stop
 
-millisBetween :: UTCTime -> UTCTime -> Integer
-millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))

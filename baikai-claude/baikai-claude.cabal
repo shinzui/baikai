@@ -54,6 +54,8 @@ library
     , http-client-tls
     , lens ^>=5.3
     , servant-client
+    , streamly ^>=0.12
+    , streamly-core ^>=0.4
     , text ^>=2.1
     , time
     , vector

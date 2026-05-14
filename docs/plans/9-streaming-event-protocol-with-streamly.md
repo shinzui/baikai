@@ -82,12 +82,12 @@ main = do
       `ApiProvider` gains a `stream` field; `complete` remains for now,
       derived per-vendor (M2/M3/M4 land native producers).
       Completed 2026-05-14.
-- [ ] Milestone 2: rewrite `Baikai.Provider.Claude.Api.runClaudeMessages` as a
+- [x] Milestone 2: rewrite `Baikai.Provider.Claude.Api.runClaudeMessages` as a
       streamly stream producer. The producer bridges the upstream SDK's
       callback-based `Claude.V1.createMessageStreamTyped` via the
       `Chan (Maybe MessageStreamEvent) + Stream.unfoldrM` pattern, maps each
       raw event to one or more `AssistantMessageEvent`s, and terminates with
-      a single `EventDone` or `EventError`.
+      a single `EventDone` or `EventError`. Completed 2026-05-14.
 - [ ] Milestone 3: rewrite `Baikai.Provider.OpenAI.Api.runOpenAIChat` as a
       streamly stream producer using
       `OpenAI.V1.createChatCompletionStreamTyped`. The OpenAI Chat Completions
