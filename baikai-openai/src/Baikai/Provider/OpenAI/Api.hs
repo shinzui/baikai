@@ -33,17 +33,24 @@ module Baikai.Provider.OpenAI.Api
 
 import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
+import Baikai.Compat
+  ( OpenAICompletionsCompat (..)
+  , ThinkingFormat (..)
+  )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Message qualified as Msg
-import Baikai.Model (Model)
+import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.ThinkingLevel
+  ( ThinkingLevel (..)
+  )
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
@@ -683,7 +690,8 @@ mapRequest
   :: Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
 mapRequest m ctx opts = do
   body <- traverse mapMessage (Vector.toList (ctx ^. #messages))
-  let prefix = case ctx ^. #systemPrompt of
+  let compat = openaiCompletionsCompatFor m
+      prefix = case ctx ^. #systemPrompt of
         Nothing -> []
         Just sp ->
           [ Chat.System
@@ -695,8 +703,10 @@ mapRequest m ctx opts = do
       toolsField =
         if Vector.null (ctx ^. #tools)
           then Nothing
-          else Just (Vector.map mkOpenAITool (ctx ^. #tools))
+          else Just (Vector.map (mkOpenAITool compat) (ctx ^. #tools))
       toolChoiceField = fmap mkOpenAIToolChoice (opts ^. #toolChoice)
+      reasoningEffortField =
+        applyThinkingFormat compat (opts ^. #thinking)
   pure
     Chat._CreateChatCompletion
       { Chat.messages = Vector.fromList (prefix <> body)
@@ -705,13 +715,49 @@ mapRequest m ctx opts = do
       , Chat.temperature = opts ^. #temperature
       , Chat.tools = toolsField
       , Chat.tool_choice = toolChoiceField
+      , Chat.reasoning_effort = reasoningEffortField
       }
 
+-- | Map a 'Baikai.ThinkingLevel.ThinkingLevel' onto the OpenAI SDK's
+-- 'Chat.ReasoningEffort' enum. Returns 'Nothing' when the caller did
+-- not request a level, when the host's 'thinkingFormat' is
+-- 'ThinkingFormatNone', or when the host expects a non-OpenAI shape
+-- the SDK does not support natively.
+--
+-- The non-OpenAI thinking formats (DeepSeek, OpenRouter, Together,
+-- Z.ai, Qwen) require additional top-level JSON keys the upstream
+-- @openai@ Haskell SDK does not expose. They are silently dropped on
+-- this revision; see the EP-5 Decision Log for the rationale and
+-- pointers to the workaround when one is needed.
+applyThinkingFormat
+  :: OpenAICompletionsCompat
+  -> Maybe ThinkingLevel
+  -> Maybe Chat.ReasoningEffort
+applyThinkingFormat _ Nothing = Nothing
+applyThinkingFormat compat (Just lvl) = case thinkingFormat compat of
+  ThinkingFormatOpenAI -> Just (toReasoningEffort lvl)
+  _ -> Nothing
+
+toReasoningEffort :: ThinkingLevel -> Chat.ReasoningEffort
+toReasoningEffort = \case
+  ThinkingMinimal -> Chat.ReasoningEffort_Minimal
+  ThinkingLow -> Chat.ReasoningEffort_Low
+  ThinkingMedium -> Chat.ReasoningEffort_Medium
+  ThinkingHigh -> Chat.ReasoningEffort_High
+
 -- | Map a baikai 'Tool.Tool' into the upstream OpenAI 'Tool_Function'
--- shape. @strict@ is left unset; EP-5 will make it compat-record-
--- driven when host-specific strict-mode tools land.
-mkOpenAITool :: Tool.Tool -> OpenAITool.Tool
-mkOpenAITool t =
+-- shape. The compat record's 'supportsStrictMode' flag controls
+-- whether the @strict@ field is sent ('True') or dropped ('False');
+-- some OpenAI-compatible hosts reject strict-mode tools entirely.
+--
+-- The default ('defaultOpenAICompletionsCompat') leaves strict
+-- unset, which OpenAI treats as the default-permissive behaviour;
+-- callers that want @strict: true@ on every tool can flip the field
+-- on their compat record (a future enhancement; currently we pass
+-- 'Nothing' even when 'supportsStrictMode' is 'True', matching the
+-- pre-EP-5 behaviour).
+mkOpenAITool :: OpenAICompletionsCompat -> Tool.Tool -> OpenAITool.Tool
+mkOpenAITool _compat t =
   OpenAITool.Tool_Function
     { OpenAITool.function =
         OpenAITool.Function

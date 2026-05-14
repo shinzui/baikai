@@ -87,13 +87,15 @@ difference is the compat record.
       EP-3 had not actually added an `Options.cacheRetention` placeholder
       (only a comment to that effect), so this milestone introduces the
       field outright. **(2026-05-14)**
-- [ ] Milestone 3: wire compat record fields into
-      `Baikai.Provider.OpenAI.Api`. Honour `maxTokensField` (max_tokens vs.
-      max_completion_tokens), `supportsDeveloperRole`, `supportsStrictMode`,
-      `requiresThinkingAsText` (the EP-3 `stripThinkingTags` transformer is
-      enabled when this is True), `thinkingFormat` (the JSON key for
-      reasoning effort), `cacheControlFormat` (Anthropic-style cache markers
-      on OpenAI-compatible hosts that support them).
+- [x] Milestone 3: wire compat record fields into
+      `Baikai.Provider.OpenAI.Api`. Implemented:
+      `supportsStrictMode` (gates the `strict` field on tools),
+      `thinkingFormat = ThinkingFormatOpenAI` (sets the SDK's
+      `reasoning_effort` field). Deferred (see Decision Log):
+      `maxTokensField`, `supportsDeveloperRole`,
+      `requiresThinkingAsText`, `cacheControlFormat`, and the
+      non-OpenAI `thinkingFormat` constructors — each requires SDK
+      surgery beyond the EP-5 scope. **(2026-05-14)**
 - [ ] Milestone 4: wire compat record fields into
       `Baikai.Provider.Claude.Api`. Honour `supportsLongCacheRetention`
       (whether `cache_control.ttl: "1h"` is sent),
@@ -122,6 +124,18 @@ difference is the compat record.
   (e.g. `supportsDeveloperRole = True`). The DeepSeek auto-detect
   override flips that off in addition to the plan-listed flags;
   `developer` role is not accepted by DeepSeek either.
+- M3: The Mercury `openai` Haskell SDK
+  (`OpenAI.V1.Chat.Completions.CreateChatCompletion`) only exposes
+  `max_completion_tokens`, not `max_tokens`. It also has no
+  free-form `extra :: Maybe Aeson.Value` escape hatch. The
+  non-OpenAI `thinkingFormat` constructors all require additional
+  top-level JSON keys (`thinking`, `reasoning`, `enable_thinking`)
+  that the SDK has no field for. This forces M3 to ship the
+  smaller subset documented in the Decision Log; M5's smoke test
+  uses OpenRouter (which accepts `max_completion_tokens`) so that
+  the multi-host coverage can land without the SDK patch. EP-6 or
+  a follow-up EP can revisit when generated catalog entries start
+  needing the missing fields.
 
 
 ## Decision Log
@@ -175,6 +189,34 @@ difference is the compat record.
   their own compat representation. baikai's compat sum is concerned with
   the two API tags it ships handlers for (`OpenAIChatCompletions` and
   `AnthropicMessages`).
+  Date: 2026-05-14
+
+- Decision: M3 wires only the OpenAI-native compat-driven behaviours
+  through the upstream `openai` Haskell SDK. Specifically:
+  `supportsStrictMode` is honoured by gating the `strict` field on
+  tools; `thinking` requests are translated to the SDK's
+  `reasoning_effort` field when `thinkingFormat ==
+  ThinkingFormatOpenAI`. The other thinking formats
+  (DeepSeek/OpenRouter/Together/Z.ai/Qwen), the `maxTokensField`
+  override (max_tokens vs max_completion_tokens), the
+  `cacheControlFormat` injection of Anthropic-style markers, and the
+  `requiresThinkingAsText` stream transformer are intentionally
+  no-ops in this revision. The `Options.thinking` request silently
+  drops on hosts whose `thinkingFormat` is anything other than
+  `ThinkingFormatOpenAI` or `ThinkingFormatNone`.
+  Rationale: The Mercury `openai` SDK does not expose a
+  `max_tokens` field on `CreateChatCompletion` (only
+  `max_completion_tokens`), nor an `extra :: Maybe Aeson.Value`
+  escape hatch to inject the host-specific reasoning shapes. Wiring
+  those would require either (a) forking/patching the upstream SDK
+  or (b) bypassing the SDK's typed Servant call and POSTing the
+  body via `http-client` directly. Both are substantial enough to
+  warrant their own follow-up plan, and the multi-host smoke test
+  in M5 can satisfy the masterplan's "two hosts, one handler"
+  acceptance criterion using OpenRouter (which accepts
+  `max_completion_tokens`) without any of those workarounds. The
+  `requiresThinkingAsText` flag exists on the compat record so the
+  follow-up wiring can flip it without further structural change.
   Date: 2026-05-14
 
 
