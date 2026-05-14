@@ -88,13 +88,14 @@ main = do
       `Chan (Maybe MessageStreamEvent) + Stream.unfoldrM` pattern, maps each
       raw event to one or more `AssistantMessageEvent`s, and terminates with
       a single `EventDone` or `EventError`. Completed 2026-05-14.
-- [ ] Milestone 3: rewrite `Baikai.Provider.OpenAI.Api.runOpenAIChat` as a
-      streamly stream producer using
-      `OpenAI.V1.createChatCompletionStreamTyped`. The OpenAI Chat Completions
-      stream delivers chunks with `choices[0].delta.{content, tool_calls}`;
-      map each chunk's text-content delta to a `TextDelta`, each tool-call
-      argument delta to a `ToolCallDelta`, and the final usage chunk to the
-      terminal `EventDone`.
+- [x] Milestone 3: rewrite `Baikai.Provider.OpenAI.Api.runOpenAIChat` as a
+      streamly stream producer. Uses the raw
+      `OpenAI.V1.createChatCompletionStream` (Aeson.Value callbacks)
+      because the typed `ChatCompletionChunk` requires
+      `tool_calls[].id` + `tool_calls[].function.name` on every
+      tool-call delta — OpenAI omits those on continuation chunks
+      and the typed parse fails. We parse each chunk manually with
+      partial-field tolerance instead. Completed 2026-05-14.
 - [ ] Milestone 4: wrap CLI providers in one-shot synthetic streams.
       `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` register
       streaming handlers that produce four events:
@@ -131,6 +132,26 @@ main = do
   final state is already the synthetic one-shot stream the plan
   describes — M4's "rewrite" is mostly a documentation/identity
   change.
+- M3: The plan called for `createChatCompletionStreamTyped`, but
+  the typed `ChatCompletionChunk` parses `Delta.tool_calls`
+  through the SDK's `ToolCall = ToolCall_Function { id :: Text,
+  function :: Function { name :: Text, arguments :: Text } }`.
+  Every field is required and `omitNothingFields = True` (the
+  package-wide aeson option) only affects encoding. OpenAI's
+  streamed tool-call deltas omit `id`, `name`, and even `function`
+  on continuation chunks (they carry just
+  `{index, function: {arguments: "..."}}` for argument chunks).
+  The typed parse fails on the second tool-call chunk and the
+  entire chunk is dropped, which would silently break tool-call
+  streaming. We bypass the typed variant and use
+  `createChatCompletionStream` directly, parsing each
+  `Aeson.Value` chunk manually with field-by-field tolerance.
+  The stripThinkingTags transformer was left out of M3 — its
+  trigger is `Model.compat`'s `requiresThinkingAsText` field which
+  EP-5 introduces; landing it now would attach to a non-existent
+  flag, and the OpenAI Chat host itself does not need it. EP-5
+  should add the transformer and wire it on the compat-record
+  toggle.
 - M1: The plan sketched `EventError { reason, error :: AssistantMessage }`,
   but naming a record field `error` introduces a top-level
   selector that shadows `Prelude.error`. With baikai's project-wide
