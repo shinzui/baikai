@@ -40,6 +40,7 @@ library
     Baikai
     Baikai.Api
     Baikai.Auth
+    Baikai.CacheRetention
     Baikai.Compat
     Baikai.Content
     Baikai.Context
@@ -58,6 +59,7 @@ library
     Baikai.StopReason
     Baikai.Stream
     Baikai.Stream.Event
+    Baikai.ThinkingLevel
     Baikai.Tool
     Baikai.Trace
     Baikai.Trace.Event

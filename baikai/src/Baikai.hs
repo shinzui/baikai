@@ -17,6 +17,11 @@ module Baikai
   , module Baikai.Cost
   , module Baikai.Error
 
+    -- * Per-API compat shims and call-time options
+  , module Baikai.Compat
+  , module Baikai.CacheRetention
+  , module Baikai.ThinkingLevel
+
     -- * Provider registry
   , module Baikai.Provider
 
@@ -26,6 +31,8 @@ module Baikai
   ) where
 
 import Baikai.Api
+import Baikai.CacheRetention
+import Baikai.Compat
 import Baikai.Content
 import Baikai.Context
 import Baikai.Cost
@@ -38,5 +45,6 @@ import Baikai.Response
 import Baikai.StopReason
 import Baikai.Stream
 import Baikai.Stream.Event
+import Baikai.ThinkingLevel
 import Baikai.Tool
 import Baikai.Usage

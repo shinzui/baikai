@@ -7,13 +7,17 @@
 -- 'maxTokens' defaults to 'Nothing'; the handler falls back to the
 -- chosen model's 'Baikai.Model.maxOutputTokens'.
 --
--- EP-3 adds @cacheRetention@, @sessionId@. EP-4 adds @toolChoice@.
--- EP-5 adds @thinking@.
+-- EP-4 added @toolChoice@. EP-5 adds @cacheRetention@ and @thinking@
+-- (provider-agnostic preferences that each provider maps to its own
+-- primitive — see 'Baikai.CacheRetention' and 'Baikai.ThinkingLevel'
+-- for the mappings).
 module Baikai.Options
   ( Options (..)
   , _Options
   ) where
 
+import Baikai.CacheRetention (CacheRetention)
+import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
 import Data.Aeson (ToJSON, Value)
 import Data.Map.Strict (Map)
@@ -30,6 +34,8 @@ data Options = Options
   , headers :: !(Map Text Text)
   , metadata :: !(Map Text Value)
   , toolChoice :: !(Maybe ToolChoice)
+  , cacheRetention :: !(Maybe CacheRetention)
+  , thinking :: !(Maybe ThinkingLevel)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -44,4 +50,6 @@ _Options =
     , headers = Map.empty
     , metadata = Map.empty
     , toolChoice = Nothing
+    , cacheRetention = Nothing
+    , thinking = Nothing
     }

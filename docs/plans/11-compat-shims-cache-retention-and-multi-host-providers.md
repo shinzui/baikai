@@ -79,12 +79,14 @@ difference is the compat record.
       `defaultOpenAICompletionsCompat`, `defaultAnthropicMessagesCompat` are
       exposed. Auto-detection from `Model.baseUrl` is implemented via a small
       lookup table. **(2026-05-14)**
-- [ ] Milestone 2: introduce `Baikai.CacheRetention` (the
+- [x] Milestone 2: introduce `Baikai.CacheRetention` (the
       `CacheRetentionNone | CacheRetentionShort | CacheRetentionLong` enum) and
       `Baikai.ThinkingLevel` (the `ThinkingMinimal | ThinkingLow | ThinkingMedium
-      | ThinkingHigh` enum). Replace the placeholder `Baikai.Options.cacheRetention`
-      from EP-3 with the real type. Add `Baikai.Options.thinking ::
-      Maybe ThinkingLevel`.
+      | ThinkingHigh` enum). Add `Baikai.Options.cacheRetention :: Maybe
+      CacheRetention` and `Baikai.Options.thinking :: Maybe ThinkingLevel`.
+      EP-3 had not actually added an `Options.cacheRetention` placeholder
+      (only a comment to that effect), so this milestone introduces the
+      field outright. **(2026-05-14)**
 - [ ] Milestone 3: wire compat record fields into
       `Baikai.Provider.OpenAI.Api`. Honour `maxTokensField` (max_tokens vs.
       max_completion_tokens), `supportsDeveloperRole`, `supportsStrictMode`,
@@ -110,7 +112,16 @@ difference is the compat record.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- M2: EP-3 did not actually land the `Options.cacheRetention`
+  placeholder field — only a comment in `Baikai.Options` documenting
+  the eventual addition. The field is therefore introduced fresh in
+  M2 rather than swapped from a placeholder. No call sites had to be
+  updated because the field defaults to `Nothing` and `_Options`
+  populates the new defaults.
+- M1: The plan's `defaultOpenAICompletionsCompat` is OpenAI-shaped
+  (e.g. `supportsDeveloperRole = True`). The DeepSeek auto-detect
+  override flips that off in addition to the plan-listed flags;
+  `developer` role is not accepted by DeepSeek either.
 
 
 ## Decision Log
