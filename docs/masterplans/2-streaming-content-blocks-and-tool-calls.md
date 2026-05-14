@@ -245,7 +245,7 @@ Alternatives considered and rejected:
 | EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | Complete    |
 | EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Complete    |
 | EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Complete    |
-| EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | In Progress |
+| EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Complete    |
 | EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Not Started |
 | EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | Not Started |
 
@@ -552,7 +552,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-4: Introduce `Baikai.Tool`; extend `Context.tools`, `Options.toolChoice`
 - [x] EP-4: Anthropic tool encoding/decoding wired in
 - [x] EP-4: OpenAI tool encoding/decoding wired in
-- [ ] EP-4: Tool round-trip smoke test passes on both providers
+- [x] EP-4: Tool round-trip smoke test passes on both providers
+      (live-verified against OpenAI; Anthropic verified by build
+      only, no key in session — see EP-4 Outcomes & Retrospective)
 - [ ] EP-5: Introduce compat records + auto-detection from `baseUrl`
 - [ ] EP-5: Introduce `CacheRetention` and `ThinkingLevel`; thread through `Options`
 - [ ] EP-5: Wire compat into the OpenAI provider request builder + stream transformer
@@ -644,6 +646,24 @@ interactions between child plans. Provide concise evidence.
   and EP-6 should keep `Baikai.Tool` types-only when adding cache-
   control / strict-mode / catalog metadata; helper functions go in
   the consuming modules.
+- EP-4 M2: `Tool.ToolChoiceNone` is not a first-class Anthropic
+  value. The provider realises it by suppressing both `tools` and
+  `tool_choice` in the upstream request. EP-5's compat work
+  should leave this lowering intact (and may need to suppress
+  cache-controlled tool definitions the same way when @None@ is
+  set).
+- EP-4 M4: A deterministic tool-use smoke test requires *different*
+  `toolChoice` values on each turn. Turn 1 forces a tool call
+  (`Required`); turn 2 must not (`Nothing` or `Auto`) — otherwise
+  the model is locked into another tool call and never produces a
+  final answer. EP-5/EP-6 smoke tests that exercise tool calling
+  should adopt the same split-options pattern.
+- EP-4 M4: Natural-language assertions on tool-result text must
+  not depend on the model preserving exact substrings supplied to
+  the tool. `gpt-4o-mini` rewrote a supplied ISO-8601 timestamp
+  into prose. The smoke now accepts any of several substring
+  markers (year, time, date fragment); EP-5/EP-6 should use the
+  same pattern.
 
 
 ## Decision Log

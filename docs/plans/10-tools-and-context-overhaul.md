@@ -123,9 +123,22 @@ main = do
       `ToolCallEnd`) and the `ToolResultMessage → Chat.Tool` request
       mapping were already delivered by EP-3 and remain unchanged.
       `cabal build all` is green.
-- [ ] Milestone 4: add the tool-using smoke test
+- [x] Milestone 4: add the tool-using smoke test
       `baikai-smoke/test/ToolsSmoke.hs`. Both providers complete the
       two-turn conversation and produce the expected output.
+      Landed 2026-05-14: `baikai-smoke/test/ToolsSmoke.hs` exports
+      `runToolCase :: ApiCase -> IO Bool`; `Smoke.hs` calls it for
+      every API case alongside the existing `runApiCase` /
+      `runStreamCase` / `runCliCase` / `runImageCase` harness. The
+      live run against OpenAI (`gpt-4o-mini`) passes: turn 1 emits
+      one `AssistantToolCall { name = "get_time" }` block; the
+      caller appends a synthesised ISO-8601 timestamp via
+      `appendToolResult`; turn 2 produces an `AssistantText`
+      block that mentions the timestamp. The Anthropic case
+      gracefully skipped (no `ANTHROPIC_API_KEY` in the session
+      env). The Anthropic encoder is exercised by the green build
+      but not by a live request — recorded as a gap in
+      Outcomes & Retrospective.
 
 
 ## Surprises & Discoveries
@@ -146,6 +159,24 @@ main = do
   on `Context` because `Context` is a record-type, not a sum. The
   same pattern (adding a field) on `Message` would warn since the
   `tools` field would not exist on every constructor.
+- M4: Turn 2 of the round-trip *must* use a different `toolChoice`
+  than turn 1. The first attempt threaded `ToolChoiceRequired`
+  through both turns, which forces the model to call a tool again
+  on turn 2 — the model produced an empty assistant message
+  instead of the expected final answer. The smoke now keeps a
+  separate `turn1Opts` (`toolChoice = Just Required`) and
+  `turn2Opts` (`toolChoice = Nothing`). EP-5/EP-6 should not
+  re-introduce shared options across turns of a tool-using
+  conversation without thinking about this constraint.
+- M4: The smoke prompt supplied an ISO-8601 timestamp
+  (`"2026-05-14T15:09:00Z"`) to the model on turn 2, expecting it
+  to repeat the string verbatim. `gpt-4o-mini` rewrote it as prose
+  ("May 14, 2026 at 15:09 UTC"). A literal `Text.isInfixOf
+  "2026-05-14"` check fails on that output. The fix accepts any
+  of `"2026"`, `"15:09"`, or `"May 14"` — enough to prove the
+  tool result reached the model without being brittle to
+  rendering choices. Future tool-call smoke tests should use this
+  any-of-several-substrings pattern for natural-language outputs.
 
 
 ## Decision Log
@@ -226,7 +257,72 @@ main = do
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-4 ships the request-side tooling surface that closes the
+streaming/content-block initiative's tool story:
+
+- `Baikai.Tool` exposes `Tool` (name, description, JSON Schema
+  parameters) and `ToolChoice` (Auto / None / Required /
+  Specific). `Baikai.Context` gains a `tools :: Vector Tool`
+  field and the `appendToolResult :: Context -> Response ->
+  (ToolCall -> IO Text) -> IO Context` helper. `Baikai.Options`
+  gains `toolChoice :: Maybe ToolChoice`.
+- The Anthropic provider's `mapRequest` now translates
+  `Context.tools` into `Messages.tools :: Maybe (Vector
+  ClaudeTool.ToolDefinition)` and `Options.toolChoice` into
+  `Messages.tool_choice`. `ToolChoiceNone` is realised by
+  suppressing both fields. `normalizeToolCallId` (ASCII
+  alphanumeric / `_` / `-`, 64-char cap) is applied to every
+  outgoing tool-call id.
+- The OpenAI provider's `mapRequest` translates the same baikai
+  records into `Chat.tools :: Maybe (Vector OpenAITool.Tool)`
+  and `Chat.tool_choice`. `Tool.ToolChoiceSpecific n` is encoded
+  as a stub `Tool_Function` carrying just the function name.
+- `baikai-smoke/test/ToolsSmoke.hs` runs a deterministic two-turn
+  conversation: turn 1 (`toolChoice = Required`) forces the
+  model to call `get_time`; the caller dispatches via
+  `appendToolResult`; turn 2 (`toolChoice = Nothing`) produces
+  the final-text answer. Live OpenAI verification passed:
+  `gpt-4o-mini` emitted exactly one tool call and a turn-2
+  answer mentioning the supplied timestamp.
+
+**Gaps.**
+
+- The Anthropic round-trip was only validated by `cabal build`
+  (the encoder/decoder paths type-check end-to-end). No live
+  Anthropic verification ran in this session because no
+  `ANTHROPIC_API_KEY` was present. The structural code paths
+  mirror the OpenAI side, but a future session with an Anthropic
+  key should rerun `cabal test baikai-smoke` to close the loop.
+  The smoke harness already runs the Anthropic case
+  automatically when the env var is set.
+- `ToolChoiceNone` against Anthropic is implemented by
+  suppressing both `tools` and `tool_choice`. Anthropic has no
+  native @"none"@ value, so this is the standard interpretation,
+  but it has not been live-tested. EP-5's compat work may
+  reshape this once cache-controllable tool definitions are
+  exposed.
+- OpenAI tool results carry no native `is_error` signal; the
+  encoder prefixes the result body with `"[error] "` when the
+  baikai-side flag is set. EP-5 should revisit whether to map
+  the flag into a structured field once strict-mode and
+  compat-record-driven encoding land.
+
+**Lessons.**
+
+- Tool dispatch is genuinely caller-owned — `appendToolResult`'s
+  signature `(ToolCall -> IO Text)` makes it easy to plug into
+  any sandbox or RPC pattern without baikai needing to know.
+  Future helpers in this area should preserve the
+  caller-supplied-dispatcher shape rather than introducing a
+  typeclass.
+- The "must call a tool on turn 1 only" pattern (split
+  `turn1Opts` / `turn2Opts`) is the right shape for deterministic
+  tool-use tests. Sharing options across turns can mask response
+  shape bugs as soft-failure paths.
+- Keeping `Baikai.Tool` types-only and putting operations on the
+  consuming modules (`Context`, here) made the dependency graph
+  clean and lets EP-5/EP-6 add tool-adjacent helpers without
+  re-touching `Baikai.Tool`.
 
 
 ## Context and Orientation

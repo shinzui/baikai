@@ -20,6 +20,7 @@ import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+import ToolsSmoke qualified
 
 main :: IO ()
 main = do
@@ -31,9 +32,19 @@ main = do
   hadStream <- mapM runStreamCase apiCases
   hadCli <- mapM runCliCase cliCases
   hadImage <- runImageCase
-  unless (or hadApi || or hadStream || or hadCli || hadImage) $
+  hadTools <- mapM runToolCase apiCases
+  unless (or hadApi || or hadStream || or hadCli || hadImage || or hadTools) $
     hPutStrLn stderr
       "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
+
+runToolCase :: ApiCase -> IO Bool
+runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} =
+  ToolsSmoke.runToolCase
+    ToolsSmoke.ApiCase
+      { ToolsSmoke.caseLabel = caseLabel
+      , ToolsSmoke.caseEnvVars = caseEnvVars
+      , ToolsSmoke.caseModel = caseModel
+      }
 
 -- | An API smoke case: matching env-var candidates for the key, the
 -- model record to dispatch under, and a label.
