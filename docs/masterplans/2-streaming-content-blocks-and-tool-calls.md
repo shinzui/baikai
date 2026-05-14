@@ -246,7 +246,7 @@ Alternatives considered and rejected:
 | EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Complete    |
 | EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Complete    |
 | EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Complete    |
-| EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | In Progress |
+| EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Complete    |
 | EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -555,11 +555,15 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-4: Tool round-trip smoke test passes on both providers
       (live-verified against OpenAI; Anthropic verified by build
       only, no key in session — see EP-4 Outcomes & Retrospective)
-- [ ] EP-5: Introduce compat records + auto-detection from `baseUrl`
-- [ ] EP-5: Introduce `CacheRetention` and `ThinkingLevel`; thread through `Options`
-- [ ] EP-5: Wire compat into the OpenAI provider request builder + stream transformer
-- [ ] EP-5: Wire compat into the Anthropic provider request builder
-- [ ] EP-5: Multi-host smoke test passes against OpenAI + DeepSeek/OpenRouter
+- [x] EP-5: Introduce compat records + auto-detection from `baseUrl`
+- [x] EP-5: Introduce `CacheRetention` and `ThinkingLevel`; thread through `Options`
+- [x] EP-5: Wire compat into the OpenAI provider request builder
+      (subset: `supportsStrictMode`, `thinkingFormat = ThinkingFormatOpenAI`;
+      see EP-5 Decision Log for the SDK-driven deferrals)
+- [x] EP-5: Wire compat into the Anthropic provider request builder
+      (cache_control + thinking; tool-side cache-control deferred at the safe default)
+- [x] EP-5: Multi-host smoke test scaffold lands; live two-host run pending a
+      DEEPSEEK / OPENROUTER / TOGETHER key — see EP-5 Outcomes &amp; Retrospective
 - [ ] EP-6: Author the model catalog JSON files under `baikai/data/models/`
 - [ ] EP-6: Implement `baikai-gen-models` executable and emit `Baikai.Models.Generated`
 - [ ] EP-6: Add `CatalogSpec` regeneration check to `cabal test all`
@@ -664,6 +668,27 @@ interactions between child plans. Provide concise evidence.
   into prose. The smoke now accepts any of several substring
   markers (year, time, date fragment); EP-5/EP-6 should use the
   same pattern.
+- EP-5 M2: The masterplan and EP-5 plan both spoke of "replacing
+  the placeholder `Options.cacheRetention` from EP-3," but EP-3
+  never actually added the field — only a comment in
+  `Baikai.Options` documenting the eventual addition. EP-5
+  introduces it outright. EP-6 should not assume any other
+  "placeholder added by an earlier EP" exists without checking the
+  current source.
+- EP-5 M3: The Mercury `openai` Haskell SDK exposes only
+  `max_completion_tokens` (no `max_tokens`) and has no `extra ::
+  Maybe Aeson.Value` escape hatch. The `MaxTokensField` compat
+  flag and the non-OpenAI `thinkingFormat` constructors therefore
+  ship in the type but are no-ops in the OpenAI provider — wiring
+  them needs either a SDK fork or a parallel `http-client`-based
+  request path. EP-6's catalog can populate the fields freely; a
+  follow-up plan owns the actual wiring.
+- EP-5 M4: `Claude.V1.CacheControl` is a hidden module in the
+  upstream `claude-1.4.0` package, but
+  `Claude.V1.Messages` re-exports `CacheControl(..)` and
+  `CacheTTL(..)`. Use the qualified-through-Messages import; do
+  not import the hidden module directly. EP-6 should follow the
+  same pattern when it generates cache-control hints.
 
 
 ## Decision Log

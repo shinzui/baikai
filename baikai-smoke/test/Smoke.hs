@@ -20,6 +20,7 @@ import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+import MultiHostSmoke qualified
 import ToolsSmoke qualified
 
 main :: IO ()
@@ -33,8 +34,16 @@ main = do
   hadCli <- mapM runCliCase cliCases
   hadImage <- runImageCase
   hadTools <- mapM runToolCase apiCases
-  unless (or hadApi || or hadStream || or hadCli || hadImage || or hadTools) $
-    hPutStrLn stderr
+  hadMultiHost <- MultiHostSmoke.runMultiHostCase
+  unless
+    ( or hadApi
+        || or hadStream
+        || or hadCli
+        || hadImage
+        || or hadTools
+        || hadMultiHost
+    )
+    $ hPutStrLn stderr
       "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
 
 runToolCase :: ApiCase -> IO Bool

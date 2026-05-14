@@ -40,6 +40,7 @@ test-suite baikai-smoke
   hs-source-dirs: test
   main-is: Smoke.hs
   other-modules:
+    MultiHostSmoke
     ToolsSmoke
   -- cradle (used by Baikai.Provider.Claude.Cli) requires the threaded RTS.
   ghc-options: -threaded -with-rtsopts=-N

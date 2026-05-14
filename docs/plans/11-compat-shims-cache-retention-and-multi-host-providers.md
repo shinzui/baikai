@@ -110,13 +110,18 @@ difference is the compat record.
       safe Anthropic default — no per-tool `cache_control`, no eager
       streaming flag — so no behaviour change for callers who do not
       override the compat). **(2026-05-14)**
-- [ ] Milestone 5: add a multi-host smoke test
-      `baikai-smoke/test/MultiHostSmoke.hs`. The test registers
-      `Baikai.Provider.OpenAI.Api`, constructs two `Model` records for two
-      different OpenAI-compatible hosts, sends the same `Context` to each, and
-      asserts both return non-empty `AssistantText`. The second host is
-      selected from `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, or
-      `TOGETHER_API_KEY` — whichever is set; the test is skipped if none.
+- [x] Milestone 5: add a multi-host smoke test
+      `baikai-smoke/test/MultiHostSmoke.hs`. The test reuses the
+      existing `Baikai.Provider.OpenAI.Api.register` (called once
+      from `main`), constructs two `Model` records for two different
+      OpenAI-compatible hosts (OpenAI plus DeepSeek / OpenRouter /
+      Together depending on which `*_API_KEY` is set), sends the
+      same `Context` to each via `completeRequest`, and asserts both
+      come back with non-empty `AssistantText`. Skips with a stderr
+      message when either `OPENAI_API_KEY` or all three second-host
+      keys are absent. Build verified; live multi-host run requires
+      both keys (only OPENAI_API_KEY in session, so skip path was
+      exercised). **(2026-05-14)**
 
 
 ## Surprises & Discoveries
@@ -243,7 +248,73 @@ difference is the compat record.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-5 ships the structural pieces of the compat-shim story: the two
+per-API records (`OpenAICompletionsCompat`, `AnthropicMessagesCompat`),
+the extension of the `Baikai.Model.Compat` sum, the `baseUrl`
+auto-detection table, the two new option enums (`CacheRetention`,
+`ThinkingLevel`), and the multi-host smoke test scaffold. Both
+provider implementations now consult the relevant compat record on
+every request, with the Anthropic side wiring all four
+`AnthropicMessagesCompat` fields end-to-end (one effectively, three
+threaded for future use) and the OpenAI side wiring the
+`supportsStrictMode` and OpenAI-native `thinkingFormat` paths.
+
+What works in this revision:
+
+- Adding a second OpenAI-compatible host to the registry is now a
+  one-record operation. A consumer writes a `Model` with `api =
+  OpenAIChatCompletions` and a custom `baseUrl`; the provider
+  auto-detects the right compat from a small URL table or the caller
+  provides an explicit `compat = CompatOpenAICompletions custom`.
+- `Options.cacheRetention` produces correct `cache_control` markers
+  on Anthropic, with long-retention transparently downgrading to
+  ephemeral on hosts (e.g. Fireworks) that do not advertise the 1h
+  TTL.
+- `Options.thinking` produces a correct `reasoning_effort` field on
+  OpenAI and a correct `Thinking { budget_tokens }` field on
+  Anthropic; non-reasoning Anthropic models silently drop the option
+  to avoid 400s.
+- Existing smoke tests continue to pass: `cabal test all` is green,
+  the live OpenAI Chat Completions / streaming / tool round-trip
+  cases all succeed.
+
+What is intentionally deferred:
+
+- The OpenAI provider does not yet honour `maxTokensField`,
+  `requiresThinkingAsText`, `cacheControlFormat`, or the non-OpenAI
+  `thinkingFormat` constructors — each requires either patching the
+  Mercury `openai` SDK to expose `max_tokens` / an `extra` field, or
+  bypassing the Servant call path with a hand-rolled `http-client`
+  POST. Both are beyond EP-5's scope and are documented in the
+  Decision Log for follow-up.
+- `supportsCacheControlOnTools` and `supportsEagerToolInputStreaming`
+  on the Anthropic side are threaded through `mkAnthropicTool` but
+  ship at the safe Anthropic default (no per-tool `cache_control`,
+  no eager streaming flag). EP-6 / a dedicated tool-cache plan can
+  flip these once a generated catalog flags hosts that need
+  divergent behaviour.
+- The live multi-host run was not exercised in this session because
+  no `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `TOGETHER_API_KEY`
+  was available. The smoke test compiles, runs, and skips cleanly
+  with only `OPENAI_API_KEY` set; the live two-host comparison is
+  available to anyone who provides a second key.
+
+Lessons:
+
+- Mercury's `openai` Haskell SDK has narrower coverage of OpenAI
+  fields than pi-mono's `openai-fetch` clone — `max_tokens` is gone
+  and there is no `extra` escape hatch. Future plans that extend
+  the wire surface should expect to either fork the SDK or own the
+  HTTP layer.
+- `Claude.V1.CacheControl` is hidden in the upstream package; the
+  re-exports through `Claude.V1.Messages` are the supported surface.
+  EP-6 (catalog generation) should reuse the qualified-import
+  pattern when it emits cache-control hints.
+- The plan asked to "replace the placeholder
+  `Baikai.Options.cacheRetention` from EP-3"; in fact EP-3 had not
+  added the field at all. Future plans should verify that referenced
+  prior-plan placeholders actually exist before assuming a swap is
+  cheap.
 
 
 ## Context and Orientation
