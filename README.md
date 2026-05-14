@@ -2,6 +2,15 @@
 
 > baikai provides a unified Haskell interface for working with multiple AI providers.
 
+## Name
+
+**baikai** is the romanization of the Japanese word **媒介** (*baikai*),
+meaning *mediation*, *medium*, or *intermediary* — the thing that carries
+something between two parties. The library sits between application code
+and a variety of AI providers, so the name describes the role: a single
+medium through which requests, responses, traces, and cost accounting
+flow regardless of which provider is on the other side.
+
 ## Layout
 
 This project is a single cabal package:
