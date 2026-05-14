@@ -25,10 +25,16 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
+-- | Per-million-token prices for one model. @cachedInputPerMillion@ is
+-- the rate for the prompt fragment served from a prior cache write;
+-- @cacheWritePerMillion@ is the rate for the fragment the provider
+-- stored on this call. Both default to 'Nothing' when the provider does
+-- not bill for that dimension.
 data PricingRate = PricingRate
   { inputPerMillion :: !Rational
   , outputPerMillion :: !Rational
   , cachedInputPerMillion :: !(Maybe Rational)
+  , cacheWritePerMillion :: !(Maybe Rational)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -43,6 +49,7 @@ claudePricing =
           { inputPerMillion = 15
           , outputPerMillion = 75
           , cachedInputPerMillion = Just (3 / 2)
+          , cacheWritePerMillion = Just (75 / 4)
           }
       )
     ,
@@ -51,6 +58,7 @@ claudePricing =
           { inputPerMillion = 3
           , outputPerMillion = 15
           , cachedInputPerMillion = Just (3 / 10)
+          , cacheWritePerMillion = Just (15 / 4)
           }
       )
     ,
@@ -59,6 +67,7 @@ claudePricing =
           { inputPerMillion = 3
           , outputPerMillion = 15
           , cachedInputPerMillion = Just (3 / 10)
+          , cacheWritePerMillion = Just (15 / 4)
           }
       )
     ,
@@ -67,6 +76,7 @@ claudePricing =
           { inputPerMillion = 1
           , outputPerMillion = 5
           , cachedInputPerMillion = Just (1 / 10)
+          , cacheWritePerMillion = Just (5 / 4)
           }
       )
     ]
@@ -82,6 +92,7 @@ openaiPricing =
           { inputPerMillion = 5
           , outputPerMillion = 20
           , cachedInputPerMillion = Just (5 / 10)
+          , cacheWritePerMillion = Nothing
           }
       )
     ,
@@ -90,6 +101,7 @@ openaiPricing =
           { inputPerMillion = 5
           , outputPerMillion = 20
           , cachedInputPerMillion = Just (25 / 10)
+          , cacheWritePerMillion = Nothing
           }
       )
     ,
@@ -98,6 +110,7 @@ openaiPricing =
           { inputPerMillion = 15 / 100
           , outputPerMillion = 6 / 10
           , cachedInputPerMillion = Just (75 / 1000)
+          , cacheWritePerMillion = Nothing
           }
       )
     ,
@@ -106,6 +119,7 @@ openaiPricing =
           { inputPerMillion = 60
           , outputPerMillion = 240
           , cachedInputPerMillion = Just 30
+          , cacheWritePerMillion = Nothing
           }
       )
     ]
@@ -134,11 +148,13 @@ compute pricing model usage =
             toRational (outputTokens usage)
               * outputPerMillion rate
               / 1_000_000
-          cachedUsd =
-            case (cachedInputTokens usage, cachedInputPerMillion rate) of
-              (Just n, Just r) -> toRational n * r / 1_000_000
-              _ -> 0
-          total = inUsd + outUsd + cachedUsd
+          cachedUsd = case cachedInputPerMillion rate of
+            Just r -> toRational (cacheReadTokens usage) * r / 1_000_000
+            Nothing -> 0
+          cacheWriteUsd = case cacheWritePerMillion rate of
+            Just r -> toRational (cacheWriteTokens usage) * r / 1_000_000
+            Nothing -> 0
+          total = inUsd + outUsd + cachedUsd + cacheWriteUsd
        in Just
             Cost
               { usd = total
@@ -147,6 +163,7 @@ compute pricing model usage =
                     { inputUsd = inUsd
                     , outputUsd = outUsd
                     , cachedInputUsd = cachedUsd
+                    , cachedWriteUsd = cacheWriteUsd
                     }
               }
 

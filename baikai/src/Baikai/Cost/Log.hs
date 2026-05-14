@@ -149,7 +149,7 @@ runRequestWithLog h pr req = do
           , model = unModel (resp ^. #model)
           , inputTokens = fmap (^. #inputTokens) u
           , outputTokens = fmap (^. #outputTokens) u
-          , cachedInputTokens = u >>= (^. #cachedInputTokens)
+          , cachedInputTokens = u >>= positive . (^. #cacheReadTokens)
           , reasoningTokens = u >>= (^. #reasoningTokens)
           , usd = fmap usdAsScientific (resp ^. #cost)
           , latencyMs = resp ^. #latencyMs
@@ -157,6 +157,13 @@ runRequestWithLog h pr req = do
           }
   appendEntry h entry
   pure resp
+
+-- | Helper: 'Just n' when @n > 0@, otherwise 'Nothing'. Used to keep
+-- cache-read counts out of the JSONL when the call did not exercise a
+-- prompt cache.
+positive :: Natural -> Maybe Natural
+positive 0 = Nothing
+positive n = Just n
 
 -- | Worker loop: pull 'Maybe CallLogEntry' off the channel, drain through a
 -- streamly fold that writes each entry as one JSON line, exit cleanly on

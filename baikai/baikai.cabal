@@ -39,6 +39,7 @@ library
   exposed-modules:
     Baikai
     Baikai.Auth
+    Baikai.Content
     Baikai.Cost
     Baikai.Cost.Log
     Baikai.Cost.Pricing
@@ -50,6 +51,7 @@ library
     Baikai.Provider.Cli.Internal
     Baikai.Request
     Baikai.Response
+    Baikai.StopReason
     Baikai.Trace
     Baikai.Trace.Event
     Baikai.Trace.Sink
@@ -58,6 +60,7 @@ library
   build-depends:
     base >=4.20 && <5,
     aeson,
+    base64-bytestring,
     bytestring,
     containers,
     generic-lens,

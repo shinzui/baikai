@@ -57,11 +57,11 @@ computeTests =
           @?= Just (7 / 2000)
     , testCase "Nothing for unknown models" $
         compute defaultPricing unknownModel sampleUsage @?= Nothing
-    , testCase "cachedInputTokens contribute when both present" $ do
+    , testCase "cacheReadTokens contribute when present" $ do
         let u :: Usage
             u =
               _Usage
-                & #cachedInputTokens .~ Just 1000
+                & #cacheReadTokens .~ 1000
         -- claude-haiku cached rate: $0.10/M → 1000 * (1/10_000_000) = 1/10_000
         fmap (^. #usd) (compute defaultPricing knownModel u)
           @?= Just (1 / 10000)

@@ -14,6 +14,7 @@ data CostBreakdown = CostBreakdown
   { inputUsd :: !Rational
   , outputUsd :: !Rational
   , cachedInputUsd :: !Rational
+  , cachedWriteUsd :: !Rational
   }
   deriving stock (Eq, Show, Generic)
 
@@ -24,7 +25,13 @@ data Cost = Cost
   deriving stock (Eq, Show, Generic)
 
 _CostBreakdown :: CostBreakdown
-_CostBreakdown = CostBreakdown {inputUsd = 0, outputUsd = 0, cachedInputUsd = 0}
+_CostBreakdown =
+  CostBreakdown
+    { inputUsd = 0
+    , outputUsd = 0
+    , cachedInputUsd = 0
+    , cachedWriteUsd = 0
+    }
 
 _Cost :: Cost
 _Cost = Cost {usd = 0, breakdown = _CostBreakdown}
@@ -35,6 +42,7 @@ instance ToJSON CostBreakdown where
       [ "input_usd" .= ratToSci (inputUsd cb)
       , "output_usd" .= ratToSci (outputUsd cb)
       , "cached_input_usd" .= ratToSci (cachedInputUsd cb)
+      , "cached_write_usd" .= ratToSci (cachedWriteUsd cb)
       ]
 
 instance ToJSON Cost where

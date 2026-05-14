@@ -155,7 +155,7 @@ runRequestWith sink h p req = do
           , model = unModel (resp ^. #model)
           , inputTokens = fmap (^. #inputTokens) u
           , outputTokens = fmap (^. #outputTokens) u
-          , cachedInputTokens = u >>= (^. #cachedInputTokens)
+          , cachedInputTokens = u >>= positiveNat . (^. #cacheReadTokens)
           , reasoningTokens = u >>= (^. #reasoningTokens)
           , usd = fmap usdAsScientific (resp ^. #cost)
           , latencyMs = resp ^. #latencyMs
@@ -163,6 +163,13 @@ runRequestWith sink h p req = do
           }
   appendEntry h entry
   pure resp
+
+-- | 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero-valued cache
+-- counts out of the trace event when the call did not exercise a prompt
+-- cache.
+positiveNat :: Natural -> Maybe Natural
+positiveNat 0 = Nothing
+positiveNat n = Just n
 
 -- | Return a short hex id unique within the current process. Combines
 -- the low 16 bits of POSIX seconds at first-access with the low 16 bits
