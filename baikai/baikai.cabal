@@ -76,6 +76,7 @@ test-suite baikai-test
   main-is: Main.hs
   other-modules:
     CostSpec
+    TraceSpec
   build-depends:
     base,
     aeson,
@@ -84,6 +85,7 @@ test-suite baikai-test
     directory,
     filepath,
     stm,
+    streamly-core ^>=0.4,
     tasty,
     tasty-hunit,
     text,

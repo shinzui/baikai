@@ -70,9 +70,9 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Create `baikai/src/Baikai/Trace.hs` exporting `withTrace`, `runRequestWith`, `newEventId`, `summarizePrompt`. `runRequestWith` takes a `CallLogHandle` rather than a `CallLogConfig` to match the actual EP-4 API surface (`Baikai.Cost.Log.CallLogHandle` is the runtime handle; `CallLogConfig` is its constructor input).
 - [x] 2026-05-13 Implement `newEventId` (low 16 bits of POSIX seconds at first access + low 16 bits of `IORef Word` counter, 8 hex chars) and `summarizePrompt` (first 200 chars of last user message in the request's `Vector Message`).
 - [x] 2026-05-13 Implement the per-call channel/worker plumbing in `withTrace`, draining on both success and failure paths. Used `Control.Concurrent.Chan (Maybe TraceEvent)` + `Stream.unfoldrM` (matching EP-4's `Baikai.Cost.Log` pattern) because streamly 0.12 in this repo does not export `Streamly.Data.Channel`.
-- [ ] Write the unit test that uses `silent` to verify success and failure do not panic.
-- [ ] Write the unit test that uses an in-memory `TVar [TraceEvent]` sink (lifted into a `Fold IO TraceEvent ()`) to assert `CallStarted` / `CallFinished` / `CallFailed` ordering.
-- [ ] Run `cabal build all` and `cabal test all`; record output in Concrete Steps.
+- [x] 2026-05-13 Write the unit test that uses `silent` to verify success and failure do not panic.
+- [x] 2026-05-13 Write the unit test that uses an in-memory `TVar [TraceEvent]` sink (lifted into a `Fold IO TraceEvent ()` via `Fold.foldlM'`) to assert `CallStarted` / `CallFinished` / `CallFailed` ordering.
+- [x] 2026-05-13 Run `cabal build all` and `cabal test all` — 15/15 tests pass; full transcript recorded under Outcomes & Retrospective.
 
 
 ## Surprises & Discoveries
@@ -168,7 +168,68 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+### 2026-05-13 — EP-5 complete
+
+The original purpose was a single wrapper that turns any `Provider` call
+into one that emits structured trace events (`CallStarted` → `CallFinished`
+or `CallFailed`) through a pluggable sink. That outcome is reached:
+`withTrace stdoutSink p req` prints two human-readable lines per call,
+`fileSink path` writes the same events as JSONL, `silent` is a no-op,
+and `multiSink` fans events to many sinks at once via `Fold.tee`. Token
+counts and dollar cost are projected from the `Response.usage` / `Response.cost`
+fields when present and omitted from the JSON otherwise. The bytewise
+JSONL shape promised by the plan is delivered:
+
+```text
+{"kind":"call_started","eventId":"35080000","timestamp":"2026-05-14T02:35:52.368906Z","provider":"stub.demo","model":"stub-1","maxTokens":16,"promptSummary":"hello"}
+{"kind":"call_finished","eventId":"35080000","timestamp":"2026-05-14T02:35:52.368922Z","provider":"stub.demo","model":"stub-1","latencyMs":0,"inputTokens":10,"outputTokens":5,"usd":1.0e-3}
+```
+
+Validation: `cabal test baikai` now runs 15 tests (11 from EP-1/EP-4
+plus 4 new from `TraceSpec`):
+
+```text
+Baikai.Trace
+  silent sink
+    returns the response on success:                              OK
+    re-throws on failure:                                         OK
+  memory sink records CallStarted then CallFinished:              OK
+  memory sink records CallStarted then CallFailed on exception:   OK
+
+All 15 tests passed (0.00s)
+```
+
+`cabal build all` is clean across `baikai`, `baikai-claude`,
+`baikai-openai`, and `baikai-smoke` — EP-5 lives entirely in the core
+`baikai` package and required no changes to the vendor packages.
+
+What changed from the plan during implementation, beyond the items
+already recorded in the Decision Log:
+
+- `usd :: Maybe Scientific` (not `Maybe Rational`) on `TraceEvent`'s
+  finished case, because Aeson encodes `Rational` as
+  `{"numerator":..., "denominator":...}` which the plan's JSONL examples
+  did not allow. The conversion happens at the `withTrace` boundary via
+  `Baikai.Cost.usdAsScientific`.
+- `runRequestWith` takes a `CallLogHandle` rather than a `CallLogConfig`,
+  matching the runtime surface of `Baikai.Cost.Log` from EP-4.
+- The worker plumbing uses `Control.Concurrent.Chan (Maybe TraceEvent)`
+  plus `Stream.unfoldrM` — the EP-4-documented streamly-0.12 limitation
+  (`Streamly.Data.Channel` is not exported) applies here too.
+
+What is not done in EP-5 (deliberately, per the master plan):
+
+- The OTel sink — that ships in EP-6 (`baikai-trace-otel`) and consumes
+  the `Fold IO TraceEvent ()` shape directly.
+- A `withTraceShared` taking a pre-opened `TraceHandle`. EP-5 forks one
+  worker per call; the cost is negligible against provider latency but
+  amortizing it across many calls is a future enhancement.
+- Sink-error containment. If a sink throws, the worker thread fails;
+  `withTrace` still returns the response (or re-throws the provider
+  exception), but the sink exception is currently swallowed by `forkIO`.
+  A `bestEffort` wrapper or an `MVar (Maybe SomeException)` channel
+  back to `withTrace` is a future refinement; the in-memory and file
+  sinks shipped here do not throw under normal conditions.
 
 
 ## Context and Orientation

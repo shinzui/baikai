@@ -6,6 +6,7 @@ import qualified CostSpec
 import qualified Data.Vector as V
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
+import qualified TraceSpec
 
 data TestProvider = TestProvider {cannedContent :: !Text}
 
@@ -29,6 +30,7 @@ main =
       "baikai"
       [ tests
       , CostSpec.tests
+      , TraceSpec.tests
       ]
 
 tests :: TestTree
