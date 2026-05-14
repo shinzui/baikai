@@ -2,18 +2,24 @@
 
 -- | The 'withTrace' wrapper and supporting helpers.
 --
--- 'withTrace' lifts a registry-dispatched call into one that emits
--- a 'CallStarted' event before the call and a 'CallFinished' or
--- 'CallFailed' event after, routing both through a user-supplied
--- 'TraceSink'. The sink lives behind a streamly 'Fold', so
--- composition (file plus stdout, redaction, batched OTel export) is
--- just fold composition.
+-- After EP-3, the trace bridge is stream-shaped at the core:
+-- 'withTraceStream' returns a 'Stream IO AssistantMessageEvent'
+-- that side-effects 'CallStarted' / 'CallFinished' / 'CallFailed'
+-- events to a user-supplied 'TraceSink' as the stream's lifecycle
+-- unfolds. 'withTrace' is the synchronous draining wrapper:
+-- @withTrace sink m ctx opts = Stream.fold (reassembleResponse m)
+-- (withTraceStream sink m ctx opts)@.
 --
 -- Per-call plumbing: open a 'Chan' of @Maybe TraceEvent@, fork a
 -- worker thread that drains the channel through the sink's fold,
--- push events, write a 'Nothing' sentinel to end the stream, then
--- wait for the worker to flush. Both the success and failure paths
--- drain the worker before returning or re-throwing.
+-- push 'CallStarted' eagerly (before the first
+-- 'AssistantMessageEvent' is emitted), then watch for the stream's
+-- terminal event ('EventDone' or 'EventError') and push the
+-- matching 'CallFinished' / 'CallFailed' before yielding the
+-- terminal event to the consumer. Cleanup ('Nothing' sentinel on
+-- the channel + 'takeMVar' on the worker) is idempotent and runs
+-- through 'Stream.finallyIO' so an early-aborting consumer never
+-- leaks the worker.
 module Baikai.Trace
   ( -- * Re-exports
     TraceEvent (..)
@@ -21,14 +27,13 @@ module Baikai.Trace
 
     -- * Wrappers
   , withTrace
+  , withTraceStream
   , runRequestWith
 
     -- * Helpers
   , newEventId
   , summarizeContext
   ) where
-
-
 
 import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
@@ -43,106 +48,185 @@ import Baikai.Message (Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Prelude
-import Baikai.Provider.Registry (completeRequest)
 import Baikai.Response (Response)
+import Baikai.Stream (reassembleResponse, streamRequest)
+import Baikai.Stream.Event (AssistantMessageEvent (..))
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, displayException, throwIO, try)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
+-- Control.Exception no longer needed; producer errors flow through
+-- the stream as 'EventError'.
+import Control.Monad (unless)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Bits (unsafeShiftL, (.&.), (.|.))
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
-import Data.Time (diffUTCTime, getCurrentTime)
+import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Numeric (showHex)
+import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import System.IO.Unsafe (unsafePerformIO)
 
--- | Wrap a registry-dispatched call with structured tracing.
+-- ============================================================
+-- Stream-shaped trace bridge
+-- ============================================================
+
+-- | Decorate a streaming provider call with structured tracing
+-- events emitted to the supplied 'TraceSink'.
 --
--- Opens a per-call channel, forks a worker that drains events
--- through the sink's fold, emits 'CallStarted', invokes
--- 'completeRequest', emits 'CallFinished' (success) or 'CallFailed'
--- (any synchronous exception), closes the channel, waits for the
--- worker to drain, then returns the response or re-throws the
--- original exception. The worker is guaranteed to have drained the
--- terminal event before this function returns.
+-- The returned stream yields the same 'AssistantMessageEvent's as
+-- 'Baikai.Stream.streamRequest'. As a side effect: one 'CallStarted'
+-- event is pushed to the sink before the first
+-- 'AssistantMessageEvent' is observed, and one 'CallFinished' (on
+-- 'EventDone') or 'CallFailed' (on 'EventError') is pushed before
+-- the terminal event is yielded to the consumer. Intermediate delta
+-- events are not traced — emitting one trace per token would
+-- explode trace volume.
+withTraceStream
+  :: TraceSink
+  -> Model
+  -> Context
+  -> Options
+  -> Stream IO AssistantMessageEvent
+withTraceStream (TraceSink sinkFold) m ctx opts =
+  Stream.concatEffect $ do
+    state <- newTraceState
+    let chan = tsChan state
+        done = tsDone state
+    _ <-
+      forkIO $ do
+        let stepDrain () = do
+              msg <- readChan chan
+              pure (fmap (\e -> (e, ())) msg)
+        Stream.unfoldrM stepDrain ()
+          & Stream.fold sinkFold
+        putMVar done ()
+    eid <- newEventId
+    start <- getCurrentTime
+    writeChan chan $
+      Just
+        CallStarted
+          { eventId = eid
+          , timestamp = start
+          , provider = m ^. #provider
+          , model = m ^. #modelId
+          , maxTokens = resolvedMaxTokens m opts
+          , promptSummary = summarizeContext ctx
+          }
+    pure $
+      Stream.finallyIO (cleanupTrace state)
+        (Stream.mapM (traceEvent state eid start m) (streamRequest m ctx opts))
+
+-- | Synchronous trace wrapper. Drains 'withTraceStream' into a
+-- 'Response' through 'reassembleResponse'.
+--
+-- Unlike the EP-2 'withTrace' (which re-threw the producer's
+-- exception), this implementation never throws for producer-side
+-- failures: errors flow through the stream as a terminal
+-- 'EventError' and the drained 'Response' carries
+-- @stopReason = ErrorReason@ plus 'errorMessage'. The masterplan's
+-- Vision & Scope section commits to "partial output is always
+-- recoverable" and the plan's Decision Log records that producer
+-- failures must surface as response data, not exceptions.
+-- Downstream-of-the-fold exceptions (e.g. an 'appendEntry' that
+-- fails) still propagate unchanged.
 withTrace
   :: MonadUnliftIO m
   => TraceSink -> Model -> Context -> Options -> m Response
-withTrace (TraceSink sinkFold) m ctx opts = withRunInIO $ \_run -> do
-  chan <- newChan :: IO (Chan (Maybe TraceEvent))
-  done <- newEmptyMVar
+withTrace sink model ctx opts =
+  withRunInIO $ \_ ->
+    Stream.fold
+      (reassembleResponse model)
+      (withTraceStream sink model ctx opts)
 
-  _ <- forkIO $ do
-    let step :: () -> IO (Maybe (TraceEvent, ()))
-        step () = do
-          msg <- readChan chan
-          pure (fmap (\e -> (e, ())) msg)
-    Stream.unfoldrM step ()
-      & Stream.fold sinkFold
-    putMVar done ()
+-- ============================================================
+-- Per-call trace state
+-- ============================================================
 
-  eid <- newEventId
-  start <- getCurrentTime
-  writeChan chan $
-    Just
-      CallStarted
-        { eventId = eid
-        , timestamp = start
-        , provider = m ^. #provider
-        , model = m ^. #modelId
-        , maxTokens = resolvedMaxTokens m opts
-        , promptSummary = summarizeContext ctx
-        }
+data TraceState = TraceState
+  { tsChan :: !(Chan (Maybe TraceEvent))
+  , tsDone :: !(MVar ())
+  , tsClosed :: !(IORef Bool)
+  }
 
-  result <- try (completeRequest m ctx opts :: IO Response)
-  end <- getCurrentTime
-  let latency :: Integer
-      latency = round (1000 * diffUTCTime end start)
-  case result of
-    Right resp -> do
-      let mu = assistantUsage resp
+newTraceState :: IO TraceState
+newTraceState = do
+  c <- newChan
+  d <- newEmptyMVar
+  r <- newIORef False
+  pure TraceState {tsChan = c, tsDone = d, tsClosed = r}
+
+cleanupTrace :: TraceState -> IO ()
+cleanupTrace s = do
+  alreadyClosed <-
+    atomicModifyIORef' (tsClosed s) (\b -> (True, b))
+  unless alreadyClosed $ do
+    writeChan (tsChan s) Nothing
+    takeMVar (tsDone s)
+
+traceEvent
+  :: TraceState
+  -> Text
+  -> UTCTime
+  -> Model
+  -> AssistantMessageEvent
+  -> IO AssistantMessageEvent
+traceEvent state eid start m ev = do
+  case ev of
+    EventDone {message = msg} -> do
+      now <- getCurrentTime
+      let latency = millisBetween start now
+          mu = assistantUsageFromMsg msg
           meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
-      writeChan chan $
-        Just
-          CallFinished
-            { eventId = eid
-            , timestamp = end
-            , provider = m ^. #provider
-            , model = (resp ^. #model) ^. #modelId
-            , latencyMs = latency
-            , inputTokens = fmap Usage.inputTokens mu
-            , outputTokens = fmap Usage.outputTokens mu
-            , usd = if meaningfulCost then fmap (usdAsScientific . Usage.cost) mu else Nothing
-            }
-      writeChan chan Nothing
-      takeMVar done
-      pure resp
-    Left (e :: SomeException) -> do
-      writeChan chan $
-        Just
-          CallFailed
-            { eventId = eid
-            , timestamp = end
-            , provider = m ^. #provider
-            , model = m ^. #modelId
-            , latencyMs = latency
-            , errorMessage = Text.pack (displayException e)
-            }
-      writeChan chan Nothing
-      takeMVar done
-      throwIO e
+          finished =
+            CallFinished
+              { eventId = eid
+              , timestamp = now
+              , provider = m ^. #provider
+              , model = m ^. #modelId
+              , latencyMs = latency
+              , inputTokens = fmap Usage.inputTokens mu
+              , outputTokens = fmap Usage.outputTokens mu
+              , usd =
+                  if meaningfulCost
+                    then fmap (usdAsScientific . Usage.cost) mu
+                    else Nothing
+              }
+      writeChan (tsChan state) (Just finished)
+      cleanupTrace state
+    EventError {errorPartial = msg} -> do
+      now <- getCurrentTime
+      let latency = millisBetween start now
+          errMsg = case msg of
+            AssistantMessage {errorMessage = Just t} -> t
+            _ -> "stream terminated with EventError"
+          failed =
+            CallFailed
+              { eventId = eid
+              , timestamp = now
+              , provider = m ^. #provider
+              , model = m ^. #modelId
+              , latencyMs = latency
+              , errorMessage = errMsg
+              }
+      writeChan (tsChan state) (Just failed)
+      cleanupTrace state
+    _ -> pure ()
+  pure ev
 
--- | Convenience: combine tracing with the call-log persistence in
--- one call. Traces the call, then appends a 'CallLogEntry' to the
--- given handle.
+-- ============================================================
+-- Cost-log convenience wrapper
+-- ============================================================
+
+-- | Combine tracing with call-log persistence in one call. Traces
+-- the streaming call, drains it into a 'Response', then appends a
+-- 'CallLogEntry' to the given handle.
 runRequestWith
   :: MonadUnliftIO m
   => TraceSink
@@ -165,42 +249,48 @@ runRequestWith sink h m ctx opts = do
           , outputTokens = mu >>= positiveNat . Usage.outputTokens
           , cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens
           , reasoningTokens = mu >>= Usage.reasoningTokens
-          , usd = if meaningfulCost then fmap (usdAsScientific . Usage.cost) mu else Nothing
+          , usd =
+              if meaningfulCost
+                then fmap (usdAsScientific . Usage.cost) mu
+                else Nothing
           , latencyMs = resp ^. #latencyMs
           , promptSummary = summarizeContext ctx
           }
   appendEntry h entry
   pure resp
 
--- | Project the assistant turn's 'Usage' out of a response. Returns
--- 'Nothing' when the response carries a non-assistant message
--- (which providers never produce in practice).
+-- ============================================================
+-- Internal helpers
+-- ============================================================
+
+-- | Project the assistant turn's 'Usage' out of a response.
 assistantUsage :: Response -> Maybe Usage
 assistantUsage resp = case resp ^. #message of
   AssistantMessage {usage = u} -> Just u
   _ -> Nothing
 
--- | 'Cost.usd' accessor named to avoid colliding with the
--- 'TraceEvent.usd' field selector.
+assistantUsageFromMsg :: Message -> Maybe Usage
+assistantUsageFromMsg = \case
+  AssistantMessage {usage = u} -> Just u
+  _ -> Nothing
+
 usdRat :: Cost.Cost -> Rational
 usdRat = Cost.usd
 
--- | 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero-valued
--- counters out of the trace event when the dimension was not
--- exercised.
 positiveNat :: Natural -> Maybe Natural
 positiveNat 0 = Nothing
 positiveNat n = Just n
 
--- | The effective max-output cap: 'Options.maxTokens' when set,
--- otherwise the model's published 'maxOutputTokens'.
 resolvedMaxTokens :: Model -> Options -> Natural
 resolvedMaxTokens m opts = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
 
--- | Return a short hex id unique within the current process.
--- Combines the low 16 bits of POSIX seconds at first-access with the
--- low 16 bits of a monotonically increasing counter, formatted as 8
--- hex chars.
+millisBetween :: UTCTime -> UTCTime -> Integer
+millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
+
+-- ============================================================
+-- Event id
+-- ============================================================
+
 newEventId :: IO Text
 newEventId = do
   n <- atomicModifyIORef' eventCounter (\k -> (k + 1, k))
@@ -219,4 +309,3 @@ eventBase = unsafePerformIO $ do
   t <- getPOSIXTime
   pure (fromIntegral (floor t :: Integer))
 {-# NOINLINE eventBase #-}
-

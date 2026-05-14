@@ -17,7 +17,7 @@ import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
 import Baikai.Usage (_Usage)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
-import Control.Exception (throwIO, try)
+import Control.Exception (throwIO)
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 import Streamly.Data.Fold qualified as Fold
@@ -105,13 +105,17 @@ silentTest =
         registerOk a
         _ <- withTrace silent (stubModel a) stubContext stubOptions
         pure ()
-    , testCase "re-throws on failure" $ do
+    , testCase "encodes failure as ErrorReason in the response" $ do
         let a = Custom "baikai-trace-silent-fail"
         registerFail a (ProviderError "boom")
-        r <- try (withTrace silent (stubModel a) stubContext stubOptions)
-        case r of
-          Left e -> e @?= ProviderError "boom"
-          Right (_ :: Response) -> assertFailure "expected exception, got response"
+        resp <- withTrace silent (stubModel a) stubContext stubOptions
+        case resp ^. #message of
+          AssistantMessage {stopReason = sr, errorMessage = em} -> do
+            sr @?= ErrorReason
+            assertBool
+              ("expected errorMessage to mention boom, got: " <> show em)
+              (maybe False ("boom" `Text.isInfixOf`) em)
+          _ -> assertFailure "expected AssistantMessage on the response"
     ]
 
 memoryFinishTest :: TestTree
@@ -135,14 +139,16 @@ memoryFinishTest =
 
 memoryFailTest :: TestTree
 memoryFailTest =
-  testCase "memory sink records CallStarted then CallFailed on exception" $ do
+  testCase "memory sink records CallStarted then CallFailed on stream error" $ do
     let a = Custom "baikai-trace-memory-fail"
     registerFail a (ProviderError "stub-failure")
     (ref, sink) <- memorySink
-    r <- try (withTrace sink (stubModel a) stubContext stubOptions)
-    case r of
-      Left e -> e @?= ProviderError "stub-failure"
-      Right (_ :: Response) -> assertFailure "expected exception, got response"
+    resp <- withTrace sink (stubModel a) stubContext stubOptions
+    -- The producer-side failure surfaces as an ErrorReason on the
+    -- response (no throw) and as CallFailed on the trace sink.
+    case resp ^. #message of
+      AssistantMessage {stopReason = sr} -> sr @?= ErrorReason
+      _ -> assertFailure "expected AssistantMessage on the response"
     rev <- readTVarIO ref
     let events = reverse rev
     length events @?= 2

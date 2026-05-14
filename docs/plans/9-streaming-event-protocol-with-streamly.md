@@ -103,14 +103,18 @@ main = do
       "complete = streamingComplete . stream" default. Module docs on
       `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` explain
       the wiring. Completed 2026-05-14.
-- [ ] Milestone 5: rebuild `Baikai.Trace.withTrace` around the event stream.
-      The new shape is:
-      `withTrace :: TraceSink -> Model -> Context -> Options
-        -> Stream IO AssistantMessageEvent`. The bridge subscribes a stream
-      transformer that side-effects `CallStarted` / `CallFinished` /
-      `CallFailed` events into the sink's `Fold`. The `completeWithTrace`
-      helper (was `Trace.withTrace`'s previous shape returning a `Response`)
-      becomes a `Stream.fold` over the bridged stream.
+- [x] Milestone 5: rebuild `Baikai.Trace.withTrace` around the event stream.
+      Added `withTraceStream :: TraceSink -> Model -> Context -> Options
+        -> Stream IO AssistantMessageEvent` which side-effects
+      `CallStarted` (before the first inner event) and the matching
+      `CallFinished` / `CallFailed` (immediately before the terminal
+      'EventDone' / 'EventError' is yielded) to the sink's `Fold`.
+      `withTrace` is now the synchronous drainage wrapper around
+      `withTraceStream`. The synchronous `withTrace` no longer
+      re-throws producer-side exceptions — the error surfaces as
+      `stopReason = ErrorReason` + `errorMessage` on the returned
+      `Response`. Test expectations updated to match. Completed
+      2026-05-14.
 - [ ] Milestone 6: add streaming smoke coverage in `baikai-smoke`. The new
       `StreamingSmoke.hs` runs against both API providers (skipping without
       keys) and asserts (a) the stream emits at least one `TextDelta` event,
@@ -230,6 +234,27 @@ main = do
   regression because their producers do not yet have a way to thread
   it through the reassembler; a future plan may add a producer-owned
   drain that preserves it.
+  Date: 2026-05-14
+
+- Decision: M5's `withTrace` returns a 'Response' with
+  'stopReason = ErrorReason' on producer-side failures instead of
+  re-throwing the upstream exception.
+  Rationale: The masterplan's Vision & Scope commits to "errors flow
+  through the stream as a terminal `Error` event ... never thrown
+  — so partial output is always recoverable." The pre-EP-3
+  `withTrace` re-threw whatever `completeRequest` threw, propagating
+  e.g. `BaikaiError` to the caller. The new stream-shaped bridge
+  converts producer exceptions to 'EventError' inside the producer
+  ('liftCompleteToStream' / `claudeMessagesStream` / `openaiChatStream`
+  all use `try @SomeException`), so by the time the drained
+  'Response' is returned the original exception type is gone — only
+  its `displayException` text remains in `errorMessage`. Re-throwing
+  a fresh `StreamErrorException` of our own making instead of the
+  original exception type would obscure the failure without giving
+  callers the original information; returning a structured Response
+  is the honest interface. The pre-EP-3 trace tests asserted on the
+  thrown exception type; they have been updated to inspect the
+  Response's `stopReason` and `errorMessage` instead.
   Date: 2026-05-14
 
 - Decision: 'reassembleResponse' recovers 'Response.latencyMs' by

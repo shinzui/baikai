@@ -16,8 +16,8 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 import Baikai.Usage (_Usage)
-import Control.Exception (throwIO, try)
-import Control.Lens ((&), (.~))
+import Control.Exception (throwIO)
+import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, readIORef)
@@ -137,10 +137,13 @@ failureSpanTest =
     registerFail a (ProviderError "stub-otel-boom")
     (tracer, getSpans) <- newTracerWithInMemory
     let sink = otelSink tracer
-    r <- try (withTrace sink (stubModel a) stubContext stubOptions)
-    case r of
-      Left (e :: BaikaiError) -> e @?= ProviderError "stub-otel-boom"
-      Right (_ :: Response) -> assertFailure "expected exception, got response"
+    -- withTrace no longer re-throws producer failures; the error
+    -- surfaces as ErrorReason on the response and as the OTel span's
+    -- Error status.
+    resp <- withTrace sink (stubModel a) stubContext stubOptions
+    case resp ^. #message of
+      AssistantMessage {stopReason = sr} -> sr @?= ErrorReason
+      _ -> assertFailure "expected AssistantMessage on the response"
     spans <- getSpans
     assertEqual "exactly one span recorded" 1 (length spans)
     case spans of
