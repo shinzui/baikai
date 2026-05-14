@@ -38,18 +38,21 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai
+    Baikai.Api
     Baikai.Auth
     Baikai.Content
+    Baikai.Context
     Baikai.Cost
     Baikai.Cost.Log
     Baikai.Cost.Pricing
     Baikai.Error
     Baikai.Message
     Baikai.Model
+    Baikai.Options
     Baikai.Prelude
     Baikai.Provider
     Baikai.Provider.Cli.Internal
-    Baikai.Request
+    Baikai.Provider.Registry
     Baikai.Response
     Baikai.StopReason
     Baikai.Trace

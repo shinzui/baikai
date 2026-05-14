@@ -2,18 +2,18 @@
 
 -- | The 'withTrace' wrapper and supporting helpers.
 --
--- 'withTrace' lifts any 'Provider' call into one that emits a
--- 'CallStarted' event before the call and a 'CallFinished' or
+-- 'withTrace' lifts a registry-dispatched call into one that emits
+-- a 'CallStarted' event before the call and a 'CallFinished' or
 -- 'CallFailed' event after, routing both through a user-supplied
--- 'TraceSink'. The sink lives behind a streamly 'Fold', so composition
--- (file plus stdout, redaction, batched OTel export) is just fold
--- composition.
+-- 'TraceSink'. The sink lives behind a streamly 'Fold', so
+-- composition (file plus stdout, redaction, batched OTel export) is
+-- just fold composition.
 --
--- Per-call plumbing: open a 'Chan' of @Maybe TraceEvent@, fork a worker
--- thread that drains the channel through the sink's fold, push events,
--- write a 'Nothing' sentinel to end the stream, then wait for the worker
--- to flush. Both the success and failure paths drain the worker before
--- returning or re-throwing.
+-- Per-call plumbing: open a 'Chan' of @Maybe TraceEvent@, fork a
+-- worker thread that drains the channel through the sink's fold,
+-- push events, write a 'Nothing' sentinel to end the stream, then
+-- wait for the worker to flush. Both the success and failure paths
+-- drain the worker before returning or re-throwing.
 module Baikai.Trace
   ( -- * Re-exports
     TraceEvent (..)
@@ -25,22 +25,25 @@ module Baikai.Trace
 
     -- * Helpers
   , newEventId
-  , summarizePrompt
+  , summarizeContext
   ) where
 
-import Baikai.Content (TextContent (..), UserContent (..))
+
+
+import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogEntry (..)
   , CallLogHandle
   , appendEntry
+  , summarizeContext
   )
 import Baikai.Message (Message (..))
-import Baikai.Model (Model (..))
+import Baikai.Model (Model)
+import Baikai.Options (Options)
 import Baikai.Prelude
-import Baikai.Provider (Provider (..))
-import Baikai.Request (Request)
+import Baikai.Provider.Registry (completeRequest)
 import Baikai.Response (Response)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
@@ -53,34 +56,35 @@ import Control.Exception (SomeException, displayException, throwIO, try)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Bits (unsafeShiftL, (.&.), (.|.))
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Time (diffUTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Vector qualified as V
 import Numeric (showHex)
 import Streamly.Data.Stream qualified as Stream
 import System.IO.Unsafe (unsafePerformIO)
 
--- | Wrap a provider call with structured tracing.
+-- | Wrap a registry-dispatched call with structured tracing.
 --
--- Opens a per-call channel, forks a worker that drains events through
--- the sink's fold, emits 'CallStarted', invokes the provider, emits
--- 'CallFinished' (success) or 'CallFailed' (any synchronous exception),
--- closes the channel, waits for the worker to drain, then returns the
--- response or re-throws the original exception. The worker is guaranteed
--- to have drained the terminal event before this function returns.
+-- Opens a per-call channel, forks a worker that drains events
+-- through the sink's fold, emits 'CallStarted', invokes
+-- 'completeRequest', emits 'CallFinished' (success) or 'CallFailed'
+-- (any synchronous exception), closes the channel, waits for the
+-- worker to drain, then returns the response or re-throws the
+-- original exception. The worker is guaranteed to have drained the
+-- terminal event before this function returns.
 withTrace
-  :: (Provider p, MonadUnliftIO m)
-  => TraceSink -> p -> Request -> m Response
-withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
+  :: MonadUnliftIO m
+  => TraceSink -> Model -> Context -> Options -> m Response
+withTrace (TraceSink sinkFold) m ctx opts = withRunInIO $ \_run -> do
   chan <- newChan :: IO (Chan (Maybe TraceEvent))
   done <- newEmptyMVar
 
   _ <- forkIO $ do
     let step :: () -> IO (Maybe (TraceEvent, ()))
         step () = do
-          m <- readChan chan
-          pure (fmap (\e -> (e, ())) m)
+          msg <- readChan chan
+          pure (fmap (\e -> (e, ())) msg)
     Stream.unfoldrM step ()
       & Stream.fold sinkFold
     putMVar done ()
@@ -92,13 +96,13 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
       CallStarted
         { eventId = eid
         , timestamp = start
-        , provider = providerName p
-        , model = unModel (req ^. #model)
-        , maxTokens = req ^. #maxTokens
-        , promptSummary = summarizePrompt req
+        , provider = m ^. #provider
+        , model = m ^. #modelId
+        , maxTokens = resolvedMaxTokens m opts
+        , promptSummary = summarizeContext ctx
         }
 
-  result <- try (runRequest p req :: IO Response)
+  result <- try (completeRequest m ctx opts :: IO Response)
   end <- getCurrentTime
   let latency :: Integer
       latency = round (1000 * diffUTCTime end start)
@@ -111,8 +115,8 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
           CallFinished
             { eventId = eid
             , timestamp = end
-            , provider = providerName p
-            , model = unModel (resp ^. #model)
+            , provider = m ^. #provider
+            , model = (resp ^. #model) ^. #modelId
             , latencyMs = latency
             , inputTokens = fmap Usage.inputTokens mu
             , outputTokens = fmap Usage.outputTokens mu
@@ -127,8 +131,8 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
           CallFailed
             { eventId = eid
             , timestamp = end
-            , provider = providerName p
-            , model = unModel (req ^. #model)
+            , provider = m ^. #provider
+            , model = m ^. #modelId
             , latencyMs = latency
             , errorMessage = Text.pack (displayException e)
             }
@@ -136,40 +140,41 @@ withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
       takeMVar done
       throwIO e
 
--- | Convenience: combine tracing with the call-log persistence in one
--- call. Traces the call, then appends a 'CallLogEntry' to the given
--- handle. The entry build mirrors 'Baikai.Cost.Log.runRequestWithLog'.
+-- | Convenience: combine tracing with the call-log persistence in
+-- one call. Traces the call, then appends a 'CallLogEntry' to the
+-- given handle.
 runRequestWith
-  :: (Provider p, MonadUnliftIO m)
+  :: MonadUnliftIO m
   => TraceSink
   -> CallLogHandle
-  -> p
-  -> Request
+  -> Model
+  -> Context
+  -> Options
   -> m Response
-runRequestWith sink h p req = do
-  resp <- withTrace sink p req
+runRequestWith sink h m ctx opts = do
+  resp <- withTrace sink m ctx opts
   now <- liftIO getCurrentTime
   let mu = assistantUsage resp
       meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
       entry =
         CallLogEntry
           { timestamp = now
-          , provider = resp ^. #provider
-          , model = unModel (resp ^. #model)
+          , provider = m ^. #provider
+          , model = m ^. #modelId
           , inputTokens = mu >>= positiveNat . Usage.inputTokens
           , outputTokens = mu >>= positiveNat . Usage.outputTokens
           , cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens
           , reasoningTokens = mu >>= Usage.reasoningTokens
           , usd = if meaningfulCost then fmap (usdAsScientific . Usage.cost) mu else Nothing
           , latencyMs = resp ^. #latencyMs
-          , promptSummary = summarizePrompt req
+          , promptSummary = summarizeContext ctx
           }
   appendEntry h entry
   pure resp
 
 -- | Project the assistant turn's 'Usage' out of a response. Returns
--- 'Nothing' when the response carries a non-assistant message (which
--- providers never produce in practice).
+-- 'Nothing' when the response carries a non-assistant message
+-- (which providers never produce in practice).
 assistantUsage :: Response -> Maybe Usage
 assistantUsage resp = case resp ^. #message of
   AssistantMessage {usage = u} -> Just u
@@ -181,18 +186,21 @@ usdRat :: Cost.Cost -> Rational
 usdRat = Cost.usd
 
 -- | 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero-valued
--- counters out of the trace event when the dimension was not exercised.
+-- counters out of the trace event when the dimension was not
+-- exercised.
 positiveNat :: Natural -> Maybe Natural
 positiveNat 0 = Nothing
 positiveNat n = Just n
 
--- | Return a short hex id unique within the current process. Combines
--- the low 16 bits of POSIX seconds at first-access with the low 16 bits
--- of a monotonically increasing counter, formatted as 8 hex chars.
---
--- The id is intended only to correlate a 'CallStarted' with its matching
--- 'CallFinished' or 'CallFailed' inside one process run; uniqueness
--- across separate process runs is not guaranteed.
+-- | The effective max-output cap: 'Options.maxTokens' when set,
+-- otherwise the model's published 'maxOutputTokens'.
+resolvedMaxTokens :: Model -> Options -> Natural
+resolvedMaxTokens m opts = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
+
+-- | Return a short hex id unique within the current process.
+-- Combines the low 16 bits of POSIX seconds at first-access with the
+-- low 16 bits of a monotonically increasing counter, formatted as 8
+-- hex chars.
 newEventId :: IO Text
 newEventId = do
   n <- atomicModifyIORef' eventCounter (\k -> (k + 1, k))
@@ -212,26 +220,3 @@ eventBase = unsafePerformIO $ do
   pure (fromIntegral (floor t :: Integer))
 {-# NOINLINE eventBase #-}
 
--- | Extract up to 200 characters of the most recent user message's text
--- content. Returns empty when no 'UserMessage' is present.
-summarizePrompt :: Request -> Text
-summarizePrompt req =
-  let users = V.filter isUser (req ^. #messages)
-   in if V.null users
-        then Text.empty
-        else case V.last users of
-          UserMessage {userContent = cs} -> Text.take 200 (concatUserText cs)
-          _ -> Text.empty
-  where
-    isUser UserMessage {} = True
-    isUser _ = False
-
-concatUserText :: V.Vector UserContent -> Text
-concatUserText =
-  Text.concat
-    . V.toList
-    . V.mapMaybe
-      ( \case
-          UserText (TextContent t) -> Just t
-          _ -> Nothing
-      )

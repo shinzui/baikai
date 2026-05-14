@@ -1,34 +1,38 @@
--- | Provider that drives the @claude -p@ non-interactive CLI as a subprocess.
+-- | Provider that drives the @claude -p@ non-interactive CLI as a
+-- subprocess.
 --
--- Construct a 'ClaudeCli' with 'claudeCli' and the desired 'ClaudeCliConfig'
--- (or just 'defaultClaudeCliConfig'), then call 'Baikai.Provider.runRequest'
--- like any other provider. The provider name is @"anthropic.claude.cli"@.
+-- Call 'register' once (typically from @main@) to install the
+-- 'Baikai.Api.AnthropicMessagesCli' handler with default config.
+-- For non-default executable paths or extra args, use 'registerWith'
+-- and supply a custom 'ClaudeCliConfig'.
 --
--- The provider always returns 'Baikai.Response.Response' whose embedded
--- assistant message carries zero token counts (and therefore zero cost):
--- the @claude@ CLI runs under a flat subscription, so per-token billing
--- does not apply. CLI providers do not participate in tool calling — the
--- masterplan's Decision Log records the reasoning.
+-- The CLI provider always returns a 'Response' whose embedded
+-- assistant message carries zero token counts (and therefore zero
+-- cost): the @claude@ CLI runs under a flat subscription, so
+-- per-token billing does not apply. CLI providers do not participate
+-- in tool calling — the masterplan's Decision Log records the
+-- reasoning.
 module Baikai.Provider.Claude.Cli
-  ( ClaudeCli
-  , ClaudeCliConfig (..)
+  ( ClaudeCliConfig (..)
   , defaultClaudeCliConfig
-  , claudeCli
+  , register
+  , registerWith
   ) where
 
+import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
+import Baikai.Context (Context (..))
 import Baikai.Error (BaikaiError (..))
 import Baikai.Message (Message (..))
-import Baikai.Model qualified as Model
-import Baikai.Provider (Provider (..))
+import Baikai.Model (Model)
+import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
-import Baikai.Request qualified as Req
+import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (_Usage)
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Cradle
   ( ExitCode (..)
   , StderrRaw (..)
@@ -54,11 +58,6 @@ import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 
 -- | Configuration for the @claude -p@ subprocess.
---
--- 'executable' defaults to the bare string @"claude"@ so the OS resolves the
--- binary via @PATH@; override it for non-standard layouts. 'extraArgs' are
--- appended verbatim after the flags that this module sets internally, before
--- the rendered prompt. 'workingDir' is forwarded to the subprocess.
 data ClaudeCliConfig = ClaudeCliConfig
   { executable :: !FilePath
   , extraArgs :: !(Vector Text)
@@ -74,16 +73,20 @@ defaultClaudeCliConfig =
     , workingDir = Nothing
     }
 
--- | A configured Claude CLI provider. Holding a value of this type does not
--- spawn any processes; the subprocess is only spawned on 'runRequest'.
-newtype ClaudeCli = ClaudeCli {config :: ClaudeCliConfig}
-  deriving stock (Eq, Show, Generic)
+-- | Install the CLI handler with 'defaultClaudeCliConfig'.
+register :: IO ()
+register = registerWith defaultClaudeCliConfig
 
-claudeCli :: MonadIO m => ClaudeCliConfig -> m ClaudeCli
-claudeCli = pure . ClaudeCli
+-- | Install the CLI handler with a caller-supplied config.
+registerWith :: ClaudeCliConfig -> IO ()
+registerWith cfg =
+  registerApiProvider
+    ApiProvider
+      { apiTag = AnthropicMessagesCli
+      , complete = runClaudeCli cfg
+      }
 
--- | The shape of @claude -p --output-format json@ stdout. Only @result@ and
--- @is_error@ are load-bearing; the other fields are decoded opportunistically.
+-- | The shape of @claude -p --output-format json@ stdout.
 data ClaudeCliResult = ClaudeCliResult
   { result :: !Text
   , is_error :: !Bool
@@ -92,27 +95,16 @@ data ClaudeCliResult = ClaudeCliResult
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)
 
-systemPromptArgs :: Req.Request -> [String]
-systemPromptArgs req = case req ^. #systemPrompt of
+systemPromptArgs :: Context -> [String]
+systemPromptArgs ctx = case ctx ^. #systemPrompt of
   Nothing -> []
   Just sp -> ["--system-prompt", Text.unpack sp]
 
--- | Emit @--model M@ unless 'Req.Request.model' is empty, in which case the
--- CLI's built-in default is used. Empty is the sentinel because the unified
--- 'Baikai.Model.Model' newtype wraps 'Text' and a blank value is the
--- least-surprising "don't override" signal for CLI providers.
-modelArgs :: Req.Request -> [String]
-modelArgs req = case Text.strip (Model.unModel (req ^. #model)) of
+modelArgs :: Model -> [String]
+modelArgs m = case Text.strip (m ^. #modelId) of
   "" -> []
-  m -> ["--model", Text.unpack m]
+  mid -> ["--model", Text.unpack mid]
 
--- | Find and decode the @{"type":"result", ...}@ event in @claude -p
--- --output-format json@ stdout.
---
--- The current CLI (@2.x@) emits a JSON array of typed events; the terminal
--- one is @"type":"result"@. Older builds emitted a single bare object with
--- the same fields. We accept both: if stdout is an array we walk it for the
--- result event, otherwise we decode the top-level object directly.
 decodeResult :: ByteString -> IO ClaudeCliResult
 decodeResult bs = case eitherDecodeStrict bs of
   Left err -> throwIO (DecodeError (Text.pack err))
@@ -134,35 +126,34 @@ findResultEvent = Vector.find isResult
       _ -> False
     isResult _ = False
 
-instance Provider ClaudeCli where
-  providerName _ = "anthropic.claude.cli"
-  runRequest (ClaudeCli cfg) req = liftIO $ do
-    let prompt = Internal.renderPrompt req
-        args =
-          ["-p"]
-            <> modelArgs req
-            <> ["--output-format", "json", "--no-session-persistence"]
-            <> systemPromptArgs req
-            <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
-            <> [Text.unpack prompt]
-    start <- getCurrentTime
-    (exitCode, StdoutRaw out, StderrRaw err) <-
-      run $
-        cmd (cfg ^. #executable)
-          & addArgs args
-          & setNoStdin
-          & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
-    end <- getCurrentTime
-    case exitCode of
-      ExitFailure n -> throwIO (ProcessError n (Internal.decodeUtf8Lenient err))
-      ExitSuccess -> do
-        r <- decodeResult out
-        if is_error r
-          then throwIO (ProviderError (result r))
-          else pure (mkResponse req start end (result r))
+runClaudeCli :: ClaudeCliConfig -> Model -> Context -> Options -> IO Resp.Response
+runClaudeCli cfg m ctx _opts = do
+  let prompt = Internal.renderPrompt ctx
+      args =
+        ["-p"]
+          <> modelArgs m
+          <> ["--output-format", "json", "--no-session-persistence"]
+          <> systemPromptArgs ctx
+          <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+          <> [Text.unpack prompt]
+  start <- getCurrentTime
+  (exitCode, StdoutRaw out, StderrRaw err) <-
+    run $
+      cmd (cfg ^. #executable)
+        & addArgs args
+        & setNoStdin
+        & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
+  end <- getCurrentTime
+  case exitCode of
+    ExitFailure n -> throwIO (ProcessError n (Internal.decodeUtf8Lenient err))
+    ExitSuccess -> do
+      r <- decodeResult out
+      if is_error r
+        then throwIO (ProviderError (result r))
+        else pure (mkResponse m start end (result r))
 
-mkResponse :: Req.Request -> UTCTime -> UTCTime -> Text -> Resp.Response
-mkResponse req start end body =
+mkResponse :: Model -> UTCTime -> UTCTime -> Text -> Resp.Response
+mkResponse m start end body =
   Resp.Response
     { Resp.message =
         AssistantMessage
@@ -172,9 +163,9 @@ mkResponse req start end body =
           , errorMessage = Nothing
           , timestamp = end
           }
-    , Resp.model = req ^. #model
-    , Resp.api = "anthropic.claude.cli"
-    , Resp.provider = "anthropic.claude.cli"
+    , Resp.model = m
+    , Resp.api = AnthropicMessagesCli
+    , Resp.provider = m ^. #provider
     , Resp.responseId = Nothing
     , Resp.latencyMs = millisBetween start end
     }

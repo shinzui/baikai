@@ -1,10 +1,10 @@
--- | Internal helpers shared by the CLI providers in @baikai-claude@ and
--- @baikai-openai@.
+-- | Internal helpers shared by the CLI providers in @baikai-claude@
+-- and @baikai-openai@.
 --
--- Not re-exported from "Baikai"; vendor packages import this module directly.
--- Anything exported here is considered part of the core library's interface
--- to the CLI provider packages and should not be relied on by application
--- code.
+-- Not re-exported from "Baikai"; vendor packages import this module
+-- directly. Anything exported here is considered part of the core
+-- library's interface to the CLI provider packages and should not be
+-- relied on by application code.
 module Baikai.Provider.Cli.Internal
   ( renderPrompt
   , maybeApply
@@ -19,8 +19,8 @@ import Baikai.Content
   , ToolResultContent (..)
   , UserContent (..)
   )
+import Baikai.Context (Context)
 import Baikai.Message (Message (..))
-import Baikai.Request qualified as Req
 import Control.Lens ((^.))
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
@@ -42,19 +42,19 @@ import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import Streamly.Data.Unfold qualified as Unfold
 
--- | Flatten 'Req.Request.messages' into a single prompt string suitable
--- for a one-shot CLI invocation.
+-- | Flatten a 'Context'\'s messages into a single prompt string
+-- suitable for a one-shot CLI invocation.
 --
--- A request whose only message is a 'UserMessage' with a single
--- 'UserText' block is returned verbatim. Anything else is joined with
--- @[role]:@ markers so the CLI still sees a coherent transcript.
--- Image content and tool calls are dropped (CLI providers do not
--- participate in tool use; image bytes cannot be passed verbatim
--- through a CLI). The masterplan documents CLI providers as text-only
--- and tool-incapable.
-renderPrompt :: Req.Request -> Text
-renderPrompt req =
-  let msgs = Vector.toList (req ^. #messages)
+-- A context whose only message is a 'UserMessage' with a single
+-- 'UserText' block is returned verbatim. Anything else is joined
+-- with @[role]:@ markers so the CLI still sees a coherent
+-- transcript. Image content and tool calls are dropped (CLI
+-- providers do not participate in tool use; image bytes cannot be
+-- passed verbatim through a CLI). The masterplan documents CLI
+-- providers as text-only and tool-incapable.
+renderPrompt :: Context -> Text
+renderPrompt ctx =
+  let msgs = Vector.toList (ctx ^. #messages)
    in case msgs of
         [UserMessage {userContent = uc}]
           | [UserText (TextContent t)] <- Vector.toList uc ->
@@ -87,33 +87,22 @@ renderPrompt req =
         pickT (ToolResultText (TextContent t)) = Just t
         pickT _ = Nothing
 
--- | @maybeApply ma f x@ applies @f a x@ when @ma = Just a@, otherwise returns
--- @x@. Useful for threading optional configuration into a cradle pipeline.
+-- | @maybeApply ma f x@ applies @f a x@ when @ma = Just a@,
+-- otherwise returns @x@. Useful for threading optional configuration
+-- into a cradle pipeline.
 maybeApply :: Maybe a -> (a -> b -> b) -> b -> b
 maybeApply Nothing _ b = b
 maybeApply (Just a) f b = f a b
 
--- | Decode UTF-8 bytes leniently, replacing invalid sequences with U+FFFD.
--- Used for surfacing CLI stderr in 'Baikai.Error.ProcessError'.
+-- | Decode UTF-8 bytes leniently, replacing invalid sequences with
+-- U+FFFD. Used for surfacing CLI stderr in
+-- 'Baikai.Error.ProcessError'.
 decodeUtf8Lenient :: ByteString -> Text
 decodeUtf8Lenient = Text.decodeUtf8With Text.lenientDecode
 
--- | Best-effort extractor for the assistant text inside a single Codex
--- @--json@ event.
---
--- The Codex JSONL schema has varied across releases, so the parser tries
--- multiple shapes:
---
--- 1. @{"type":"item.completed","item":{"type":"agent_message","text":"..."}}@
---    (current default, codex-cli 0.13x+).
--- 2. @{"msg":{"type":"agent_message","message":"..."}}@ (older releases).
--- 3. @{"msg":{"type":"agent_message","text":"..."}}@ (older releases).
--- 4. @{"type":"agent_message","message":"..."}@ (very early releases).
--- 5. @{"type":"agent_message","text":"..."}@ (very early releases).
---
--- Any event whose discriminator is not @agent_message@ is dropped. If the
--- payload field is missing the event is also dropped rather than producing
--- an empty string.
+-- | Best-effort extractor for the assistant text inside a single
+-- Codex @--json@ event. See the original implementation's
+-- documentation for the schema variants accepted.
 extractAgentMessage :: Value -> Maybe Text
 extractAgentMessage = parseMaybe parser
   where
@@ -149,13 +138,10 @@ extractAgentMessage = parseMaybe parser
         Just (Aeson.String t) -> pure t
         _ -> fail "no payload"
 
--- | Consume a stream of stdout bytes from @codex exec --json@, split on
--- newlines, decode each line as JSON, filter to @agent_message@ events, and
--- return the concatenation of their payloads.
---
--- Streaming: memory usage stays flat in response length. Lines that fail to
--- decode as JSON, or whose schema does not match 'extractAgentMessage', are
--- silently skipped.
+-- | Consume a stream of stdout bytes from @codex exec --json@,
+-- split on newlines, decode each line as JSON, filter to
+-- @agent_message@ events, and return the concatenation of their
+-- payloads.
 parseCodexJsonlStream :: Stream IO ByteString -> IO Text
 parseCodexJsonlStream chunks = do
   let bytes :: Stream IO Word8

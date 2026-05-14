@@ -1,15 +1,15 @@
 -- | Opt-in JSONL call log for AI API calls.
 --
--- Each open handle owns a 'Chan' and a worker thread. 'appendEntry' is a
--- cheap channel push that returns immediately; the worker drains the channel
--- to disk through a streamly fold. Disk latency therefore never pads the
--- apparent latency of 'runRequest'.
+-- Each open handle owns a 'Chan' and a worker thread. 'appendEntry'
+-- is a cheap channel push that returns immediately; the worker
+-- drains the channel to disk through a streamly fold. Disk latency
+-- therefore never pads the apparent latency of 'completeRequest'.
 --
--- The usual pattern is 'withCallLog', which opens a handle, runs the body,
--- and flushes pending entries on the way out:
+-- The usual pattern is 'withCallLog', which opens a handle, runs
+-- the body, and flushes pending entries on the way out:
 --
--- > withCallLog (CallLogConfig "/tmp/baikai.jsonl" True) $ \\h -> do
--- >   _ <- runRequestWithLog h api req
+-- > withCallLog (CallLogConfig "/tmp/baikai.jsonl" True) $ \h -> do
+-- >   _ <- runRequestWithLog h model context options
 -- >   pure ()
 module Baikai.Cost.Log
   ( CallLogConfig (..)
@@ -20,15 +20,16 @@ module Baikai.Cost.Log
   , withCallLog
   , appendEntry
   , runRequestWithLog
-  , summarizeRequest
+  , summarizeContext
   ) where
 
 import Baikai.Content (TextContent (..), UserContent (..))
+import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
 import Baikai.Message (Message (..))
-import Baikai.Model (Model (..))
-import Baikai.Provider (Provider, runRequest)
-import Baikai.Request (Request)
+import Baikai.Model (Model)
+import Baikai.Options (Options)
+import Baikai.Provider.Registry (completeRequest)
 import Baikai.Response (Response)
 import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
@@ -57,22 +58,15 @@ import Streamly.Data.Stream qualified as Stream
 import System.IO (BufferMode (LineBuffering), IOMode (AppendMode), hSetBuffering, withFile)
 
 -- | Where (and whether) to write the call log.
---
--- When @enabled = False@, 'openCallLog' still returns a handle but skips
--- spawning the worker thread; 'appendEntry' short-circuits before touching
--- the channel.
 data CallLogConfig = CallLogConfig
   { path :: !FilePath
   , enabled :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
--- | One line of the JSONL call log.
---
--- The wire shape is preserved from EP-0: @cachedInputTokens@ keeps its
--- name so existing log readers continue to parse. EP-1 projects the new
--- 'Baikai.Usage.cacheReadTokens' (always-present 'Natural') into the
--- prior 'Maybe Natural' field, mapping zero to 'Nothing'.
+-- | One line of the JSONL call log. Wire shape preserved from EP-0:
+-- @cachedInputTokens@ keeps its name so existing log readers keep
+-- parsing.
 data CallLogEntry = CallLogEntry
   { timestamp :: !UTCTime
   , provider :: !Text
@@ -88,18 +82,15 @@ data CallLogEntry = CallLogEntry
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | Opaque handle for an open call log. Carries the channel that
--- 'appendEntry' pushes onto and the synchronization needed to drain it on
--- close.
+-- | Opaque handle for an open call log.
 data CallLogHandle = CallLogHandle
   { chan :: !(Chan (Maybe CallLogEntry))
   , done :: !(MVar ())
   , cfg :: !CallLogConfig
   }
 
--- | Open a handle. When @enabled = True@, also fork the worker thread that
--- drains entries to @path@ in append mode. Performs no disk I/O on its own
--- when @enabled = False@.
+-- | Open a handle. When @enabled = True@, fork the worker thread
+-- that drains entries to @path@ in append mode.
 openCallLog :: MonadIO m => CallLogConfig -> m CallLogHandle
 openCallLog c = liftIO $ do
   ch <- newChan
@@ -111,10 +102,8 @@ openCallLog c = liftIO $ do
       pure ()
   pure CallLogHandle {chan = ch, done = d, cfg = c}
 
--- | Signal shutdown and block until the worker has drained every pending
--- entry to disk. Calling 'closeCallLog' on a closed handle blocks forever;
--- use 'withCallLog' to guarantee exactly-once close on every path including
--- exceptions.
+-- | Signal shutdown and block until the worker has drained every
+-- pending entry to disk.
 closeCallLog :: MonadIO m => CallLogHandle -> m ()
 closeCallLog h = liftIO $ do
   case enabled (cfg h) of
@@ -122,36 +111,34 @@ closeCallLog h = liftIO $ do
     False -> pure ()
   takeMVar (done h)
 
--- | Bracketed lifetime: open the handle, run the body, close exactly once
--- on every path (including exceptions). Polymorphic over 'MonadUnliftIO',
--- which 'IO' and @effectful@'s @'Eff' es@ (with @'IOE' :> es@) both satisfy.
+-- | Bracketed lifetime: open the handle, run the body, close
+-- exactly once on every path (including exceptions).
 withCallLog :: MonadUnliftIO m => CallLogConfig -> (CallLogHandle -> m a) -> m a
 withCallLog c body =
   withRunInIO $ \run ->
     bracket (openCallLog c) closeCallLog (run . body)
 
--- | Non-blocking. When the handle is disabled, returns immediately without
--- touching the channel. Otherwise pushes the entry onto the worker's queue.
+-- | Non-blocking enqueue. When the handle is disabled, returns
+-- immediately without touching the channel.
 appendEntry :: MonadIO m => CallLogHandle -> CallLogEntry -> m ()
 appendEntry h entry
   | not (enabled (cfg h)) = pure ()
   | otherwise = liftIO (writeChan (chan h) (Just entry))
 
--- | Run a request through the provider and, if logging is enabled, enqueue a
--- single JSONL record summarizing the call. Reads usage and cost out of
--- the response's assistant message; CLI providers populate them with
--- zero, which projects to 'Nothing' in the JSONL.
-runRequestWithLog ::
-  (Provider p, MonadIO m) =>
-  CallLogHandle ->
-  p ->
-  Request ->
-  m Response
-runRequestWithLog h pr req = do
-  resp <- runRequest pr req
+-- | Dispatch through the registry, then (if logging is enabled)
+-- enqueue a single JSONL record summarizing the call.
+runRequestWithLog
+  :: MonadIO m
+  => CallLogHandle
+  -> Model
+  -> Context
+  -> Options
+  -> m Response
+runRequestWithLog h m ctx opts = do
+  resp <- liftIO (completeRequest m ctx opts)
   now <- liftIO getCurrentTime
   let u :: Usage
-      u = case (resp ^. #message) of
+      u = case resp ^. #message of
         AssistantMessage {usage = uu} -> uu
         _ -> error "runRequestWithLog: provider returned a non-assistant message"
       meaningfulCost = (Usage.cost u) ^. #usd > 0
@@ -159,35 +146,34 @@ runRequestWithLog h pr req = do
         CallLogEntry
           { timestamp = now
           , provider = resp ^. #provider
-          , model = unModel (resp ^. #model)
+          , model = (resp ^. #model) ^. #modelId
           , inputTokens = positive (Usage.inputTokens u)
           , outputTokens = positive (Usage.outputTokens u)
           , cachedInputTokens = positive (Usage.cacheReadTokens u)
           , reasoningTokens = Usage.reasoningTokens u
           , usd = if meaningfulCost then Just (usdAsScientific (Usage.cost u)) else Nothing
           , latencyMs = resp ^. #latencyMs
-          , promptSummary = summarizeRequest req
+          , promptSummary = summarizeContext ctx
           }
   appendEntry h entry
   pure resp
 
--- | Helper: 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero
--- counts out of the JSONL when the call did not exercise that dimension.
+-- | 'Just n' when @n > 0@, otherwise 'Nothing'. Keeps zero counts
+-- out of the JSONL when the call did not exercise that dimension.
 positive :: Natural -> Maybe Natural
 positive 0 = Nothing
 positive n = Just n
 
--- | Worker loop: pull 'Maybe CallLogEntry' off the channel, drain through a
--- streamly fold that writes each entry as one JSON line, exit cleanly on
--- 'Nothing' and signal 'done'.
+-- | Worker loop: pull 'Maybe CallLogEntry' off the channel, drain
+-- through a streamly fold that writes each entry as one JSON line.
 worker :: FilePath -> Chan (Maybe CallLogEntry) -> MVar () -> IO ()
 worker p ch d =
   withFile p AppendMode $ \fh -> do
     hSetBuffering fh LineBuffering
     let step :: () -> IO (Maybe (CallLogEntry, ()))
         step () = do
-          m <- readChan ch
-          case m of
+          msg <- readChan ch
+          case msg of
             Nothing -> pure Nothing
             Just e -> pure (Just (e, ()))
     Stream.unfoldrM step ()
@@ -197,11 +183,11 @@ worker p ch d =
     writeEntry fh entry =
       BSL.hPut fh (Aeson.encode entry <> "\n")
 
--- | Concatenate the first user message's text blocks, truncated to 200
--- characters. Returns empty when no user message is present.
-summarizeRequest :: Request -> Text
-summarizeRequest req =
-  case find isUser (Vector.toList (req ^. #messages)) of
+-- | Concatenate the first user message's text blocks, truncated to
+-- 200 characters. Returns empty when no user message is present.
+summarizeContext :: Context -> Text
+summarizeContext ctx =
+  case find isUser (Vector.toList (ctx ^. #messages)) of
     Just (UserMessage {userContent = cs}) -> Text.take 200 (concatUserText cs)
     _ -> Text.empty
   where

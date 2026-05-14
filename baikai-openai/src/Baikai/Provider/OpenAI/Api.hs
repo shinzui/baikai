@@ -1,49 +1,40 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | Provider wrapping the @openai@ package's Chat Completions API.
 --
--- Construct an 'OpenAIApi' with 'openaiApi' and a
--- 'Baikai.Auth.ApiKeySource'. The provider name is @"openai.chat.api"@.
+-- Call 'register' once (typically from @main@) to install the
+-- 'Baikai.Api.OpenAIChatCompletions' handler into the baikai
+-- provider registry. After registration, any 'Baikai.Model.Model'
+-- whose 'Baikai.Api.api' tag is 'OpenAIChatCompletions' dispatches
+-- through this handler.
 --
--- Message mapping:
---
--- * 'UserMessage' → @role = user@ with a vector of 'Chat.Text' /
---   'Chat.Image_URL' parts. Image bytes are inlined as a base64
---   @data:@ URI.
--- * 'AssistantMessage' → @role = assistant@. 'AssistantText' and
---   'AssistantThinking' both flatten into the content text;
---   thinking is wrapped in @\<thinking\>...\</thinking\>@ delimiters
---   so OpenAI-compatible providers without a native thinking field
---   still receive the trace (EP-5 may make this configurable).
---   'AssistantToolCall' blocks are pulled into the @tool_calls@
---   array.
--- * 'ToolResultMessage' → @role = tool@ with a single concatenated
---   text payload. OpenAI's tool message does not natively carry an
---   error flag — if 'isError' is set, the body is prefixed with
---   @"[error] "@.
+-- The handler reads its API key from 'Baikai.Options.apiKey' when
+-- present, falling back to the @OPENAI_API_KEY@ env var via
+-- 'Baikai.Auth.resolveApiKey'.
 module Baikai.Provider.OpenAI.Api
-  ( OpenAIApi (..)
-  , openaiApi
+  ( register
   ) where
 
+import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
 import Baikai.Content qualified as Content
+import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError (..))
 import Baikai.Message qualified as Msg
-import Baikai.Model qualified as Model
-import Baikai.Provider (Provider (..))
-import Baikai.Request qualified as Req
+import Baikai.Model (Model)
+import Baikai.Options (Options (..))
+import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason qualified as Stop
 import Baikai.Usage qualified as Usage
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
-import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -57,39 +48,39 @@ import OpenAI.V1.Models qualified as OpenAIModels
 import OpenAI.V1.ToolCall qualified as ToolCall
 import OpenAI.V1.Usage qualified as OpenAIUsage
 
--- | A configured OpenAI Chat Completions provider. 'pricing' defaults to
--- 'Pricing.defaultPricing'; override per-provider by constructing the record
--- by hand to model negotiated discounts or to add unknown models.
-data OpenAIApi = OpenAIApi
-  { methods :: !OpenAI.Methods
-  , pricing :: !(Map Text Pricing.PricingRate)
-  }
-
--- | Build an 'OpenAIApi' from a key source. Performs no network I/O.
-openaiApi :: MonadIO m => Auth.ApiKeySource -> m OpenAIApi
-openaiApi src = do
-  key <- Auth.resolveApiKey src
-  env <- liftIO (OpenAI.getClientEnv "https://api.openai.com")
-  pure
-    OpenAIApi
-      { methods = OpenAI.makeMethods env key Nothing Nothing
-      , pricing = Pricing.defaultPricing
+-- | Install the OpenAI Chat Completions handler into the registry.
+register :: IO ()
+register =
+  registerApiProvider
+    ApiProvider
+      { apiTag = OpenAIChatCompletions
+      , complete = runOpenAIChat
       }
 
-instance Provider OpenAIApi where
-  providerName _ = "openai.chat.api"
-  runRequest api req = liftIO $ do
-    let OpenAI.Methods {OpenAI.createChatCompletion} = methods api
-    create <- either (throwIO . RequestInvalid) pure (mapRequest req)
-    start <- getCurrentTime
-    obj <- createChatCompletion create
-    end <- getCurrentTime
-    pure (Pricing.attachCost (pricing api) (mapResponse start end obj))
+runOpenAIChat :: Model -> Context -> Options -> IO Resp.Response
+runOpenAIChat m ctx opts = do
+  key <- resolveKey opts
+  let url = case m ^. #baseUrl of
+        "" -> "https://api.openai.com"
+        u -> u
+  env <- OpenAI.getClientEnv url
+  let methods = OpenAI.makeMethods env key Nothing Nothing
+      OpenAI.Methods {OpenAI.createChatCompletion} = methods
+  create <- either (throwIO . RequestInvalid) pure (mapRequest m ctx opts)
+  start <- getCurrentTime
+  obj <- createChatCompletion create
+  end <- getCurrentTime
+  pure (Pricing.attachCost m (mapResponse m start end obj))
 
-mapRequest :: Req.Request -> Either Text Chat.CreateChatCompletion
-mapRequest req = do
-  body <- traverse mapMessage (Vector.toList (req ^. #messages))
-  let prefix = case req ^. #systemPrompt of
+resolveKey :: Options -> IO Text
+resolveKey opts = case opts ^. #apiKey of
+  Just k -> pure k
+  Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "OPENAI_API_KEY")
+
+mapRequest :: Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
+mapRequest m ctx opts = do
+  body <- traverse mapMessage (Vector.toList (ctx ^. #messages))
+  let prefix = case ctx ^. #systemPrompt of
         Nothing -> []
         Just sp ->
           [ Chat.System
@@ -97,12 +88,13 @@ mapRequest req = do
               , Chat.name = Nothing
               }
           ]
+      mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
   pure
     Chat._CreateChatCompletion
       { Chat.messages = Vector.fromList (prefix <> body)
-      , Chat.model = OpenAIModels.Model (Model.unModel (req ^. #model))
-      , Chat.max_completion_tokens = Just (req ^. #maxTokens)
-      , Chat.temperature = req ^. #temperature
+      , Chat.model = OpenAIModels.Model (m ^. #modelId)
+      , Chat.max_completion_tokens = Just mt
+      , Chat.temperature = opts ^. #temperature
       }
 
 mapMessage :: Msg.Message -> Either Text (Chat.Message (Vector Chat.Content))
@@ -130,14 +122,18 @@ mapMessage = \case
             , Chat.assistant_audio = Nothing
             , Chat.tool_calls = toolCallVec
             }
-  Msg.ToolResultMessage {Msg.toolCallId = tid, Msg.toolResultContent = trc, Msg.isError = err} ->
-    let body = collectToolResultText trc
-        decorated = if err then "[error] " <> body else body
-     in Right
-          Chat.Tool
-            { Chat.content = Vector.singleton Chat.Text {Chat.text = decorated}
-            , Chat.tool_call_id = tid
-            }
+  Msg.ToolResultMessage
+    { Msg.toolCallId = tid
+    , Msg.toolResultContent = trc
+    , Msg.isError = err
+    } ->
+      let body = collectToolResultText trc
+          decorated = if err then "[error] " <> body else body
+       in Right
+            Chat.Tool
+              { Chat.content = Vector.singleton Chat.Text {Chat.text = decorated}
+              , Chat.tool_call_id = tid
+              }
 
 userContentToPart :: Content.UserContent -> Chat.Content
 userContentToPart = \case
@@ -145,12 +141,10 @@ userContentToPart = \case
   Content.UserImage img ->
     let encoded = Text.decodeUtf8 (Base64.encode (Content.imageData img))
         uri = "data:" <> Content.mimeType img <> ";base64," <> encoded
-     in Chat.Image_URL {Chat.image_url = Chat.ImageURL {Chat.url = uri, Chat.detail = Nothing}}
+     in Chat.Image_URL
+          { Chat.image_url = Chat.ImageURL {Chat.url = uri, Chat.detail = Nothing}
+          }
 
--- | Concatenate the assistant message's text-shaped content. Thinking
--- blocks are wrapped in @\<thinking\>...\</thinking\>@ delimiters so
--- they survive the round-trip into an OpenAI-shaped wire; EP-5 will
--- let callers configure the wrapping per host.
 collectAssistantText :: Vector Content.AssistantContent -> Text
 collectAssistantText =
   Text.concat
@@ -193,8 +187,8 @@ collectToolResultText =
           Content.ToolResultImage _ -> Nothing
       )
 
-mapResponse :: UTCTime -> UTCTime -> Chat.ChatCompletionObject -> Resp.Response
-mapResponse start end obj =
+mapResponse :: Model -> UTCTime -> UTCTime -> Chat.ChatCompletionObject -> Resp.Response
+mapResponse m start end obj =
   let pickedChoice = pickChoice (obj ^. #choices)
       blocks = maybe Vector.empty choiceToBlocks pickedChoice
       stopReason = maybe Stop.Stop (mapFinishReason . (^. #finish_reason)) pickedChoice
@@ -207,9 +201,9 @@ mapResponse start end obj =
               , Msg.errorMessage = Nothing
               , Msg.timestamp = end
               }
-        , Resp.model = Model.Model (modelText (obj ^. #model))
-        , Resp.api = "openai.chat.completions"
-        , Resp.provider = "openai.chat.api"
+        , Resp.model = m
+        , Resp.api = OpenAIChatCompletions
+        , Resp.provider = m ^. #provider
         , Resp.responseId = Just (obj ^. #id)
         , Resp.latencyMs = millisBetween start end
         }
@@ -221,13 +215,13 @@ pickChoice cs
 
 choiceToBlocks :: Chat.Choice -> Vector Content.AssistantContent
 choiceToBlocks ch =
-  let m = ch ^. #message
-      body = Chat.messageToContent m
+  let mm = ch ^. #message
+      body = Chat.messageToContent mm
       textBlock =
         if Text.null body
           then Vector.empty
           else Vector.singleton (Content.AssistantText (Content.TextContent body))
-      toolBlocks = case m of
+      toolBlocks = case mm of
         Chat.Assistant {Chat.tool_calls = Just tcs} -> Vector.map toolCallToBlock tcs
         _ -> Vector.empty
    in textBlock <> toolBlocks
@@ -240,16 +234,14 @@ toolCallToBlock = \case
         { Content.id_ = i
         , Content.name = ToolCall.name f
         , Content.arguments =
-            fromMaybe (Aeson.Object mempty)
+            fromMaybe
+              (Aeson.Object mempty)
               (Aeson.decodeStrict (Text.encodeUtf8 (ToolCall.arguments f)))
         }
 
-modelText :: OpenAIModels.Model -> Text
-modelText (OpenAIModels.Model t) = t
-
-mapUsage ::
-  OpenAIUsage.Usage OpenAIUsage.CompletionTokensDetails OpenAIUsage.PromptTokensDetails ->
-  Usage.Usage
+mapUsage
+  :: OpenAIUsage.Usage OpenAIUsage.CompletionTokensDetails OpenAIUsage.PromptTokensDetails
+  -> Usage.Usage
 mapUsage u =
   let i = u ^. #prompt_tokens
       o = u ^. #completion_tokens

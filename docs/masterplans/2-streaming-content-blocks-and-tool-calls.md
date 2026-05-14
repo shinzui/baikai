@@ -243,7 +243,7 @@ Alternatives considered and rejected:
 | #    | Title                                                              | Path                                                                          | Hard Deps        | Soft Deps  | Status      |
 |------|--------------------------------------------------------------------|-------------------------------------------------------------------------------|------------------|------------|-------------|
 | EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | Complete    |
-| EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Not Started |
+| EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Complete    |
 | EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Not Started |
 | EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Not Started |
 | EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Not Started |
@@ -537,12 +537,12 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-1: Migrate API and CLI providers to produce typed content blocks
 - [x] EP-1: Migrate `Baikai.Cost`, `Baikai.Cost.Log`, and `Baikai.Trace` to the new `Usage`
 - [x] EP-1: Migrate every test target and add content-block smoke coverage
-- [ ] EP-2: Introduce `Baikai.Api` and the `Model` data record (replaces newtype)
-- [ ] EP-2: Introduce `Baikai.Context` and `Baikai.Options`; delete `Baikai.Request`
-- [ ] EP-2: Introduce `Baikai.Provider.Registry`; remove `Provider` typeclass
-- [ ] EP-2: Rewrite each vendor provider to expose `register :: IO ()`
-- [ ] EP-2: Rewrite `Baikai.Cost.Pricing`, `Baikai.Trace`, `Baikai.Cost.Log` for `Model`/`Context`
-- [ ] EP-2: Migrate every test target and live smoke through the registry
+- [x] EP-2: Introduce `Baikai.Api` and the `Model` data record (replaces newtype)
+- [x] EP-2: Introduce `Baikai.Context` and `Baikai.Options`; delete `Baikai.Request`
+- [x] EP-2: Introduce `Baikai.Provider.Registry`; remove `Provider` typeclass
+- [x] EP-2: Rewrite each vendor provider to expose `register :: IO ()`
+- [x] EP-2: Rewrite `Baikai.Cost.Pricing`, `Baikai.Trace`, `Baikai.Cost.Log` for `Model`/`Context`
+- [x] EP-2: Migrate every test target and live smoke through the registry
 - [ ] EP-3: Define `AssistantMessageEvent`, the streaming entry point, and `streamingComplete`
 - [ ] EP-3: Implement the Anthropic streaming producer via `createMessageStreamTyped`
 - [ ] EP-3: Implement the OpenAI streaming producer via `createChatCompletionStreamTyped`
@@ -591,6 +591,30 @@ interactions between child plans. Provide concise evidence.
   exercises `FromJSON Usage` today; EP-5 or EP-6 (whichever first
   needs to deserialise a `Cost`) should re-introduce the symmetric
   instances.
+- EP-2: `Baikai.Prelude` re-exports `module Control.Lens`, which
+  bleeds `Context` from `Control.Lens.Internal.Context` into every
+  module that imports the project Prelude. The new
+  `Baikai.Context.Context` collides. Fix: `Baikai.Prelude` now imports
+  `Control.Lens hiding (Context)`. EP-3 and EP-4 must remember this
+  shadow when extending the Prelude or adding modules that import
+  both surfaces.
+- EP-2: The same compilation-coupling shape EP-1 observed (M2 and M4
+  inseparable) recurred here at the dispatch boundary. The moment
+  `Model` stops being a `newtype Text`, every reader of
+  `Request.model`, `Response.model`, `Cost.Pricing.compute`, and the
+  `Provider` typeclass fails simultaneously. EP-2 landed as a single
+  end-to-end commit rather than the six narrative milestones the plan
+  sketched. EP-3's promotion of `stream` to the primary
+  `ApiProvider` method will almost certainly show the same pattern —
+  plan its milestone narrative around what keeps the library
+  compiling, not around the conceptual decomposition.
+- EP-2: Tasty runs `testCase`s in parallel by default and the
+  process-global registry IORef tolerates exactly zero races on the
+  same `Api` tag. Every test whose behaviour depends on the
+  registered handler must use a unique `Api` tag — the OTel test
+  silently passed once on a lucky run, then failed deterministically
+  when scheduling shifted. EP-3 and EP-4's streaming/tool stub
+  providers should adopt the per-test-tag convention from the start.
 
 
 ## Decision Log

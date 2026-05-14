@@ -2,19 +2,22 @@
 
 module Main (main) where
 
+import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
+import Baikai.Context (Context (..), _Context)
 import Baikai.Error (BaikaiError (..))
 import Baikai.Message (Message (..), user)
-import Baikai.Model (Model (..))
-import Baikai.Provider (Provider (..))
-import Baikai.Request (Request (..), _Request)
+import Baikai.Model (Model (..), _Model)
+import Baikai.Options (Options, _Options)
+import Baikai.Provider (ApiProvider (..), registerApiProvider)
 import Baikai.Response (Response (..), _Response)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Trace (withTrace)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 import Baikai.Usage (_Usage)
 import Control.Exception (throwIO, try)
-import Control.Monad.IO.Class (liftIO)
+import Control.Lens ((&), (.~))
+import Data.Generics.Labels ()
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, readIORef)
 import Data.Vector qualified as V
@@ -33,19 +36,26 @@ main =
       , failureSpanTest
       ]
 
--- | Stub provider that either returns a canned 'Response' or throws a
--- 'BaikaiError'. Same shape as the stub used in baikai's TraceSpec tests.
-data Stub
-  = StubOk Response
-  | StubFail BaikaiError
+-- | Build a stub 'Model' under a private 'Api' tag. Each test uses
+-- a distinct tag so tasty's parallel test scheduler cannot race the
+-- registry between tests.
+stubModel :: Api -> Model
+stubModel a =
+  _Model
+    { modelId = "stub-1"
+    , api = a
+    , provider = "stub.otel"
+    , maxOutputTokens = 16
+    }
 
-instance Provider Stub where
-  providerName _ = "stub.otel"
-  runRequest (StubOk r) _ = pure r
-  runRequest (StubFail e) _ = liftIO (throwIO e)
+stubContext :: Context
+stubContext = _Context {messages = V.fromList [user "hello"]}
 
-stubResponse :: Response
-stubResponse =
+stubOptions :: Options
+stubOptions = _Options & #maxTokens .~ Just 16
+
+stubResponse :: Api -> Response
+stubResponse a =
   _Response
     { message =
         AssistantMessage
@@ -55,26 +65,29 @@ stubResponse =
           , errorMessage = Nothing
           , timestamp = read "2026-05-14 00:00:00 UTC"
           }
-    , model = Model "stub-1"
-    , api = "stub"
+    , model = stubModel a
+    , api = a
     , provider = "stub.otel"
     , responseId = Nothing
     , latencyMs = 0
     }
 
-stubRequest :: Request
-stubRequest =
-  _Request
-    { model = Model "stub-1"
-    , messages = V.fromList [user "hello"]
-    , maxTokens = 16
-    , temperature = Nothing
-    , systemPrompt = Nothing
-    }
+registerOk :: Api -> IO ()
+registerOk a =
+  registerApiProvider
+    ApiProvider
+      { apiTag = a
+      , complete = \_m _ctx _opts -> pure (stubResponse a)
+      }
 
--- | Build a 'Tracer' backed by the in-memory list exporter and return an
--- accessor that reads the recorded spans. The list is prepended-to by
--- 'inMemoryListExporter', so we reverse on read.
+registerFail :: Api -> BaikaiError -> IO ()
+registerFail a e =
+  registerApiProvider
+    ApiProvider
+      { apiTag = a
+      , complete = \_m _ctx _opts -> throwIO e
+      }
+
 newTracerWithInMemory :: IO (Otel.Tracer, IO [Otel.ImmutableSpan])
 newTracerWithInMemory = do
   (proc, spansRef :: IORef [Otel.ImmutableSpan]) <- inMemoryListExporter
@@ -85,9 +98,11 @@ newTracerWithInMemory = do
 successSpanTest :: TestTree
 successSpanTest =
   testCase "success path emits one Ok span with expected attributes" $ do
+    let a = Custom "baikai-otel-success"
+    registerOk a
     (tracer, getSpans) <- newTracerWithInMemory
     let sink = otelSink tracer
-    _ <- withTrace sink (StubOk stubResponse) stubRequest
+    _ <- withTrace sink (stubModel a) stubContext stubOptions
     spans <- getSpans
     assertEqual "exactly one span recorded" 1 (length spans)
     case spans of
@@ -113,9 +128,11 @@ successSpanTest =
 failureSpanTest :: TestTree
 failureSpanTest =
   testCase "failure path emits one Error span with error message" $ do
+    let a = Custom "baikai-otel-failure"
+    registerFail a (ProviderError "stub-otel-boom")
     (tracer, getSpans) <- newTracerWithInMemory
     let sink = otelSink tracer
-    r <- try (withTrace sink (StubFail (ProviderError "stub-otel-boom")) stubRequest)
+    r <- try (withTrace sink (stubModel a) stubContext stubOptions)
     case r of
       Left (e :: BaikaiError) -> e @?= ProviderError "stub-otel-boom"
       Right (_ :: Response) -> assertFailure "expected exception, got response"

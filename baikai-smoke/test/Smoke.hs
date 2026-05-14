@@ -1,22 +1,11 @@
 module Main (main) where
 
-import Baikai.Auth (ApiKeySource (..))
-import Baikai.Content
-  ( AssistantContent (..)
-  , ImageContent (..)
-  , TextContent (..)
-  )
-import Baikai.Message (Message (..), user, userImage)
-import Baikai.Model (Model (..))
-import Baikai.Provider (runRequest)
-import Baikai.Provider.Claude.Api (claudeApi)
-import Baikai.Provider.Claude.Cli (claudeCli, defaultClaudeCliConfig)
-import Baikai.Provider.OpenAI.Api (openaiApi)
-import Baikai.Provider.OpenAI.Cli (codexCli, defaultCodexCliConfig)
-import Baikai.Request qualified as Req
-import Baikai.Response (Response, flattenAssistantBlocks)
-import Baikai.Usage qualified as Usage
-import Control.Lens ((^.))
+import Baikai
+import Baikai.Provider.Claude.Api qualified as ClaudeApi
+import Baikai.Provider.Claude.Cli qualified as ClaudeCli
+import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
+import Baikai.Provider.OpenAI.Cli qualified as CodexCli
+import Control.Lens ((&), (.~), (^.))
 import Control.Monad (unless, when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base64 qualified as Base64
@@ -33,102 +22,165 @@ import System.IO (hPutStrLn, stderr)
 
 main :: IO ()
 main = do
-  hadApi <- mapM runCase cases
+  ClaudeApi.register
+  OpenAIApi.register
+  ClaudeCli.register
+  CodexCli.register
+  hadApi <- mapM runApiCase apiCases
   hadCli <- mapM runCliCase cliCases
   hadImage <- runImageCase
   unless (or hadApi || or hadCli || hadImage) $
-    hPutStrLn stderr "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
+    hPutStrLn stderr
+      "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
 
--- (env-var candidates, model, action factory taking the env var that matched)
-cases :: [([String], String, String -> IO Response)]
-cases =
-  [
-    ( ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
-    , "claude-haiku-4-5-20251001"
-    , \envVar -> do
-        p <- claudeApi (ApiKeyEnv envVar)
-        runRequest p (sampleRequest "claude-haiku-4-5-20251001")
-    )
-  ,
-    ( ["OPENAI_KEY", "OPENAI_API_KEY"]
-    , "gpt-4o-mini"
-    , \envVar -> do
-        p <- openaiApi (ApiKeyEnv envVar)
-        runRequest p (sampleRequest "gpt-4o-mini")
-    )
+-- | An API smoke case: matching env-var candidates for the key, the
+-- model record to dispatch under, and a label.
+data ApiCase = ApiCase
+  { caseLabel :: !String
+  , caseEnvVars :: ![String]
+  , caseModel :: !Model
+  }
+
+apiCases :: [ApiCase]
+apiCases =
+  [ ApiCase
+      { caseLabel = "claude-haiku-4-5-20251001"
+      , caseEnvVars = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
+      , caseModel =
+          _Model
+            { modelId = "claude-haiku-4-5-20251001"
+            , name = "Claude Haiku 4.5"
+            , api = AnthropicMessages
+            , provider = "anthropic"
+            , baseUrl = "https://api.anthropic.com"
+            , maxOutputTokens = 1024
+            }
+      }
+  , ApiCase
+      { caseLabel = "gpt-4o-mini"
+      , caseEnvVars = ["OPENAI_KEY", "OPENAI_API_KEY"]
+      , caseModel =
+          _Model
+            { modelId = "gpt-4o-mini"
+            , name = "GPT-4o mini"
+            , api = OpenAIChatCompletions
+            , provider = "openai"
+            , baseUrl = "https://api.openai.com"
+            , maxOutputTokens = 1024
+            }
+      }
   ]
 
-runCase :: ([String], String, String -> IO Response) -> IO Bool
-runCase (envVars, modelName, mkAct) = do
-  matched <- firstSetEnv envVars
+sampleContext :: Context
+sampleContext =
+  _Context
+    & #systemPrompt .~ Just "You are terse."
+    & #messages .~ Vector.singleton (user "Reply with the single word: pong.")
+
+runApiCase :: ApiCase -> IO Bool
+runApiCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
+  matched <- firstSetEnv caseEnvVars
   case matched of
     Nothing -> do
       hPutStrLn stderr $
-        "[baikai-smoke] none of " <> show envVars <> " set; skipping " <> modelName <> "."
+        "[baikai-smoke] none of "
+          <> show caseEnvVars
+          <> " set; skipping "
+          <> caseLabel
+          <> "."
       pure False
-    Just envVar -> do
-      resp <- mkAct envVar
+    Just (envVar, key) -> do
+      let opts =
+            _Options
+              & #maxTokens .~ Just 16
+              & #temperature .~ Just 0.0
+              & #apiKey .~ Just (Text.pack key)
+      resp <- completeRequest caseModel sampleContext opts
       let blocks = flattenAssistantBlocks resp
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
           uOk = case resp ^. #message of
             AssistantMessage {usage = u} ->
-              Usage.inputTokens u > 0 && Usage.outputTokens u > 0
+              (u ^. #inputTokens) > 0 && (u ^. #outputTokens) > 0
             _ -> False
       when (not contentOk || not uOk) $ do
-        hPutStrLn stderr $ "[baikai-smoke] failed for " <> modelName <> "."
+        hPutStrLn stderr $ "[baikai-smoke] failed for " <> caseLabel <> "."
         exitFailure
       hPutStrLn stderr $
-        "[baikai-smoke] " <> modelName <> " ok via " <> envVar
-          <> "; " <> show (Vector.length blocks) <> " block(s); usage tokens > 0"
+        "[baikai-smoke] "
+          <> caseLabel
+          <> " ok via "
+          <> envVar
+          <> "; "
+          <> show (Vector.length blocks)
+          <> " block(s); usage tokens > 0"
       pure True
 
-firstSetEnv :: [String] -> IO (Maybe String)
+firstSetEnv :: [String] -> IO (Maybe (String, String))
 firstSetEnv vars = do
   results <- traverse (\v -> fmap (\m -> (v, m)) (lookupEnv v)) vars
-  pure (fst <$> find (\(_, m) -> isJust m) results)
+  pure $ case find (\(_, m) -> isJust m) results of
+    Just (v, Just val) -> Just (v, val)
+    _ -> Nothing
 
--- (binary on PATH, model alias, action factory)
-cliCases :: [(String, String, IO Response)]
+-- | A CLI smoke case: the binary on PATH, the model dispatched
+-- (typed under the CLI's API tag), and a label.
+data CliCase = CliCase
+  { cliLabel :: !String
+  , cliBinary :: !String
+  , cliModel :: !Model
+  }
+
+cliCases :: [CliCase]
 cliCases =
-  [
-    ( "claude"
-    , "sonnet"
-    , do
-        p <- claudeCli defaultClaudeCliConfig
-        runRequest p (sampleRequest "sonnet")
-    )
-  ,
-    ( "codex"
-    , "<codex-default>"
-    , do
-        p <- codexCli defaultCodexCliConfig
-        runRequest p (sampleRequest "")
-    )
+  [ CliCase
+      { cliLabel = "sonnet"
+      , cliBinary = "claude"
+      , cliModel =
+          _Model
+            { modelId = "sonnet"
+            , api = AnthropicMessagesCli
+            , provider = "anthropic"
+            }
+      }
+  , CliCase
+      { cliLabel = "<codex-default>"
+      , cliBinary = "codex"
+      , cliModel =
+          _Model
+            { modelId = ""
+            , api = OpenAICompletionsCli
+            , provider = "openai"
+            }
+      }
   ]
 
-runCliCase :: (String, String, IO Response) -> IO Bool
-runCliCase (binary, modelName, act) = do
-  found <- findExecutable binary
+runCliCase :: CliCase -> IO Bool
+runCliCase CliCase {cliLabel, cliBinary, cliModel} = do
+  found <- findExecutable cliBinary
   case found of
     Nothing -> do
       hPutStrLn stderr $
-        "[baikai-smoke] " <> binary <> " not on PATH; skipping " <> modelName <> "."
+        "[baikai-smoke] "
+          <> cliBinary
+          <> " not on PATH; skipping "
+          <> cliLabel
+          <> "."
       pure False
     Just path -> do
-      resp <- act
+      resp <- completeRequest cliModel sampleContext _Options
       let blocks = flattenAssistantBlocks resp
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
           usageZero = case resp ^. #message of
             AssistantMessage {usage = u} ->
-              Usage.inputTokens u == 0 && Usage.outputTokens u == 0
+              (u ^. #inputTokens) == 0 && (u ^. #outputTokens) == 0
             _ -> False
           latencyOk = resp ^. #latencyMs > 0
       when (not contentOk || not usageZero || not latencyOk) $ do
         hPutStrLn stderr $
           "[baikai-smoke] failed for "
-            <> modelName
+            <> cliLabel
             <> " via "
             <> path
             <> "; content_nonempty="
@@ -140,16 +192,15 @@ runCliCase (binary, modelName, act) = do
         exitFailure
       hPutStrLn stderr $
         "[baikai-smoke] "
-          <> modelName
+          <> cliLabel
           <> " ok via "
           <> path
           <> "; latency_ms = "
           <> show (resp ^. #latencyMs)
       pure True
 
--- | Send a user message with an inline image to Claude and assert that
--- the response carries at least one assistant text block. Skips when
--- no Anthropic key is available.
+-- | Send a user message with an inline image to Claude and assert
+-- that the response carries at least one assistant text block.
 runImageCase :: IO Bool
 runImageCase = do
   matched <- firstSetEnv ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
@@ -157,24 +208,33 @@ runImageCase = do
     Nothing -> do
       hPutStrLn stderr "[baikai-smoke] no Anthropic key; skipping image content-block case."
       pure False
-    Just envVar -> do
-      p <- claudeApi (ApiKeyEnv envVar)
+    Just (_envVar, key) -> do
       let img =
             ImageContent
               { imageData = dotPngBytes
               , mimeType = "image/png"
               }
-          req =
-            Req._Request
-              { Req.model = Model "claude-haiku-4-5-20251001"
-              , Req.messages =
-                  Vector.singleton
-                    (userImage img (Just "What single colour is this image?"))
-              , Req.maxTokens = 64
-              , Req.temperature = Just 0.0
-              , Req.systemPrompt = Just "Reply in one word."
+          model =
+            _Model
+              { modelId = "claude-haiku-4-5-20251001"
+              , api = AnthropicMessages
+              , provider = "anthropic"
+              , baseUrl = "https://api.anthropic.com"
+              , maxOutputTokens = 64
+              , input = [InputText, InputImage]
               }
-      resp <- runRequest p req
+          ctx =
+            _Context
+              & #systemPrompt .~ Just "Reply in one word."
+              & #messages
+                .~ Vector.singleton
+                  (userImage img (Just "What single colour is this image?"))
+          opts =
+            _Options
+              & #maxTokens .~ Just 64
+              & #temperature .~ Just 0.0
+              & #apiKey .~ Just (Text.pack key)
+      resp <- completeRequest model ctx opts
       let blocks = flattenAssistantBlocks resp
           hasText = any isText (Vector.toList blocks)
       when (not hasText) $ do
@@ -186,8 +246,8 @@ runImageCase = do
     isText (AssistantText _) = True
     isText _ = False
 
--- | A 1×1 transparent PNG. Generated from @python -c "import sys; sys.stdout.buffer.write(b'\\x89PNG\\r\\n\\x1a\\n...')"@
--- and base64-encoded inline so the smoke test ships no binary data files.
+-- | A 1×1 transparent PNG, base64-encoded inline so the smoke test
+-- ships no binary data files.
 dotPngBytes :: BS.ByteString
 dotPngBytes = case Base64.decode dotPngBase64 of
   Left err -> error ("dotPngBytes: invalid base64: " <> err)
@@ -206,14 +266,3 @@ flattenAssistantText =
           AssistantText (TextContent t) -> Just t
           _ -> Nothing
       )
-
-sampleRequest :: Text -> Req.Request
-sampleRequest m =
-  Req.Request
-    { Req.model = Model m
-    , Req.messages = Vector.singleton (user "Reply with the single word: pong.")
-    , Req.maxTokens = 16
-    , Req.temperature = Just 0.0
-    , Req.systemPrompt = Just "You are terse."
-    }
-

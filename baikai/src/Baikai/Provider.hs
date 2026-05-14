@@ -1,21 +1,24 @@
-{-# LANGUAGE ExistentialQuantification #-}
-
+-- | The provider surface.
+--
+-- The prior 'Provider' typeclass and 'SomeProvider' existential are
+-- removed. Dispatch now goes through 'Baikai.Provider.Registry':
+-- the caller picks a 'Baikai.Model.Model' record and calls
+-- 'completeRequest'; the registry looks up the right handler by the
+-- model's 'Baikai.Api.Api' tag.
+--
+-- This module re-exports the registry surface so the
+-- @import Baikai.Provider@ habit still resolves the symbols a
+-- caller cares about.
 module Baikai.Provider
-  ( Provider (..)
-  , SomeProvider (..)
-  , runSome
+  ( ApiProvider (..)
+  , registerApiProvider
+  , lookupApiProvider
+  , completeRequest
   ) where
 
-import Baikai.Request (Request)
-import Baikai.Response (Response)
-import Control.Monad.IO.Class (MonadIO)
-import Data.Text (Text)
-
-class Provider p where
-  providerName :: p -> Text
-  runRequest :: MonadIO m => p -> Request -> m Response
-
-data SomeProvider = forall p. (Provider p) => SomeProvider p
-
-runSome :: MonadIO m => SomeProvider -> Request -> m Response
-runSome (SomeProvider p) = runRequest p
+import Baikai.Provider.Registry
+  ( ApiProvider (..)
+  , completeRequest
+  , lookupApiProvider
+  , registerApiProvider
+  )

@@ -28,7 +28,7 @@ module Baikai.Prelude
   , genericToJSON
   ) where
 
-import Control.Lens
+import Control.Lens hiding (Context)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Aeson (FromJSON (..), ToJSON (..), genericParseJSON, genericToJSON)
 import Data.Generics.Labels ()

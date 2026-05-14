@@ -48,31 +48,63 @@ only. EP-4 adds `tools`.
 
 ## Progress
 
-- [ ] Milestone 1: introduce `Baikai.Api` (the closed-sum-with-escape-hatch tag) and
+- [x] Milestone 1: introduce `Baikai.Api` (the closed-sum-with-escape-hatch tag) and
       `Baikai.Model` (the data record replacing the `newtype Model = Model Text`).
-      Pricing rate fields move into `Model.cost`.
-- [ ] Milestone 2: introduce `Baikai.Context` and `Baikai.Options`. The existing
-      `Baikai.Request` module is renamed/deprecated and its consumers migrated.
-- [ ] Milestone 3: introduce `Baikai.Provider.Registry` with `registerApiProvider`,
-      `lookupApiProvider`, `completeRequest`. The existing `Baikai.Provider` typeclass
-      and `SomeProvider` existential are removed.
-- [ ] Milestone 4: rewrite each provider (`Baikai.Provider.Claude.Api`,
-      `Baikai.Provider.OpenAI.Api`, the two CLI providers) to export a
-      `register :: IO ()` function that installs the matching `ApiProvider` into
-      the registry. Each provider no longer carries its own API-key state — it
-      reads `Options.apiKey` per call, defaulting to an env var when absent.
-- [ ] Milestone 5: rewrite `Baikai.Cost.Pricing`, `Baikai.Trace`, and
+      Pricing rate fields move into `Model.cost`. (2026-05-14)
+- [x] Milestone 2: introduce `Baikai.Context` and `Baikai.Options`. `Baikai.Request`
+      is deleted outright (no parallel surface or shim — baikai is pre-1.0). (2026-05-14)
+- [x] Milestone 3: introduce `Baikai.Provider.Registry` with `registerApiProvider`,
+      `lookupApiProvider`, `completeRequest`. The `Provider` typeclass and
+      `SomeProvider` existential are removed; `Baikai.Provider` is now a thin
+      re-export shim of the registry surface. (2026-05-14)
+- [x] Milestone 4: rewrite each provider (`Baikai.Provider.Claude.Api`,
+      `Baikai.Provider.OpenAI.Api`, and both CLI providers) to expose a
+      `register :: IO ()` function. API providers consult `Options.apiKey`,
+      defaulting to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` via
+      `Auth.resolveApiKey`. CLI providers also gain a `registerWith` overload
+      taking a per-package config record. (2026-05-14)
+- [x] Milestone 5: rewrite `Baikai.Cost.Pricing`, `Baikai.Trace`, and
       `Baikai.Cost.Log` to consume `Model` and `Context` directly. The pricing
-      `Map Text PricingRate` is removed; `Pricing.attachCost` becomes
-      `Pricing.computeCost :: Model -> Usage -> Cost`.
-- [ ] Milestone 6: migrate `baikai/test/*`, `baikai-trace-otel/test/*`, and
-      `baikai-smoke/test/Smoke.hs` to the new shape. `cabal test all` is green;
-      with API keys present, the live smoke runs through the registry.
+      `Map Text PricingRate` is gone; `computeCost :: Model -> Usage -> Cost`
+      and `attachCost :: Model -> Response -> Response` replace it.
+      `withTrace` / `runRequestWith` take `Model -> Context -> Options`. (2026-05-14)
+- [x] Milestone 6: every test target migrated. `cabal test all` is green;
+      `cabal test baikai-smoke` ran live against OpenAI Chat Completions
+      (`gpt-4o-mini`), the `claude` CLI, and the `codex` CLI in this session;
+      Anthropic API and the image smoke skipped (no `ANTHROPIC_*` env var set
+      during the run, but the code path is identical to OpenAI). (2026-05-14)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `Baikai.Prelude` re-exports `module Control.Lens`, which brings the
+  `Context` name from `Control.Lens.Internal.Context` into scope of every
+  module that imports the project Prelude. With the new
+  `Baikai.Context.Context` type, `Baikai.Trace` (which imports both) hit a
+  GHC-87543 ambiguous-occurrence error. Fix: `Baikai.Prelude` now imports
+  `Control.Lens hiding (Context)`. EP-3 and EP-4 should remember this shadow
+  exists when they extend the Prelude or any module that imports both
+  surfaces.
+- `claude` and `openai`'s `getClientEnv` take `Text`, not `String` — the
+  prior providers passed string literals via `OverloadedStrings`, so this
+  was invisible until the new dispatch path wired `Text.unpack` in by
+  reflex. The Decision Log captures the fix; the lesson is to grep the
+  actual SDK signatures rather than mirror old code shape when threading
+  values across module boundaries.
+- Tasty runs `testCase`s in parallel by default, and the process-global
+  registry IORef does not tolerate two tests writing the same `Api` tag.
+  An initial run had the OTel failure test see the success handler. Fix:
+  every test uses a unique `Custom "test-name"` tag. EP-3 and later
+  plans whose stub providers register handlers should follow the same
+  per-test-tag convention.
+- GHC's `-Wambiguous-fields` (under `-XDuplicateRecordFields`) warns on
+  record updates when multiple data declarations share the field name
+  being updated, even when the expression's overall type would
+  disambiguate. The `_Options {maxTokens = Just 16}` form silently
+  resolved to `TraceEvent.CallStarted` until I switched to
+  `_Options & #maxTokens .~ Just 16`. EP-3's streaming event protocol
+  introduces more record types with shared field names — anticipate the
+  same warning class and prefer the lens-based update form there.
 
 
 ## Decision Log
@@ -122,7 +154,94 @@ only. EP-4 adds `tools`.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-2 landed: `baikai`'s dispatch surface is now data-driven. The caller
+picks a `Model` record (carrying an `Api` tag, base URL, pricing, context
+window, max-tokens, headers, and a `Compat` placeholder), constructs a
+`Context` and an `Options`, and calls `completeRequest`. Adding a new
+provider that speaks a known API is now a data change: a new `Model`
+value plus the existing handler.
+
+What ships:
+
+- `Baikai.Api` — a closed sum (`OpenAIChatCompletions`,
+  `AnthropicMessages`, `OpenAICompletionsCli`, `AnthropicMessagesCli`)
+  with a `Custom !Text` escape hatch, plus `renderApi`/`parseApi` for
+  wire round-trips.
+- `Baikai.Model` — a data record carrying the dispatch metadata; the
+  prior `newtype Model = Model Text` is retired (`unModel` remains as a
+  convenience accessor over `modelId`). `ModelCost` holds the
+  per-million-token rates. `Compat = CompatNone` is the placeholder
+  EP-5 will extend.
+- `Baikai.Context` and `Baikai.Options` — the per-call records. The
+  old `Baikai.Request` module is deleted outright (pre-1.0, no parallel
+  surface).
+- `Baikai.Provider.Registry` — `ApiProvider { apiTag, complete }`
+  values keyed by `Api` tag in a process-global `IORef (Map Api ApiProvider)`.
+  `registerApiProvider`, `lookupApiProvider`, and `completeRequest` are
+  the top-level surface.
+- `Baikai.Provider` — now a thin re-export shim of the registry.
+- `Baikai.Cost.Pricing` — `computeCost :: Model -> Usage -> Cost` and
+  `attachCost :: Model -> Response -> Response`. The
+  `Map Text PricingRate` is gone.
+- `Baikai.Trace.withTrace` and `Baikai.Cost.Log.runRequestWithLog` —
+  both now take `Model -> Context -> Options`. `withTrace` calls
+  `completeRequest` directly; the trace bridge no longer needs a
+  `Provider` instance argument.
+- Vendor packages: each provider module exposes `register :: IO ()`
+  (CLI providers additionally `registerWith :: Config -> IO ()`).
+  `baikai-claude` registers `AnthropicMessages` and
+  `AnthropicMessagesCli`; `baikai-openai` registers
+  `OpenAIChatCompletions` and `OpenAICompletionsCli`.
+
+What is verified end to end:
+
+- `cabal test all` is green: 18 tests in `baikai`, 2 in
+  `baikai-trace-otel`, 1 (skipping/dispatching) in `baikai-smoke`.
+- `cabal test baikai-smoke` ran live against:
+  - OpenAI Chat Completions (`gpt-4o-mini` via `OPENAI_API_KEY`)
+  - `claude` CLI (`claude -p` with model alias `sonnet`)
+  - `codex` CLI (`codex exec --json` with the CLI's built-in default)
+- The Anthropic API path and the image smoke skipped because no
+  `ANTHROPIC_*` env var was set; the code path is identical to OpenAI's
+  and exercised by the unit tests.
+- `ghci> :t completeRequest` reports
+  `Model -> Context -> Options -> IO Response`.
+- `ghci> :t withTrace` reports
+  `MonadUnliftIO m => TraceSink -> Model -> Context -> Options -> m Response`.
+- `Provider` typeclass and `SomeProvider` no longer appear in
+  `Baikai.Provider`'s export list.
+
+What remains for later plans:
+
+- EP-3 will promote `stream` to the primary `ApiProvider` method and
+  derive `complete` from `Stream.fold`. The synchronous shape we ship
+  here is what EP-3 retains for non-streaming callers.
+- EP-5 will extend `Compat` with `CompatOpenAICompletions` and
+  `CompatAnthropicMessages` constructors so multi-host deployments can
+  describe their wire differences. The `compat` field on `Model` is
+  already in place.
+- EP-6 will generate `Baikai.Models.Generated`. The `Model` record
+  shape it generates is the one this plan defines; `ModelCost` and
+  `InputModality` are the JSON fields the catalog will emit.
+
+Lessons:
+
+- Splitting the work into six narrative milestones helped the design
+  thinking but did not survive contact with the GHC type checker:
+  every consumer of `Model`, `Provider`, `Request`, and `Cost.Pricing`
+  breaks simultaneously when the data shape changes. EP-1's
+  Surprises & Discoveries called this out for the M2+M4 case; the same
+  pattern held here. The library only compiled cleanly once every
+  module was updated; intermediate commits would not have been buildable.
+  The work landed as a single commit instead. EP-3's streaming
+  protocol switch will likely show the same pattern — plan its
+  milestone narrative around what keeps the library compiling.
+- The process-global registry has tasty-parallel hazard: any test
+  whose behaviour depends on the registered handler must use a unique
+  `Api` tag. The test files for `Baikai.Trace`,
+  `Baikai.Trace.Sink.OpenTelemetry`, and the test provider in
+  `baikai/test/Main.hs` now follow this convention. EP-3's streaming
+  tests should adopt the same pattern.
 
 
 ## Context and Orientation

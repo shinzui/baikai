@@ -8,23 +8,42 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import TraceSpec qualified
 
-data TestProvider = TestProvider {cannedContent :: !Text}
+-- | Ground the test provider on a 'Custom' API tag so it does not
+-- clash with the real Anthropic/OpenAI handlers if a future test
+-- registers them in the same process.
+testApi :: Api
+testApi = Custom "baikai-test"
 
-instance Provider TestProvider where
-  providerName _ = "test"
-  runRequest TestProvider {cannedContent} _ =
-    pure
-      ( _Response
-          { message =
-              assistant cannedContent
-          , model = Model "test"
-          , api = "test"
-          , provider = "test"
-          }
-      )
+testModel :: Model
+testModel =
+  _Model
+    { modelId = "test-model"
+    , name = "Test Model"
+    , api = testApi
+    , provider = "test"
+    }
+
+-- | Install a handler that returns a fixed assistant message for
+-- the 'testApi' tag. Idempotent: re-registering the same tag
+-- overwrites.
+registerTestHandler :: Text -> IO ()
+registerTestHandler canned =
+  registerApiProvider
+    ApiProvider
+      { apiTag = testApi
+      , complete = \m _ctx _opts ->
+          pure
+            _Response
+              { message = assistant canned
+              , model = m
+              , api = testApi
+              , provider = "test"
+              }
+      }
 
 main :: IO ()
-main =
+main = do
+  registerTestHandler "hello from the test provider"
   defaultMain $
     testGroup
       "baikai"
@@ -36,29 +55,21 @@ main =
 tests :: TestTree
 tests =
   testGroup
-    "baikai EP-1"
-    [ testCase "_Request defaults are zero-y" $ do
-        unModel (_Request ^. #model) @?= ""
-        V.length (_Request ^. #messages) @?= 0
-        _Request ^. #maxTokens @?= 1024
-        _Request ^. #temperature @?= Nothing
-        _Request ^. #systemPrompt @?= Nothing
-    , testCase "TestProvider returns the canned content" $ do
-        let req =
-              _Request
-                & #model .~ Model "test-model"
-                & #messages .~ V.fromList [user "ping"]
-            tp = TestProvider {cannedContent = "hello from the test provider"}
-        resp <- runRequest tp req :: IO Response
+    "baikai EP-2"
+    [ testCase "_Context defaults are zero-y" $ do
+        _Context ^. #systemPrompt @?= Nothing
+        V.length (_Context ^. #messages) @?= 0
+    , testCase "_Options defaults are zero-y" $ do
+        _Options ^. #maxTokens @?= Nothing
+        _Options ^. #temperature @?= Nothing
+        _Options ^. #apiKey @?= Nothing
+    , testCase "completeRequest dispatches through the registered handler" $ do
+        let ctx = _Context {messages = V.fromList [user "ping"]}
+        resp <- completeRequest testModel ctx _Options
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hello from the test provider"))
-        unModel (resp ^. #model) @?= "test"
+        (resp ^. #model) ^. #modelId @?= "test-model"
         resp ^. #provider @?= "test"
-    , testCase "SomeProvider wraps and dispatches" $ do
-        let tp = TestProvider {cannedContent = "hello from the test provider"}
-        resp <- runSome (SomeProvider tp) _Request :: IO Response
-        flattenAssistantBlocks resp
-          @?= V.singleton (AssistantText (TextContent "hello from the test provider"))
     , testCase "user smart constructor produces a UserMessage" $ do
         case user "hello" of
           UserMessage {userContent = uc} ->

@@ -1,35 +1,30 @@
--- | Provider that drives the @codex exec --json@ non-interactive CLI as a
--- subprocess.
+-- | Provider that drives the @codex exec --json@ non-interactive CLI
+-- as a subprocess.
 --
--- Construct a 'CodexCli' with 'codexCli' and the desired 'CodexCliConfig'
--- (or just 'defaultCodexCliConfig'), then call 'Baikai.Provider.runRequest'
--- like any other provider. The provider name is @"openai.codex.cli"@.
---
--- Stdout is consumed as a streamly byte stream, split on newlines, decoded as
--- JSON, and folded to the concatenation of all @agent_message@ payloads. The
--- subprocess handle is guarded by 'bracket' so it is reaped on any exception.
--- The provider always returns 'Baikai.Response.Response' whose embedded
--- assistant message carries zero token counts (and therefore zero cost).
+-- Call 'register' once (typically from @main@) to install the
+-- 'Baikai.Api.OpenAICompletionsCli' handler with default config.
+-- 'registerWith' accepts a caller-supplied 'CodexCliConfig'.
 module Baikai.Provider.OpenAI.Cli
-  ( CodexCli
-  , CodexCliConfig (..)
+  ( CodexCliConfig (..)
   , defaultCodexCliConfig
-  , codexCli
+  , register
+  , registerWith
   ) where
 
+import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
+import Baikai.Context (Context)
 import Baikai.Error (BaikaiError (..))
 import Baikai.Message (Message (..))
-import Baikai.Model qualified as Model
-import Baikai.Provider (Provider (..))
+import Baikai.Model (Model)
+import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
-import Baikai.Request qualified as Req
+import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (_Usage)
 import Control.Exception (bracket, throwIO)
 import Control.Lens ((^.))
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Text (Text)
@@ -45,11 +40,6 @@ import System.IO (Handle, hClose)
 import System.Process qualified as P
 
 -- | Configuration for the @codex exec --json@ subprocess.
---
--- 'executable' defaults to the bare string @"codex"@ so the OS resolves the
--- binary via @PATH@. 'skipGitRepoCheck' and 'ephemeral' default to 'True' so
--- the CLI does not refuse to run outside a Git repo and does not write a
--- session file to disk. 'extraArgs' are appended verbatim before the prompt.
 data CodexCliConfig = CodexCliConfig
   { executable :: !FilePath
   , extraArgs :: !(Vector Text)
@@ -69,26 +59,24 @@ defaultCodexCliConfig =
     , ephemeral = True
     }
 
--- | A configured Codex CLI provider. Holding a value of this type does not
--- spawn any processes; the subprocess is only spawned on 'runRequest'.
-newtype CodexCli = CodexCli {config :: CodexCliConfig}
-  deriving stock (Eq, Show, Generic)
+-- | Install the Codex CLI handler with 'defaultCodexCliConfig'.
+register :: IO ()
+register = registerWith defaultCodexCliConfig
 
-codexCli :: MonadIO m => CodexCliConfig -> m CodexCli
-codexCli = pure . CodexCli
+-- | Install the Codex CLI handler with a caller-supplied config.
+registerWith :: CodexCliConfig -> IO ()
+registerWith cfg =
+  registerApiProvider
+    ApiProvider
+      { apiTag = OpenAICompletionsCli
+      , complete = runCodexCli cfg
+      }
 
--- | Emit @--model M@ unless 'Req.Request.model' is empty, in which case the
--- CLI's built-in default is used. Empty is the sentinel because the unified
--- 'Baikai.Model.Model' newtype wraps 'Text' and a blank value is the
--- least-surprising "don't override" signal for CLI providers.
-modelArgs :: Req.Request -> [String]
-modelArgs req = case Text.strip (Model.unModel (req ^. #model)) of
+modelArgs :: Model -> [String]
+modelArgs m = case Text.strip (m ^. #modelId) of
   "" -> []
-  m -> ["--model", Text.unpack m]
+  mid -> ["--model", Text.unpack mid]
 
--- | Read a handle as a streamly stream of small ByteString chunks. Reading
--- stops when 'BS.hGetSome' returns an empty chunk, which signals EOF after
--- the child closes its stdout.
 handleStream :: Handle -> Stream IO BS.ByteString
 handleStream h = Stream.unfoldrM step ()
   where
@@ -98,32 +86,29 @@ handleStream h = Stream.unfoldrM step ()
         then pure Nothing
         else pure (Just (chunk, ()))
 
-instance Provider CodexCli where
-  providerName _ = "openai.codex.cli"
-  runRequest (CodexCli cfg) req = liftIO $ do
-    let prompt = Internal.renderPrompt req
-        baseArgs =
-          ["exec"]
-            <> modelArgs req
-            <> ["--json"]
-            <> [ "--skip-git-repo-check"
-               | cfg ^. #skipGitRepoCheck
-               ]
-            <> ["--ephemeral" | cfg ^. #ephemeral]
-            <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
-            <> [Text.unpack prompt]
-        procSpec =
-          (P.proc (cfg ^. #executable) baseArgs)
-            { P.std_in = P.NoStream
-            , P.std_out = P.CreatePipe
-            , P.std_err = P.CreatePipe
-            , P.cwd = cfg ^. #workingDir
-            }
-    start <- getCurrentTime
-    bracket
-      (P.createProcess procSpec)
-      cleanup
-      (consume start req)
+runCodexCli :: CodexCliConfig -> Model -> Context -> Options -> IO Resp.Response
+runCodexCli cfg m ctx _opts = do
+  let prompt = Internal.renderPrompt ctx
+      baseArgs =
+        ["exec"]
+          <> modelArgs m
+          <> ["--json"]
+          <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
+          <> ["--ephemeral" | cfg ^. #ephemeral]
+          <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+          <> [Text.unpack prompt]
+      procSpec =
+        (P.proc (cfg ^. #executable) baseArgs)
+          { P.std_in = P.NoStream
+          , P.std_out = P.CreatePipe
+          , P.std_err = P.CreatePipe
+          , P.cwd = cfg ^. #workingDir
+          }
+  start <- getCurrentTime
+  bracket
+    (P.createProcess procSpec)
+    cleanup
+    (consume start m)
 
 cleanup :: (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle) -> IO ()
 cleanup (_, mOut, mErr, ph) = do
@@ -131,12 +116,12 @@ cleanup (_, mOut, mErr, ph) = do
   maybe (pure ()) hClose mErr
   P.terminateProcess ph
 
-consume ::
-  UTCTime ->
-  Req.Request ->
-  (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle) ->
-  IO Resp.Response
-consume start req (_, mOut, mErr, ph) = do
+consume
+  :: UTCTime
+  -> Model
+  -> (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
+  -> IO Resp.Response
+consume start m (_, mOut, mErr, ph) = do
   hOut <- maybe (throwIO (ProviderError "codex: stdout handle missing")) pure mOut
   hErr <- maybe (throwIO (ProviderError "codex: stderr handle missing")) pure mErr
   body <- Internal.parseCodexJsonlStream (handleStream hOut)
@@ -157,9 +142,9 @@ consume start req (_, mOut, mErr, ph) = do
                 , errorMessage = Nothing
                 , timestamp = end
                 }
-          , Resp.model = req ^. #model
-          , Resp.api = "openai.codex.cli"
-          , Resp.provider = "openai.codex.cli"
+          , Resp.model = m
+          , Resp.api = OpenAICompletionsCli
+          , Resp.provider = m ^. #provider
           , Resp.responseId = Nothing
           , Resp.latencyMs = millisBetween start end
           }

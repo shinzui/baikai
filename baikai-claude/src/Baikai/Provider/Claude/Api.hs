@@ -1,35 +1,39 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | Provider wrapping the @claude@ package's Messages API.
 --
--- Construct a 'ClaudeApi' with 'claudeApi' and a 'Baikai.Auth.ApiKeySource',
--- then pass it to 'Baikai.Provider.runRequest' as you would any other provider.
--- The provider name is @"anthropic.claude.api"@.
+-- Call 'register' once (typically from @main@) to install the
+-- 'Baikai.Api.AnthropicMessages' handler into the baikai provider
+-- registry. After registration, any 'Baikai.Model.Model' whose
+-- 'Baikai.Api.api' tag is 'AnthropicMessages' dispatches through
+-- this handler.
 --
--- The provider maps the typed 'Baikai.Message.Message' ADT (introduced
--- in EP-1) onto Anthropic's content-block shapes:
+-- The handler reads its API key from 'Baikai.Options.apiKey' when
+-- present, falling back to the @ANTHROPIC_API_KEY@ env var via
+-- 'Baikai.Auth.resolveApiKey'.
+--
+-- Message mapping (unchanged from EP-1):
 --
 -- * 'UserMessage' → @role = User@ with one Claude content block per
---   'UserContent' block. 'UserText' → @Content_Text@; 'UserImage' →
---   @Content_Image@ with the bytes base64-encoded into 'ImageSource'.
--- * 'AssistantMessage' → @role = Assistant@. 'AssistantText' →
---   @Content_Text@; 'AssistantThinking' → @Content_Thinking@;
---   'AssistantToolCall' → @Content_Tool_Use@.
+--   'UserContent' block.
+-- * 'AssistantMessage' → @role = Assistant@.
 -- * 'ToolResultMessage' → a 'User'-role Claude message whose only
---   content block is @Content_Tool_Result@. Per Anthropic's protocol,
---   tool results live inside a user turn.
+--   content block is @Content_Tool_Result@.
 module Baikai.Provider.Claude.Api
-  ( ClaudeApi (..)
-  , claudeApi
+  ( register
   ) where
 
+import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
 import Baikai.Content qualified as Content
+import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError (..))
 import Baikai.Message qualified as Msg
-import Baikai.Model qualified as Model
-import Baikai.Provider (Provider (..))
-import Baikai.Request qualified as Req
+import Baikai.Model (Model)
+import Baikai.Options (Options (..))
+import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason qualified as Stop
 import Baikai.Usage qualified as Usage
@@ -37,10 +41,8 @@ import Claude.V1 qualified as Claude
 import Claude.V1.Messages qualified as Messages
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
-import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.ByteString.Base64 qualified as Base64
 import Data.Generics.Labels ()
-import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -49,47 +51,50 @@ import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 
--- | A configured Anthropic Messages API provider. 'pricing' defaults to
--- 'Pricing.defaultPricing'; override per-provider by constructing the record
--- by hand to model negotiated discounts or to add unknown models.
-data ClaudeApi = ClaudeApi
-  { methods :: !Claude.Methods
-  , pricing :: !(Map Text Pricing.PricingRate)
-  }
-
--- | Build a 'ClaudeApi' from a key source. Performs no network I/O.
-claudeApi :: MonadIO m => Auth.ApiKeySource -> m ClaudeApi
-claudeApi src = do
-  key <- Auth.resolveApiKey src
-  env <- liftIO (Claude.getClientEnv "https://api.anthropic.com")
-  pure
-    ClaudeApi
-      { methods = Claude.makeMethods env key (Just "2023-06-01")
-      , pricing = Pricing.defaultPricing
+-- | Install the Anthropic Messages handler into the registry.
+-- Calling 'register' twice keeps only the second handler — the
+-- registry's insert-overwrites semantic.
+register :: IO ()
+register =
+  registerApiProvider
+    ApiProvider
+      { apiTag = AnthropicMessages
+      , complete = runClaudeMessages
       }
 
-instance Provider ClaudeApi where
-  providerName _ = "anthropic.claude.api"
-  runRequest api req = liftIO $ do
-    let Claude.Methods {Claude.createMessage} = methods api
-    createReq <- either (throwIO . RequestInvalid) pure (mapRequest req)
-    start <- getCurrentTime
-    resp <- createMessage createReq
-    end <- getCurrentTime
-    pure (Pricing.attachCost (pricing api) (mapResponse start end resp))
+runClaudeMessages :: Model -> Context -> Options -> IO Resp.Response
+runClaudeMessages m ctx opts = do
+  key <- resolveKey opts
+  let url = case m ^. #baseUrl of
+        "" -> "https://api.anthropic.com"
+        u -> u
+  env <- Claude.getClientEnv url
+  let methods = Claude.makeMethods env key (Just "2023-06-01")
+      Claude.Methods {Claude.createMessage} = methods
+  createReq <- either (throwIO . RequestInvalid) pure (mapRequest m ctx opts)
+  start <- getCurrentTime
+  resp <- createMessage createReq
+  end <- getCurrentTime
+  pure (Pricing.attachCost m (mapResponse m start end resp))
 
--- | Translate a 'Baikai.Request.Request' to Anthropic's
--- 'Messages.CreateMessage'.
-mapRequest :: Req.Request -> Either Text Messages.CreateMessage
-mapRequest req = do
-  msgs <- traverse mapMessage (Vector.toList (req ^. #messages))
+-- | Resolve the per-call API key. 'Options.apiKey' wins when set;
+-- otherwise read @ANTHROPIC_API_KEY@ from the environment.
+resolveKey :: Options -> IO Text
+resolveKey opts = case opts ^. #apiKey of
+  Just k -> pure k
+  Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "ANTHROPIC_API_KEY")
+
+mapRequest :: Model -> Context -> Options -> Either Text Messages.CreateMessage
+mapRequest m ctx opts = do
+  msgs <- traverse mapMessage (Vector.toList (ctx ^. #messages))
+  let mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
   pure
     Messages._CreateMessage
-      { Messages.model = Model.unModel (req ^. #model)
+      { Messages.model = m ^. #modelId
       , Messages.messages = Vector.fromList msgs
-      , Messages.max_tokens = req ^. #maxTokens
-      , Messages.system = fmap Messages.SystemPromptText (req ^. #systemPrompt)
-      , Messages.temperature = req ^. #temperature
+      , Messages.max_tokens = mt
+      , Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt)
+      , Messages.temperature = opts ^. #temperature
       }
 
 mapMessage :: Msg.Message -> Either Text Messages.Message
@@ -108,19 +113,23 @@ mapMessage = \case
         , Messages.content = Vector.mapMaybe assistantContentToBlock ac
         , Messages.cache_control = Nothing
         }
-  Msg.ToolResultMessage {Msg.toolCallId = tid, Msg.toolResultContent = trc, Msg.isError = err} ->
-    Right
-      Messages.Message
-        { Messages.role = Messages.User
-        , Messages.content =
-            Vector.singleton
-              Messages.Content_Tool_Result
-                { Messages.tool_use_id = tid
-                , Messages.content = nonEmpty (concatToolResultText trc)
-                , Messages.is_error = Just err
-                }
-        , Messages.cache_control = Nothing
-        }
+  Msg.ToolResultMessage
+    { Msg.toolCallId = tid
+    , Msg.toolResultContent = trc
+    , Msg.isError = err
+    } ->
+      Right
+        Messages.Message
+          { Messages.role = Messages.User
+          , Messages.content =
+              Vector.singleton
+                Messages.Content_Tool_Result
+                  { Messages.tool_use_id = tid
+                  , Messages.content = nonEmpty (concatToolResultText trc)
+                  , Messages.is_error = Just err
+                  }
+          , Messages.cache_control = Nothing
+          }
 
 userContentToBlock :: Content.UserContent -> Maybe Messages.Content
 userContentToBlock = \case
@@ -157,10 +166,6 @@ assistantContentToBlock = \case
         , Messages.caller = Nothing
         }
 
--- Reduce a vector of tool-result blocks to a single plain-text payload;
--- image blocks are dropped because Anthropic's tool_result content is a
--- single optional string. EP-4 may extend the upstream Claude SDK to
--- accept the richer typed-block form.
 concatToolResultText :: Vector Content.ToolResultContent -> Text
 concatToolResultText =
   Text.concat
@@ -176,8 +181,8 @@ nonEmpty t
   | Text.null t = Nothing
   | otherwise = Just t
 
-mapResponse :: UTCTime -> UTCTime -> Messages.MessageResponse -> Resp.Response
-mapResponse start end resp =
+mapResponse :: Model -> UTCTime -> UTCTime -> Messages.MessageResponse -> Resp.Response
+mapResponse m start end resp =
   Resp.Response
     { Resp.message =
         Msg.AssistantMessage
@@ -187,9 +192,9 @@ mapResponse start end resp =
           , Msg.errorMessage = Nothing
           , Msg.timestamp = end
           }
-    , Resp.model = Model.Model (resp ^. #model)
-    , Resp.api = "anthropic.messages"
-    , Resp.provider = "anthropic.claude.api"
+    , Resp.model = m
+    , Resp.api = AnthropicMessages
+    , Resp.provider = m ^. #provider
     , Resp.responseId = Just (resp ^. #id)
     , Resp.latencyMs = millisBetween start end
     }

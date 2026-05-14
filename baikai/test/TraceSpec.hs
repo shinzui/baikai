@@ -1,12 +1,14 @@
 module TraceSpec (tests) where
 
+import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
+import Baikai.Context (Context (..), _Context)
 import Baikai.Error (BaikaiError (..))
 import Baikai.Message (Message (..), user)
-import Baikai.Model (Model (..))
+import Baikai.Model (Model (..), _Model)
+import Baikai.Options (Options, _Options)
 import Baikai.Prelude
-import Baikai.Provider (Provider (..))
-import Baikai.Request (Request, _Request)
+import Baikai.Provider (ApiProvider (..), registerApiProvider)
 import Baikai.Response (Response (..), _Response)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Trace (withTrace)
@@ -30,19 +32,26 @@ tests =
     , memoryFailTest
     ]
 
--- | Stub provider whose runRequest either returns a fixed response or
--- throws a 'BaikaiError'.
-data Stub
-  = StubOk Response
-  | StubFail BaikaiError
+-- | Each test uses its own private 'Api' tag so tasty's parallel
+-- test scheduler cannot race the (process-global) registry between
+-- tests.
+stubModel :: Api -> Model
+stubModel a =
+  _Model
+    { modelId = "stub-1"
+    , api = a
+    , provider = "stub.trace"
+    , maxOutputTokens = 16
+    }
 
-instance Provider Stub where
-  providerName _ = "stub.trace"
-  runRequest (StubOk r) _ = pure r
-  runRequest (StubFail e) _ = liftIO (throwIO e)
+stubContext :: Context
+stubContext = _Context {messages = V.fromList [user "hello"]}
 
-stubResponse :: Response
-stubResponse =
+stubOptions :: Options
+stubOptions = _Options & #maxTokens .~ Just 16
+
+stubResponse :: Api -> Response
+stubResponse a =
   _Response
     { message =
         AssistantMessage
@@ -52,23 +61,29 @@ stubResponse =
           , errorMessage = Nothing
           , timestamp = read "2026-05-14 00:00:00 UTC"
           }
-    , model = Model "stub-1"
-    , api = "stub"
+    , model = stubModel a
+    , api = a
     , provider = "stub.trace"
     , responseId = Nothing
     , latencyMs = 0
     }
 
-stubRequest :: Request
-stubRequest =
-  _Request
-    & #model .~ Model "stub-1"
-    & #maxTokens .~ 16
-    & #messages .~ V.fromList [user "hello"]
+registerOk :: Api -> IO ()
+registerOk a =
+  registerApiProvider
+    ApiProvider
+      { apiTag = a
+      , complete = \_m _ctx _opts -> pure (stubResponse a)
+      }
 
--- | An in-memory sink that prepends every event to a 'TVar [TraceEvent]'.
--- 'withTrace' guarantees the worker has drained the terminal event before
--- returning, so the TVar is fully populated by the time the test reads it.
+registerFail :: Api -> BaikaiError -> IO ()
+registerFail a e =
+  registerApiProvider
+    ApiProvider
+      { apiTag = a
+      , complete = \_m _ctx _opts -> throwIO e
+      }
+
 memorySink :: IO (TVar [TraceEvent], TraceSink)
 memorySink = do
   ref <- newTVarIO []
@@ -81,10 +96,14 @@ silentTest =
   testGroup
     "silent sink"
     [ testCase "returns the response on success" $ do
-        _ <- withTrace silent (StubOk stubResponse) stubRequest
+        let a = Custom "baikai-trace-silent-ok"
+        registerOk a
+        _ <- withTrace silent (stubModel a) stubContext stubOptions
         pure ()
     , testCase "re-throws on failure" $ do
-        r <- try (withTrace silent (StubFail (ProviderError "boom")) stubRequest)
+        let a = Custom "baikai-trace-silent-fail"
+        registerFail a (ProviderError "boom")
+        r <- try (withTrace silent (stubModel a) stubContext stubOptions)
         case r of
           Left e -> e @?= ProviderError "boom"
           Right (_ :: Response) -> assertFailure "expected exception, got response"
@@ -93,8 +112,10 @@ silentTest =
 memoryFinishTest :: TestTree
 memoryFinishTest =
   testCase "memory sink records CallStarted then CallFinished" $ do
+    let a = Custom "baikai-trace-memory-ok"
+    registerOk a
     (ref, sink) <- memorySink
-    _ <- withTrace sink (StubOk stubResponse) stubRequest
+    _ <- withTrace sink (stubModel a) stubContext stubOptions
     rev <- readTVarIO ref
     let events = reverse rev
     length events @?= 2
@@ -110,8 +131,10 @@ memoryFinishTest =
 memoryFailTest :: TestTree
 memoryFailTest =
   testCase "memory sink records CallStarted then CallFailed on exception" $ do
+    let a = Custom "baikai-trace-memory-fail"
+    registerFail a (ProviderError "stub-failure")
     (ref, sink) <- memorySink
-    r <- try (withTrace sink (StubFail (ProviderError "stub-failure")) stubRequest)
+    r <- try (withTrace sink (stubModel a) stubContext stubOptions)
     case r of
       Left e -> e @?= ProviderError "stub-failure"
       Right (_ :: Response) -> assertFailure "expected exception, got response"
