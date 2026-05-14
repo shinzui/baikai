@@ -5,7 +5,9 @@ import Baikai.Message (Message (..), Role (..))
 import Baikai.Model (Model (..))
 import Baikai.Provider (runRequest)
 import Baikai.Provider.Claude.Api (claudeApi)
+import Baikai.Provider.Claude.Cli (claudeCli, defaultClaudeCliConfig)
 import Baikai.Provider.OpenAI.Api (openaiApi)
+import Baikai.Provider.OpenAI.Cli (codexCli, defaultCodexCliConfig)
 import qualified Baikai.Request as Req
 import qualified Baikai.Response as Resp
 import Control.Lens ((^.))
@@ -15,6 +17,7 @@ import Data.Generics.Labels ()
 import Data.Maybe (isJust)
 import qualified Data.Text as Text
 import qualified Data.Vector as Vector
+import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -22,8 +25,9 @@ import System.IO (hPutStrLn, stderr)
 main :: IO ()
 main = do
   hadAny <- mapM runCase cases
-  unless (or hadAny) $
-    hPutStrLn stderr "[baikai-smoke] no provider keys set; skipping all cases."
+  hadCli <- mapM runCliCase cliCases
+  unless (or hadAny || or hadCli) $
+    hPutStrLn stderr "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
 
 -- (env-var candidates, model, action factory taking the env var that matched)
 cases :: [([String], String, String -> IO Resp.Response)]
@@ -70,6 +74,70 @@ firstSetEnv :: [String] -> IO (Maybe String)
 firstSetEnv vars = do
   results <- traverse (\v -> fmap (\m -> (v, m)) (lookupEnv v)) vars
   pure (fst <$> find (\(_, m) -> isJust m) results)
+
+-- (binary on PATH, model alias, action factory)
+cliCases :: [(String, String, IO Resp.Response)]
+cliCases =
+  [
+    ( "claude"
+    , "sonnet"
+    , do
+        p <- claudeCli defaultClaudeCliConfig
+        runRequest p (sampleRequest "sonnet")
+    )
+  ,
+    ( "codex"
+    , "<codex-default>"
+    , do
+        -- Empty model => let the codex CLI pick whatever its default is.
+        -- ChatGPT-account installations don't expose names like "gpt-5",
+        -- so we don't try to guess one; the binary's own default is the
+        -- only string we know will work across accounts.
+        p <- codexCli defaultCodexCliConfig
+        runRequest p (sampleRequest "")
+    )
+  ]
+
+runCliCase :: (String, String, IO Resp.Response) -> IO Bool
+runCliCase (binary, modelName, act) = do
+  found <- findExecutable binary
+  case found of
+    Nothing -> do
+      hPutStrLn stderr $
+        "[baikai-smoke] " <> binary <> " not on PATH; skipping " <> modelName <> "."
+      pure False
+    Just path -> do
+      resp <- act
+      let contentOk = not (Text.null (resp ^. #content))
+          noUsage = isNothing' (resp ^. #usage)
+          noCost = isNothing' (resp ^. #cost)
+          latencyOk = resp ^. #latencyMs > 0
+      when (not contentOk || not noUsage || not noCost || not latencyOk) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] failed for "
+            <> modelName
+            <> " via "
+            <> path
+            <> "; content_nonempty="
+            <> show contentOk
+            <> " usage_nothing="
+            <> show noUsage
+            <> " cost_nothing="
+            <> show noCost
+            <> " latency_positive="
+            <> show latencyOk
+        exitFailure
+      hPutStrLn stderr $
+        "[baikai-smoke] "
+          <> modelName
+          <> " ok via "
+          <> path
+          <> "; latency_ms = "
+          <> show (resp ^. #latencyMs)
+      pure True
+  where
+    isNothing' Nothing = True
+    isNothing' Just {} = False
 
 sampleRequest :: Text.Text -> Req.Request
 sampleRequest m =

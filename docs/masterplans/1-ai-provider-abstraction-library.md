@@ -161,7 +161,7 @@ Alternatives considered and rejected:
 |------|------------------------------------------------------|---------------------------------------------------------------|-------------|-------------|-------------|
 | EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | Complete    |
 | EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Complete    |
-| EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Not Started |
+| EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Complete    |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Not Started |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Not Started |
 | EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | Not Started |
@@ -288,10 +288,10 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-2: Implement `Baikai.Provider.Claude.Api` (in `baikai-claude`) mapping unified Request to `Claude.V1.Messages.CreateMessage`
 - [x] 2026-05-13 EP-2: Implement `Baikai.Provider.OpenAI.Api` (in `baikai-openai`) mapping unified Request to `OpenAI.V1.Chat.Completions.CreateChatCompletion`
 - [x] 2026-05-13 EP-2: Integration smoke test against both APIs (skipped if API key env var is unset; lives in sibling package `baikai-smoke/`; OpenAI half validated live this session, Anthropic half deferred to first session with a key)
-- [ ] EP-3: Add `cradle`, `streamly`, `streamly-core`, `temp-file` to `baikai-claude` and `baikai-openai`
-- [ ] EP-3: Implement `Baikai.Provider.Claude.Cli` invoking `claude -p --output-format json --model ...`
-- [ ] EP-3: Implement `Baikai.Provider.OpenAI.Cli` invoking `codex exec --json --model ...`, parsing JSONL via streamly
-- [ ] EP-3: Smoke test that invokes a small prompt and parses the JSON response
+- [x] 2026-05-13 EP-3: Wired `cradle`, `streamly`, `streamly-core` into the cabal workspace via local `packages:` entries (the Nix `ghc912` set ships none of them). `temp-file` was not needed — the codex parser is fully streaming.
+- [x] 2026-05-13 EP-3: Implemented `Baikai.Provider.Claude.Cli` in `baikai-claude`, invoking `claude -p --output-format json` via cradle and decoding the typed-event JSON array stdout.
+- [x] 2026-05-13 EP-3: Implemented `Baikai.Provider.OpenAI.Cli` in `baikai-openai` via `System.Process` + a streamly handle-to-stream adapter; `Baikai.Provider.Cli.Internal.parseCodexJsonlStream` consumes the JSONL and folds out the assistant text.
+- [x] 2026-05-13 EP-3: Live smoke test in `baikai-smoke` exercises both CLI providers against the real binaries; passing on this machine (claude `sonnet` ≈ 3.5–6.0s, codex default model ≈ 2.8–4.3s).
 - [ ] EP-4: Define `Baikai.Cost.Pricing` with a model→rate map seeded for the current Claude and OpenAI lineup
 - [ ] EP-4: Implement `Baikai.Cost.compute :: Model -> Usage -> Maybe Cost`
 - [ ] EP-4: Wire cost computation into API providers' response construction
@@ -347,6 +347,42 @@ interactions between child plans. Provide concise evidence.
   packages are already vendored, but any future plan that swaps the vendoring strategy
   (e.g. to a `git`-source `source-repository-package`) needs to keep test-suite-disabling
   in mind.
+
+- 2026-05-13 (EP-3): Three CLI-related schema/behavior surprises fed back into the
+  shared assumptions for the rest of the masterplan:
+  (a) `claude -p --output-format json` emits a JSON **array** of typed events, not the
+  single object the decomposition prose predicted. The `"type":"result"` event holds
+  the assistant text and `is_error` flag. EP-4 (cost) does not need to touch this
+  because CLI providers always report `cost = Nothing`, but EP-5 (trace events) should
+  expect the same array-shaped JSON if it ever wants to surface CLI-side
+  rate-limit-event objects or usage hints.
+  (b) `codex exec --json` (codex-cli 0.130) wraps `agent_message` in an `item.completed`
+  envelope (`{"type":"item.completed","item":{"type":"agent_message","text":...}}`).
+  `Baikai.Provider.Cli.Internal.extractAgentMessage` now matches this shape first
+  and falls back through the four legacy schemas the plan documented. The shape
+  also yields `turn.completed` events with a `usage` object — EP-4/EP-5 may want
+  to consume this in a follow-up, but EP-3 deliberately ignores it (CLI providers
+  remain "no cost reported, ever").
+  (c) `cradle 0.0.0.0` requires the `-threaded` GHC runtime: any executable or
+  test-suite that depends on `baikai-claude` must compile with `-threaded
+  -with-rtsopts=-N`. `baikai-smoke/baikai-smoke.cabal` has those flags. EP-5/EP-6
+  test executables must add them too.
+
+- 2026-05-13 (EP-3): **Empty `Request.model` is a sentinel** meaning "let the CLI use
+  its built-in default" — implemented in both CLI providers. Driven by the discovery
+  that the user's ChatGPT-account `codex` rejects `gpt-5`, `gpt-5-codex`, and
+  `gpt-5.1-codex` while the un-flagged default works. This is invisible to API
+  providers (EP-2) — they always need a concrete model string — and to EP-4 (pricing
+  table) — an empty model maps to `Nothing` for cost regardless. Documented in EP-3's
+  Decision Log and consumed only by EP-3 modules.
+
+- 2026-05-13 (EP-3): **`cradle`, `streamly`, `streamly-core` were not in the Nix
+  `ghc912` set.** EP-3 vendored them via `cabal.project` `packages:` entries pointing
+  at the local `mori` hub paths (`/Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle`
+  and the two streamly subpackages). `tests: False` stanzas were added for all three.
+  Future plans that need additional Haskell deps not in the Nix set should follow the
+  same pattern — `mori registry show <project> --full` reveals the on-disk path, and
+  `cabal.project` `packages:` accepts a directory path directly.
 
 
 ## Decision Log

@@ -38,11 +38,15 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai.Provider.Claude.Api
+    Baikai.Provider.Claude.Cli
 
   build-depends:
     , base >=4.20 && <5
+    , aeson
     , baikai
+    , bytestring
     , claude
+    , cradle
     , generic-lens
     , http-client
     , http-client-tls

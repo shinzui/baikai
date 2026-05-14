@@ -39,11 +39,14 @@ test-suite baikai-smoke
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Smoke.hs
+  -- cradle (used by Baikai.Provider.Claude.Cli) requires the threaded RTS.
+  ghc-options: -threaded -with-rtsopts=-N
   build-depends:
     , base >=4.20 && <5
     , baikai
     , baikai-claude
     , baikai-openai
+    , directory
     , generic-lens
     , lens ^>=5.3
     , text ^>=2.1

@@ -37,16 +37,21 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai.Provider.OpenAI.Api
+    Baikai.Provider.OpenAI.Cli
 
   build-depends:
     , base >=4.20 && <5
     , baikai
+    , bytestring
     , generic-lens
     , http-client
     , http-client-tls
     , lens ^>=5.3
     , openai
+    , process
     , servant-client
+    , streamly ^>=0.12
+    , streamly-core ^>=0.4
     , text ^>=2.1
     , time
     , vector

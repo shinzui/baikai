@@ -45,6 +45,7 @@ library
     Baikai.Model
     Baikai.Prelude
     Baikai.Provider
+    Baikai.Provider.Cli.Internal
     Baikai.Request
     Baikai.Response
     Baikai.Usage
@@ -57,6 +58,8 @@ library
     generic-lens,
     lens ^>=5.3,
     scientific,
+    streamly ^>=0.12,
+    streamly-core ^>=0.4,
     text ^>=2.1,
     time,
     vector,

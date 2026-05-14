@@ -80,20 +80,20 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Confirm EP-2 has landed: verify `baikai-claude/baikai-claude.cabal` and `baikai-openai/baikai-openai.cabal` exist and both packages already expose their `*.Api` modules.
-- [ ] Confirm `cradle`, `streamly`, and `streamly-core` are reachable from the project's `ghc912` package set; if absent, add the relevant `source-repository-package` blocks (or local `cabal.project` pins) pointing at `/Users/shinzui/Keikaku/hub/haskell/cradle-project` and the streamly sources discoverable via `mori registry search streamly`.
-- [ ] Add `cradle`, `streamly`, `streamly-core`, `aeson`, `bytestring`, `time`, `directory` to `baikai/baikai.cabal` under the library `build-depends` (the shared helper `Baikai.Provider.Cli.Internal` lives in core and is where the streamly JSONL parser is implemented).
-- [ ] Create `baikai/src/Baikai/Provider/Cli/Internal.hs` with shared helpers: `renderPrompt`, `maybeApply`, `decodeUtf8Lenient`, and the streamly JSONL helper `parseCodexJsonlStream`.
-- [ ] Add `cradle`, `aeson`, `time`, `directory`, and `baikai` to `baikai-claude/baikai-claude.cabal` under the library `build-depends`.
-- [ ] Create `baikai-claude/src/Baikai/Provider/Claude/Cli.hs` exporting `ClaudeCli`, `ClaudeCliConfig`, `defaultClaudeCliConfig`, `claudeCli`; register it in the `exposed-modules` stanza of `baikai-claude.cabal`.
-- [ ] Define `ClaudeCliResult` with `FromJSON` and integrate it with the `Provider` instance, throwing `DecodeError` when the JSON shape is not what we expect.
-- [ ] Add `cradle`, `streamly`, `streamly-core`, `aeson`, `bytestring`, `time`, `directory`, and `baikai` to `baikai-openai/baikai-openai.cabal` under the library `build-depends`.
-- [ ] Create `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` exporting `CodexCli`, `CodexCliConfig`, `defaultCodexCliConfig`, `codexCli`; register it in the `exposed-modules` stanza of `baikai-openai.cabal`.
-- [ ] Implement the streamly JSONL parser for `codex exec --json` stdout: split lines, decode each as JSON, keep `msg.type == "agent_message"` payloads, fold into the concatenated assistant text.
-- [ ] Run `cabal build all` (which now builds `baikai`, `baikai-claude`, and `baikai-openai`) and confirm a clean compile under `ghc912`.
-- [ ] Write tiny integration smoke tests under each vendor package's `test/` directory that use `findExecutable` to skip when CLIs are missing.
-- [ ] Run `cabal test all` against both providers locally and record the observed latencies.
-- [ ] Update the master plan's progress section to mark EP-3 complete.
+- [x] 2026-05-13 Confirm EP-2 has landed: `baikai-claude/baikai-claude.cabal` and `baikai-openai/baikai-openai.cabal` both expose their `*.Api` modules.
+- [x] 2026-05-13 `cradle`, `streamly`, `streamly-core` are not in the Nix `ghc912` set; added as local `packages:` entries in `cabal.project` (pointing at the hub paths from `mori registry show`). `tests: False` stanzas added for all three so their bundled live suites stay out of `cabal test all`.
+- [x] 2026-05-13 Added `aeson`, `bytestring`, `streamly`, `streamly-core` to `baikai/baikai.cabal`. Other listed deps (`cradle`, `directory`, `time`) live in the vendor packages instead — core only carries the streamly JSONL helper, not the cradle invocation.
+- [x] 2026-05-13 Created `baikai/src/Baikai/Provider/Cli/Internal.hs` with `renderPrompt`, `maybeApply`, `decodeUtf8Lenient`, `extractAgentMessage`, and `parseCodexJsonlStream`. `cabal build baikai` clean.
+- [x] 2026-05-13 Added `aeson`, `bytestring`, `cradle` to `baikai-claude/baikai-claude.cabal` library deps; `baikai`, `time`, `vector`, `text` were already there.
+- [x] 2026-05-13 Created `baikai-claude/src/Baikai/Provider/Claude/Cli.hs` exporting `ClaudeCli`, `ClaudeCliConfig`, `defaultClaudeCliConfig`, `claudeCli`; registered in `baikai-claude.cabal` `exposed-modules`.
+- [x] 2026-05-13 `ClaudeCliResult` has `FromJSON`; the decoder accepts both the current `[event]` JSON-array shape (codex-cli 2.x) and the legacy single-object shape, throwing `DecodeError` if neither matches.
+- [x] 2026-05-13 Added `bytestring`, `process`, `streamly`, `streamly-core` to `baikai-openai/baikai-openai.cabal` library deps.
+- [x] 2026-05-13 Created `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` exporting `CodexCli`, `CodexCliConfig`, `defaultCodexCliConfig`, `codexCli`; registered in `baikai-openai.cabal` `exposed-modules`.
+- [x] 2026-05-13 Streamly JSONL parser implemented in `Baikai.Provider.Cli.Internal.parseCodexJsonlStream`. Extractor matches the **current** codex-cli `0.130` schema (`item.completed` envelope with `item.type == "agent_message"`) and three legacy schemas.
+- [x] 2026-05-13 `cabal build all` clean under GHC 9.12.2.
+- [x] 2026-05-13 Smoke tests added to the existing sibling package `baikai-smoke` (per master-plan Surprises note about EP-2's cyclic-deps trap) — vendor packages don't carry their own test stanzas. `findExecutable` gates each CLI case.
+- [x] 2026-05-13 `cabal test all`: `baikai-test` 3/3 OK, `baikai-smoke` 4/4 OK (OpenAI API + Claude CLI + Codex CLI live; Claude API skipped — no `ANTHROPIC_KEY`). Observed latencies: claude `sonnet` ≈ 3.5–6.0s, codex default model ≈ 2.8–4.3s.
+- [x] 2026-05-13 Master plan EP-3 milestones checked off and the registry row marked Complete.
 
 
 ## Surprises & Discoveries
@@ -101,7 +101,65 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-05-13: **`claude -p --output-format json` returns a JSON array, not a single
+  object.** The plan's prediction of a top-level object with `result`/`is_error` fields
+  was wrong for `claude-code` 2.1.x. The actual stdout is a JSON array of typed events
+  (`{"type":"system",...}`, `{"type":"assistant",...}`, `{"type":"rate_limit_event",...}`,
+  `{"type":"result",...}`) and the terminal `"type":"result"` event is where `result`
+  and `is_error` live. Fixed by extending `decodeResult` in `Baikai.Provider.Claude.Cli`
+  to walk the array and pick the `"result"` event; the legacy single-object shape is
+  still accepted. Evidence: live invocation of `claude -p --model sonnet --output-format
+  json --no-session-persistence 'Reply: pong.'` against `claude-code` 2.1.141.
+
+- 2026-05-13: **Current `codex exec --json` schema uses an `item.completed` envelope.**
+  The plan predicted `{"msg":{"type":"agent_message", ... }}`. Reality for `codex-cli`
+  0.130 is `{"type":"item.completed","item":{"id":"item_0","type":"agent_message",
+  "text":"..."}}` (plus `thread.started`, `turn.started`, `turn.completed`, `error`,
+  `turn.failed` envelopes). `extractAgentMessage` now tries the `item.*` shape first
+  and falls back through the four legacy shapes the plan documented. Evidence: live
+  invocation of `codex exec --json --skip-git-repo-check --ephemeral 'Reply: pong.'`.
+
+- 2026-05-13: **`cradle` requires `-threaded`.** The runtime check inside
+  `Cradle.ProcessConfiguration` throws "Cradle needs the ghc's threaded runtime
+  system to work correctly. Use the ghc option '-threaded'." Plain `ghc-options:
+  -Wall` is not enough; the test-suite needs `-threaded -with-rtsopts=-N`. Added
+  those flags to `baikai-smoke/baikai-smoke.cabal`'s test-suite stanza. Any
+  downstream consumer that links a binary against `baikai-claude` must do the same.
+
+- 2026-05-13: **The ChatGPT-account variant of `codex` does not expose `gpt-5`,
+  `gpt-5-codex`, or `gpt-5.1-codex` as model names.** Passing any of those returns
+  exit code 1 with `{"type":"error","status":400,"error":{"type":"invalid_request_error",
+  "message":"The 'X' model is not supported when using Codex with a ChatGPT account."}}`
+  in stdout JSONL events. The CLI's *built-in default* (when `--model` is omitted)
+  works. Implication for the unified `Request`: a CLI provider with a hard-coded
+  model name is not portable across user accounts. Resolved by making **the empty
+  model string a sentinel** that omits `--model` from both CLI providers and lets
+  the binary use its own default. Same change applied to `claudeCli` for symmetry.
+
+- 2026-05-13: **`codex` always writes `"Reading additional input from stdin...\n"` to
+  stderr,** even when stdin is closed (we set `std_in = NoStream`). Treat this as
+  informational; the process still exits 0 on success. `ProcessError` is only thrown
+  on actual non-zero exit, so this doesn't cause false failures, but anyone tailing
+  stderr should expect this line.
+
+- 2026-05-13: **Vendor versions in the local hub are newer than the plan's pins.**
+  `cradle-0.0.0.0`, `streamly-0.12.0`, `streamly-core-0.4.0`. Updated cabal upper
+  bounds to `streamly ^>=0.12` and `streamly-core ^>=0.4`. The streamly API surface
+  the plan describes (Stream.unfoldEach, Stream.foldMany, Fold.takeEndBy_,
+  Fold.foldl', Unfold.fromList, Stream.mapMaybe) is unchanged across the bump.
+
+- 2026-05-13: **Tasty, not Hspec, in the smoke tests.** The plan's example smoke
+  tests use `hspec`, but the Nix `ghc912` set ships `tasty`/`tasty-hunit` (no
+  hspec). EP-1 already uses tasty, and the existing `baikai-smoke` test driver
+  is a plain `Main` that loops through cases — that is what EP-3 extended. No
+  behavioral compromise; the validation criteria (non-empty content, usage
+  Nothing, cost Nothing, latency > 0) are checked identically.
+
+- 2026-05-13: **CLI tests live in `baikai-smoke`, not in per-vendor test stanzas.**
+  Following the master-plan Surprises note about the cyclic-deps trap. `baikai-smoke`
+  already imported both vendor libraries; adding two more cases there was strictly
+  additive and reused the existing skip-on-missing-env-var pattern (extended with
+  skip-on-missing-binary for the CLI cases).
 
 
 ## Decision Log
@@ -148,13 +206,67 @@ Record every decision made while working on the plan.
   Rationale: Match the EP-1 typeclass signature. Forward-compat with a future `baikai-effectful` package. The streamly fold stays in `Fold IO ...` because `streamly`'s fold and the spawned worker live in `IO`; only the outer `runRequest` boundary changes.
   Date: 2026-05-13
 
+- Decision: Empty `req.model` is a sentinel meaning "omit `--model` and let the CLI use its built-in default."
+  Rationale: Real CLI installations differ in which model names they accept (the user's ChatGPT-account `codex` refused `gpt-5`, `gpt-5-codex`, and `gpt-5.1-codex` but works fine without `--model`). Hard-coding a model in a portable test or example is a footgun. `Model ""` (empty `Text`) is a natural opt-out that costs the unified type system nothing — `Model` already wraps `Text` per the EP-1 design. Both `claudeCli` and `codexCli` honor the sentinel for symmetry.
+  Date: 2026-05-13
+
+- Decision: Took option 3 from the Codex CLI surface section (System.Process + a streamly-driven `Handle`-to-`Stream IO ByteString` adapter) instead of any cradle-handle path.
+  Rationale: `cradle 0.0.0.0` exposes only the strict `StdoutRaw` / `StderrRaw` outputs (no streaming `Handle` sink), and `streamly-process` is not registered in `mori`. Option 3 was the cleanest match: `System.Process.createProcess` returns the stdout `Handle`, `handleStream` wraps it with a `BS.hGetSome` loop, and `parseCodexJsonlStream` consumes that stream lazily. `bracket` around the process handle guarantees cleanup on any exception. `Baikai.Provider.Claude.Cli` keeps cradle because it only needs the strict `StdoutRaw`.
+  Date: 2026-05-13
+
+- Decision: `claude -p --output-format json` is decoded by walking the top-level JSON array for the `"type":"result"` event, with a fallback to decoding the top-level Object when present.
+  Rationale: The current `claude-code` CLI (2.1.x) emits an array of typed events; older builds emitted a single bare object. Both contain the same `result`/`is_error` fields. Accepting both shapes keeps the provider compatible across CLI versions without re-pinning. Evidence is in Surprises & Discoveries.
+  Date: 2026-05-13
+
+- Decision: Smoke tests live in `baikai-smoke`, not in per-vendor `test/` directories.
+  Rationale: The master plan's Surprises section (EP-2 entry) notes that any test crossing both vendor packages must live in the dedicated `baikai-smoke` package to avoid a back-edge cabal cycle. While the EP-3 plan body still describes vendor-side `test/` stanzas, the master plan supersedes — the cycle would re-emerge if `baikai/baikai.cabal` ever added a test that depends on vendor packages. Extending `baikai-smoke` is additive and reuses its existing skip-on-missing-env-var pattern.
+  Date: 2026-05-13
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome (2026-05-13).** EP-3 shipped: a Haskell program depending on
+`baikai-claude` can run `provider <- claudeCli defaultClaudeCliConfig`,
+`response <- runRequest provider req`, and receive an assistant text plus a
+real wall-clock latency. The analogous program against `baikai-openai` and
+`codexCli` works the same way. Both providers honour the `Provider` typeclass
+verbatim — they are interchangeable with the API providers introduced in EP-2.
+
+Live evidence (`cabal test all`, no API keys for Anthropic, OPENAI_API_KEY set):
+
+```text
+baikai EP-1
+  _Request defaults are zero-y:            OK
+  TestProvider returns the canned content: OK
+  SomeProvider wraps and dispatches:       OK
+
+All 3 tests passed (0.00s)
+
+[baikai-smoke] none of ["ANTHROPIC_KEY","ANTHROPIC_API_KEY"] set; skipping claude-haiku-4-5-20251001.
+[baikai-smoke] gpt-4o-mini ok via OPENAI_API_KEY; usage present = True
+[baikai-smoke] sonnet ok via /Users/shinzui/.local/bin/claude; latency_ms = 5983
+[baikai-smoke] <codex-default> ok via /opt/homebrew/bin/codex; latency_ms = 2825
+```
+
+**Lessons.** The plan's biggest miss was both CLIs' JSON schemas: `claude -p
+--output-format json` emits an array, not an object; `codex exec --json`
+uses an `item.completed` envelope, not the `msg` envelope that older builds
+used. Both were caught by running the binaries during M3 validation. Lesson
+for future provider-plans: probe the CLI's actual output shape with a one-shot
+shell invocation *before* writing the decoder.
+
+The second lesson is the model-portability one. CLI providers can't assume any
+specific model name will work across user accounts; `Model ""` as a "use CLI
+default" sentinel is a small but load-bearing concession that keeps the smoke
+tests portable.
+
+**Gaps.** No dedicated Codex JSONL unit test that feeds canned bytes through
+`parseCodexJsonlStream`. The live smoke covers the happy path but would not
+catch schema regressions offline. A future ExecPlan that adds golden-test
+fixtures for both CLI JSON schemas would close that gap.
 
 
 ## Context and Orientation
