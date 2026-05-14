@@ -28,6 +28,7 @@ import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
+import Baikai.Stream (liftCompleteToStream)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (_Usage)
@@ -83,6 +84,7 @@ registerWith cfg =
   registerApiProvider
     ApiProvider
       { apiTag = AnthropicMessagesCli
+      , stream = liftCompleteToStream (runClaudeCli cfg)
       , complete = runClaudeCli cfg
       }
 

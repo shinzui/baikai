@@ -11,6 +11,7 @@ import Baikai.Prelude
 import Baikai.Provider (ApiProvider (..), registerApiProvider)
 import Baikai.Response (Response (..), _Response)
 import Baikai.StopReason (StopReason (..))
+import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
@@ -70,19 +71,23 @@ stubResponse a =
 
 registerOk :: Api -> IO ()
 registerOk a =
-  registerApiProvider
-    ApiProvider
-      { apiTag = a
-      , complete = \_m _ctx _opts -> pure (stubResponse a)
-      }
+  let handler _m _ctx _opts = pure (stubResponse a)
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a
+          , stream = liftCompleteToStream handler
+          , complete = handler
+          }
 
 registerFail :: Api -> BaikaiError -> IO ()
 registerFail a e =
-  registerApiProvider
-    ApiProvider
-      { apiTag = a
-      , complete = \_m _ctx _opts -> throwIO e
-      }
+  let handler _m _ctx _opts = throwIO e
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a
+          , stream = liftCompleteToStream handler
+          , complete = handler
+          }
 
 memorySink :: IO (TVar [TraceEvent], TraceSink)
 memorySink = do

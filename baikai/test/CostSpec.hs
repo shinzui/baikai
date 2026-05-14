@@ -21,6 +21,7 @@ import Baikai.Provider
   )
 import Baikai.Response (Response (..), _Response, flattenAssistantBlocks)
 import Baikai.StopReason (StopReason (..))
+import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (Usage, _Usage)
 import Baikai.Usage qualified as Usage
 import Data.Aeson qualified as Aeson
@@ -157,11 +158,13 @@ cannedHaiku =
 
 registerCanned :: Response -> IO ()
 registerCanned resp =
-  registerApiProvider
-    ApiProvider
-      { apiTag = cannedApi
-      , complete = \_m _ctx _opts -> pure resp
-      }
+  let handler _m _ctx _opts = pure resp
+   in registerApiProvider
+        ApiProvider
+          { apiTag = cannedApi
+          , stream = liftCompleteToStream handler
+          , complete = handler
+          }
 
 cannedModel :: Model
 cannedModel = knownModel {api = cannedApi}

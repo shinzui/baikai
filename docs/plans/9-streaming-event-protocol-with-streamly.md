@@ -76,11 +76,12 @@ main = do
 
 ## Progress
 
-- [ ] Milestone 1: introduce `Baikai.Stream.Event` (the `AssistantMessageEvent`
+- [x] Milestone 1: introduce `Baikai.Stream.Event` (the `AssistantMessageEvent`
       algebra) and `Baikai.Stream` exposing `streamRequest :: Model -> Context
       -> Options -> Stream IO AssistantMessageEvent`. The registry's
-      `ApiProvider` gains a `stream` field; `complete` becomes a draining
-      wrapper.
+      `ApiProvider` gains a `stream` field; `complete` remains for now,
+      derived per-vendor (M2/M3/M4 land native producers).
+      Completed 2026-05-14.
 - [ ] Milestone 2: rewrite `Baikai.Provider.Claude.Api.runClaudeMessages` as a
       streamly stream producer. The producer bridges the upstream SDK's
       callback-based `Claude.V1.createMessageStreamTyped` via the
@@ -118,7 +119,28 @@ main = do
 
 ## Surprises & Discoveries
 
-(None yet.)
+- M1: Adding `stream` to `ApiProvider` as a required field would
+  have broken every vendor's `register` (Claude API/CLI, OpenAI
+  API/CLI) and four test targets in one compile boundary — exactly
+  the EP-1/EP-2 milestone-coupling pattern the masterplan warned
+  about. The mitigation was to land `liftCompleteToStream` in
+  `Baikai.Stream` at M1, then have every existing `register` set
+  `stream = liftCompleteToStream complete`. The library stays
+  green and M2/M3/M4 can swap each provider to a native producer
+  one at a time without dragging others along. The CLI providers'
+  final state is already the synthetic one-shot stream the plan
+  describes — M4's "rewrite" is mostly a documentation/identity
+  change.
+- M1: The plan sketched `EventError { reason, error :: AssistantMessage }`,
+  but naming a record field `error` introduces a top-level
+  selector that shadows `Prelude.error`. With baikai's project-wide
+  `-Wall` + `-Wmissing-export-lists`, the shadow surfaces as a
+  warning across every importer. Renamed the field to
+  `errorPartial` in `Baikai.Stream.Event.AssistantMessageEvent`;
+  semantics are identical to the plan's sketch. EP-4 should refer
+  to `errorPartial` (not `error`) when documenting tool-error
+  handling. The masterplan's Integration Points sketch will need
+  a similar rename when its example block is next refreshed.
 
 
 ## Decision Log

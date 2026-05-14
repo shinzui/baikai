@@ -244,7 +244,7 @@ Alternatives considered and rejected:
 |------|--------------------------------------------------------------------|-------------------------------------------------------------------------------|------------------|------------|-------------|
 | EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | Complete    |
 | EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Complete    |
-| EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Not Started |
+| EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | In Progress |
 | EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Not Started |
 | EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Not Started |
 | EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | Not Started |
@@ -615,6 +615,24 @@ interactions between child plans. Provide concise evidence.
   silently passed once on a lucky run, then failed deterministically
   when scheduling shifted. EP-3 and EP-4's streaming/tool stub
   providers should adopt the per-test-tag convention from the start.
+- EP-3 M1: Adding the `stream` field to `ApiProvider` as a required
+  field would break every existing `register` call simultaneously
+  (the EP-1/EP-2 milestone-coupling pattern). The mitigation was a
+  `Baikai.Stream.liftCompleteToStream` helper landed in M1: every
+  vendor's `register` sets `stream = liftCompleteToStream complete`
+  initially, and the library stays green while M2/M3/M4 replace
+  each provider one at a time with a native producer. CLI providers
+  already match the plan's "synthetic one-shot stream" shape via
+  this default — M4 is mostly identity. EP-4 and EP-5 should adopt
+  the same pattern (add a fresh optional field, wire a default,
+  swap providers one at a time) rather than landing breaking
+  registry-shape changes wholesale.
+- EP-3 M1: The plan and masterplan sketches name the
+  `AssistantMessageEvent.EventError` payload field `error`. That
+  shadows `Prelude.error`, and with baikai's `-Wall` configuration
+  every importer would emit a warning. Renamed to `errorPartial`
+  in the actual algebra. EP-4 must use the renamed field when
+  documenting tool-error flows.
 
 
 ## Decision Log

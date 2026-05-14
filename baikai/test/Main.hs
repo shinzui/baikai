@@ -28,18 +28,20 @@ testModel =
 -- overwrites.
 registerTestHandler :: Text -> IO ()
 registerTestHandler canned =
-  registerApiProvider
-    ApiProvider
-      { apiTag = testApi
-      , complete = \m _ctx _opts ->
-          pure
-            _Response
-              { message = assistant canned
-              , model = m
-              , api = testApi
-              , provider = "test"
-              }
-      }
+  let handler m _ctx _opts =
+        pure
+          _Response
+            { message = assistant canned
+            , model = m
+            , api = testApi
+            , provider = "test"
+            }
+   in registerApiProvider
+        ApiProvider
+          { apiTag = testApi
+          , stream = liftCompleteToStream handler
+          , complete = handler
+          }
 
 main :: IO ()
 main = do

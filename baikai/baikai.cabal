@@ -55,6 +55,8 @@ library
     Baikai.Provider.Registry
     Baikai.Response
     Baikai.StopReason
+    Baikai.Stream
+    Baikai.Stream.Event
     Baikai.Trace
     Baikai.Trace.Event
     Baikai.Trace.Sink

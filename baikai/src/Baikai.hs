@@ -18,6 +18,10 @@ module Baikai
 
     -- * Provider registry
   , module Baikai.Provider
+
+    -- * Streaming
+  , module Baikai.Stream
+  , module Baikai.Stream.Event
   ) where
 
 import Baikai.Api
@@ -31,4 +35,6 @@ import Baikai.Options
 import Baikai.Provider
 import Baikai.Response
 import Baikai.StopReason
+import Baikai.Stream
+import Baikai.Stream.Event
 import Baikai.Usage

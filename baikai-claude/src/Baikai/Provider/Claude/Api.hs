@@ -34,6 +34,7 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
+import Baikai.Stream (liftCompleteToStream)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason qualified as Stop
 import Baikai.Usage qualified as Usage
@@ -59,6 +60,7 @@ register =
   registerApiProvider
     ApiProvider
       { apiTag = AnthropicMessages
+      , stream = liftCompleteToStream runClaudeMessages
       , complete = runClaudeMessages
       }
 
