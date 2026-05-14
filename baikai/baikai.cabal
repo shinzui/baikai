@@ -50,6 +50,7 @@ library
     Baikai.Error
     Baikai.Message
     Baikai.Model
+    Baikai.Models.Generated
     Baikai.Options
     Baikai.Prelude
     Baikai.Provider
@@ -81,6 +82,21 @@ library
     time,
     unliftio-core,
     vector,
+
+executable baikai-gen-models
+  import: common-options
+  hs-source-dirs: gen
+  main-is: GenModels.hs
+  build-depends:
+    base >=4.20 && <5,
+    aeson,
+    baikai,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    scientific,
+    text ^>=2.1,
 
 test-suite baikai-test
   import: common-options

@@ -74,11 +74,16 @@ The user-visible payoff is:
       carries `id`, `name`, `reasoning`, `input`, `cost`,
       `contextWindow`, `maxOutputTokens`, `enabled`, and an optional
       per-model `compat` override.
-- [ ] Milestone 2: implement the generator. A new executable
-      `baikai-gen-models` under `baikai.cabal` reads the JSON catalog, validates
-      each entry, sorts deterministically, and writes
-      `baikai/src/Baikai/Models/Generated.hs`. The output has stable formatting so
-      `cabal run baikai-gen-models` is idempotent.
+- [x] Milestone 2: implement the generator. New executable
+      `baikai-gen-models` (target in `baikai/baikai.cabal`, source
+      `baikai/gen/GenModels.hs`) reads the JSON catalog, validates each
+      entry, sorts by generated identifier, and writes
+      `baikai/src/Baikai/Models/Generated.hs`. Twelve enabled models
+      ship at first generation (4 anthropic, 4 openai, 2 deepseek, 2
+      openrouter). The output is byte-identical across re-runs;
+      verified by `diff` after a second invocation. `cabal build all`
+      is green, including the new `Baikai.Models.Generated` library
+      module.
 - [ ] Milestone 3: add the generator as a step documented in the README and add
       a tasty test in `baikai/test/CatalogSpec.hs` that re-runs the generator
       (via `System.Process`) into a temp file and asserts the temp output
