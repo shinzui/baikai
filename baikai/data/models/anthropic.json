@@ -1,0 +1,68 @@
+{
+  "provider": "anthropic",
+  "baseUrl": "https://api.anthropic.com",
+  "api": "anthropic-messages",
+  "compat": "auto",
+  "models": [
+    {
+      "id": "claude-opus-4-7",
+      "name": "Claude Opus 4.7",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 15.0,
+        "output": 75.0,
+        "cacheRead": 1.5,
+        "cacheWrite": 18.75
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192,
+      "enabled": true
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 3.0,
+        "output": 15.0,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.75
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192,
+      "enabled": true
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.8,
+        "output": 4.0,
+        "cacheRead": 0.08,
+        "cacheWrite": 1.0
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192,
+      "enabled": true
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "name": "Claude Haiku 4.5 (2025-10-01)",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.8,
+        "output": 4.0,
+        "cacheRead": 0.08,
+        "cacheWrite": 1.0
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192,
+      "enabled": true
+    }
+  ]
+}

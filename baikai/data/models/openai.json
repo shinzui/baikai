@@ -1,0 +1,68 @@
+{
+  "provider": "openai",
+  "baseUrl": "https://api.openai.com",
+  "api": "openai-chat-completions",
+  "compat": "auto",
+  "models": [
+    {
+      "id": "gpt-4o",
+      "name": "GPT-4o",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 2.5,
+        "output": 10.0,
+        "cacheRead": 1.25,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 128000,
+      "maxOutputTokens": 16384,
+      "enabled": true
+    },
+    {
+      "id": "gpt-4o-mini",
+      "name": "GPT-4o mini",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.15,
+        "output": 0.6,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 128000,
+      "maxOutputTokens": 16384,
+      "enabled": true
+    },
+    {
+      "id": "o1",
+      "name": "OpenAI o1",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 15.0,
+        "output": 60.0,
+        "cacheRead": 7.5,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 100000,
+      "enabled": true
+    },
+    {
+      "id": "o1-mini",
+      "name": "OpenAI o1-mini",
+      "reasoning": true,
+      "input": ["text"],
+      "cost": {
+        "input": 3.0,
+        "output": 12.0,
+        "cacheRead": 1.5,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 128000,
+      "maxOutputTokens": 65536,
+      "enabled": true
+    }
+  ]
+}

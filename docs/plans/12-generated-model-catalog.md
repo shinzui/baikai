@@ -66,11 +66,14 @@ The user-visible payoff is:
 
 ## Progress
 
-- [ ] Milestone 1: define the catalog file schema. Add JSON files under
+- [x] Milestone 1: define the catalog file schema. Added JSON files under
       `baikai/data/models/` for `anthropic.json`, `openai.json`, `deepseek.json`,
-      `openrouter.json` (the four hosts the smoke tests reference). Each file
-      lists model entries with the same fields as `Model` plus an `enabled :: Bool`
-      flag.
+      `openrouter.json`. Each file is a top-level object with
+      `provider`, `baseUrl`, `api`, `compat` (string `"auto"` or a
+      structured override object), and a `models` array. Each entry
+      carries `id`, `name`, `reasoning`, `input`, `cost`,
+      `contextWindow`, `maxOutputTokens`, `enabled`, and an optional
+      per-model `compat` override.
 - [ ] Milestone 2: implement the generator. A new executable
       `baikai-gen-models` under `baikai.cabal` reads the JSON catalog, validates
       each entry, sorts deterministically, and writes

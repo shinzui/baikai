@@ -1,0 +1,38 @@
+{
+  "provider": "openrouter",
+  "baseUrl": "https://openrouter.ai/api",
+  "api": "openai-chat-completions",
+  "compat": "auto",
+  "models": [
+    {
+      "id": "openai/gpt-4o-mini",
+      "name": "GPT-4o mini via OpenRouter",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.15,
+        "output": 0.6,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 128000,
+      "maxOutputTokens": 16384,
+      "enabled": true
+    },
+    {
+      "id": "anthropic/claude-sonnet-4",
+      "name": "Claude Sonnet 4 via OpenRouter",
+      "reasoning": false,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 3.0,
+        "output": 15.0,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.75
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 8192,
+      "enabled": true
+    }
+  ]
+}
