@@ -67,9 +67,9 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Implement `renderHuman :: TraceEvent -> Text` for the human one-line summary.
 - [x] 2026-05-13 Implement `fileSink :: FilePath -> IO TraceSink` (open per write for crash safety).
 - [x] 2026-05-13 Implement `multiSink` via `Fold.tee` folded across the input list.
-- [ ] Create `baikai/src/Baikai/Trace.hs` exporting `withTrace`, `runRequestWith`, `newEventId`, `summarizePrompt`.
-- [ ] Implement `newEventId` (POSIX seconds at start + `IORef Word` counter, 8 hex chars) and `summarizePrompt` (first 200 chars of last user message).
-- [ ] Implement the per-call channel/worker plumbing in `withTrace`, draining on both success and failure paths.
+- [x] 2026-05-13 Create `baikai/src/Baikai/Trace.hs` exporting `withTrace`, `runRequestWith`, `newEventId`, `summarizePrompt`. `runRequestWith` takes a `CallLogHandle` rather than a `CallLogConfig` to match the actual EP-4 API surface (`Baikai.Cost.Log.CallLogHandle` is the runtime handle; `CallLogConfig` is its constructor input).
+- [x] 2026-05-13 Implement `newEventId` (low 16 bits of POSIX seconds at first access + low 16 bits of `IORef Word` counter, 8 hex chars) and `summarizePrompt` (first 200 chars of last user message in the request's `Vector Message`).
+- [x] 2026-05-13 Implement the per-call channel/worker plumbing in `withTrace`, draining on both success and failure paths. Used `Control.Concurrent.Chan (Maybe TraceEvent)` + `Stream.unfoldrM` (matching EP-4's `Baikai.Cost.Log` pattern) because streamly 0.12 in this repo does not export `Streamly.Data.Channel`.
 - [ ] Write the unit test that uses `silent` to verify success and failure do not panic.
 - [ ] Write the unit test that uses an in-memory `TVar [TraceEvent]` sink (lifted into a `Fold IO TraceEvent ()`) to assert `CallStarted` / `CallFinished` / `CallFailed` ordering.
 - [ ] Run `cabal build all` and `cabal test all`; record output in Concrete Steps.
@@ -144,6 +144,14 @@ Record every decision made while working on the plan.
   the streamly API is still maturing; the implementer should check the resolved
   version with `mori registry show streamly --full` and substitute equivalents
   (`Fold.foldMapM`, `Fold.drainBy`) if a name is not exported.
+  Date: 2026-05-13
+
+- Decision: `runRequestWith` takes a `CallLogHandle`, not a `CallLogConfig`.
+  Rationale: The actual EP-4 surface (`Baikai.Cost.Log`) opens a handle once (`openCallLog` / `withCallLog`) and uses `appendEntry :: CallLogHandle -> CallLogEntry -> m ()` for each call. Threading the handle through `runRequestWith` keeps the API consistent: callers compose `withCallLog` once and pass the handle to many `runRequestWith` invocations. Threading a config instead would force a per-call open/close, defeating EP-4's worker design.
+  Date: 2026-05-13
+
+- Decision: Use `Control.Concurrent.Chan (Maybe TraceEvent)` + `Streamly.Data.Stream.unfoldrM` for the per-call worker, not the absent `Streamly.Data.Channel`.
+  Rationale: Streamly 0.12 in this repo's vendored copy does not export `Streamly.Data.Channel`; EP-4's Surprises log on the same date already records this. `Chan (Maybe TraceEvent)` (with `Nothing` as the shutdown sentinel) plus `Stream.unfoldrM` matches the proven `Baikai.Cost.Log.worker` pattern and satisfies the master plan's "buffered through a streamly fold" requirement — the fold is the sink, not the channel.
   Date: 2026-05-13
 
 - Decision: `TraceEvent.usd` is `Maybe Scientific`, not `Maybe Rational`.

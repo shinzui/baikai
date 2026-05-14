@@ -50,6 +50,7 @@ library
     Baikai.Provider.Cli.Internal
     Baikai.Request
     Baikai.Response
+    Baikai.Trace
     Baikai.Trace.Event
     Baikai.Trace.Sink
     Baikai.Usage
