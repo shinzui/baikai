@@ -38,6 +38,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai
+    Baikai.Auth
     Baikai.Cost
     Baikai.Error
     Baikai.Message

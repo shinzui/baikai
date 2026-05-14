@@ -94,19 +94,19 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Confirm `claude` and `openai` packages resolve in the `ghc912` Nix-provided package set by running `cabal build` after the new packages are wired up; if either is missing, add a `source-repository-package` block in `cabal.project` pointing at the local `mori`-registered path.
-- [ ] Create `baikai-claude/baikai-claude.cabal` with a single `library` stanza exposing `Baikai.Provider.Claude.Api` and depending on `baikai`, `claude`, `http-client`, `http-client-tls`, `servant-client`, `text`, `time`, and `vector`.
-- [ ] Create `baikai-openai/baikai-openai.cabal` with a single `library` stanza exposing `Baikai.Provider.OpenAI.Api` and depending on `baikai`, `openai`, `http-client`, `http-client-tls`, `servant-client`, `text`, `time`, and `vector`.
-- [ ] Update repository-root `cabal.project` to list `baikai`, `baikai-claude`, and `baikai-openai` under `packages:`.
-- [ ] Add `Baikai.Auth` to `baikai/baikai.cabal`'s `exposed-modules` (the core package owns this shared helper).
-- [ ] Create `baikai/src/Baikai/Auth.hs` defining `ApiKeySource` and `resolveApiKey`.
-- [ ] Create `baikai-claude/src/Baikai/Provider/Claude/Api.hs` with `ClaudeApi`, `claudeApi`, `mapRequest`, `mapResponse`, and the `Provider ClaudeApi` instance.
-- [ ] Create `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` with `OpenAIApi`, `openaiApi`, `mapRequest`, `mapResponse`, and the `Provider OpenAIApi` instance.
-- [ ] Map `Role = System` inside `Request.messages` to `RequestInvalid` for the Claude provider and document the contract in module Haddocks.
-- [ ] Prepend `Request.systemPrompt` as a `System` `Message` for the OpenAI provider.
-- [ ] Implement `mapResponse` for Claude, reading `input_tokens`, `output_tokens`, and `cache_read_input_tokens` from `Claude.V1.Messages.Usage`; reasoning tokens stay `Nothing`.
-- [ ] Implement `mapResponse` for OpenAI, reading `prompt_tokens`, `completion_tokens`, `prompt_tokens_details.cached_tokens`, and `completion_tokens_details.reasoning_tokens` from `OpenAI.V1.Usage.Usage`.
-- [ ] Measure latency around the upstream call using `Data.Time.Clock.getCurrentTime` and `diffUTCTime`, storing the result as an `Integer` milliseconds value.
+- [x] 2026-05-13 Confirm `claude` and `openai` packages resolve in the `ghc912` Nix-provided package set by running `cabal build` after the new packages are wired up; if either is missing, add a `source-repository-package` block in `cabal.project` pointing at the local `mori`-registered path. (Outcome: nixpkgs Haskell set does not provide these; resolved by adding them as siblings in `packages:` with absolute paths.)
+- [x] 2026-05-13 Create `baikai-claude/baikai-claude.cabal` with a single `library` stanza exposing `Baikai.Provider.Claude.Api` and depending on `baikai`, `claude`, `http-client`, `http-client-tls`, `servant-client`, `text`, `time`, and `vector`. (Also added `generic-lens` and `lens ^>=5.3` because the provider module uses `^.` with `OverloadedLabels`.)
+- [x] 2026-05-13 Create `baikai-openai/baikai-openai.cabal` with a single `library` stanza exposing `Baikai.Provider.OpenAI.Api` and depending on `baikai`, `openai`, `http-client`, `http-client-tls`, `servant-client`, `text`, `time`, and `vector`. (Also added `generic-lens` and `lens` as above.)
+- [x] 2026-05-13 Update repository-root `cabal.project` to list `baikai`, `baikai-claude`, and `baikai-openai` under `packages:` (and the two upstream package paths inline because `source-repository-package`'s `file+noindex` type is rejected by cabal-install 3.16's project file parser — see Surprises).
+- [x] 2026-05-13 Add `Baikai.Auth` to `baikai/baikai.cabal`'s `exposed-modules` (the core package owns this shared helper).
+- [x] 2026-05-13 Create `baikai/src/Baikai/Auth.hs` defining `ApiKeySource` and `resolveApiKey`.
+- [x] 2026-05-13 Create `baikai-claude/src/Baikai/Provider/Claude/Api.hs` with `ClaudeApi`, `claudeApi`, `mapRequest`, `mapResponse`, and the `Provider ClaudeApi` instance.
+- [x] 2026-05-13 Create `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` with `OpenAIApi`, `openaiApi`, `mapRequest`, `mapResponse`, and the `Provider OpenAIApi` instance.
+- [x] 2026-05-13 Map `Role = System` inside `Request.messages` to `RequestInvalid` for the Claude provider and document the contract in module Haddocks.
+- [x] 2026-05-13 Prepend `Request.systemPrompt` as a `System` `Message` for the OpenAI provider.
+- [x] 2026-05-13 Implement `mapResponse` for Claude, reading `input_tokens`, `output_tokens`, and `cache_read_input_tokens` from `Claude.V1.Messages.Usage`; reasoning tokens stay `Nothing`.
+- [x] 2026-05-13 Implement `mapResponse` for OpenAI, reading `prompt_tokens`, `completion_tokens`, `prompt_tokens_details.cached_tokens`, and `completion_tokens_details.reasoning_tokens` from `OpenAI.V1.Usage.Usage`.
+- [x] 2026-05-13 Measure latency around the upstream call using `Data.Time.Clock.getCurrentTime` and `diffUTCTime`, storing the result as an `Integer` milliseconds value.
 - [ ] Add a smoke-test suite `baikai-smoke` (declared in `baikai/baikai.cabal`, depending on both `baikai-claude` and `baikai-openai`) gated on `ANTHROPIC_KEY` / `OPENAI_KEY`; when either is unset, the corresponding case is skipped, not failed.
 - [ ] Run `cabal build all` and `cabal test all` (without keys set) and confirm everything compiles and skipped tests are reported as skipped.
 - [ ] Run `ANTHROPIC_KEY=sk-... OPENAI_KEY=sk-... cabal test all` once against the live APIs and capture the transcript into Concrete Steps.
@@ -118,7 +118,44 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-05-13: `cabal.project`'s `source-repository-package` block with `type: file+noindex`
+  is rejected by the project-file parser in cabal-install 3.16.1.0 (Nix-provided), failing
+  with `Error: [Cabal-7090] ... unexpected '+'`. Resolved by listing the two upstream
+  packages as siblings under `packages:` with absolute paths to
+  `/Users/shinzui/Keikaku/hub/haskell/claude-project/claude` and
+  `/Users/shinzui/Keikaku/hub/haskell/openai-project/openai`. This is functionally
+  equivalent for the local build but means the upstream packages are visible as part of the
+  same project. If a future maintainer drops the mori-registered checkout, they will need
+  to switch to a `git` source-repository-package block instead.
+- 2026-05-13: The upstream `Claude.V1.Messages.SystemPrompt` constructor is
+  `SystemPromptText` (no underscore between "Prompt" and "Text"), not the
+  `SystemPrompt_Text` that the plan's example code showed. Fixed in `mapRequest` to use
+  `Messages.SystemPromptText`. The `_Text` suffix convention is used on `ContentBlock_Text`
+  but *not* on `SystemPrompt`.
+- 2026-05-13: `Methods` for both upstream packages lives in `Claude.V1` /
+  `OpenAI.V1`, *not* in `Claude.V1.Messages` / `OpenAI.V1.Chat.Completions`. The plan
+  imported `Messages.Methods` and `Chat.Methods`; this fails because the inner modules do
+  not re-export `Methods`. Adjusted both providers to keep the value as
+  `Claude.Methods` / `OpenAI.Methods` and pattern-match the relevant field selector inside
+  the instance method body.
+- 2026-05-13: `CompletionTokensDetails` and `PromptTokensDetails` live in
+  `OpenAI.V1.Usage`, not in `OpenAI.V1.Chat.Completions` (which only imports them
+  internally). `mapUsage`'s signature on the OpenAI side names them via `OpenAIUsage.*`.
+- 2026-05-13: `Claude.V1.Messages.Message` carries a `cache_control :: Maybe CacheControl`
+  field that is not strictly required at the type level but is needed to silence
+  `-Wmissing-fields` under `-Werror`-equivalent warning settings. The provider's
+  `mkMessage` helper now explicitly sets `cache_control = Nothing`. The upstream
+  `_CreateMessage` "blank" value already covers this for `CreateMessage`, but `Message`
+  has no analogous `_Message`.
+- 2026-05-13: `OpenAI.V1.Chat.Completions.Assistant` constructor uses
+  `assistant_content :: Maybe (Vector Content)` (and `assistant_audio`, `refusal`,
+  `tool_calls`) rather than the plain `content`/`name` shape the plan listed. The plan's
+  code only constructed `User` messages; this implementation also handles `Assistant`
+  turns (with `assistant_content = Just payload`) so multi-turn flows work.
+- 2026-05-13: To use `^. #fieldName` over Claude and OpenAI types — which derive
+  `Generic` but do not provide `IsLabel` instances themselves — both provider modules
+  import `Data.Generics.Labels ()` for the generic-lens orphan instance. This mirrors what
+  `Baikai.Prelude` does for `baikai`-owned types.
 
 
 ## Decision Log

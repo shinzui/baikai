@@ -160,7 +160,7 @@ Alternatives considered and rejected:
 | #    | Title                                                | Path                                                          | Hard Deps   | Soft Deps   | Status      |
 |------|------------------------------------------------------|---------------------------------------------------------------|-------------|-------------|-------------|
 | EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | Complete    |
-| EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Not Started |
+| EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | In Progress |
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Not Started |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Not Started |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Not Started |
@@ -284,9 +284,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-1: Define `Baikai.Provider` typeclass and `SomeProvider` existential
 - [x] 2026-05-13 EP-1: Update `Baikai.Prelude` and re-export the public surface from `Baikai`
 - [x] 2026-05-13 EP-1: Add unit tests that construct a `Request` and pattern-match a `Response` (`cabal test all` — `All 3 tests passed`)
-- [ ] EP-2: Create `baikai-claude` and `baikai-openai` packages with cabal files and `cabal.project` entries
-- [ ] EP-2: Implement `Baikai.Provider.Claude.Api` (in `baikai-claude`) mapping unified Request to `Claude.V1.Messages.CreateMessage`
-- [ ] EP-2: Implement `Baikai.Provider.OpenAI.Api` (in `baikai-openai`) mapping unified Request to `OpenAI.V1.Chat.Completions.CreateChatCompletion`
+- [x] 2026-05-13 EP-2: Create `baikai-claude` and `baikai-openai` packages with cabal files and `cabal.project` entries
+- [x] 2026-05-13 EP-2: Implement `Baikai.Provider.Claude.Api` (in `baikai-claude`) mapping unified Request to `Claude.V1.Messages.CreateMessage`
+- [x] 2026-05-13 EP-2: Implement `Baikai.Provider.OpenAI.Api` (in `baikai-openai`) mapping unified Request to `OpenAI.V1.Chat.Completions.CreateChatCompletion`
 - [ ] EP-2: Integration smoke test against both APIs (skipped if API key env var is unset)
 - [ ] EP-3: Add `cradle`, `streamly`, `streamly-core`, `temp-file` to `baikai-claude` and `baikai-openai`
 - [ ] EP-3: Implement `Baikai.Provider.Claude.Cli` invoking `claude -p --output-format json --model ...`
@@ -310,6 +310,26 @@ Document cross-plan insights, dependency changes, scope adjustments, or unexpect
 interactions between child plans. Provide concise evidence.
 
 - 2026-05-13: EP-1's `Baikai.Prelude` shipped without a standalone `liftIO` export. GHC 9.12.2 emits `-Wduplicate-exports` because `liftIO` is already a class method of `MonadIO (..)`. Mentioning this here because every later plan that imports `Baikai.Prelude` and writes a `Provider` instance still gets `liftIO` in scope — no consumer-side change is needed. Evidence: `cabal build all` clean output and EP-1 plan Surprises & Discoveries entry.
+
+- 2026-05-13: cabal-install 3.16.1.0's project-file parser rejects the
+  `source-repository-package` `type: file+noindex` form (error "unexpected '+'").
+  EP-2 worked around this by listing the local `claude` and `openai` package paths directly
+  under `packages:` in `cabal.project`. Future plans (EP-3 onward) that depend on the same
+  upstream packages do not need to re-add them; they are now part of the project. If a
+  future maintainer prefers a `source-repository-package` block, use `type: git` with a
+  pinned tag instead.
+
+- 2026-05-13: `Methods` for both upstream Mercury packages is defined and exported by the
+  top-level vendor module (`Claude.V1`, `OpenAI.V1`), not by the inner `Messages` /
+  `Chat.Completions` modules. The decomposition's prose in EP-2's Context and Orientation
+  section incorrectly attributed it to the inner modules. Implementations in EP-3 should
+  import `Methods` from the same top-level module. Updated in EP-2's Surprises & Discoveries
+  with evidence.
+
+- 2026-05-13: Upstream constructor naming inconsistency in `claude`:
+  `SystemPromptText` and `SystemPromptBlocks` (no underscore between "Prompt" and the
+  variant) while `ContentBlock_Text` uses the underscore. EP-2 fixed this in the code; any
+  later plan that needs the constructor directly should be aware.
 
 
 ## Decision Log
