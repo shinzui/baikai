@@ -2,6 +2,7 @@ module Main (main) where
 
 import Baikai
 import Baikai.Prelude
+import CatalogSpec qualified
 import CostSpec qualified
 import Data.Vector qualified as V
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -50,6 +51,7 @@ main = do
     testGroup
       "baikai"
       [ tests
+      , CatalogSpec.tests
       , CostSpec.tests
       , TraceSpec.tests
       ]

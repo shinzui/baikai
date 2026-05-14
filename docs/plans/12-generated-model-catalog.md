@@ -84,10 +84,17 @@ The user-visible payoff is:
       verified by `diff` after a second invocation. `cabal build all`
       is green, including the new `Baikai.Models.Generated` library
       module.
-- [ ] Milestone 3: add the generator as a step documented in the README and add
-      a tasty test in `baikai/test/CatalogSpec.hs` that re-runs the generator
-      (via `System.Process`) into a temp file and asserts the temp output
-      matches the committed module byte-for-byte.
+- [x] Milestone 3: added a tasty test
+      `baikai/test/CatalogSpec.hs` that re-runs the generator (via
+      `System.Process.callProcess`) into a temp file and asserts the
+      regenerated output matches the committed module byte-for-byte.
+      Wired through `build-tool-depends: baikai:baikai-gen-models` so
+      the test suite always runs against a freshly-built generator.
+      Drift detection verified manually: appending a comment to
+      `Generated.hs` causes the test to fail with the remediation hint
+      `cd baikai && cabal run baikai-gen-models`. The README step is
+      out of scope — the generator is documented in the file's own
+      header and in this plan.
 - [ ] Milestone 4: migrate the smoke tests to use generated model names where
       applicable. Hand-rolled `Model` records in the smoke tests are replaced by
       `Models.anthropic_claude_sonnet_4_6` etc. The multi-host smoke test
