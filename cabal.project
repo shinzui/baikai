@@ -2,6 +2,7 @@ packages:
   baikai
   baikai-claude
   baikai-openai
+  baikai-smoke
   /Users/shinzui/Keikaku/hub/haskell/claude-project/claude
   /Users/shinzui/Keikaku/hub/haskell/openai-project/openai
 
@@ -11,6 +12,16 @@ packages:
 
 test-show-details: direct
 tests: True
+
+-- The upstream Mercury packages ship their own live-network tasty suites that
+-- expect ANTHROPIC_KEY / OPENAI_KEY to be set. We pull these packages in via
+-- `packages:` for their libraries only; disable their test-suites so that
+-- `cabal test all` does not try (and fail) to run them.
+package claude
+  tests: False
+
+package openai
+  tests: False
 
 -- Parallel module compilation
 jobs: $ncpus

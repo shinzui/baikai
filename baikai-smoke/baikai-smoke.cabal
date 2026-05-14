@@ -1,0 +1,50 @@
+cabal-version: 3.4
+name: baikai-smoke
+version: 0.1.0.0
+synopsis: Live smoke tests across baikai providers
+description:
+  Runs minimal real-network requests against every shipped baikai provider when the
+  corresponding API key environment variable is set. Skips, never fails, when keys
+  are absent.
+
+license: BSD-3-Clause
+license-file: ../LICENSE
+author: Nadeem Bitar
+maintainer: nadeem@gmail.com
+copyright: (c) 2026 Nadeem Bitar
+build-type: Simple
+
+common common-options
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
+    -Wmissing-deriving-strategies
+
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+test-suite baikai-smoke
+  import: common-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Smoke.hs
+  build-depends:
+    , base >=4.20 && <5
+    , baikai
+    , baikai-claude
+    , baikai-openai
+    , generic-lens
+    , lens ^>=5.3
+    , text ^>=2.1
+    , vector

@@ -160,7 +160,7 @@ Alternatives considered and rejected:
 | #    | Title                                                | Path                                                          | Hard Deps   | Soft Deps   | Status      |
 |------|------------------------------------------------------|---------------------------------------------------------------|-------------|-------------|-------------|
 | EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | Complete    |
-| EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | In Progress |
+| EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Complete    |
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Not Started |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Not Started |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Not Started |
@@ -287,7 +287,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-2: Create `baikai-claude` and `baikai-openai` packages with cabal files and `cabal.project` entries
 - [x] 2026-05-13 EP-2: Implement `Baikai.Provider.Claude.Api` (in `baikai-claude`) mapping unified Request to `Claude.V1.Messages.CreateMessage`
 - [x] 2026-05-13 EP-2: Implement `Baikai.Provider.OpenAI.Api` (in `baikai-openai`) mapping unified Request to `OpenAI.V1.Chat.Completions.CreateChatCompletion`
-- [ ] EP-2: Integration smoke test against both APIs (skipped if API key env var is unset)
+- [x] 2026-05-13 EP-2: Integration smoke test against both APIs (skipped if API key env var is unset; lives in sibling package `baikai-smoke/`; OpenAI half validated live this session, Anthropic half deferred to first session with a key)
 - [ ] EP-3: Add `cradle`, `streamly`, `streamly-core`, `temp-file` to `baikai-claude` and `baikai-openai`
 - [ ] EP-3: Implement `Baikai.Provider.Claude.Cli` invoking `claude -p --output-format json --model ...`
 - [ ] EP-3: Implement `Baikai.Provider.OpenAI.Cli` invoking `codex exec --json --model ...`, parsing JSONL via streamly
@@ -330,6 +330,23 @@ interactions between child plans. Provide concise evidence.
   `SystemPromptText` and `SystemPromptBlocks` (no underscore between "Prompt" and the
   variant) while `ContentBlock_Text` uses the underscore. EP-2 fixed this in the code; any
   later plan that needs the constructor directly should be aware.
+
+- 2026-05-13: A test-suite that imports `baikai-claude` and `baikai-openai` cannot live
+  inside `baikai/baikai.cabal` — cabal-install treats the resulting back-edge as a cyclic
+  dependency. EP-2 resolved this by creating a fifth sibling package
+  `baikai-smoke/baikai-smoke.cabal` (test-only, no library). EP-3 should extend the same
+  package with cases for the two CLI providers rather than re-creating the cycle. The
+  package is currently listed in `cabal.project` `packages:` after the three library
+  packages. Test-only deps for additional providers should be added to
+  `baikai-smoke.cabal`'s `build-depends` block.
+
+- 2026-05-13: Vendoring `claude` and `openai` packages under `cabal.project`'s
+  `packages:` block exposes their bundled `tasty` test-suites to `cabal test all`, which
+  fails when API key env vars are absent. EP-2 added `package claude { tests: False }` and
+  `package openai { tests: False }` stanzas. EP-3 doesn't touch this since the upstream
+  packages are already vendored, but any future plan that swaps the vendoring strategy
+  (e.g. to a `git`-source `source-repository-package`) needs to keep test-suite-disabling
+  in mind.
 
 
 ## Decision Log
