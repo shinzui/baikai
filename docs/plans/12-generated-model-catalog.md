@@ -95,16 +95,69 @@ The user-visible payoff is:
       `cd baikai && cabal run baikai-gen-models`. The README step is
       out of scope — the generator is documented in the file's own
       header and in this plan.
-- [ ] Milestone 4: migrate the smoke tests to use generated model names where
-      applicable. Hand-rolled `Model` records in the smoke tests are replaced by
-      `Models.anthropic_claude_sonnet_4_6` etc. The multi-host smoke test
-      (EP-5) keeps one hand-rolled entry to demonstrate that overriding compat
-      manually is still supported.
+- [x] Milestone 4: migrate the smoke tests to use generated model
+      identifiers. `baikai-smoke/test/Smoke.hs` now drives both API
+      cases (Anthropic, OpenAI) and the image case from
+      `Baikai.Models.Generated`, using record-update syntax to lower
+      `maxOutputTokens` to the smoke-safe 64 / 1024 values.
+      `baikai-smoke/test/MultiHostSmoke.hs` drives the OpenAI host and
+      the DeepSeek / OpenRouter second hosts from the catalog; the
+      Together entry stays hand-rolled to demonstrate that hand
+      authoring is still supported for hosts the catalog does not yet
+      cover. CLI cases (`sonnet`, `codex`) remain hand-rolled — CLI
+      providers are not in scope for the catalog. `cabal test all`
+      passes; the gpt-4o-mini API + streaming + tool round-trip cases
+      were live-exercised against the OpenAI host using the generated
+      model record in this session.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- EP-6 M2: `DuplicateRecordFields` on its own does **not** disambiguate
+  field selectors at use sites in GHC 9.12. Writing
+  `supportsLongCacheRetention (d :: OpenAICompletionsCompat)` errors
+  with `Ambiguous occurrence` because both `OpenAICompletionsCompat`
+  and `AnthropicMessagesCompat` define a field named
+  `supportsLongCacheRetention`. The fix that actually works is
+  `OverloadedRecordDot` plus `d.supportsLongCacheRetention` — that
+  selector resolves through `HasField` and is unambiguous by type.
+  Pattern-matching with explicit record syntax (`OpenAICompletionsCompat
+  { supportsLongCacheRetention = b } <- d`) is the type-directed
+  alternative for code that should not pull in
+  `OverloadedRecordDot`. The generator now uses dot-syntax; any
+  future EP touching both compat records the same way should expect
+  the same fix.
+- EP-6 M2: `Data.Scientific.toRational` returns a *reduced*
+  `Rational`, so a JSON literal `0.075` becomes `3 % 40` rather than
+  `75 % 1000` or an IEEE-754-tainted ratio. This is exactly the
+  behaviour the generator wants — small canonical denominators in the
+  generated source — but it means cost rates that look "round" in
+  JSON (e.g. `1.5`) emit as fractions (`3 % 2`) in Haskell. Reviewers
+  should not be surprised. If decimal-looking literals are ever
+  desired, the renderer can switch to a hand-formatted
+  `<integer>.<decimals> :: Rational` form, but that requires importing
+  `fromRational` and breaks `==` against `Rational`-based equality
+  tests.
+- EP-6 M3: Running `cabal test baikai` errors with
+  `The test command is for running test suites, but the target
+  'baikai' refers to the library`. The test suite must be named
+  explicitly: `cabal test baikai-test`. The CatalogSpec test invocation
+  in this plan therefore uses the suite name, not the package name.
+- EP-6 M3: `tasty-hunit`'s `assertEqual` prints the full expected /
+  actual `ByteString` on failure, which makes the Generated.hs
+  comparison failure dump the entire module twice (several thousand
+  lines). The remediation hint (`cd baikai && cabal run
+  baikai-gen-models`) stays at the top of the failure block, so the
+  noise is mostly cosmetic; a future polish would replace
+  `assertEqual` with a custom assertion that prints only the first
+  differing line.
+- EP-6 M2: `cabal run baikai-gen-models` from the repository root
+  fails with `data/models: does not exist`. The exe's default
+  relative paths are anchored to the `baikai/` package directory, so
+  `cd baikai && cabal run baikai-gen-models` is the canonical
+  invocation. The CatalogSpec test handles this transparently
+  because `cabal test baikai-test` runs the suite from the package
+  source dir.
 
 
 ## Decision Log
@@ -112,11 +165,50 @@ The user-visible payoff is:
 - Decision: The catalog generator is a Haskell executable target inside
   `baikai.cabal`, not a sibling cabal package.
   Rationale: The generator's dependencies are limited to `aeson`, `bytestring`,
-  `text`, `directory`, `filepath`, and `pretty-simple` (or `prettyprinter`) for
-  source formatting. None pollutes consumers — library users do not build the
-  exe target. Keeping the generator inside `baikai.cabal` avoids a new cabal
-  package and matches the masterplan's Decision Log. If the dep closure grows,
-  a follow-up plan can split.
+  `text`, `directory`, `filepath`, `containers`, and `scientific`. None
+  pollutes consumers — library users do not build the exe target.
+  Keeping the generator inside `baikai.cabal` avoids a new cabal package
+  and matches the masterplan's Decision Log. The hand-rolled source
+  renderer turned out to be a fifty-line stretch of pure functions, so
+  no pretty-printing library was needed at all.
+  Date: 2026-05-14
+
+- Decision: The generated module is *not* re-exported from `Baikai`.
+  Consumers import it qualified as `Baikai.Models.Generated`.
+  Rationale: Re-exporting the catalog from `Baikai` would dump every
+  model identifier (`anthropic_claude_sonnet_4_6`,
+  `openrouter_openai_gpt_4o_mini`, …) into the unqualified namespace
+  of every consumer that writes `import Baikai`. That is poor IDE
+  ergonomics: autocomplete on a fresh import already shows dozens of
+  unrelated identifiers, and the qualified prefix (`Models.<...>`)
+  reads as a self-documenting "this is a catalog value" marker at the
+  call site. The masterplan example
+  (`Baikai.Models.Generated qualified as Models`) is the documented
+  usage shape.
+  Date: 2026-05-14
+
+- Decision: Structured `compat` overrides in catalog JSON are
+  supported by the schema but not used by any shipped entry. All four
+  catalog files set `"compat": "auto"` so EP-5's baseUrl
+  auto-detection picks the right record.
+  Rationale: Auto-detection already covers every host the smoke tests
+  exercise (Anthropic, OpenAI, DeepSeek, OpenRouter, Together,
+  Fireworks). Hand-writing structured overrides in JSON now would
+  duplicate the auto-detection table without adding behaviour. The
+  generator's `CatalogCompat` parser still handles the structured
+  shape, so a future host that disagrees with auto-detection can be
+  pinned by writing the explicit compat record in JSON without
+  changing the generator or the library.
+  Date: 2026-05-14
+
+- Decision: `OverloadedRecordDot` is used in `baikai/gen/GenModels.hs`
+  for compat-record field access.
+  Rationale: `OpenAICompletionsCompat.supportsLongCacheRetention` and
+  `AnthropicMessagesCompat.supportsLongCacheRetention` collide as
+  selectors under `DuplicateRecordFields`. Type ascriptions
+  (`supportsLongCacheRetention (d :: …)`) do not disambiguate in GHC
+  9.12; `OverloadedRecordDot` does. The library itself never enables
+  the extension; only the generator does.
   Date: 2026-05-14
 
 - Decision: Generated value names follow `<provider>_<modelId>` with `-` and
@@ -160,7 +252,81 @@ The user-visible payoff is:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Implemented 2026-05-14 in four commits (one per milestone). Final state:
+
+- `baikai/data/models/{anthropic,openai,deepseek,openrouter}.json` —
+  four hand-curated catalog files declaring twelve enabled models.
+- `baikai/gen/GenModels.hs` (≈500 lines) — a small executable that
+  parses the catalog, sorts by generated identifier, renders one
+  `Model`-shaped Haskell record per entry, and writes the result.
+  Idempotent: two consecutive runs produce byte-identical output.
+- `baikai/src/Baikai/Models/Generated.hs` — the generated catalog
+  module, committed. Exposed from the `baikai` library as
+  `Baikai.Models.Generated`. Twelve top-level identifiers:
+  `anthropic_claude_haiku_4_5`, `anthropic_claude_haiku_4_5_20251001`,
+  `anthropic_claude_opus_4_7`, `anthropic_claude_sonnet_4_6`,
+  `deepseek_deepseek_chat`, `deepseek_deepseek_reasoner`,
+  `openai_gpt_4o`, `openai_gpt_4o_mini`, `openai_o1`, `openai_o1_mini`,
+  `openrouter_anthropic_claude_sonnet_4`, `openrouter_openai_gpt_4o_mini`.
+- `baikai/test/CatalogSpec.hs` — drift check. Wired through
+  `build-tool-depends: baikai:baikai-gen-models`. Fails with a clear
+  remediation hint when `Generated.hs` is out of sync with the JSON
+  catalog.
+- `baikai-smoke/test/Smoke.hs` and `baikai-smoke/test/MultiHostSmoke.hs`
+  rebuilt to consume `Baikai.Models.Generated` for every API and
+  multi-host case the catalog covers. CLI cases (`sonnet`, `codex`)
+  and the Together second-host case remain hand-rolled — CLI
+  providers and Together are not in the catalog yet.
+
+The masterplan's example usage now works verbatim:
+
+```haskell
+import Baikai
+import Baikai.Models.Generated qualified as Models
+
+main = do
+  ClaudeApi.register
+  resp <- completeRequest Models.anthropic_claude_sonnet_4_6 ctx opts
+  ...
+```
+
+Verified end-to-end in this session: the OpenAI live smoke
+(`cabal test all` with `OPENAI_API_KEY` set) drove the catalog
+record `Models.openai_gpt_4o_mini {maxOutputTokens = 1024}` through
+`completeRequest`, `streamRequest`, and the tool round-trip — all
+green. The Anthropic live path is exercised by build only in this
+session (no ANTHROPIC key present); the migration is symmetric to
+the OpenAI side and uses the same record-update pattern.
+
+Lessons:
+
+- The "stable single end-to-end commit" pattern from EP-1 / EP-2 /
+  EP-3 did not appear here because the generator's outputs live in
+  separate, non-load-bearing files (the JSON catalog, the
+  `Baikai.Models.Generated` module). The four milestones each
+  produced an independently-buildable commit.
+- The auto-detection in `Baikai.Compat` (EP-5) is the load-bearing
+  piece that makes "`compat: auto` in every catalog file" sufficient.
+  Without it, every catalog entry would need a structured compat
+  override and the schema's `"kind": "openai-completions"` form
+  would not be optional.
+- `Data.Scientific.toRational` is the right tool for converting
+  JSON-decimal costs to canonical `Rational` literals. The
+  alternative — `realToFrac . toRealFloat` — round-trips through
+  `Double` and produces IEEE-754 noise (`0.075` becomes
+  `5404319552844595 % 72057594037927936`). The generator's output
+  has small reduced denominators because of this choice.
+- Tasty's `assertEqual` is loud on failure for large `ByteString`s.
+  The `CatalogSpec` failure dump runs to thousands of lines; the
+  remediation hint stays at the top so the noise is more annoying
+  than confusing. A future polish could replace `assertEqual` with a
+  custom assertion that prints only the first differing line.
+
+Items the masterplan listed as "out of scope" remain out of scope
+after this plan: a live API scraper to update costs, a typed schema
+for tool parameters, support for image generation / embeddings /
+batch APIs / fine-tuning. The catalog is hand-curated; cost
+freshness is a JSON edit + `cabal run baikai-gen-models` + commit.
 
 
 ## Context and Orientation

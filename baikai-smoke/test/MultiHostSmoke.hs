@@ -28,6 +28,7 @@ module MultiHostSmoke
   ) where
 
 import Baikai
+import Baikai.Models.Generated qualified as Models
 import Control.Lens ((&), (.~))
 import Control.Monad (when)
 import Data.Foldable (find)
@@ -67,14 +68,7 @@ runMultiHostCase = do
           pure False
         Just (SecondHost label _envVars secondModel, envVar, secondKey) -> do
           let openaiModel =
-                _Model
-                  { modelId = "gpt-4o-mini"
-                  , name = "GPT-4o mini"
-                  , api = OpenAIChatCompletions
-                  , provider = "openai"
-                  , baseUrl = "https://api.openai.com"
-                  , maxOutputTokens = 64
-                  }
+                Models.openai_gpt_4o_mini {maxOutputTokens = 64}
               ctx =
                 _Context
                   & #systemPrompt .~ Just "Reply in two words."
@@ -133,29 +127,20 @@ pickSecondHost = do
             { hostLabel = "deepseek"
             , hostEnvVars = ["DEEPSEEK_API_KEY"]
             , hostModel =
-                _Model
-                  { modelId = "deepseek-chat"
-                  , name = "DeepSeek Chat"
-                  , api = OpenAIChatCompletions
-                  , provider = "deepseek"
-                  , baseUrl = "https://api.deepseek.com"
-                  , maxOutputTokens = 64
-                  }
+                Models.deepseek_deepseek_chat {maxOutputTokens = 64}
             }
         , SecondHost
             { hostLabel = "openrouter"
             , hostEnvVars = ["OPENROUTER_API_KEY"]
             , hostModel =
-                _Model
-                  { modelId = "openai/gpt-4o-mini"
-                  , name = "GPT-4o mini via OpenRouter"
-                  , api = OpenAIChatCompletions
-                  , provider = "openrouter"
-                  , baseUrl = "https://openrouter.ai/api"
-                  , maxOutputTokens = 64
-                  }
+                Models.openrouter_openai_gpt_4o_mini {maxOutputTokens = 64}
             }
-        , SecondHost
+        , -- One hand-rolled entry kept here to demonstrate that
+          -- callers can still target hosts the generated catalog
+          -- does not (yet) cover. The OpenAI auto-detection in
+          -- 'Baikai.Compat' picks ThinkingFormatTogether from the
+          -- @api.together.xyz@ host name.
+          SecondHost
             { hostLabel = "together"
             , hostEnvVars = ["TOGETHER_API_KEY"]
             , hostModel =

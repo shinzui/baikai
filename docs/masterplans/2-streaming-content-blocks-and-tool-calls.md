@@ -247,7 +247,7 @@ Alternatives considered and rejected:
 | EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Complete    |
 | EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Complete    |
 | EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Complete    |
-| EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | In Progress |
+| EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | Complete    |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their EP- prefix.
@@ -564,10 +564,10 @@ and the milestone. This section provides an at-a-glance view of the entire initi
       (cache_control + thinking; tool-side cache-control deferred at the safe default)
 - [x] EP-5: Multi-host smoke test scaffold lands; live two-host run pending a
       DEEPSEEK / OPENROUTER / TOGETHER key — see EP-5 Outcomes &amp; Retrospective
-- [ ] EP-6: Author the model catalog JSON files under `baikai/data/models/`
-- [ ] EP-6: Implement `baikai-gen-models` executable and emit `Baikai.Models.Generated`
-- [ ] EP-6: Add `CatalogSpec` regeneration check to `cabal test all`
-- [ ] EP-6: Migrate smoke tests to generated model identifiers
+- [x] EP-6: Author the model catalog JSON files under `baikai/data/models/`
+- [x] EP-6: Implement `baikai-gen-models` executable and emit `Baikai.Models.Generated`
+- [x] EP-6: Add `CatalogSpec` regeneration check to `cabal test all`
+- [x] EP-6: Migrate smoke tests to generated model identifiers
 
 
 ## Surprises & Discoveries
@@ -689,6 +689,33 @@ interactions between child plans. Provide concise evidence.
   `CacheTTL(..)`. Use the qualified-through-Messages import; do
   not import the hidden module directly. EP-6 should follow the
   same pattern when it generates cache-control hints.
+- EP-6 M2: `DuplicateRecordFields` alone does not disambiguate field
+  selectors at use sites in GHC 9.12. The compat record sum
+  (`OpenAICompletionsCompat` and `AnthropicMessagesCompat`) shares
+  the field name `supportsLongCacheRetention`, and writing
+  `supportsLongCacheRetention (c :: OpenAICompletionsCompat)` errors
+  with `Ambiguous occurrence`. The reliable fix is
+  `OverloadedRecordDot` (`c.supportsLongCacheRetention`) — selector
+  resolution flows through `HasField` and is unambiguous by type.
+  Future plans that touch both compat records the same way should
+  expect the same fix.
+- EP-6 M2: `Data.Scientific.toRational` returns a *reduced* `Rational`,
+  so a JSON literal `0.075` parsed as `Scientific` and converted to
+  `Rational` becomes `3 % 40`, not `5404319552844595 %
+  72057594037927936` (which is what `toRational . (realToFrac ::
+  Scientific -> Double)` would produce). The generator deliberately
+  takes the `Scientific → Rational` path so the emitted Haskell
+  contains small canonical denominators.
+- EP-6 M2: `cabal run baikai-gen-models` from the repo root fails
+  with `data/models: does not exist`; the exe's default relative
+  paths are anchored at the `baikai/` package directory. The
+  canonical invocation is `cd baikai && cabal run baikai-gen-models`.
+  Calls from elsewhere need `--models-dir` and `--out` explicit.
+- EP-6 M3: Test-suite selection is by suite name, not package name —
+  `cabal test baikai` errors because the package's library and test
+  share the name `baikai`. Use `cabal test baikai-test`. Future plans
+  that ship narrow tasty subtests in this package should document
+  the suite name explicitly.
 
 
 ## Decision Log
@@ -785,7 +812,99 @@ interactions between child plans. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original vision.
+Initiative complete. All six child plans (EP-1 through EP-6) landed
+between 2026-05-14 and 2026-05-14 with `cabal test all` green on a
+single host. The five capabilities the Vision & Scope promised all
+exist as documented:
 
-(To be filled during and after implementation.)
+1. **Typed content blocks.** `Baikai.Content` defines `TextContent`,
+   `ThinkingContent`, `ToolCall`, `ImageContent`. `Baikai.Message`
+   exposes `UserMessage`, `AssistantMessage`, `ToolResultMessage`,
+   each carrying a `Vector` of the relevant content sum.
+   `Baikai.Usage` splits cache reads from cache writes and nests a
+   `Cost` value inside; `Baikai.StopReason` carries the closed enum.
+2. **Streaming as the primary interface.** `streamRequest :: Model ->
+   Context -> Options -> Stream IO AssistantMessageEvent` is the
+   primary ApiProvider method; `completeRequest` derives from it via
+   `Stream.fold`. The event algebra
+   (`EventStart` / `TextDelta` / `ThinkingDelta` / `ToolCallDelta`
+   / `EventDone` / `EventError`) survived implementation unchanged,
+   except for the `error → errorPartial` rename (EP-3 Surprises). The
+   live OpenAI smoke prints 3 `TextDelta` events per call in the
+   end-to-end run from this session.
+3. **Provider as a registry, model as data.** `Baikai.Provider.Registry`
+   carries `IORef (Map Api ApiProvider)`. Vendor packages expose
+   `register :: IO ()` calls. The `Provider` typeclass is gone; the
+   smoke tests dispatch through `completeRequest model ctx opts`
+   without any typeclass machinery.
+4. **Tool calling.** `Baikai.Tool` defines `Tool`/`ToolChoice`,
+   `Context.tools` carries the conversation's tool set, and
+   `Options.toolChoice` is the per-call override. EP-4 M4's tool
+   round-trip smoke runs green against gpt-4o-mini in this session
+   (live key present) and against Claude by build only.
+5. **Generated model catalog.** `Baikai.Models.Generated` ships
+   twelve fully populated `Model` values. `cabal run
+   baikai-gen-models` from `baikai/` regenerates the module from
+   `data/models/*.json`. `CatalogSpec` enforces no-drift in CI.
+
+The vision-statement code sample compiles and runs verbatim — see
+the EP-6 plan's Outcomes section. The blocking caller form
+(`completeRequest model ctx opts`) and the streaming form
+(`Stream.fold printEvents (streamRequest model ctx opts)`) are both
+exercised by the smoke suite.
+
+**Gaps from the original Vision & Scope:**
+
+- The Claude live smoke (image case, tool round-trip case,
+  Anthropic API case) is build-verified but not live-verified in
+  this session because no `ANTHROPIC_API_KEY` was set. EP-4 M4 and
+  EP-5 M5 both call this out. The OpenAI side covers the full happy
+  path.
+- The multi-host live two-host comparison (OpenAI + DeepSeek /
+  OpenRouter / Together) is build-verified but not live-verified for
+  the same reason — no second-host key in this session. The skip
+  path was exercised; the live path is symmetric to the OpenAI run.
+- Structured `compat` overrides in the catalog JSON are supported by
+  the EP-6 schema but unused by any shipped entry, because EP-5's
+  baseUrl auto-detection covers every host the smoke tests
+  exercise. The first host that disagrees with auto-detection will
+  exercise the structured path; the parser is already wired.
+- `MaxTokensField` and non-OpenAI `ThinkingFormat` constructors ship
+  in the EP-5 compat record but the OpenAI provider currently
+  hard-wires `max_completion_tokens` and `reasoning_effort` because
+  the upstream Mercury `openai` SDK exposes no escape hatch. A
+  follow-up plan (e.g. a `http-client`-based parallel request path
+  or an SDK fork) would close the loop. EP-5 Decision Log records
+  this explicitly.
+
+**Cross-plan lessons.** Three patterns repeated across EP-1, EP-2,
+EP-3 (and resurfaced in EP-6's Surprises):
+
+1. **Milestone coupling.** Every EP that touched a load-bearing type
+   (Usage, Response, Model, ApiProvider) collapsed its "split a
+   replacement landing across multiple commits" plan into a single
+   end-to-end commit, because the moment the type changes shape,
+   every reader stops compiling. EP-6 was the first to *not* hit
+   this — the catalog generator's outputs (`data/models/*.json`,
+   `Baikai.Models.Generated`) are additive rather than load-bearing,
+   so its four milestones each produced an independently-buildable
+   commit.
+2. **Process-global registry races.** Tasty runs `testCase`s in
+   parallel and the `IORef (Map Api ApiProvider)` tolerates exactly
+   zero races on the same `Api` tag. Every EP that added a stub
+   provider (EP-2 through EP-5) ended up using a per-test `Custom !
+   Text` tag to avoid lucky-pass test runs.
+3. **Field-name collisions.** `DuplicateRecordFields` does not
+   disambiguate use-site field selectors in GHC 9.12. EP-1 hit it
+   first (the `Message` sum's `content` field); EP-6 hit it again
+   with the compat records' `supportsLongCacheRetention`. The
+   reliable fix is either `OverloadedRecordDot` (use site) or
+   distinct field names (definition site).
+
+The initiative shipped on the masterplan's recommended waterfall
+(EP-1 → EP-2 → EP-3 → EP-4 → EP-5 → EP-6) without revisiting the
+decomposition. The package layout the Decision Log committed to (no
+new cabal packages) held: `baikai-gen-models` lives as a new exe
+target inside `baikai.cabal`, and the only build-closure addition is
+`baikai:baikai-gen-models` as a `build-tool-depends` on
+`baikai-test`.

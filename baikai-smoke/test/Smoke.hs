@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Baikai
+import Baikai.Models.Generated qualified as Models
 import Baikai.Provider.Claude.Api qualified as ClaudeApi
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
@@ -69,27 +70,14 @@ apiCases =
       { caseLabel = "claude-haiku-4-5-20251001"
       , caseEnvVars = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
       , caseModel =
-          _Model
-            { modelId = "claude-haiku-4-5-20251001"
-            , name = "Claude Haiku 4.5"
-            , api = AnthropicMessages
-            , provider = "anthropic"
-            , baseUrl = "https://api.anthropic.com"
-            , maxOutputTokens = 1024
-            }
+          Models.anthropic_claude_haiku_4_5_20251001
+            {maxOutputTokens = 1024}
       }
   , ApiCase
       { caseLabel = "gpt-4o-mini"
       , caseEnvVars = ["OPENAI_KEY", "OPENAI_API_KEY"]
       , caseModel =
-          _Model
-            { modelId = "gpt-4o-mini"
-            , name = "GPT-4o mini"
-            , api = OpenAIChatCompletions
-            , provider = "openai"
-            , baseUrl = "https://api.openai.com"
-            , maxOutputTokens = 1024
-            }
+          Models.openai_gpt_4o_mini {maxOutputTokens = 1024}
       }
   ]
 
@@ -294,14 +282,8 @@ runImageCase = do
               , mimeType = "image/png"
               }
           model =
-            _Model
-              { modelId = "claude-haiku-4-5-20251001"
-              , api = AnthropicMessages
-              , provider = "anthropic"
-              , baseUrl = "https://api.anthropic.com"
-              , maxOutputTokens = 64
-              , input = [InputText, InputImage]
-              }
+            Models.anthropic_claude_haiku_4_5_20251001
+              {maxOutputTokens = 64}
           ctx =
             _Context
               & #systemPrompt .~ Just "Reply in one word."
