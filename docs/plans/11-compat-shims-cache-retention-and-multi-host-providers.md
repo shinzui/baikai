@@ -73,12 +73,12 @@ difference is the compat record.
 
 ## Progress
 
-- [ ] Milestone 1: introduce the compat record types — `OpenAICompletionsCompat`,
+- [x] Milestone 1: introduce the compat record types — `OpenAICompletionsCompat`,
       `AnthropicMessagesCompat` — and extend the `Compat` sum from EP-2 with the
       two new constructors. Default values
       `defaultOpenAICompletionsCompat`, `defaultAnthropicMessagesCompat` are
       exposed. Auto-detection from `Model.baseUrl` is implemented via a small
-      lookup table.
+      lookup table. **(2026-05-14)**
 - [ ] Milestone 2: introduce `Baikai.CacheRetention` (the
       `CacheRetentionNone | CacheRetentionShort | CacheRetentionLong` enum) and
       `Baikai.ThinkingLevel` (the `ThinkingMinimal | ThinkingLow | ThinkingMedium

@@ -24,9 +24,17 @@ module Baikai.Model
 
     -- * Compatibility shim
   , Compat (..)
+  , openaiCompletionsCompatFor
+  , anthropicMessagesCompatFor
   ) where
 
 import Baikai.Api (Api (..))
+import Baikai.Compat
+  ( AnthropicMessagesCompat
+  , OpenAICompletionsCompat
+  , autoDetectAnthropicMessages
+  , autoDetectOpenAICompletions
+  )
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -53,13 +61,35 @@ data ModelCost = ModelCost
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | Per-API compatibility shim. Currently only 'CompatNone' exists;
--- EP-5 introduces 'CompatOpenAICompletions' and
--- 'CompatAnthropicMessages' constructors.
+-- | Per-API compatibility shim. 'CompatNone' tells the provider to
+-- pick a sensible record by inspecting 'baseUrl'; the two real
+-- constructors carry an explicit per-host record that overrides the
+-- auto-detection. The records themselves live in 'Baikai.Compat' so
+-- this module does not pull in every compat field as a transitive
+-- dependency.
 data Compat
   = CompatNone
+  | CompatOpenAICompletions !OpenAICompletionsCompat
+  | CompatAnthropicMessages !AnthropicMessagesCompat
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+-- | Project the 'OpenAICompletionsCompat' that applies to a 'Model':
+-- the explicit one if 'compat' is 'CompatOpenAICompletions', otherwise
+-- the result of inspecting 'baseUrl' via 'autoDetectOpenAICompletions'.
+openaiCompletionsCompatFor :: Model -> OpenAICompletionsCompat
+openaiCompletionsCompatFor m = case compat m of
+  CompatOpenAICompletions c -> c
+  _ -> autoDetectOpenAICompletions (baseUrl m)
+
+-- | Project the 'AnthropicMessagesCompat' that applies to a 'Model':
+-- the explicit one if 'compat' is 'CompatAnthropicMessages',
+-- otherwise the result of inspecting 'baseUrl' via
+-- 'autoDetectAnthropicMessages'.
+anthropicMessagesCompatFor :: Model -> AnthropicMessagesCompat
+anthropicMessagesCompatFor m = case compat m of
+  CompatAnthropicMessages c -> c
+  _ -> autoDetectAnthropicMessages (baseUrl m)
 
 -- | The data record baikai dispatches on.
 data Model = Model
