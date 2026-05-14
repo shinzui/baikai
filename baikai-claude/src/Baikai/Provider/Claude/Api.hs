@@ -14,6 +14,7 @@ module Baikai.Provider.Claude.Api
   ) where
 
 import qualified Baikai.Auth as Auth
+import qualified Baikai.Cost.Pricing as Pricing
 import Baikai.Error (BaikaiError (..))
 import qualified Baikai.Message as Msg
 import qualified Baikai.Model as Model
@@ -27,15 +28,19 @@ import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Generics.Labels ()
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 
--- | A configured Anthropic Messages API provider.
-newtype ClaudeApi = ClaudeApi
-  { methods :: Claude.Methods
+-- | A configured Anthropic Messages API provider. 'pricing' defaults to
+-- 'Pricing.defaultPricing'; override per-provider by constructing the record
+-- by hand to model negotiated discounts or to add unknown models.
+data ClaudeApi = ClaudeApi
+  { methods :: !Claude.Methods
+  , pricing :: !(Map Text Pricing.PricingRate)
   }
 
 -- | Build a 'ClaudeApi' from a key source. Performs no network I/O.
@@ -43,16 +48,21 @@ claudeApi :: MonadIO m => Auth.ApiKeySource -> m ClaudeApi
 claudeApi src = do
   key <- Auth.resolveApiKey src
   env <- liftIO (Claude.getClientEnv "https://api.anthropic.com")
-  pure ClaudeApi {methods = Claude.makeMethods env key (Just "2023-06-01")}
+  pure
+    ClaudeApi
+      { methods = Claude.makeMethods env key (Just "2023-06-01")
+      , pricing = Pricing.defaultPricing
+      }
 
 instance Provider ClaudeApi where
   providerName _ = "anthropic.claude.api"
-  runRequest ClaudeApi {methods = Claude.Methods {Claude.createMessage}} req = liftIO $ do
+  runRequest api req = liftIO $ do
+    let Claude.Methods {Claude.createMessage} = methods api
     createReq <- either (throwIO . RequestInvalid) pure (mapRequest req)
     start <- getCurrentTime
     resp <- createMessage createReq
     end <- getCurrentTime
-    pure (mapResponse start end resp)
+    pure (Pricing.attachCost (pricing api) (mapResponse start end resp))
 
 -- | Translate a 'Baikai.Request.Request' to Anthropic's 'Messages.CreateMessage'.
 --

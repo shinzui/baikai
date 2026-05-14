@@ -43,6 +43,7 @@ library
     , base >=4.20 && <5
     , baikai
     , bytestring
+    , containers
     , generic-lens
     , http-client
     , http-client-tls

@@ -46,6 +46,7 @@ library
     , baikai
     , bytestring
     , claude
+    , containers
     , cradle
     , generic-lens
     , http-client

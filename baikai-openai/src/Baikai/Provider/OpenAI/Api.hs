@@ -12,6 +12,7 @@ module Baikai.Provider.OpenAI.Api
   ) where
 
 import qualified Baikai.Auth as Auth
+import qualified Baikai.Cost.Pricing as Pricing
 import Baikai.Error (BaikaiError (..))
 import qualified Baikai.Message as Msg
 import qualified Baikai.Model as Model
@@ -23,6 +24,7 @@ import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Generics.Labels ()
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
@@ -33,9 +35,12 @@ import qualified OpenAI.V1.Chat.Completions as Chat
 import qualified OpenAI.V1.Models as OpenAIModels
 import qualified OpenAI.V1.Usage as OpenAIUsage
 
--- | A configured OpenAI Chat Completions provider.
-newtype OpenAIApi = OpenAIApi
-  { methods :: OpenAI.Methods
+-- | A configured OpenAI Chat Completions provider. 'pricing' defaults to
+-- 'Pricing.defaultPricing'; override per-provider by constructing the record
+-- by hand to model negotiated discounts or to add unknown models.
+data OpenAIApi = OpenAIApi
+  { methods :: !OpenAI.Methods
+  , pricing :: !(Map Text Pricing.PricingRate)
   }
 
 -- | Build an 'OpenAIApi' from a key source. Performs no network I/O.
@@ -43,16 +48,21 @@ openaiApi :: MonadIO m => Auth.ApiKeySource -> m OpenAIApi
 openaiApi src = do
   key <- Auth.resolveApiKey src
   env <- liftIO (OpenAI.getClientEnv "https://api.openai.com")
-  pure OpenAIApi {methods = OpenAI.makeMethods env key Nothing Nothing}
+  pure
+    OpenAIApi
+      { methods = OpenAI.makeMethods env key Nothing Nothing
+      , pricing = Pricing.defaultPricing
+      }
 
 instance Provider OpenAIApi where
   providerName _ = "openai.chat.api"
-  runRequest OpenAIApi {methods = OpenAI.Methods {OpenAI.createChatCompletion}} req = liftIO $ do
+  runRequest api req = liftIO $ do
+    let OpenAI.Methods {OpenAI.createChatCompletion} = methods api
     create <- either (throwIO . RequestInvalid) pure (mapRequest req)
     start <- getCurrentTime
     obj <- createChatCompletion create
     end <- getCurrentTime
-    pure (mapResponse start end obj)
+    pure (Pricing.attachCost (pricing api) (mapResponse start end obj))
 
 mapRequest :: Req.Request -> Either Text Chat.CreateChatCompletion
 mapRequest req = do

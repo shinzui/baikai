@@ -84,10 +84,11 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Add `lookupRate :: Map Text PricingRate -> Model -> Maybe PricingRate` helper.
 - [x] 2026-05-13 Implement `compute :: Map Text PricingRate -> Model -> Usage -> Maybe Cost`.
 - [x] 2026-05-13 Implement `attachCost :: Map Text PricingRate -> Response -> Response` in `Baikai.Cost.Pricing` (kept there to avoid a `Baikai.Cost`↔`Baikai.Cost.Pricing` import cycle — see Decision Log).
-- [ ] Add `pricing :: Map Text PricingRate` field to `ClaudeApi` record in `baikai-claude/src/Baikai/Provider/Claude/Api.hs`, defaulting to `defaultPricing`.
-- [ ] Wire `attachCost` into `ClaudeApi`'s `runRequest` implementation in `baikai-claude/src/Baikai/Provider/Claude/Api.hs`.
-- [ ] Add `pricing :: Map Text PricingRate` field to `OpenAIApi` record in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`, defaulting to `defaultPricing`.
-- [ ] Wire `attachCost` into `OpenAIApi`'s `runRequest` implementation in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`.
+- [x] 2026-05-13 Add `pricing :: Map Text PricingRate` field to `ClaudeApi` record in `baikai-claude/src/Baikai/Provider/Claude/Api.hs`, defaulting to `defaultPricing`.
+- [x] 2026-05-13 Wire `attachCost` into `ClaudeApi`'s `runRequest` implementation in `baikai-claude/src/Baikai/Provider/Claude/Api.hs`.
+- [x] 2026-05-13 Add `pricing :: Map Text PricingRate` field to `OpenAIApi` record in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`, defaulting to `defaultPricing`.
+- [x] 2026-05-13 Wire `attachCost` into `OpenAIApi`'s `runRequest` implementation in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`.
+- [x] 2026-05-13 Add `containers` to `baikai-claude.cabal` and `baikai-openai.cabal` build-depends (needed for `Data.Map.Strict.Map` in the `pricing` field).
 - [ ] Add `streamly` and `streamly-core` to `baikai/baikai.cabal`'s library `build-depends`.
 - [ ] Implement `Baikai.Cost.Log` (in `baikai/src/Baikai/Cost/Log.hs`) with `CallLogConfig`, `CallLogEntry`, the opaque `CallLogHandle`, and the streamly-channel-based worker.
 - [ ] Implement `openCallLog`, `closeCallLog`, and `withCallLog`.
@@ -117,6 +118,21 @@ implementation. Provide concise evidence.
   `baikai/baikai.cabal` `build-depends` — EP-3 added them when wiring the codex
   JSONL parser. The plan's diff that adds them under EP-4 is therefore a no-op
   on this tree; M4 will use them without a cabal edit.
+
+- 2026-05-13: Adding a `Map Text PricingRate` field to each vendor provider
+  required `containers` in `baikai-claude.cabal` and `baikai-openai.cabal`
+  build-depends. The plan's diff for Milestone 3 did not call this out (the
+  field type alias `Map` was imported but the package was assumed transitive).
+  Added explicitly.
+
+- 2026-05-13: Streamly 0.12's public surface in this repo does not export a
+  `Streamly.Data.Channel` module — the plan's illustrative `Channel.newChannel`
+  / `Channel.send` / `Channel.fromChannel` names don't resolve. M4 will use
+  `Control.Concurrent.Chan` from `base` for the producer/consumer queue (with
+  a `Maybe CallLogEntry` shutdown sentinel) and still drain it through a
+  `Streamly.Data.Stream` + `Streamly.Data.Fold` pipeline, which satisfies the
+  master-plan-level constraint "call log buffered through a streamly fold to
+  disk". No new third-party deps needed.
 
 
 ## Decision Log
