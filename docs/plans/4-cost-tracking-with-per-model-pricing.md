@@ -94,8 +94,8 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Implement `openCallLog`, `closeCallLog`, and `withCallLog`.
 - [x] 2026-05-13 Implement `appendEntry :: MonadIO m => CallLogHandle -> CallLogEntry -> m ()` as a non-blocking channel push (no-op when `enabled = False`).
 - [x] 2026-05-13 Implement `runRequestWithLog :: (Provider p, MonadIO m) => CallLogHandle -> p -> Request -> m Response`.
-- [ ] Add unit tests for `compute` (known + unknown model) and `attachCost`.
-- [ ] Update `baikai/baikai.cabal` `exposed-modules` to include `Baikai.Cost.Pricing` and `Baikai.Cost.Log`.
+- [x] 2026-05-13 Add unit tests for `compute` (known, unknown, cached-only) and `attachCost` (known, unknown, no-usage), plus a `CallLog` group that exercises the disabled-handle short-circuit and the enabled handle's end-to-end JSONL write through a `CannedProvider`. `cabal test all` reports 11/11 pass.
+- [x] 2026-05-13 Update `baikai/baikai.cabal` `exposed-modules` to include `Baikai.Cost.Pricing` and `Baikai.Cost.Log`; add `aeson`, `bytestring`, `directory`, `filepath` to the test suite's build-depends.
 
 
 ## Surprises & Discoveries
@@ -226,7 +226,33 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+- 2026-05-13: EP-4 complete. The library now populates `Response.cost` for any
+  API call whose model appears in `defaultPricing`, and the optional
+  `Baikai.Cost.Log` module records each call as one JSONL line with timestamp,
+  provider, model, token usage, USD cost (as `Scientific`), latency, and a
+  ≤200-char user-message summary. `cabal test all` reports 11/11 pass in
+  `baikai-test`; `baikai-smoke` still runs end-to-end green against OpenAI
+  (`gpt-4o-mini` ≈ usage present), Anthropic `sonnet`, and `codex` default.
+
+- Acceptance evidence: the deterministic compute case
+  `compute defaultPricing (Model "claude-haiku-4-5-20251001") (Usage 1000 500
+  Nothing Nothing) == Just (Cost { usd = 7/2000, breakdown = ... })`
+  is in `baikai/test/CostSpec.hs::computeTests`. The call-log integration test
+  uses a `CannedProvider`, writes to `<tmpdir>/baikai-cost-test.jsonl`, then
+  reads back the single line and asserts on every populated field. Both pass.
+
+- Gaps vs the plan: `attachCost` lives in `Baikai.Cost.Pricing` rather than
+  `Baikai.Cost` to avoid an import cycle (recorded in Decision Log and
+  Surprises). The streamly channel module the plan named (`Streamly.Data.Channel`)
+  does not exist in the streamly 0.12 pinned by the repo; the channel is
+  `Control.Concurrent.Chan` instead, but the worker still drains via a
+  streamly `Stream.unfoldrM` + `Fold.drainMapM` pipeline, preserving the
+  master-plan-level "buffered through a streamly fold" property.
+
+- Future work the plan flagged that was intentionally not done: a configurable
+  drain timeout on `closeCallLog`, in-worker `Stream.handle` to keep writing
+  after IO errors, and an `Eff es`-native `withCallLogEff` in a future
+  `baikai-effectful` package. None block EP-5 or EP-6.
 
 
 ## Context and Orientation

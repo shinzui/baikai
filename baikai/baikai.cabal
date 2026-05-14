@@ -71,9 +71,15 @@ test-suite baikai-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
+  other-modules:
+    CostSpec
   build-depends:
     base,
+    aeson,
     baikai,
+    bytestring,
+    directory,
+    filepath,
     tasty,
     tasty-hunit,
     text,

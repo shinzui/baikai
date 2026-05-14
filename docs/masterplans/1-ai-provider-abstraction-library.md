@@ -162,7 +162,7 @@ Alternatives considered and rejected:
 | EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | Complete    |
 | EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Complete    |
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Complete    |
-| EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | In Progress |
+| EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Complete    |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Not Started |
 | EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | Not Started |
 
@@ -292,10 +292,10 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-3: Implemented `Baikai.Provider.Claude.Cli` in `baikai-claude`, invoking `claude -p --output-format json` via cradle and decoding the typed-event JSON array stdout.
 - [x] 2026-05-13 EP-3: Implemented `Baikai.Provider.OpenAI.Cli` in `baikai-openai` via `System.Process` + a streamly handle-to-stream adapter; `Baikai.Provider.Cli.Internal.parseCodexJsonlStream` consumes the JSONL and folds out the assistant text.
 - [x] 2026-05-13 EP-3: Live smoke test in `baikai-smoke` exercises both CLI providers against the real binaries; passing on this machine (claude `sonnet` ≈ 3.5–6.0s, codex default model ≈ 2.8–4.3s).
-- [ ] EP-4: Define `Baikai.Cost.Pricing` with a model→rate map seeded for the current Claude and OpenAI lineup
-- [ ] EP-4: Implement `Baikai.Cost.compute :: Model -> Usage -> Maybe Cost`
-- [ ] EP-4: Wire cost computation into API providers' response construction
-- [ ] EP-4: Implement optional JSONL call log via `Baikai.Cost.Log`, buffered through a streamly fold
+- [x] 2026-05-13 EP-4: Define `Baikai.Cost.Pricing` with a model→rate map seeded for the current Claude and OpenAI lineup
+- [x] 2026-05-13 EP-4: Implement `Baikai.Cost.Pricing.compute :: Map Text PricingRate -> Model -> Usage -> Maybe Cost` and `attachCost :: Map Text PricingRate -> Response -> Response` (kept in `Baikai.Cost.Pricing` to avoid a `Baikai.Cost`↔`Baikai.Cost.Pricing` import cycle)
+- [x] 2026-05-13 EP-4: Wire cost computation into API providers' response construction (`ClaudeApi` and `OpenAIApi` records gain a `pricing` field; `runRequest` wraps `mapResponse` in `attachCost`)
+- [x] 2026-05-13 EP-4: Implement optional JSONL call log via `Baikai.Cost.Log`, buffered through a streamly `Stream.unfoldrM` + `Fold.drainMapM` pipeline. The producer side uses `Control.Concurrent.Chan` because streamly 0.12 in this repo does not export a `Streamly.Data.Channel` module.
 - [ ] EP-5: Define `Baikai.Trace.Event` and `Baikai.Trace.Sink` (as a streamly `Fold IO TraceEvent ()`)
 - [ ] EP-5: Implement stdout, file, silent, and multi sinks
 - [ ] EP-5: Wrap provider calls with `withTrace` that emits start/finish/error events with latency
@@ -383,6 +383,30 @@ interactions between child plans. Provide concise evidence.
   Future plans that need additional Haskell deps not in the Nix set should follow the
   same pattern — `mori registry show <project> --full` reveals the on-disk path, and
   `cabal.project` `packages:` accepts a directory path directly.
+
+- 2026-05-13 (EP-4): **The plan put `attachCost` in `Baikai.Cost`; we placed it
+  in `Baikai.Cost.Pricing` to break an import cycle.** `Baikai.Cost.Pricing`
+  already imports `Baikai.Cost` for `Cost`/`CostBreakdown` constructors; defining
+  `attachCost` in `Baikai.Cost` would force the reverse import for `PricingRate`
+  and `compute`, which `cabal build` rejects as a cycle. The public surface is
+  preserved (callers import `Baikai.Cost.Pricing (defaultPricing, attachCost)`).
+  EP-5 and EP-6 should follow the same convention if they need to consume
+  pricing artifacts.
+
+- 2026-05-13 (EP-4): **Streamly 0.12's public surface in this repo does not
+  export a `Streamly.Data.Channel` module.** EP-4's `Baikai.Cost.Log` uses a
+  `Control.Concurrent.Chan (Maybe CallLogEntry)` for the producer side (with a
+  `Nothing` shutdown sentinel) and still drains it through a streamly stream
+  (`Stream.unfoldrM` + `Fold.drainMapM`), which satisfies the master-plan-level
+  "buffered through a streamly fold" requirement. EP-5's `TraceSink ::
+  Fold IO TraceEvent ()` shape is unaffected — the fold is the sink, not the
+  channel — but EP-5 should expect to manage its own producer side the same way.
+
+- 2026-05-13 (EP-4): **`baikai-claude` and `baikai-openai` needed
+  `containers` added to `build-depends`** when the vendor provider records
+  gained a `pricing :: Map Text PricingRate` field. Previously `containers`
+  was transitive only. Future plans that touch the vendor records should
+  expect to add explicit deps for any new field types they introduce.
 
 
 ## Decision Log

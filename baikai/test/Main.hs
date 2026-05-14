@@ -2,6 +2,7 @@ module Main (main) where
 
 import Baikai
 import Baikai.Prelude
+import qualified CostSpec
 import qualified Data.Vector as V
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
@@ -22,7 +23,13 @@ instance Provider TestProvider where
         }
 
 main :: IO ()
-main = defaultMain tests
+main =
+  defaultMain $
+    testGroup
+      "baikai"
+      [ tests
+      , CostSpec.tests
+      ]
 
 tests :: TestTree
 tests =
