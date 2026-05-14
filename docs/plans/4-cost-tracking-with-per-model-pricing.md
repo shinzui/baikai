@@ -77,13 +77,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Define `PricingRate` data type in `Baikai.Cost.Pricing` (in `baikai/src/Baikai/Cost/Pricing.hs`).
-- [ ] Seed `claudePricing` map from https://www.anthropic.com/pricing.
-- [ ] Seed `openaiPricing` map from https://openai.com/api/pricing.
-- [ ] Define `defaultPricing = claudePricing <> openaiPricing`.
-- [ ] Add `lookupRate :: Map Text PricingRate -> Model -> Maybe PricingRate` helper.
-- [ ] Implement `compute :: Map Text PricingRate -> Model -> Usage -> Maybe Cost`.
-- [ ] Implement `attachCost :: Map Text PricingRate -> Response -> Response` in `Baikai.Cost` (in `baikai/src/Baikai/Cost.hs`).
+- [x] 2026-05-13 Define `PricingRate` data type in `Baikai.Cost.Pricing` (in `baikai/src/Baikai/Cost/Pricing.hs`).
+- [x] 2026-05-13 Seed `claudePricing` map from https://www.anthropic.com/pricing.
+- [x] 2026-05-13 Seed `openaiPricing` map from https://openai.com/api/pricing.
+- [x] 2026-05-13 Define `defaultPricing = claudePricing <> openaiPricing`.
+- [x] 2026-05-13 Add `lookupRate :: Map Text PricingRate -> Model -> Maybe PricingRate` helper.
+- [x] 2026-05-13 Implement `compute :: Map Text PricingRate -> Model -> Usage -> Maybe Cost`.
+- [x] 2026-05-13 Implement `attachCost :: Map Text PricingRate -> Response -> Response` in `Baikai.Cost.Pricing` (kept there to avoid a `Baikai.Cost`↔`Baikai.Cost.Pricing` import cycle — see Decision Log).
 - [ ] Add `pricing :: Map Text PricingRate` field to `ClaudeApi` record in `baikai-claude/src/Baikai/Provider/Claude/Api.hs`, defaulting to `defaultPricing`.
 - [ ] Wire `attachCost` into `ClaudeApi`'s `runRequest` implementation in `baikai-claude/src/Baikai/Provider/Claude/Api.hs`.
 - [ ] Add `pricing :: Map Text PricingRate` field to `OpenAIApi` record in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`, defaulting to `defaultPricing`.
@@ -102,7 +102,21 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-05-13: The plan put `attachCost` in `Baikai.Cost`, but that creates a module
+  import cycle: `Baikai.Cost.Pricing` already imports `Baikai.Cost (Cost (..),
+  CostBreakdown (..))` for the result types, and `attachCost` would force the
+  reverse import for `PricingRate` and `compute`. Resolved by defining `attachCost`
+  in `Baikai.Cost.Pricing` next to `compute`. Both `Baikai.Cost.Pricing` and
+  `Baikai.Cost` are exported from the library; consumers of the cost surface are
+  expected to import `Baikai.Cost.Pricing` (which is also where `defaultPricing`
+  lives) so the public ergonomics are unchanged. Evidence: `cabal build baikai`
+  fails with `Module imports form a cycle` if `attachCost` is defined in
+  `Baikai.Cost`.
+
+- 2026-05-13: `streamly` and `streamly-core` were already listed in
+  `baikai/baikai.cabal` `build-depends` — EP-3 added them when wiring the codex
+  JSONL parser. The plan's diff that adds them under EP-4 is therefore a no-op
+  on this tree; M4 will use them without a cabal edit.
 
 
 ## Decision Log
@@ -184,6 +198,10 @@ Record every decision made while working on the plan.
 
 - Decision: `openCallLog`, `closeCallLog`, `appendEntry`, and `runRequestWithLog` are `MonadIO m =>`. `withCallLog` stays in `IO`.
   Rationale: One-shot operations match the EP-1 typeclass change. `withCallLog` is a bracket that wraps `bracket :: IO a -> ...`; making it polymorphic would require `MonadUnliftIO`, which is incompatible with `effectful`'s `Eff es`. A future `baikai-effectful` package will ship an `Eff es`-native `withCallLogEff`.
+  Date: 2026-05-13
+
+- Decision: `attachCost` lives in `Baikai.Cost.Pricing`, not in `Baikai.Cost`, despite the plan's prose putting it in `Baikai.Cost`.
+  Rationale: `Baikai.Cost.Pricing` imports `Baikai.Cost (Cost (..), CostBreakdown (..))` to build the result, so defining `attachCost` in `Baikai.Cost` would close an import cycle. Keeping it in `Pricing` next to `compute` is also the natural grouping — both functions take the same `Map Text PricingRate` and need to know the same shape. The public surface is preserved: callers import `Baikai.Cost.Pricing (attachCost, defaultPricing)`.
   Date: 2026-05-13
 
 

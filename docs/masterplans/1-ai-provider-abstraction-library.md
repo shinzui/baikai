@@ -162,7 +162,7 @@ Alternatives considered and rejected:
 | EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | Complete    |
 | EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Complete    |
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Complete    |
-| EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Not Started |
+| EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | In Progress |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Not Started |
 | EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | Not Started |
 
