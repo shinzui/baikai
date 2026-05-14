@@ -307,7 +307,89 @@ main = do
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Outcome.** Streaming is now the primary provider surface in
+baikai. `streamRequest` returns a `Stream IO AssistantMessageEvent`
+for any model whose API tag has a registered handler;
+`completeRequest` and `Baikai.Trace.withTrace` are the synchronous
+drainage wrappers built on top via `streamingComplete /
+reassembleResponse`. Both the Anthropic and OpenAI Chat providers
+have native streaming producers driving the upstream SDK's
+typed/raw stream primitives. CLI providers (`claude -p`,
+`codex exec`) expose synthetic one-shot streams via
+`liftCompleteToStream`. The trace bridge is a stream-shaped
+combinator (`withTraceStream`) with idempotent finalization, and
+the synchronous `withTrace` no longer re-throws producer-side
+exceptions — failures surface as `stopReason = ErrorReason` +
+`errorMessage` on the returned `Response`, honouring the
+masterplan's "partial output is always recoverable" promise.
+
+**What worked.** Landing M1 with a `liftCompleteToStream` default
+that every existing `register` could opt into kept the library
+green at every commit boundary — the EP-1/EP-2 milestone-coupling
+trap did not bite. EP-4 and EP-5 should adopt the same pattern
+when they extend the registry shape: introduce the new field with
+a default-via-existing-handler so vendor providers can migrate
+incrementally rather than en masse. The reassembler is shared by
+`completeRequest` and the trace bridge, so neither has its own
+copy of the assembly logic; adding `latencyMs` recovery in one
+place fixed both call sites.
+
+**What surprised us.** Three things that the plan did not call
+out and that EP-4/EP-5 should be ready for:
+
+1. **OpenAI's typed streaming SDK is unusable for tool calls.**
+   `ChatCompletionStreamTyped` parses every chunk through a
+   `ToolCall` record whose `id`/`name` fields are required; OpenAI
+   omits them on continuation tool-call deltas. The whole
+   ChatCompletionChunk fails to parse and the chunk is dropped.
+   EP-3 worked around this by using the raw
+   `createChatCompletionStream` and parsing each `Aeson.Value`
+   manually. EP-4's tool-roundtrip smoke against OpenAI will run
+   through this same path; if it breaks for any reason the typed
+   variant cannot help.
+
+2. **OpenAI's usage chunk arrives after `finish_reason`.** When
+   `stream_options.include_usage = True`, OpenAI emits the
+   `finish_reason` chunk, then a separate chunk with empty
+   choices and the usage object. Emitting `EventDone` on
+   `finish_reason` discards the usage. The fix defers `EventDone`
+   to channel close with an `abFinishSeen` flag distinguishing
+   clean closes from unclean ones. The Anthropic side does not
+   exhibit this — Anthropic's `Message_Delta` carries the usage
+   inline with the stop reason. Any future Responses API
+   integration should expect Anthropic-style or OpenAI-style
+   sequencing per host.
+
+3. **Field name `error` shadows `Prelude.error`.** The
+   masterplan's Integration Points sketch named the
+   `EventError` payload field `error`. Under baikai's `-Wall +
+   DuplicateRecordFields` configuration this would warn every
+   importer of `Baikai.Stream.Event`. Renamed to `errorPartial`;
+   EP-4 should refer to the renamed name when documenting tool
+   error handling. The masterplan's Integration Points should be
+   refreshed if the sketches are ever quoted verbatim.
+
+**Known regressions.** Calls that route through
+`streamingComplete` (every API provider call, since EP-3 promotes
+`stream` to primary and derives `complete` from it) lose
+`Response.responseId` — the reassembler has no way to thread it
+through, and adding a constructor to `AssistantMessageEvent` to
+carry it would be a breaking algebra change. The Anthropic
+producer captures the responseId from `Message_Start` but does
+not surface it. EP-4 or a follow-up plan can add a
+producer-owned drain that bypasses `streamingComplete` to
+preserve the field. CLI providers are unaffected (their direct
+`complete` path preserves `responseId = Nothing`, which is the
+truthful value).
+
+**Test coverage.** All 18 baikai unit tests + 2 OTel tests pass.
+The smoke harness exercises both the synchronous and streaming
+paths against `gpt-4o-mini` (3 TextDelta events + a well-formed
+`EventDone Stop` with non-zero usage). Anthropic streaming was
+not exercised live in this plan because no `ANTHROPIC_API_KEY`
+was available; the assembly logic is symmetric to the OpenAI
+path and is exercised by the trace tests, but a live Anthropic
+smoke run is a worthwhile follow-up before EP-4 lands.
 
 
 ## Context and Orientation

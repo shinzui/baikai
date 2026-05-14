@@ -244,7 +244,7 @@ Alternatives considered and rejected:
 |------|--------------------------------------------------------------------|-------------------------------------------------------------------------------|------------------|------------|-------------|
 | EP-1 | Typed content blocks, richer Usage, and StopReason                 | docs/plans/7-typed-content-blocks-richer-usage-and-stopreason.md              | None             | None       | Complete    |
 | EP-2 | Api tag, Model record, and provider registry                       | docs/plans/8-api-tag-model-record-and-provider-registry.md                    | EP-1             | None       | Complete    |
-| EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | In Progress |
+| EP-3 | Streaming event protocol with streamly                             | docs/plans/9-streaming-event-protocol-with-streamly.md                        | EP-1, EP-2       | None       | Complete    |
 | EP-4 | Tools and Context overhaul                                         | docs/plans/10-tools-and-context-overhaul.md                                   | EP-1, EP-3       | EP-2       | Not Started |
 | EP-5 | Compat shims, cache retention, and multi-host providers            | docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md        | EP-2, EP-3       | EP-4       | Not Started |
 | EP-6 | Generated model catalog                                            | docs/plans/12-generated-model-catalog.md                                      | EP-2, EP-5       | EP-4       | Not Started |
@@ -543,12 +543,12 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-2: Rewrite each vendor provider to expose `register :: IO ()`
 - [x] EP-2: Rewrite `Baikai.Cost.Pricing`, `Baikai.Trace`, `Baikai.Cost.Log` for `Model`/`Context`
 - [x] EP-2: Migrate every test target and live smoke through the registry
-- [ ] EP-3: Define `AssistantMessageEvent`, the streaming entry point, and `streamingComplete`
-- [ ] EP-3: Implement the Anthropic streaming producer via `createMessageStreamTyped`
-- [ ] EP-3: Implement the OpenAI streaming producer via `createChatCompletionStreamTyped`
-- [ ] EP-3: Wrap CLI providers in synthetic one-shot streams
-- [ ] EP-3: Rebuild `Baikai.Trace.withTrace` around the event stream
-- [ ] EP-3: Add streaming smoke coverage in `baikai-smoke`
+- [x] EP-3: Define `AssistantMessageEvent`, the streaming entry point, and `streamingComplete`
+- [x] EP-3: Implement the Anthropic streaming producer via `createMessageStreamTyped`
+- [x] EP-3: Implement the OpenAI streaming producer (raw stream, not typed — see EP-3 plan Decision Log)
+- [x] EP-3: Wrap CLI providers in synthetic one-shot streams (via `liftCompleteToStream`)
+- [x] EP-3: Rebuild `Baikai.Trace.withTrace` around the event stream
+- [x] EP-3: Add streaming smoke coverage in `baikai-smoke`
 - [ ] EP-4: Introduce `Baikai.Tool`; extend `Context.tools`, `Options.toolChoice`
 - [ ] EP-4: Anthropic tool encoding/decoding wired in
 - [ ] EP-4: OpenAI tool encoding/decoding wired in
