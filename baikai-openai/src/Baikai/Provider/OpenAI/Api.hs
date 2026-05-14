@@ -421,6 +421,11 @@ data Assembler = Assembler
   , abNextContentIndex :: !Int
   , abUsage :: !Usage.Usage
   , abStopReason :: !Stop.StopReason
+  , abFinishSeen :: !Bool
+    -- ^ 'True' once a chunk carrying @finish_reason@ has been
+    -- observed. The terminal 'EventDone' fires on channel close so
+    -- the post-@finish_reason@ usage chunk (when @include_usage@ is
+    -- enabled) has a chance to land.
   , abErrorMsg :: !(Maybe Text)
   }
 
@@ -439,6 +444,7 @@ emptyAssembler m start =
     , abNextContentIndex = 0
     , abUsage = Usage._Usage
     , abStopReason = Stop.Stop
+    , abFinishSeen = False
     , abErrorMsg = Nothing
     }
 
@@ -460,9 +466,12 @@ translate chunk ass now
           (toolEvents, ass2) = applyToolDeltas (rcToolDeltas chunk) ass1
           -- 3. Apply usage chunk if present.
           ass3 = applyUsage (rcUsage chunk) ass2
-          -- 4. If finish_reason is set, close any open text block and emit EventDone.
+          -- 4. If finish_reason is set, close any open text/tool
+          --    blocks and stash the reason. EventDone is deferred
+          --    to channel close so the post-finish_reason usage
+          --    chunk has a chance to land.
           (closeEvents, ass4) = case rcFinishReason chunk of
-            Just fr -> closeAll now fr ass3
+            Just fr -> closeOnFinish fr ass3
             Nothing -> ([], ass3)
        in (textEvents <> toolEvents <> closeEvents, ass4)
 
@@ -549,19 +558,16 @@ applyUsage (Just u) ass =
           }
    in ass {abUsage = usage'}
 
-closeAll
-  :: UTCTime
-  -> Text
-  -> Assembler
-  -> ([AssistantMessageEvent], Assembler)
-closeAll now finishReason ass =
+-- | Close all open content blocks and stash the resolved stop
+-- reason; defer 'EventDone' to channel close.
+closeOnFinish
+  :: Text -> Assembler -> ([AssistantMessageEvent], Assembler)
+closeOnFinish finishReason ass =
   let (closeText, ass1) = closeOpenText ass
       (closeTools, ass2) = closeOpenTools ass1
       reason = mapFinishReason finishReason
-      ass3 = ass2 {abStopReason = reason}
-      msg = finalMessage ass3 now Nothing reason
-      doneEv = EventDone {reason = reason, message = msg}
-   in (closeText <> closeTools <> [doneEv], ass3)
+      ass3 = ass2 {abStopReason = reason, abFinishSeen = True}
+   in (closeText <> closeTools, ass3)
 
 -- | Close the open text block, if any, by emitting a 'TextEnd' and
 -- storing the assembled content in 'abClosed'.
@@ -610,20 +616,28 @@ closeOpenTools ass =
 
 closeOpenStream
   :: UTCTime -> Assembler -> ([AssistantMessageEvent], Assembler)
-closeOpenStream now ass =
-  -- Channel closed without a finish_reason. Force-close any open
-  -- blocks and emit EventError with the accumulated content.
-  let (closeText, ass1) = closeOpenText ass
-      (closeTools, ass2) = closeOpenTools ass1
-      reason = Stop.ErrorReason
-      msg =
-        finalMessage
-          ass2
-          now
-          (Just "openai stream ended without finish_reason")
-          reason
-      errEv = EventError {reason = reason, errorPartial = msg}
-   in (closeText <> closeTools <> [errEv], ass2)
+closeOpenStream now ass
+  | abFinishSeen ass =
+      -- Channel closed cleanly after finish_reason. Emit
+      -- EventDone with the accumulated content + usage.
+      let reason = abStopReason ass
+          msg = finalMessage ass now Nothing reason
+       in ([EventDone {reason = reason, message = msg}], ass)
+  | otherwise =
+      -- Channel closed without a finish_reason. Force-close any
+      -- still-open blocks and emit EventError with the accumulated
+      -- content.
+      let (closeText, ass1) = closeOpenText ass
+          (closeTools, ass2) = closeOpenTools ass1
+          reason = Stop.ErrorReason
+          msg =
+            finalMessage
+              ass2
+              now
+              (Just "openai stream ended without finish_reason")
+              reason
+          errEv = EventError {reason = reason, errorPartial = msg}
+       in (closeText <> closeTools <> [errEv], ass2)
 
 finalMessage
   :: Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message

@@ -51,5 +51,7 @@ test-suite baikai-smoke
     , directory
     , generic-lens
     , lens ^>=5.3
+    , streamly ^>=0.12
+    , streamly-core ^>=0.4
     , text ^>=2.1
     , vector

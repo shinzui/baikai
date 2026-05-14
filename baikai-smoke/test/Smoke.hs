@@ -15,6 +15,7 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import Streamly.Data.Stream qualified as Stream
 import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -27,9 +28,10 @@ main = do
   ClaudeCli.register
   CodexCli.register
   hadApi <- mapM runApiCase apiCases
+  hadStream <- mapM runStreamCase apiCases
   hadCli <- mapM runCliCase cliCases
   hadImage <- runImageCase
-  unless (or hadApi || or hadCli || hadImage) $
+  unless (or hadApi || or hadStream || or hadCli || hadImage) $
     hPutStrLn stderr
       "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
 
@@ -115,6 +117,63 @@ runApiCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
           <> show (Vector.length blocks)
           <> " block(s); usage tokens > 0"
       pure True
+
+-- | Streaming smoke: subscribe to 'streamRequest' for a given API
+-- case, fold the event stream into a list, and assert (a) at least
+-- one 'TextDelta' was emitted before the terminal event, (b) the
+-- terminal event is 'EventDone' with @stopReason = Stop@, (c) the
+-- terminal message's 'Usage' has non-zero @inputTokens@ +
+-- @outputTokens@.
+runStreamCase :: ApiCase -> IO Bool
+runStreamCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
+  matched <- firstSetEnv caseEnvVars
+  case matched of
+    Nothing -> pure False
+    Just (envVar, key) -> do
+      let opts =
+            _Options
+              & #maxTokens .~ Just 32
+              & #temperature .~ Just 0.0
+              & #apiKey .~ Just (Text.pack key)
+      events <- Stream.toList (streamRequest caseModel sampleContext opts)
+      let textDeltas =
+            [ d
+            | TextDelta _ d <- events
+            ]
+          textOk = not (null textDeltas)
+          terminalOk = case lastMay events of
+            Just (EventDone Stop msg) -> usageNonZero msg
+            _ -> False
+      when (not textOk || not terminalOk) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] streaming failed for "
+            <> caseLabel
+            <> " via "
+            <> envVar
+            <> "; deltas="
+            <> show (length textDeltas)
+            <> " terminal_ok="
+            <> show terminalOk
+        exitFailure
+      hPutStrLn stderr $
+        "[baikai-smoke] streaming "
+          <> caseLabel
+          <> " ok via "
+          <> envVar
+          <> "; "
+          <> show (length textDeltas)
+          <> " TextDelta event(s)"
+      pure True
+
+lastMay :: [a] -> Maybe a
+lastMay [] = Nothing
+lastMay xs = Just (last xs)
+
+usageNonZero :: Message -> Bool
+usageNonZero = \case
+  AssistantMessage {usage = u} ->
+    (u ^. #inputTokens) > 0 && (u ^. #outputTokens) > 0
+  _ -> False
 
 firstSetEnv :: [String] -> IO (Maybe (String, String))
 firstSetEnv vars = do

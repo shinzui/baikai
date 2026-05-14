@@ -115,12 +115,18 @@ main = do
       `stopReason = ErrorReason` + `errorMessage` on the returned
       `Response`. Test expectations updated to match. Completed
       2026-05-14.
-- [ ] Milestone 6: add streaming smoke coverage in `baikai-smoke`. The new
-      `StreamingSmoke.hs` runs against both API providers (skipping without
-      keys) and asserts (a) the stream emits at least one `TextDelta` event,
-      (b) the terminal event is `EventDone`, (c) the usage on the terminal
-      `EventDone`'s `message` is non-zero. Existing batch smoke tests
+- [x] Milestone 6: added a streaming smoke case
+      (`runStreamCase`) in the existing `baikai-smoke/test/Smoke.hs`
+      (not a separate module — the smoke harness is a single IO
+      program, not a tasty test suite). The case runs against each
+      registered API provider (skipping when env-var key absent) and
+      asserts (a) at least one `TextDelta` event, (b) terminal
+      event is `EventDone Stop`, (c) the terminal message's `usage`
+      has non-zero `inputTokens` + `outputTokens`. Verified locally
+      against `gpt-4o-mini` via `OPENAI_API_KEY` — 3 TextDeltas + a
+      well-formed terminal event. The existing batch smoke cases
       continue to pass through the draining `completeRequest`.
+      Completed 2026-05-14.
 
 
 ## Surprises & Discoveries
@@ -137,6 +143,19 @@ main = do
   final state is already the synthetic one-shot stream the plan
   describes — M4's "rewrite" is mostly a documentation/identity
   change.
+- M6: First live run against `gpt-4o-mini` failed the existing
+  batch smoke (`(usage > 0)`) even though the request succeeded.
+  Root cause: OpenAI's Chat Completions stream emits the
+  `finish_reason` chunk and the optional usage chunk (when
+  `stream_options.include_usage = True`) as *two separate
+  chunks* — the usage chunk arrives after the finish_reason
+  chunk. My initial M3 implementation emitted `EventDone` on
+  `finish_reason`, missing the trailing usage chunk every time.
+  Fix: deferred `EventDone` to channel-close, with a
+  `abFinishSeen` flag distinguishing a clean close after
+  `finish_reason` (emit `EventDone`) from an unclean close (emit
+  `EventError`). Future work on Responses API streaming should
+  apply the same "defer terminal to channel close" pattern.
 - M3: The plan called for `createChatCompletionStreamTyped`, but
   the typed `ChatCompletionChunk` parses `Delta.tool_calls`
   through the SDK's `ToolCall = ToolCall_Function { id :: Text,
