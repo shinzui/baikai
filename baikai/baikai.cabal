@@ -40,6 +40,7 @@ library
     Baikai
     Baikai.Auth
     Baikai.Cost
+    Baikai.Cost.Log
     Baikai.Cost.Pricing
     Baikai.Error
     Baikai.Message

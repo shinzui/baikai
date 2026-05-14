@@ -89,11 +89,11 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Add `pricing :: Map Text PricingRate` field to `OpenAIApi` record in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`, defaulting to `defaultPricing`.
 - [x] 2026-05-13 Wire `attachCost` into `OpenAIApi`'s `runRequest` implementation in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`.
 - [x] 2026-05-13 Add `containers` to `baikai-claude.cabal` and `baikai-openai.cabal` build-depends (needed for `Data.Map.Strict.Map` in the `pricing` field).
-- [ ] Add `streamly` and `streamly-core` to `baikai/baikai.cabal`'s library `build-depends`.
-- [ ] Implement `Baikai.Cost.Log` (in `baikai/src/Baikai/Cost/Log.hs`) with `CallLogConfig`, `CallLogEntry`, the opaque `CallLogHandle`, and the streamly-channel-based worker.
-- [ ] Implement `openCallLog`, `closeCallLog`, and `withCallLog`.
-- [ ] Implement `appendEntry :: MonadIO m => CallLogHandle -> CallLogEntry -> m ()` as a non-blocking channel push.
-- [ ] Implement `runRequestWithLog :: (Provider p, MonadIO m) => CallLogHandle -> p -> Request -> m Response`.
+- [x] 2026-05-13 `streamly` and `streamly-core` already in `baikai/baikai.cabal` build-depends from EP-3 — no-op here.
+- [x] 2026-05-13 Implement `Baikai.Cost.Log` (in `baikai/src/Baikai/Cost/Log.hs`) with `CallLogConfig`, `CallLogEntry`, the opaque `CallLogHandle`, and a `Chan`-fed worker that drains via `Streamly.Data.Stream.unfoldrM` + `Streamly.Data.Fold.drainMapM`.
+- [x] 2026-05-13 Implement `openCallLog`, `closeCallLog`, and `withCallLog`.
+- [x] 2026-05-13 Implement `appendEntry :: MonadIO m => CallLogHandle -> CallLogEntry -> m ()` as a non-blocking channel push (no-op when `enabled = False`).
+- [x] 2026-05-13 Implement `runRequestWithLog :: (Provider p, MonadIO m) => CallLogHandle -> p -> Request -> m Response`.
 - [ ] Add unit tests for `compute` (known + unknown model) and `attachCost`.
 - [ ] Update `baikai/baikai.cabal` `exposed-modules` to include `Baikai.Cost.Pricing` and `Baikai.Cost.Log`.
 
