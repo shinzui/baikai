@@ -159,7 +159,7 @@ Alternatives considered and rejected:
 
 | #    | Title                                                | Path                                                          | Hard Deps   | Soft Deps   | Status      |
 |------|------------------------------------------------------|---------------------------------------------------------------|-------------|-------------|-------------|
-| EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | In Progress |
+| EP-1 | Core abstraction types and Provider class            | docs/plans/1-core-abstraction-types-and-provider-class.md     | None        | None        | Complete    |
 | EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Not Started |
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Not Started |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Not Started |
@@ -280,10 +280,10 @@ both plans and in this section's Decision Log.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-1: Define `Baikai.Model`, `Baikai.Request`, `Baikai.Response`, `Baikai.Usage`, `Baikai.Cost`, `Baikai.Error` modules in the `baikai` package
-- [ ] EP-1: Define `Baikai.Provider` typeclass and `SomeProvider` existential
-- [ ] EP-1: Update `Baikai.Prelude` and re-export the public surface from `Baikai`
-- [ ] EP-1: Add unit tests that construct a `Request` and pattern-match a `Response`
+- [x] 2026-05-13 EP-1: Define `Baikai.Model`, `Baikai.Request`, `Baikai.Response`, `Baikai.Usage`, `Baikai.Cost`, `Baikai.Error` modules in the `baikai` package
+- [x] 2026-05-13 EP-1: Define `Baikai.Provider` typeclass and `SomeProvider` existential
+- [x] 2026-05-13 EP-1: Update `Baikai.Prelude` and re-export the public surface from `Baikai`
+- [x] 2026-05-13 EP-1: Add unit tests that construct a `Request` and pattern-match a `Response` (`cabal test all` — `All 3 tests passed`)
 - [ ] EP-2: Create `baikai-claude` and `baikai-openai` packages with cabal files and `cabal.project` entries
 - [ ] EP-2: Implement `Baikai.Provider.Claude.Api` (in `baikai-claude`) mapping unified Request to `Claude.V1.Messages.CreateMessage`
 - [ ] EP-2: Implement `Baikai.Provider.OpenAI.Api` (in `baikai-openai`) mapping unified Request to `OpenAI.V1.Chat.Completions.CreateChatCompletion`
@@ -309,7 +309,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
-(None yet.)
+- 2026-05-13: EP-1's `Baikai.Prelude` shipped without a standalone `liftIO` export. GHC 9.12.2 emits `-Wduplicate-exports` because `liftIO` is already a class method of `MonadIO (..)`. Mentioning this here because every later plan that imports `Baikai.Prelude` and writes a `Provider` instance still gets `liftIO` in scope — no consumer-side change is needed. Evidence: `cabal build all` clean output and EP-1 plan Surprises & Discoveries entry.
 
 
 ## Decision Log

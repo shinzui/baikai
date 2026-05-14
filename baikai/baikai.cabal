@@ -59,3 +59,16 @@ library
     text ^>=2.1,
     time,
     vector,
+
+test-suite baikai-test
+  import: common-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  build-depends:
+    base,
+    baikai,
+    tasty,
+    tasty-hunit,
+    text,
+    vector,

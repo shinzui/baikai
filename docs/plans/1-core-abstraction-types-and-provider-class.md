@@ -56,10 +56,11 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Update `baikai/baikai.cabal` `exposed-modules` and add `aeson`, `bytestring`, `containers`, `scientific`, `time`, `vector` to `build-depends`. M1 `cabal build all` clean.
 - [x] 2026-05-13 Extend `baikai/src/Baikai/Prelude.hs` to re-export `MonadIO`, `Text`, `Vector`, `Natural`, `Generic`, and the aeson surface. `liftIO` is reached via `MonadIO(..)` to avoid a `-Wduplicate-exports` warning.
 - [x] 2026-05-13 Replace the stub in `baikai/src/Baikai.hs` with the public re-export module.
-- [ ] Add a `test-suite baikai-test` stanza to `baikai/baikai.cabal`.
-- [ ] Create `baikai/test/Main.hs` with a `TestProvider` instance and a tasty/HUnit test.
-- [ ] `cabal build all` succeeds inside `nix develop`.
-- [ ] `cabal test all` passes inside `nix develop`.
+- [x] 2026-05-13 Add a `test-suite baikai-test` stanza to `baikai/baikai.cabal`.
+- [x] 2026-05-13 Create `baikai/test/Main.hs` with a `TestProvider` instance and three tasty/HUnit tests.
+- [x] 2026-05-13 `cabal build all` succeeds inside `nix develop`.
+- [x] 2026-05-13 `cabal test all` reports `All 3 tests passed` inside `nix develop`.
+- [x] 2026-05-13 Validation criterion (3): `cabal repl baikai` REPL session defines a local `TP` `Provider` and dispatches `runRequest TP …` → `"ok"`.
 
 
 ## Surprises & Discoveries
@@ -120,7 +121,29 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+- 2026-05-13: EP-1 complete. All three milestones landed across three
+  commits on `master`. The `baikai` package now exposes `Model`,
+  `Message`, `Usage`, `Cost`, `CostBreakdown`, `BaikaiError`,
+  `Request`, `Response`, the `Provider` typeclass, the
+  `SomeProvider` existential, and `runSome` — the entire vocabulary
+  EP-2 through EP-6 will consume.
+- `cabal build all` builds the library cleanly with no warnings.
+  `cabal test all` runs `baikai-test` and reports
+  `All 3 tests passed`. The REPL transcript in
+  `Validation and Acceptance` (criterion 3) was executed verbatim and
+  `runRequest TP …` returned `"ok"`, confirming that the typeclass,
+  the existential, the records, the lens-based field access, and the
+  smart defaults all work together.
+- One deviation from the written plan: `Baikai.Prelude` lists
+  `MonadIO (..)` but not a standalone `liftIO` export. GHC 9.12.2
+  flags the redundant pair with `-Wduplicate-exports` because `liftIO`
+  is already a class method covered by `MonadIO (..)`. Recorded in
+  Surprises & Discoveries. Downstream consumers still get `liftIO`
+  from `import Baikai.Prelude`.
+- No surprises in the type-level design: `Rational` cost, `Maybe`
+  usage fields, and the `Text`-typed `Model` field all compiled
+  without back-and-forth and gave the test suite an unsurprising
+  shape. EP-2 can begin immediately and is unblocked.
 
 
 ## Context and Orientation
