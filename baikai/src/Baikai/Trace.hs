@@ -47,6 +47,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, displayException, throwIO, try)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Bits (unsafeShiftL, (.&.), (.|.))
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Text qualified as Text
@@ -65,8 +66,10 @@ import System.IO.Unsafe (unsafePerformIO)
 -- closes the channel, waits for the worker to drain, then returns the
 -- response or re-throws the original exception. The worker is guaranteed
 -- to have drained the terminal event before this function returns.
-withTrace :: Provider p => TraceSink -> p -> Request -> IO Response
-withTrace (TraceSink sinkFold) p req = do
+withTrace
+  :: (Provider p, MonadUnliftIO m)
+  => TraceSink -> p -> Request -> m Response
+withTrace (TraceSink sinkFold) p req = withRunInIO $ \_run -> do
   chan <- newChan :: IO (Chan (Maybe TraceEvent))
   done <- newEmptyMVar
 
@@ -80,7 +83,7 @@ withTrace (TraceSink sinkFold) p req = do
     putMVar done ()
 
   eid <- newEventId
-  start <- liftIO getCurrentTime
+  start <- getCurrentTime
   writeChan chan $
     Just
       CallStarted
@@ -134,15 +137,15 @@ withTrace (TraceSink sinkFold) p req = do
 -- one call. Traces the call, then appends a 'CallLogEntry' to the given
 -- handle. The entry build mirrors 'Baikai.Cost.Log.runRequestWithLog'.
 runRequestWith
-  :: Provider p
+  :: (Provider p, MonadUnliftIO m)
   => TraceSink
   -> CallLogHandle
   -> p
   -> Request
-  -> IO Response
+  -> m Response
 runRequestWith sink h p req = do
   resp <- withTrace sink p req
-  now <- getCurrentTime
+  now <- liftIO getCurrentTime
   let u :: Maybe Usage
       u = resp ^. #usage
       entry =

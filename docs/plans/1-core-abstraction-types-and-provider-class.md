@@ -973,3 +973,5 @@ sum type. None of those plans modifies the signatures listed above.
 ## Revisions
 
 - 2026-05-13: Generalised `Provider.runRequest` and `runSome` from concrete `IO` to `MonadIO m =>` to make a future `baikai-effectful` package possible without re-engineering the typeclass. Updated `Baikai.Prelude` to re-export `MonadIO` and `liftIO`. Driver: the MonadIO decision recorded in `docs/masterplans/1-ai-provider-abstraction-library.md`'s Decision Log on the same date.
+
+- 2026-05-14: Note that the parenthetical in the prior entry's Rationale — "bracket signatures stay in `IO` because `Eff es` is not a `MonadUnliftIO`" — was wrong. `effectful-core` provides `instance IOE :> es => MonadUnliftIO (Eff es)`. The `MonadIO m =>` generalisation for `Provider.runRequest` and `runSome` is unaffected and remains correct. The bracket-signature follow-up (generalising `withCallLog`, `withTrace`, `runRequestWith` to `MonadUnliftIO m =>`) is recorded in EP-4 and EP-5 and in the masterplan's 2026-05-14 Decision Log entry.

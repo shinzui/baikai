@@ -35,6 +35,7 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
 import Control.Lens ((^.))
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
@@ -113,11 +114,13 @@ closeCallLog h = liftIO $ do
     False -> pure ()
   takeMVar (done h)
 
--- | Bracketed lifetime. Stays in 'IO' because 'bracket' requires
--- 'MonadUnliftIO', which 'effectful''s 'Eff' does not satisfy. A future
--- @baikai-effectful@ package will provide an 'Eff'-native wrapper.
-withCallLog :: CallLogConfig -> (CallLogHandle -> IO a) -> IO a
-withCallLog c = bracket (openCallLog c) closeCallLog
+-- | Bracketed lifetime: open the handle, run the body, close exactly once
+-- on every path (including exceptions). Polymorphic over 'MonadUnliftIO',
+-- which 'IO' and @effectful@'s @'Eff' es@ (with @'IOE' :> es@) both satisfy.
+withCallLog :: MonadUnliftIO m => CallLogConfig -> (CallLogHandle -> m a) -> m a
+withCallLog c body =
+  withRunInIO $ \run ->
+    bracket (openCallLog c) closeCallLog (run . body)
 
 -- | Non-blocking. When the handle is disabled, returns immediately without
 -- touching the channel. Otherwise pushes the entry onto the worker's queue.

@@ -1052,3 +1052,5 @@ streamly decisions recorded in `docs/masterplans/1-ai-provider-abstraction-libra
 Decision Log on the same date.
 
 - 2026-05-13: Generalised `openCallLog`, `closeCallLog`, `appendEntry`, and `runRequestWithLog` from concrete `IO` to `MonadIO m =>` (wrapping existing IO bodies in `liftIO`). `withCallLog` and the internal streamly worker stay in `IO` because bracket-style entry points cannot be polymorphic without `MonadUnliftIO`, which `effectful` does not satisfy. Driver: the MonadIO decision recorded in `docs/masterplans/1-ai-provider-abstraction-library.md`'s Decision Log on the same date.
+
+- 2026-05-14: Correction. The "`effectful` does not satisfy `MonadUnliftIO`" premise was wrong — `effectful-core` provides `instance IOE :> es => MonadUnliftIO (Eff es)`. Generalised `withCallLog` from concrete `IO` to `MonadUnliftIO m =>` via `Control.Monad.IO.Unlift.withRunInIO`; the streamly worker thread still runs in `IO` because it lives inside `forkIO` and that is genuinely `IO`-bound. Updated the misleading inline comment on `withCallLog`. Driver: the 2026-05-14 correction recorded in the masterplan's Decision Log.

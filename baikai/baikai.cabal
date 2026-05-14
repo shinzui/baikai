@@ -67,6 +67,7 @@ library
     streamly-core ^>=0.4,
     text ^>=2.1,
     time,
+    unliftio-core,
     vector,
 
 test-suite baikai-test
