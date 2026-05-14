@@ -1,16 +1,24 @@
--- | Top-level entry point for the baikai library.
---
---   This is a starter stub: it exposes a single `greet` function so the
---   freshly generated project compiles and has something for the test
---   suite to exercise. Replace it with your real public API as the
---   library grows.
+-- | Public surface of the baikai library. Importing this module is
+--   enough for a downstream consumer to construct a `Request`, write a
+--   `Provider` instance, and pattern-match a `Response`.
 module Baikai
-  ( greet
+  ( -- * Types
+    module Baikai.Model
+  , module Baikai.Message
+  , module Baikai.Request
+  , module Baikai.Response
+  , module Baikai.Usage
+  , module Baikai.Cost
+  , module Baikai.Error
+    -- * Provider abstraction
+  , module Baikai.Provider
   ) where
 
-import Data.Text (Text)
-import qualified Data.Text as T
-
--- | Produce a friendly greeting for the given subject.
-greet :: Text -> Text
-greet who = T.pack "Hello, " <> who <> T.pack "!"
+import Baikai.Cost
+import Baikai.Error
+import Baikai.Message
+import Baikai.Model
+import Baikai.Provider
+import Baikai.Request
+import Baikai.Response
+import Baikai.Usage

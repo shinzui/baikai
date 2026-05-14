@@ -54,8 +54,8 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Create `baikai/src/Baikai/Response.hs` with `Response` record.
 - [x] 2026-05-13 Create `baikai/src/Baikai/Provider.hs` with the `Provider` typeclass, `SomeProvider`, and `runSome`.
 - [x] 2026-05-13 Update `baikai/baikai.cabal` `exposed-modules` and add `aeson`, `bytestring`, `containers`, `scientific`, `time`, `vector` to `build-depends`. M1 `cabal build all` clean.
-- [ ] Extend `baikai/src/Baikai/Prelude.hs` to re-export `Text`, `Vector`, `Natural`, `Generic`, and the aeson surface.
-- [ ] Replace the stub in `baikai/src/Baikai.hs` with the public re-export module.
+- [x] 2026-05-13 Extend `baikai/src/Baikai/Prelude.hs` to re-export `MonadIO`, `Text`, `Vector`, `Natural`, `Generic`, and the aeson surface. `liftIO` is reached via `MonadIO(..)` to avoid a `-Wduplicate-exports` warning.
+- [x] 2026-05-13 Replace the stub in `baikai/src/Baikai.hs` with the public re-export module.
 - [ ] Add a `test-suite baikai-test` stanza to `baikai/baikai.cabal`.
 - [ ] Create `baikai/test/Main.hs` with a `TestProvider` instance and a tasty/HUnit test.
 - [ ] `cabal build all` succeeds inside `nix develop`.
@@ -67,7 +67,7 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-05-13: `Baikai.Prelude`'s initial draft listed both `MonadIO (..)` and `liftIO` in the export list. GHC 9.12.2 emits `-Wduplicate-exports` ("'liftIO' is exported by 'liftIO' and 'MonadIO(..)'") because `liftIO` is a class method already covered by `MonadIO (..)`. Resolved by dropping the standalone `liftIO` export and the corresponding import; `import Baikai.Prelude` still puts `liftIO` in scope via the `MonadIO` class method export.
 
 
 ## Decision Log
@@ -545,9 +545,8 @@ module Baikai.Prelude
     -- * Generic-lens vocabulary
   , module Data.Generics.Product
   , module Data.Generics.Sum
-    -- * IO lifting
+    -- * IO lifting (`liftIO` re-exported as a method of `MonadIO`)
   , MonadIO (..)
-  , liftIO
     -- * Scalar types
   , Text
   , Vector
@@ -562,7 +561,7 @@ module Baikai.Prelude
   ) where
 
 import Control.Lens
-import Control.Monad.IO.Class (MonadIO (..), liftIO)
+import Control.Monad.IO.Class (MonadIO (..))
 import Data.Aeson (FromJSON (..), ToJSON (..), genericParseJSON, genericToJSON)
 import Data.Generics.Labels ()
 import Data.Generics.Product
@@ -572,6 +571,10 @@ import Data.Vector (Vector)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 ```
+
+`liftIO` is re-exported as a method of the `MonadIO` class; listing it as
+a standalone export alongside `MonadIO (..)` would trigger
+`-Wduplicate-exports` on GHC 9.12.
 
 Downstream consumers writing a `Provider` instance get `MonadIO` and
 `liftIO` via `import Baikai.Prelude` and do not need a separate
