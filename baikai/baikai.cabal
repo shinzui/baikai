@@ -38,10 +38,24 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai
+    Baikai.Cost
+    Baikai.Error
+    Baikai.Message
+    Baikai.Model
     Baikai.Prelude
+    Baikai.Provider
+    Baikai.Request
+    Baikai.Response
+    Baikai.Usage
 
   build-depends:
     base >=4.20 && <5,
+    aeson,
+    bytestring,
+    containers,
     generic-lens,
     lens ^>=5.3,
+    scientific,
     text ^>=2.1,
+    time,
+    vector,
