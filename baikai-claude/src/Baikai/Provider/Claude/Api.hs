@@ -25,17 +25,20 @@ module Baikai.Provider.Claude.Api
 
 import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
+import Baikai.CacheRetention (CacheRetention (..))
+import Baikai.Compat (AnthropicMessagesCompat (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Message qualified as Msg
-import Baikai.Model (Model)
+import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.ThinkingLevel (ThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
 import Claude.V1 qualified as Claude
@@ -495,7 +498,17 @@ anthroUsageToBaikai u =
 mapRequest :: Model -> Context -> Options -> Either Text Messages.CreateMessage
 mapRequest m ctx opts = do
   msgs <- traverse mapMessage (Vector.toList (ctx ^. #messages))
-  let mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
+  let compat = anthropicMessagesCompatFor m
+      baseTokens = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
+      thinkingField = computeThinking m (opts ^. #thinking)
+      -- When extended thinking is enabled, Anthropic requires that
+      -- max_tokens be large enough to cover both the visible
+      -- response and the thinking budget. Bump the cap by the
+      -- requested budget so callers do not have to do the math.
+      maxTokensField_ = case thinkingField of
+        Just (Messages.ThinkingEnabled budget) -> baseTokens + budget
+        _ -> baseTokens
+      cacheControlField = computeCacheControl compat (opts ^. #cacheRetention)
       -- `ToolChoiceNone` is not a first-class Anthropic value; the
       -- standard way to disable tool use on a per-call basis is to
       -- omit the @tools@ field entirely. Suppress both fields when
@@ -507,7 +520,7 @@ mapRequest m ctx opts = do
       toolsField =
         if Vector.null toolsVec
           then Nothing
-          else Just (Vector.map mkAnthropicTool toolsVec)
+          else Just (Vector.map (mkAnthropicTool compat) toolsVec)
       toolChoiceField = case opts ^. #toolChoice of
         Just Tool.ToolChoiceNone -> Nothing
         Just tc -> Just (mkAnthropicToolChoice tc)
@@ -516,19 +529,69 @@ mapRequest m ctx opts = do
     Messages._CreateMessage
       { Messages.model = m ^. #modelId
       , Messages.messages = Vector.fromList msgs
-      , Messages.max_tokens = mt
+      , Messages.max_tokens = maxTokensField_
       , Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt)
       , Messages.temperature = opts ^. #temperature
       , Messages.tools = toolsField
       , Messages.tool_choice = toolChoiceField
+      , Messages.cache_control = cacheControlField
+      , Messages.thinking = thinkingField
       }
+
+-- | Translate the call-time 'Baikai.CacheRetention' preference into
+-- the Anthropic SDK's @cache_control@ shape.
+--
+-- 'CacheRetentionNone' (and 'Nothing') turn the field off entirely.
+-- 'CacheRetentionShort' uses the ephemeral marker with no TTL (the
+-- provider default). 'CacheRetentionLong' asks for the @"1h"@ TTL
+-- when the host advertises 'supportsLongCacheRetention'; otherwise it
+-- transparently downgrades to short retention.
+computeCacheControl
+  :: AnthropicMessagesCompat
+  -> Maybe CacheRetention
+  -> Maybe Messages.CacheControl
+computeCacheControl _ Nothing = Nothing
+computeCacheControl _ (Just CacheRetentionNone) = Nothing
+computeCacheControl _ (Just CacheRetentionShort) =
+  Just Messages.CacheControl {Messages.type_ = "ephemeral", Messages.ttl = Nothing}
+computeCacheControl compat (Just CacheRetentionLong)
+  | supportsLongCacheRetention compat =
+      Just
+        Messages.CacheControl
+          { Messages.type_ = "ephemeral"
+          , Messages.ttl = Just (Messages.CacheTTLDuration "1h")
+          }
+  | otherwise =
+      Just Messages.CacheControl {Messages.type_ = "ephemeral", Messages.ttl = Nothing}
+
+-- | Translate the call-time 'Baikai.ThinkingLevel' preference into
+-- the Anthropic SDK's 'Messages.Thinking' shape.
+--
+-- We only enable the thinking field when the chosen model advertises
+-- 'reasoning' support — sending a thinking config to a non-reasoning
+-- model is a 400 error from Anthropic, not a silent no-op. Callers
+-- that asked for thinking on a non-reasoning model get the request
+-- shaped without it (the request still succeeds and returns a normal
+-- response).
+computeThinking :: Model -> Maybe ThinkingLevel -> Maybe Messages.Thinking
+computeThinking _ Nothing = Nothing
+computeThinking m (Just lvl)
+  | m ^. #reasoning =
+      Just Messages.ThinkingEnabled {Messages.budget_tokens = thinkingTokenBudget lvl}
+  | otherwise = Nothing
 
 -- | Map a baikai 'Tool.Tool' into the upstream Anthropic
 -- 'ClaudeTool.ToolDefinition'. The JSON Schema is passed through
 -- verbatim; 'ClaudeTool.functionTool' extracts @properties@ and
 -- @required@ off the top-level schema if present.
-mkAnthropicTool :: Tool.Tool -> ClaudeTool.ToolDefinition
-mkAnthropicTool t =
+--
+-- The compat record is threaded through so future revisions can
+-- apply per-tool @cache_control@ markers (when
+-- 'supportsCacheControlOnTools' is True) or per-tool eager input
+-- streaming flags. EP-5 ships the parameter at its default, leaving
+-- the upstream tool definition without cache markers.
+mkAnthropicTool :: AnthropicMessagesCompat -> Tool.Tool -> ClaudeTool.ToolDefinition
+mkAnthropicTool _compat t =
   ClaudeTool.inlineTool
     ( ClaudeTool.functionTool
         (Tool.name t)

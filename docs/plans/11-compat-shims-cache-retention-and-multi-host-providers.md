@@ -96,13 +96,20 @@ difference is the compat record.
       `requiresThinkingAsText`, `cacheControlFormat`, and the
       non-OpenAI `thinkingFormat` constructors — each requires SDK
       surgery beyond the EP-5 scope. **(2026-05-14)**
-- [ ] Milestone 4: wire compat record fields into
-      `Baikai.Provider.Claude.Api`. Honour `supportsLongCacheRetention`
-      (whether `cache_control.ttl: "1h"` is sent),
-      `supportsEagerToolInputStreaming` (whether per-tool
-      `eager_input_streaming` is sent),
-      `supportsCacheControlOnTools` (whether `cache_control` markers are
-      applied to tool definitions).
+- [x] Milestone 4: wire compat record fields into
+      `Baikai.Provider.Claude.Api`. Implemented:
+      `Options.cacheRetention` is translated into the SDK's
+      `cache_control` field, with `supportsLongCacheRetention`
+      controlling whether the `Long` bucket sends the `"1h"` TTL or
+      transparently downgrades; `Options.thinking` is translated into
+      `Messages.ThinkingEnabled { budget_tokens = … }` for models
+      whose `reasoning` flag is True (no-op otherwise so non-reasoning
+      models do not 400). `supportsCacheControlOnTools` and
+      `supportsEagerToolInputStreaming` are threaded into
+      `mkAnthropicTool` for future wiring (currently both ship at the
+      safe Anthropic default — no per-tool `cache_control`, no eager
+      streaming flag — so no behaviour change for callers who do not
+      override the compat). **(2026-05-14)**
 - [ ] Milestone 5: add a multi-host smoke test
       `baikai-smoke/test/MultiHostSmoke.hs`. The test registers
       `Baikai.Provider.OpenAI.Api`, constructs two `Model` records for two
@@ -136,6 +143,20 @@ difference is the compat record.
   the multi-host coverage can land without the SDK patch. EP-6 or
   a follow-up EP can revisit when generated catalog entries start
   needing the missing fields.
+- M4: `Claude.V1.CacheControl` is a hidden module in the
+  `claude-1.4.0` package, but `Claude.V1.Messages` re-exports
+  `CacheControl(..)` and `CacheTTL(..)` (see lines 79–84 of
+  `claude/src/Claude/V1/Messages.hs`). The provider therefore
+  consumes the cache-control surface qualified through
+  `Claude.V1.Messages`, never importing the hidden module
+  directly. EP-6 should follow the same pattern when the catalog
+  starts emitting cache-control hints.
+- M4: Anthropic rejects requests that send the `thinking` field to
+  a non-reasoning model with a 400. `computeThinking` therefore
+  silently drops the option when `Model.reasoning == False` rather
+  than letting the request fail at the wire. EP-6's catalog must
+  flag reasoning-capable models (the `reasoning` field on `Model`
+  already exists for this).
 
 
 ## Decision Log
