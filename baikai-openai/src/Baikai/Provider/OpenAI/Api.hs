@@ -44,6 +44,7 @@ import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
@@ -71,6 +72,7 @@ import Numeric.Natural (Natural)
 import OpenAI.V1 qualified as OpenAI
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.Models qualified as OpenAIModels
+import OpenAI.V1.Tool qualified as OpenAITool
 import OpenAI.V1.ToolCall qualified as ToolCall
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -690,13 +692,59 @@ mapRequest m ctx opts = do
               }
           ]
       mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
+      toolsField =
+        if Vector.null (ctx ^. #tools)
+          then Nothing
+          else Just (Vector.map mkOpenAITool (ctx ^. #tools))
+      toolChoiceField = fmap mkOpenAIToolChoice (opts ^. #toolChoice)
   pure
     Chat._CreateChatCompletion
       { Chat.messages = Vector.fromList (prefix <> body)
       , Chat.model = OpenAIModels.Model (m ^. #modelId)
       , Chat.max_completion_tokens = Just mt
       , Chat.temperature = opts ^. #temperature
+      , Chat.tools = toolsField
+      , Chat.tool_choice = toolChoiceField
       }
+
+-- | Map a baikai 'Tool.Tool' into the upstream OpenAI 'Tool_Function'
+-- shape. @strict@ is left unset; EP-5 will make it compat-record-
+-- driven when host-specific strict-mode tools land.
+mkOpenAITool :: Tool.Tool -> OpenAITool.Tool
+mkOpenAITool t =
+  OpenAITool.Tool_Function
+    { OpenAITool.function =
+        OpenAITool.Function
+          { OpenAITool.name = Tool.name t
+          , OpenAITool.description = Just (Tool.description t)
+          , OpenAITool.parameters = Just (Tool.parameters t)
+          , OpenAITool.strict = Nothing
+          }
+    }
+
+-- | Map a baikai 'Tool.ToolChoice' into the upstream OpenAI
+-- 'ToolChoice'. OpenAI accepts @none@, @auto@, @required@, and a
+-- specific function reference; the SDK's 'ToolChoiceTool' takes the
+-- whole 'OpenAITool.Tool' value so we synthesise a stub function
+-- tool carrying just the name (OpenAI ignores the schema in this
+-- position).
+mkOpenAIToolChoice :: Tool.ToolChoice -> OpenAITool.ToolChoice
+mkOpenAIToolChoice = \case
+  Tool.ToolChoiceAuto -> OpenAITool.ToolChoiceAuto
+  Tool.ToolChoiceNone -> OpenAITool.ToolChoiceNone
+  Tool.ToolChoiceRequired -> OpenAITool.ToolChoiceRequired
+  Tool.ToolChoiceSpecific n ->
+    OpenAITool.ToolChoiceTool
+      ( OpenAITool.Tool_Function
+          { OpenAITool.function =
+              OpenAITool.Function
+                { OpenAITool.name = n
+                , OpenAITool.description = Nothing
+                , OpenAITool.parameters = Nothing
+                , OpenAITool.strict = Nothing
+                }
+          }
+      )
 
 mapMessage :: Msg.Message -> Either Text (Chat.Message (Vector Chat.Content))
 mapMessage = \case

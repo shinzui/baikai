@@ -104,11 +104,25 @@ main = do
       = ContentBlock_Tool_Use }` and `Delta_Input_Json_Delta` into
       `ToolCallStart`/`ToolCallDelta`/`ToolCallEnd` was already
       delivered by EP-3. `cabal build baikai-claude` is green.
-- [ ] Milestone 3: implement tool encoding/decoding in
+- [x] Milestone 3: implement tool encoding/decoding in
       `Baikai.Provider.OpenAI.Api`. Map `Context.tools` into OpenAI Chat
       Completions `Tool` definitions; decode `tool_calls` deltas into
       `ToolCallStart` / `ToolCallDelta` / `ToolCallEnd` events; decode
       `ToolResultMessage` entries into `Chat.Tool` request messages.
+      Landed 2026-05-14: `mapRequest` now populates `Chat.tools` and
+      `Chat.tool_choice`; `mkOpenAITool` wraps each baikai 'Tool' in
+      `OpenAITool.Tool_Function` carrying the function name,
+      description, and JSON Schema parameters verbatim.
+      `mkOpenAIToolChoice` covers all four baikai `ToolChoice`
+      variants — `ToolChoiceSpecific n` is encoded as
+      `OpenAITool.ToolChoiceTool` carrying a stub `Tool_Function`
+      whose only meaningful field is the name (OpenAI ignores the
+      schema in this position). `strict` is left unset; EP-5 will
+      make it compat-record-driven. The streaming-side decoding
+      (`tool_calls` deltas → `ToolCallStart`/`ToolCallDelta`/
+      `ToolCallEnd`) and the `ToolResultMessage → Chat.Tool` request
+      mapping were already delivered by EP-3 and remain unchanged.
+      `cabal build all` is green.
 - [ ] Milestone 4: add the tool-using smoke test
       `baikai-smoke/test/ToolsSmoke.hs`. Both providers complete the
       two-turn conversation and produce the expected output.
