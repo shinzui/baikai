@@ -60,9 +60,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Add `streamly ^>=0.10`, `streamly-core ^>=0.2`, and `stm` to `build-depends`; add `Baikai.Trace`, `Baikai.Trace.Event`, `Baikai.Trace.Sink` to `exposed-modules` in `baikai/baikai.cabal`.
-- [ ] Create `baikai/src/Baikai/Trace/Event.hs` with the `TraceEvent` type.
-- [ ] Define JSON encoding using tagged-object `Aeson.Options` (`"kind"` discriminator, snake-case tags).
+- [x] 2026-05-13 Add `streamly`, `streamly-core` (already present at `^>=0.12` / `^>=0.4`) and `stm` (added to test deps only); add `Baikai.Trace.Event` to `exposed-modules` in `baikai/baikai.cabal` (sink + wrapper modules added incrementally in M2/M3).
+- [x] 2026-05-13 Create `baikai/src/Baikai/Trace/Event.hs` with the `TraceEvent` type.
+- [x] 2026-05-13 Define JSON encoding using tagged-object `Aeson.Options` (`"kind"` discriminator, snake-case tags). `usd` typed as `Maybe Scientific` (not `Maybe Rational`) so Aeson renders it as a decimal rather than `{"numerator":..., "denominator":...}` — see Decision Log.
 - [ ] Create `baikai/src/Baikai/Trace/Sink.hs` exporting `TraceSink` (newtype around `Fold IO TraceEvent ()`), `silent`, `stdoutSink`, `fileSink`, `multiSink`.
 - [ ] Implement `renderHuman :: TraceEvent -> Text` for the human one-line summary.
 - [ ] Implement `fileSink :: FilePath -> IO TraceSink` (open per write for crash safety).
@@ -144,6 +144,10 @@ Record every decision made while working on the plan.
   the streamly API is still maturing; the implementer should check the resolved
   version with `mori registry show streamly --full` and substitute equivalents
   (`Fold.foldMapM`, `Fold.drainBy`) if a name is not exported.
+  Date: 2026-05-13
+
+- Decision: `TraceEvent.usd` is `Maybe Scientific`, not `Maybe Rational`.
+  Rationale: Aeson's default `ToJSON Rational` instance renders a `Ratio` as `{"numerator":N,"denominator":D}`, which contradicts the plan's example JSON (`"usd":0.0042`) and is hostile to `jq` consumers. `CallLogEntry` in `Baikai.Cost.Log` already exposes `usd :: Maybe Scientific` for the same reason, and `Baikai.Cost.usdAsScientific` is the canonical converter from a response's `Rational`-typed `Cost.usd`. `withTrace` (M3) applies the converter when projecting `Response.cost.usd` into the event.
   Date: 2026-05-13
 
 - Decision: `withTrace`, `runRequestWith`, and `fileSink` keep concrete `IO` signatures; `TraceSink` keeps `Fold IO TraceEvent ()`.

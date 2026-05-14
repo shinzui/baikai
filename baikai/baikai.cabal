@@ -50,6 +50,7 @@ library
     Baikai.Provider.Cli.Internal
     Baikai.Request
     Baikai.Response
+    Baikai.Trace.Event
     Baikai.Usage
 
   build-depends:
@@ -80,6 +81,7 @@ test-suite baikai-test
     bytestring,
     directory,
     filepath,
+    stm,
     tasty,
     tasty-hunit,
     text,
