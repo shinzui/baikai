@@ -163,7 +163,7 @@ Alternatives considered and rejected:
 | EP-2 | Claude and OpenAI API providers                      | docs/plans/2-claude-and-openai-api-providers.md               | EP-1        | None        | Complete    |
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Complete    |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Complete    |
-| EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | In Progress |
+| EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Complete    |
 | EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -296,9 +296,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-4: Implement `Baikai.Cost.Pricing.compute :: Map Text PricingRate -> Model -> Usage -> Maybe Cost` and `attachCost :: Map Text PricingRate -> Response -> Response` (kept in `Baikai.Cost.Pricing` to avoid a `Baikai.Cost`↔`Baikai.Cost.Pricing` import cycle)
 - [x] 2026-05-13 EP-4: Wire cost computation into API providers' response construction (`ClaudeApi` and `OpenAIApi` records gain a `pricing` field; `runRequest` wraps `mapResponse` in `attachCost`)
 - [x] 2026-05-13 EP-4: Implement optional JSONL call log via `Baikai.Cost.Log`, buffered through a streamly `Stream.unfoldrM` + `Fold.drainMapM` pipeline. The producer side uses `Control.Concurrent.Chan` because streamly 0.12 in this repo does not export a `Streamly.Data.Channel` module.
-- [ ] EP-5: Define `Baikai.Trace.Event` and `Baikai.Trace.Sink` (as a streamly `Fold IO TraceEvent ()`)
-- [ ] EP-5: Implement stdout, file, silent, and multi sinks
-- [ ] EP-5: Wrap provider calls with `withTrace` that emits start/finish/error events with latency
+- [x] 2026-05-13 EP-5: Define `Baikai.Trace.Event` and `Baikai.Trace.Sink` (as a streamly `Fold IO TraceEvent ()`)
+- [x] 2026-05-13 EP-5: Implement stdout, file, silent, and multi sinks
+- [x] 2026-05-13 EP-5: Wrap provider calls with `withTrace` that emits start/finish/error events with latency (verified by 4 new tasty tests in `baikai/test/TraceSpec.hs`; `cabal test baikai` 15/15 passing)
 - [ ] EP-6: Create `baikai-trace-otel` package with cabal file and `cabal.project` entry
 - [ ] EP-6: Implement `Baikai.Trace.Sink.OpenTelemetry.otelSink :: Tracer -> TraceSink` mapping events to spans with attributes for model, provider, tokens, latency, cost
 - [ ] EP-6: Provide an in-memory exporter test that asserts a call produces one span with the expected attributes
@@ -407,6 +407,39 @@ interactions between child plans. Provide concise evidence.
   gained a `pricing :: Map Text PricingRate` field. Previously `containers`
   was transitive only. Future plans that touch the vendor records should
   expect to add explicit deps for any new field types they introduce.
+
+- 2026-05-13 (EP-5): **`TraceEvent.CallFinished.usd` is `Maybe Scientific`,
+  not `Maybe Rational`.** Aeson's default `ToJSON Rational` instance renders
+  `{"numerator":N,"denominator":D}`, which contradicted EP-5's example JSONL
+  (`"usd":0.0042`). The conversion happens at the `withTrace` boundary via
+  `Baikai.Cost.usdAsScientific`. EP-6 (`baikai-trace-otel`) should attach
+  the `Scientific` directly to span attributes; converting back to `Rational`
+  is unnecessary. Documented in EP-5's Decision Log.
+
+- 2026-05-13 (EP-5): **`Baikai.Trace.runRequestWith` takes a `CallLogHandle`,
+  not a `CallLogConfig`** as the plan prose suggested. EP-4's `Baikai.Cost.Log`
+  exposes the runtime handle (`openCallLog` / `withCallLog`) and a non-blocking
+  `appendEntry :: CallLogHandle -> CallLogEntry -> m ()`. EP-6 has no
+  interaction with call-log here, but any future plan combining the two
+  features should pass a single long-lived `CallLogHandle`, not a config.
+
+- 2026-05-13 (EP-5): **The `TraceSink` shape (`Fold IO TraceEvent ()`)
+  is solidified — `withTrace` and the worker plumbing know nothing about
+  what a sink does.** EP-6 only needs to construct a `TraceSink` whose
+  inner fold batches events into an OTLP exporter; composition with the
+  built-in sinks (`stdoutSink`, `fileSink`) is free via `multiSink`. The
+  one caveat EP-6 should plan for: if the OTel sink throws inside the
+  fold, the worker thread fails silently — EP-5 explicitly defers
+  sink-error containment to a future ExecPlan, so EP-6's exporter should
+  swallow transient errors internally (the existing OTel SDK exporters
+  already do this).
+
+- 2026-05-13 (EP-5): **`Streamly.Data.Channel` remains absent in this
+  repo's streamly 0.12** (already noted in EP-4's Surprises). EP-5
+  reused the `Chan (Maybe TraceEvent)` + `Stream.unfoldrM` pattern from
+  `Baikai.Cost.Log`. EP-6 does not need a channel (the OTel exporter
+  has its own internal queue), so this limitation is not a problem for
+  EP-6.
 
 
 ## Decision Log
