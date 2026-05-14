@@ -164,7 +164,7 @@ Alternatives considered and rejected:
 | EP-3 | Interactive CLI providers for Claude and Codex       | docs/plans/3-interactive-cli-providers-for-claude-and-codex.md | EP-1, EP-2 | None        | Complete    |
 | EP-4 | Cost tracking with per-model pricing                 | docs/plans/4-cost-tracking-with-per-model-pricing.md          | EP-1        | EP-2        | Complete    |
 | EP-5 | Observability and call tracing                       | docs/plans/5-observability-and-call-tracing.md                | EP-1        | EP-2, EP-3, EP-4 | Complete    |
-| EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | Not Started |
+| EP-6 | OpenTelemetry trace sink package                     | docs/plans/6-opentelemetry-trace-sink-package.md              | EP-1, EP-5 | EP-4        | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 
@@ -299,7 +299,7 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] 2026-05-13 EP-5: Define `Baikai.Trace.Event` and `Baikai.Trace.Sink` (as a streamly `Fold IO TraceEvent ()`)
 - [x] 2026-05-13 EP-5: Implement stdout, file, silent, and multi sinks
 - [x] 2026-05-13 EP-5: Wrap provider calls with `withTrace` that emits start/finish/error events with latency (verified by 4 new tasty tests in `baikai/test/TraceSpec.hs`; `cabal test baikai` 15/15 passing)
-- [ ] EP-6: Create `baikai-trace-otel` package with cabal file and `cabal.project` entry
+- [x] 2026-05-13 EP-6: Create `baikai-trace-otel` package with cabal file and `cabal.project` entry (M1) — vendored `hs-opentelemetry-{api,sdk,exporter-in-memory}` via `cabal.project` `packages:` like the EP-3 streamly/cradle entries; `cabal build all` is green.
 - [ ] EP-6: Implement `Baikai.Trace.Sink.OpenTelemetry.otelSink :: Tracer -> TraceSink` mapping events to spans with attributes for model, provider, tokens, latency, cost
 - [ ] EP-6: Provide an in-memory exporter test that asserts a call produces one span with the expected attributes
 

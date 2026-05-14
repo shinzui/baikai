@@ -3,11 +3,15 @@ packages:
   baikai-claude
   baikai-openai
   baikai-smoke
+  baikai-trace-otel
   /Users/shinzui/Keikaku/hub/haskell/claude-project/claude
   /Users/shinzui/Keikaku/hub/haskell/openai-project/openai
   /Users/shinzui/Keikaku/hub/haskell/cradle-project/cradle
   /Users/shinzui/Keikaku/hub/haskell/streamly-project/streamly
   /Users/shinzui/Keikaku/hub/haskell/streamly-project/streamly/core
+  /Users/shinzui/Keikaku/hub/haskell/hs-opentelemetry-project/hs-opentelemetry/api
+  /Users/shinzui/Keikaku/hub/haskell/hs-opentelemetry-project/hs-opentelemetry/sdk
+  /Users/shinzui/Keikaku/hub/haskell/hs-opentelemetry-project/hs-opentelemetry/exporters/in-memory
 
 -- GHC is provided by the Nix devShell from `nix-haskell-flake` (currently
 -- pinned to ghc912). Add a `with-compiler:` line here if you want
@@ -36,6 +40,17 @@ package streamly-core
 -- cradle's test-suite spawns subprocesses and exercises external state.
 -- We only need the library.
 package cradle
+  tests: False
+
+-- The hs-opentelemetry packages ship tasty/hspec test-suites that we do
+-- not want to drag into `cabal test all`. Library-only.
+package hs-opentelemetry-api
+  tests: False
+
+package hs-opentelemetry-sdk
+  tests: False
+
+package hs-opentelemetry-exporter-in-memory
   tests: False
 
 -- Parallel module compilation

@@ -42,10 +42,10 @@ The reader of this plan should be able, after following it, to build `baikai-tra
 
 Use a checklist to summarize granular steps. Every stopping point must be documented here, even if it requires splitting a partially completed task into two ("done" vs. "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] Create the `baikai-trace-otel/` directory under the project root.
-- [ ] Write the `baikai-trace-otel/baikai-trace-otel.cabal` file with library + test-suite stanzas.
-- [ ] Update `cabal.project` to add `baikai-trace-otel` to the `packages:` list.
-- [ ] Create `baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs` with the module header and imports.
+- [x] 2026-05-13 Create the `baikai-trace-otel/` directory under the project root.
+- [x] 2026-05-13 Write the `baikai-trace-otel/baikai-trace-otel.cabal` file with library + test-suite stanzas (matched the existing `baikai` cabal style: `cabal-version: 3.4`, `common common-options`, GHC2024). Dropped the `^>=` bounds the plan suggested for `hs-opentelemetry-*` because the on-disk vendored sources are `0.3.x` / `0.1.x` / `0.0.x` — Hackage versions match.
+- [x] 2026-05-13 Update `cabal.project` to add `baikai-trace-otel` to the `packages:` list. Also vendored the three local OTel sources (api, sdk, exporters/in-memory) the same way EP-3 vendored `cradle`/`streamly`, and added `tests: False` stanzas so their upstream test-suites do not break `cabal test all`.
+- [x] 2026-05-13 Create `baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs` with the module header and imports.
 - [ ] Implement `OtelSinkOptions` and `defaultOtelSinkOptions`.
 - [ ] Implement `otelSink :: Tracer -> TraceSink` as a thin wrapper over `otelSinkWith`.
 - [ ] Implement `otelSinkWith :: Tracer -> OtelSinkOptions -> TraceSink` as a stateful `Fold` keyed by `eventId`.
@@ -63,7 +63,35 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- 2026-05-13 (M1): The plan pinned `hs-opentelemetry-api ^>=0.2` and
+  `hs-opentelemetry-sdk ^>=0.1`. The on-disk mori-registered sources are
+  `hs-opentelemetry-api-0.3.0.0`, `hs-opentelemetry-sdk-0.1.0.1`, and
+  `hs-opentelemetry-exporter-in-memory-0.0.1.4`. The cabal file dropped the
+  upper bounds entirely (only depends on `hs-opentelemetry-api` /
+  `hs-opentelemetry-sdk` / `hs-opentelemetry-exporter-in-memory` without
+  `^>=`) and the three OTel packages were vendored via `cabal.project`
+  `packages:` entries, matching the EP-3 pattern for `cradle`/`streamly`.
+
+- 2026-05-13 (M1): There is no `timestampFromTime :: UTCTime -> Timestamp`
+  function in `OpenTelemetry.Trace.Core`. The plan's source listing showed
+  one but the local source does not define it. `Timestamp` is a newtype
+  around `System.Clock.TimeSpec`; M2 will need its own
+  `utcToTimestamp :: UTCTime -> Otel.Timestamp` helper built from
+  `utcTimeToPOSIXSeconds`.
+
+- 2026-05-13 (M1): The in-memory exporter does **not** expose a
+  `newInMemoryExporter :: IO InMemoryExporter` with a `Vector ImmutableSpan`
+  accessor (which the plan's M3 sketch assumed). Its actual surface is
+  `inMemoryListExporter :: IO (SpanProcessor, IORef [ImmutableSpan])` and
+  `inMemoryChannelExporter`. M3 will use `inMemoryListExporter` and read the
+  `IORef [ImmutableSpan]` after the test call returns. Evidence:
+  `/Users/shinzui/Keikaku/hub/haskell/hs-opentelemetry-project/hs-opentelemetry/exporters/in-memory/src/OpenTelemetry/Exporter/InMemory/Span.hs`.
+
+- 2026-05-13 (M1): EP-5's `TraceEvent.CallFinished.usd` is
+  `Maybe Scientific` (recorded in the master plan's Surprises), not
+  `Maybe Rational` as the EP-6 plan body assumed. The OTel `baikai.cost.usd`
+  attribute is built via `Scientific.toRealFloat` rather than
+  `fromRational`.
 
 
 ## Decision Log

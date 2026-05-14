@@ -1,0 +1,73 @@
+cabal-version: 3.4
+name: baikai-trace-otel
+version: 0.1.0.0
+synopsis: OpenTelemetry TraceSink for baikai.
+description:
+  Provides an opt-in OpenTelemetry adapter for the baikai 'TraceSink'
+  interface. Wiring 'otelSink' into 'Baikai.Trace.withTrace' produces
+  one OTel span per provider call, with GenAI semantic-convention
+  attributes plus baikai-specific cost and latency.
+
+license: BSD-3-Clause
+license-file: ../LICENSE
+author: Nadeem Bitar
+maintainer: nadeem@gmail.com
+copyright: (c) 2026 Nadeem Bitar
+build-type: Simple
+
+common common-options
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
+    -Wmissing-deriving-strategies
+
+  default-language: GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+library
+  import: common-options
+  hs-source-dirs: src
+  exposed-modules:
+    Baikai.Trace.Sink.OpenTelemetry
+
+  build-depends:
+    base >=4.20 && <5,
+    baikai,
+    clock,
+    containers,
+    hs-opentelemetry-api,
+    scientific,
+    streamly-core ^>=0.4,
+    text ^>=2.1,
+    time,
+    unordered-containers,
+
+test-suite baikai-trace-otel-test
+  import: common-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  ghc-options: -threaded -with-rtsopts=-N
+  build-depends:
+    base,
+    baikai,
+    baikai-trace-otel,
+    hs-opentelemetry-api,
+    hs-opentelemetry-exporter-in-memory,
+    hs-opentelemetry-sdk,
+    tasty,
+    tasty-hunit,
+    text,
+    time,
+    unordered-containers,
