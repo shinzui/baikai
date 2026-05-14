@@ -63,10 +63,10 @@ This section must always reflect the actual current state of the work.
 - [x] 2026-05-13 Add `streamly`, `streamly-core` (already present at `^>=0.12` / `^>=0.4`) and `stm` (added to test deps only); add `Baikai.Trace.Event` to `exposed-modules` in `baikai/baikai.cabal` (sink + wrapper modules added incrementally in M2/M3).
 - [x] 2026-05-13 Create `baikai/src/Baikai/Trace/Event.hs` with the `TraceEvent` type.
 - [x] 2026-05-13 Define JSON encoding using tagged-object `Aeson.Options` (`"kind"` discriminator, snake-case tags). `usd` typed as `Maybe Scientific` (not `Maybe Rational`) so Aeson renders it as a decimal rather than `{"numerator":..., "denominator":...}` — see Decision Log.
-- [ ] Create `baikai/src/Baikai/Trace/Sink.hs` exporting `TraceSink` (newtype around `Fold IO TraceEvent ()`), `silent`, `stdoutSink`, `fileSink`, `multiSink`.
-- [ ] Implement `renderHuman :: TraceEvent -> Text` for the human one-line summary.
-- [ ] Implement `fileSink :: FilePath -> IO TraceSink` (open per write for crash safety).
-- [ ] Implement `multiSink` via `Fold.tee` folded across the input list.
+- [x] 2026-05-13 Create `baikai/src/Baikai/Trace/Sink.hs` exporting `TraceSink` (newtype around `Fold IO TraceEvent ()`), `silent`, `stdoutSink`, `fileSink`, `multiSink`.
+- [x] 2026-05-13 Implement `renderHuman :: TraceEvent -> Text` for the human one-line summary.
+- [x] 2026-05-13 Implement `fileSink :: FilePath -> IO TraceSink` (open per write for crash safety).
+- [x] 2026-05-13 Implement `multiSink` via `Fold.tee` folded across the input list.
 - [ ] Create `baikai/src/Baikai/Trace.hs` exporting `withTrace`, `runRequestWith`, `newEventId`, `summarizePrompt`.
 - [ ] Implement `newEventId` (POSIX seconds at start + `IORef Word` counter, 8 hex chars) and `summarizePrompt` (first 200 chars of last user message).
 - [ ] Implement the per-call channel/worker plumbing in `withTrace`, draining on both success and failure paths.

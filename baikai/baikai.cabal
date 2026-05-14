@@ -51,6 +51,7 @@ library
     Baikai.Request
     Baikai.Response
     Baikai.Trace.Event
+    Baikai.Trace.Sink
     Baikai.Usage
 
   build-depends:
