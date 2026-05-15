@@ -68,4 +68,46 @@ in  Schema.Project::{
       , "snoyberg/http-client"
       , "ekmett/lens"
       ]
+    , docs =
+      [ Schema.DocRef::{
+        , key = "getting-started"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Install baikai, register providers, make your first blocking and streaming calls."
+        , location = Schema.DocLocation.LocalFile "docs/user/getting-started.md"
+        }
+      , Schema.DocRef::{
+        , key = "streaming"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "The AssistantMessageEvent algebra, fold patterns, and recovering partial output on failure."
+        , location = Schema.DocLocation.LocalFile "docs/user/streaming.md"
+        }
+      , Schema.DocRef::{
+        , key = "tools"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Declaring tools, the ToolChoice options, and the two-turn round-trip pattern with appendToolResult."
+        , location = Schema.DocLocation.LocalFile "docs/user/tools.md"
+        }
+      , Schema.DocRef::{
+        , key = "models-and-providers"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "The generated catalog, hand-rolled Model records, the registry, and multi-host OpenAI-compat targets."
+        , location = Schema.DocLocation.LocalFile "docs/user/models-and-providers.md"
+        }
+      , Schema.DocRef::{
+        , key = "cli-providers"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Driving claude -p and codex exec as subprocess providers: when to use them, configuration, response shape, and limitations."
+        , location = Schema.DocLocation.LocalFile "docs/user/cli-providers.md"
+        }
+      ]
     }
