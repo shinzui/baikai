@@ -706,11 +706,19 @@ interactions between child plans. Provide concise evidence.
   Scientific -> Double)` would produce). The generator deliberately
   takes the `Scientific → Rational` path so the emitted Haskell
   contains small canonical denominators.
-- EP-6 M2: `cabal run baikai-gen-models` from the repo root fails
-  with `data/models: does not exist`; the exe's default relative
-  paths are anchored at the `baikai/` package directory. The
-  canonical invocation is `cd baikai && cabal run baikai-gen-models`.
-  Calls from elsewhere need `--models-dir` and `--out` explicit.
+- EP-6 M2: `cabal run baikai-gen-models` originally failed from any
+  directory other than `baikai/` because its default paths were
+  CWD-relative; the canonical invocation was `cd baikai && cabal
+  run baikai-gen-models`. Fixed 2026-05-14 (post-initiative): the
+  exe now walks up from CWD looking for `baikai.cabal` (and one
+  step into a `baikai` subdir at each level) and anchors its
+  default `data/models` and `src/Baikai/Models/Generated.hs` to
+  that package directory. Explicit `--models-dir` / `--out` are
+  still CWD-relative (or absolute). If no `baikai.cabal` is found
+  in any ancestor and the user passed no overrides, the exe dies
+  with a clear message. Verified working from the repo root, the
+  package dir, and `baikai/src/`; the `CatalogSpec` regen test
+  remains green.
 - EP-6 M3: Test-suite selection is by suite name, not package name —
   `cabal test baikai` errors because the package's library and test
   share the name `baikai`. Use `cabal test baikai-test`. Future plans
@@ -876,6 +884,13 @@ exercised by the smoke suite.
   follow-up plan (e.g. a `http-client`-based parallel request path
   or an SDK fork) would close the loop. EP-5 Decision Log records
   this explicitly.
+- Resolved 2026-05-14 (post-initiative): the generator's original
+  CWD requirement (`cd baikai && cabal run baikai-gen-models`) was
+  ergonomically rough; `cabal run baikai-gen-models` from the repo
+  root failed. The exe now upward-walks to locate `baikai.cabal`
+  and anchors its defaults to the package dir, so the natural
+  invocation works from any subdirectory of the repo. Surprises &
+  Discoveries entry for EP-6 M2 records the fix detail.
 
 **Cross-plan lessons.** Three patterns repeated across EP-1, EP-2,
 EP-3 (and resurfaced in EP-6's Surprises):
@@ -908,3 +923,50 @@ new cabal packages) held: `baikai-gen-models` lives as a new exe
 target inside `baikai.cabal`, and the only build-closure addition is
 `baikai:baikai-gen-models` as a `build-tool-depends` on
 `baikai-test`.
+
+---
+
+### Revision: 2026-05-14 — verify `cabal run baikai-gen-models`
+
+User flagged that `cabal run baikai-gen-models` fails. Re-verified
+both invocations on 2026-05-14:
+
+- From repo root (`/Users/shinzui/Keikaku/bokuno/baikai`): fails
+  with `data/models: getDirectoryContents:openDirStream: does not
+  exist`. The exe's default relative paths resolve against the
+  caller's CWD; the catalog lives at `baikai/data/models/`, not
+  `data/models/`. Existing Surprises entry was accurate (its
+  description of the error text now matches the actual GHC message
+  verbatim).
+- From `baikai/` (`/Users/shinzui/Keikaku/bokuno/baikai/baikai`):
+  succeeds. Output: `Wrote src/Baikai/Models/Generated.hs (12
+  enabled models)`.
+
+Side note: a previous run from the repo root had left an empty
+`data/models/` directory behind there. With that artifact present
+the failure mode shifts to the `--out` write step (`src/Baikai/
+Models/Generated.hs: withFile: does not exist`) before the input
+listing fails. Removed the stale empty dir during verification;
+Surprises entry now documents both error shapes.
+
+Outcomes & Retrospective gained a fourth gap entry recommending
+either an upward-walk-to-`baikai.cabal` strategy in the exe or a
+`cabal:pre-build` hook so the natural invocation from the repo root
+works without flags. This is a follow-up scope, not part of EP-6.
+
+### Revision: 2026-05-14 — fix `baikai-gen-models` ergonomics
+
+Implemented the upward-walk option flagged in the gap entry above.
+`baikai/gen/GenModels.hs` now locates `baikai.cabal` by walking up
+from CWD (and probing a `baikai` subdir at each step) and anchors
+its default `data/models` / `src/Baikai/Models/Generated.hs` paths
+to that package directory. Explicit `--models-dir` / `--out`
+remain CWD-relative. Without `baikai.cabal` in any ancestor and no
+overrides, the exe dies with a clear message.
+
+Verified `cabal run baikai-gen-models` from the repo root, the
+package dir, and `baikai/src/` all succeed and write the same
+file; `cabal test all` green (CatalogSpec regen test included).
+`CatalogSpec.hs`'s remediation text updated to drop the `cd
+baikai` step. Surprises & Discoveries entry for EP-6 M2 and the
+fourth Outcomes gap bullet updated to record the resolution.

@@ -9,9 +9,8 @@
 -- the remediation is always:
 --
 -- @
--- cd baikai
 -- cabal run baikai-gen-models
--- git add src\/Baikai\/Models\/Generated.hs
+-- git add baikai\/src\/Baikai\/Models\/Generated.hs
 -- @
 --
 -- A failure means either someone edited @Baikai.Models.Generated@ by
@@ -38,8 +37,7 @@ tests =
           regenerated <- BS.readFile regenPath
           assertEqual
             "Generated.hs is out of sync with data/models/*.json.\n\
-            \Run `cd baikai && cabal run baikai-gen-models` and commit \
-            \the result."
+            \Run `cabal run baikai-gen-models` and commit the result."
             committed
             regenerated
     ]
