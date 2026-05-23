@@ -4,21 +4,27 @@ packages:
   baikai-openai
   baikai-smoke
   baikai-trace-otel
-  /Users/shinzui/Keikaku/hub/haskell/streamly-project/streamly
-  /Users/shinzui/Keikaku/hub/haskell/streamly-project/streamly/core
-  /Users/shinzui/Keikaku/hub/haskell/hs-opentelemetry-project/hs-opentelemetry/exporters/in-memory
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/streamly-project
+  tag: f8e33b5600f5ddadc17ce5d9a8e45a16c09899cb
+  subdir: streamly
+
+source-repository-package
+  type: git
+  location: https://github.com/shinzui/streamly-project
+  tag: f8e33b5600f5ddadc17ce5d9a8e45a16c09899cb
+  subdir: streamly/core
 
 -- GHC is provided by the Nix devShell from `nix-haskell-flake` (currently
 -- pinned to ghc912). Add a `with-compiler:` line here if you want
 -- cabal to fail loudly when the version drifts from the flake.
 --
--- claude, openai, cradle, hs-opentelemetry-api, and hs-opentelemetry-sdk
--- resolve from Hackage. streamly stays vendored because the local 0.12.x
--- is newer than Hackage's 0.9.x. hs-opentelemetry-exporter-in-memory stays
--- vendored because the on-disk 0.0.1.4 has a local patch loosening
--- `hs-opentelemetry-api ==0.2.*` to `==0.3.*` that has not been released
--- to Hackage; without it the solver cannot reconcile in-memory 0.0.1.4
--- with sdk 0.1.0.1 (which itself requires api 0.3.*).
+-- claude, openai, cradle, hs-opentelemetry-api, hs-opentelemetry-sdk, and
+-- hs-opentelemetry-exporter-in-memory resolve from Hackage. streamly and
+-- streamly-core are pinned to GitHub because the project depends on the
+-- unreleased 0.12/0.4 package pair.
 
 test-show-details: direct
 tests: True
@@ -29,11 +35,6 @@ package streamly
   tests: False
 
 package streamly-core
-  tests: False
-
--- The vendored in-memory exporter ships a tasty suite we do not want
--- in `cabal test all` either.
-package hs-opentelemetry-exporter-in-memory
   tests: False
 
 -- Parallel module compilation
