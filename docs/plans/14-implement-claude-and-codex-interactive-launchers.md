@@ -4,6 +4,7 @@ slug: implement-claude-and-codex-interactive-launchers
 title: "Implement Claude and Codex interactive launchers"
 kind: exec-plan
 created_at: 2026-05-24T21:48:55Z
+intention: intention_01ksdzsd7jenf8w00bapj1mjyr
 master_plan: "docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md"
 ---
 
@@ -22,16 +23,20 @@ The observable behavior is that a caller can use the Claude launcher from `baika
 
 ## Progress
 
-- [ ] Implement Claude Code interactive launch module in `baikai-claude`.
-- [ ] Implement Codex interactive launch module in `baikai-openai`.
-- [ ] Add command-construction tests that do not spawn external CLIs.
-- [ ] Add optional smoke checks gated on binary availability and interactive environment.
-- [ ] Document launcher configuration and how it differs from batch CLI providers.
+- [x] Implement Claude Code interactive launch module in `baikai-claude`. Completed 2026-05-24. Added `Baikai.Provider.Claude.Interactive` with `ClaudeInteractiveConfig`, `defaultClaudeInteractiveConfig`, `claudeInteractiveCommand`, and `launchClaudeInteractive`.
+- [x] Implement Codex interactive launch module in `baikai-openai`. Completed 2026-05-24. Added `Baikai.Provider.OpenAI.Interactive` with `CodexInteractiveConfig`, `defaultCodexInteractiveConfig`, `codexInteractiveCommand`, `codexInteractivePrompt`, and `launchCodexInteractive`.
+- [x] Add command-construction tests that do not spawn external CLIs. Completed 2026-05-24. Added `baikai-claude-test` and `baikai-openai-test`.
+- [x] Add optional smoke checks gated on binary availability and interactive environment. Completed 2026-05-24. Added `InteractiveSmoke` help-output checks that skip when `claude` or `codex` are absent and verify the installed binaries expose the flags used by the launchers without starting an interactive session.
+- [x] Document launcher configuration and how it differs from batch CLI providers. Completed 2026-05-24. Added `docs/user/interactive-launches.md` and linked it from `docs/user/cli-providers.md`.
 
 
 ## Surprises & Discoveries
 
 - Existing batch modules already use the short names `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli`. Interactive modules must use distinct names so imports make behavior obvious.
+
+- The installed Codex CLI exposes `--model`, `--cd`, `--add-dir`, `--sandbox`, and `--ask-for-approval` for interactive launches, but no top-level system-prompt flag. Evidence: `codex --help` lists the launch flags and accepts a positional prompt. The Codex launcher therefore preserves `InteractiveLaunchRequest.systemPrompt` by prepending a "System instructions" section to the initial prompt text through `codexInteractivePrompt`.
+
+- Live interactive sessions are not suitable as default smoke tests because starting a real Claude Code or Codex terminal session can require authentication, terminal trust, and manual exit. Evidence: `claude --help` and `codex --help` both describe interactive terminal behavior. The smoke suite now performs non-authenticated help-output checks for required flags instead.
 
 
 ## Decision Log
@@ -44,10 +49,33 @@ The observable behavior is that a caller can use the Claude launcher from `baika
   Rationale: Interactive sessions require local binaries, authentication, and a terminal. Most CI and agent runs can still validate the important command-line semantics by testing pure argument construction.
   Date: 2026-05-24
 
+- Decision: Use `Baikai.Provider.OpenAI.Interactive` as the Codex interactive module name.
+  Rationale: The package is named `baikai-openai` and already exposes `Baikai.Provider.OpenAI.Cli` for the Codex batch CLI provider. Keeping the module under `OpenAI` matches the package namespace while the exported `CodexInteractiveConfig` and `launchCodexInteractive` names make the concrete CLI clear.
+  Date: 2026-05-24
+
+- Decision: Preserve Codex system prompts by embedding them in the initial prompt text.
+  Rationale: The installed Codex CLI help does not expose an interactive system-prompt flag. Dropping the field would violate the shared request semantics, while passing an unknown flag would break launches.
+  Date: 2026-05-24
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Implemented vendor-specific interactive launchers without changing the existing batch CLI providers. `Baikai.Provider.Claude.Interactive` renders and launches `claude` with model, system prompt, extra directories, allowed tools, config extra args, request extra args, and the initial user prompt. `Baikai.Provider.OpenAI.Interactive` renders and launches `codex` with model, working directory, extra directories, sandbox, approval policy, config extra args, request extra args, and the initial prompt.
+
+The implementation added pure command-construction tests in new vendor test suites, plus smoke-suite help checks that prove locally installed CLI binaries expose the required launch flags without starting a live terminal session. Documentation now gives callers concrete examples and explains when to use the interactive launch surface instead of the batch `completeRequest` / `streamRequest` providers.
+
+Validation completed on 2026-05-24:
+
+```text
+cabal build all
+Build completed successfully.
+
+cabal test all
+All baikai, baikai-claude, baikai-openai, baikai-smoke, and baikai-trace-otel test suites passed.
+Smoke output included:
+[baikai-smoke] claude interactive flags ok via /Users/shinzui/.local/bin/claude.
+[baikai-smoke] codex interactive flags ok via /opt/homebrew/bin/codex.
+```
 
 
 ## Context and Orientation
@@ -90,6 +118,8 @@ Milestone 3 adds tests and optional smoke checks. Unit tests should assert that 
 
 Milestone 4 updates documentation. `docs/user/cli-providers.md` should keep describing batch providers and link to the new interactive launch documentation. A new or updated document should show when to choose `completeRequest` versus `launchClaudeInteractive` or `launchCodexInteractive`.
 
+This plan is complete as of 2026-05-24.
+
 
 ## Concrete Steps
 
@@ -124,3 +154,8 @@ The implementation should be additive. If a live smoke check starts an interacti
 ## Interfaces and Dependencies
 
 Use `Baikai.Interactive` from the core package. Use existing dependencies where possible: `cradle` in `baikai-claude` and `process` in `baikai-openai`. Do not add new dependencies unless command execution cannot be implemented with the existing package dependencies. The final modules should be listed in the vendor cabal files and documented in `docs/user`.
+
+
+## Revision Note
+
+2026-05-24: Implemented the plan, recorded the Codex system-prompt flag discovery, updated progress and outcomes with validation evidence, and documented the completed launcher APIs.

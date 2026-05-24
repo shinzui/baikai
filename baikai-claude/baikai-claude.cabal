@@ -39,6 +39,7 @@ library
   exposed-modules:
     Baikai.Provider.Claude.Api
     Baikai.Provider.Claude.Cli
+    Baikai.Provider.Claude.Interactive
 
   build-depends:
     , base >=4.20 && <5
@@ -58,4 +59,22 @@ library
     , streamly-core ^>=0.4
     , text ^>=2.1
     , time
+    , vector
+
+test-suite baikai-claude-test
+  import: common-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Main.hs
+  -- cradle (used by Baikai.Provider.Claude.Interactive) requires the threaded RTS.
+  ghc-options: -threaded -with-rtsopts=-N
+  build-depends:
+    , base >=4.20 && <5
+    , baikai
+    , baikai-claude
+    , generic-lens
+    , lens ^>=5.3
+    , tasty
+    , tasty-hunit
+    , text ^>=2.1
     , vector

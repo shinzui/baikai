@@ -21,6 +21,7 @@ import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+import InteractiveSmoke qualified
 import MultiHostSmoke qualified
 import ToolsSmoke qualified
 
@@ -33,6 +34,7 @@ main = do
   hadApi <- mapM runApiCase apiCases
   hadStream <- mapM runStreamCase apiCases
   hadCli <- mapM runCliCase cliCases
+  hadInteractiveCliHelp <- InteractiveSmoke.runInteractiveHelpCases
   hadImage <- runImageCase
   hadTools <- mapM runToolCase apiCases
   hadMultiHost <- MultiHostSmoke.runMultiHostCase
@@ -40,6 +42,7 @@ main = do
     ( or hadApi
         || or hadStream
         || or hadCli
+        || hadInteractiveCliHelp
         || hadImage
         || or hadTools
         || hadMultiHost

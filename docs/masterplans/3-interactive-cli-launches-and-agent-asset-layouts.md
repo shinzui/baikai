@@ -40,7 +40,7 @@ Alternatives considered and rejected: extending `ApiProvider` with an optional i
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add interactive launch core abstraction | docs/plans/13-add-interactive-launch-core-abstraction.md | None | None | Complete |
-| EP-2 | Implement Claude and Codex interactive launchers | docs/plans/14-implement-claude-and-codex-interactive-launchers.md | EP-1 | None | Not Started |
+| EP-2 | Implement Claude and Codex interactive launchers | docs/plans/14-implement-claude-and-codex-interactive-launchers.md | EP-1 | None | Complete |
 | EP-3 | Add agent asset layout helpers for kits | docs/plans/15-add-agent-asset-layout-helpers-for-kits.md | EP-1 | EP-2 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -76,9 +76,9 @@ Documentation is shared across all three plans. EP-1 should document the concept
 - [x] EP-1: Define `Baikai.Interactive` request, result, provider identity, and safety-option types.
 - [x] EP-1: Add pure tests for request construction and command-independent option rendering.
 - [x] EP-1: Document the conceptual boundary between batch completion providers and interactive launchers.
-- [ ] EP-2: Implement Claude Code interactive launcher without changing `Baikai.Provider.Claude.Cli`.
-- [ ] EP-2: Implement Codex interactive launcher without changing `Baikai.Provider.OpenAI.Cli`.
-- [ ] EP-2: Add smoke checks that prove command construction and optionally run live CLI sessions when binaries are available.
+- [x] EP-2: Implement Claude Code interactive launcher without changing `Baikai.Provider.Claude.Cli`.
+- [x] EP-2: Implement Codex interactive launcher without changing `Baikai.Provider.OpenAI.Cli`.
+- [x] EP-2: Add command-construction tests and smoke checks for installed CLI flag availability without starting live interactive sessions.
 - [ ] EP-3: Add provider-native skill and custom-agent layout helpers for Claude Code and Codex.
 - [ ] EP-3: Document how kit installers should consume layout helpers while retaining ownership of filesystem lifecycle.
 - [ ] EP-3: Add tests for all user/project layout paths and Codex custom-agent TOML generation if that helper is included.
@@ -94,6 +94,10 @@ interactions between child plans. Provide concise evidence.
 - Seihou already discovered the consumer-side need for this split. Evidence: `/Users/shinzui/Keikaku/bokuno/seihou-project/seihou/docs/references/baikai-codex-agent-migration.md` records that API completions should use Baikai, while `claude-cli` and `codex-cli` should launch interactive sessions directly. This MasterPlan turns that repeated consumer pattern into a Baikai-owned interactive surface.
 
 - EP-1 completed without changing the existing batch CLI provider registry. Evidence: `cabal test baikai-test` passed all 23 tests after adding `Baikai.Interactive`, including existing completion registry and trace tests.
+
+- EP-2 completed without changing the batch CLI providers. Evidence: `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive` are new exposed modules, while `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` remained batch providers. `cabal test all` passed, including new command-construction tests and smoke help checks for locally installed `claude` and `codex` flags.
+
+- Codex interactive launches do not have a top-level system-prompt flag in the installed CLI. Evidence: `codex --help` lists `--model`, `--cd`, `--add-dir`, `--sandbox`, and `--ask-for-approval`, but not a system-prompt option. EP-2 records the decision to embed the system prompt into the initial prompt text for Codex.
 
 
 ## Decision Log
@@ -114,3 +118,8 @@ interactions between child plans. Provide concise evidence.
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
+
+
+## Revision Note
+
+2026-05-24: Marked EP-2 complete after adding vendor interactive launchers, command-construction tests, smoke help checks, and interactive launch documentation. Recorded the Codex system-prompt flag discovery because EP-3 documentation should preserve that distinction.

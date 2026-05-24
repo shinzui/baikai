@@ -41,6 +41,8 @@ Use the batch providers when your program needs a single response value.
 Use the interactive launch surface when your program wants to hand
 control to the local CLI so the provider can own its terminal UI, tool
 loop, approvals, session state, and final process exit code.
+See `docs/user/interactive-launches.md` for the concrete
+`launchClaudeInteractive` and `launchCodexInteractive` APIs.
 
 ## Smallest example
 
