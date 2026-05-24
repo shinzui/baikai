@@ -5,6 +5,7 @@ import Baikai.Prelude
 import CatalogSpec qualified
 import CostSpec qualified
 import Data.Vector qualified as V
+import InteractiveSpec qualified
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 import TraceSpec qualified
@@ -53,6 +54,7 @@ main = do
       [ tests
       , CatalogSpec.tests
       , CostSpec.tests
+      , InteractiveSpec.tests
       , TraceSpec.tests
       ]
 

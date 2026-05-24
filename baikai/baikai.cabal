@@ -48,6 +48,7 @@ library
     Baikai.Cost.Log
     Baikai.Cost.Pricing
     Baikai.Error
+    Baikai.Interactive
     Baikai.Message
     Baikai.Model
     Baikai.Models.Generated
@@ -106,6 +107,7 @@ test-suite baikai-test
   other-modules:
     CatalogSpec
     CostSpec
+    InteractiveSpec
     TraceSpec
   build-tool-depends:
     baikai:baikai-gen-models

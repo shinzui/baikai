@@ -4,6 +4,7 @@ slug: interactive-cli-launches-and-agent-asset-layouts
 title: "Interactive CLI launches and agent asset layouts"
 kind: master-plan
 created_at: 2026-05-24T21:48:48Z
+intention: intention_01ksdzsd7jenf8w00bapj1mjyr
 ---
 
 # Interactive CLI launches and agent asset layouts
@@ -38,7 +39,7 @@ Alternatives considered and rejected: extending `ApiProvider` with an optional i
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Add interactive launch core abstraction | docs/plans/13-add-interactive-launch-core-abstraction.md | None | None | Not Started |
+| EP-1 | Add interactive launch core abstraction | docs/plans/13-add-interactive-launch-core-abstraction.md | None | None | Complete |
 | EP-2 | Implement Claude and Codex interactive launchers | docs/plans/14-implement-claude-and-codex-interactive-launchers.md | EP-1 | None | Not Started |
 | EP-3 | Add agent asset layout helpers for kits | docs/plans/15-add-agent-asset-layout-helpers-for-kits.md | EP-1 | EP-2 | Not Started |
 
@@ -72,9 +73,9 @@ Documentation is shared across all three plans. EP-1 should document the concept
 
 ## Progress
 
-- [ ] EP-1: Define `Baikai.Interactive` request, result, provider identity, and safety-option types.
-- [ ] EP-1: Add pure tests for request construction and command-independent option rendering.
-- [ ] EP-1: Document the conceptual boundary between batch completion providers and interactive launchers.
+- [x] EP-1: Define `Baikai.Interactive` request, result, provider identity, and safety-option types.
+- [x] EP-1: Add pure tests for request construction and command-independent option rendering.
+- [x] EP-1: Document the conceptual boundary between batch completion providers and interactive launchers.
 - [ ] EP-2: Implement Claude Code interactive launcher without changing `Baikai.Provider.Claude.Cli`.
 - [ ] EP-2: Implement Codex interactive launcher without changing `Baikai.Provider.OpenAI.Cli`.
 - [ ] EP-2: Add smoke checks that prove command construction and optionally run live CLI sessions when binaries are available.
@@ -91,6 +92,8 @@ interactions between child plans. Provide concise evidence.
 - Existing Baikai CLI providers are batch providers by design, not interactive launchers. Evidence: `docs/user/cli-providers.md` says they drive `claude -p` and `codex exec` through `completeRequest` and `streamRequest`, with synthetic streaming and no tool-equivalent path. `baikai-claude/src/Baikai/Provider/Claude/Cli.hs` shells out to `claude -p --output-format json --no-session-persistence`, and `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` shells out to `codex exec --json`.
 
 - Seihou already discovered the consumer-side need for this split. Evidence: `/Users/shinzui/Keikaku/bokuno/seihou-project/seihou/docs/references/baikai-codex-agent-migration.md` records that API completions should use Baikai, while `claude-cli` and `codex-cli` should launch interactive sessions directly. This MasterPlan turns that repeated consumer pattern into a Baikai-owned interactive surface.
+
+- EP-1 completed without changing the existing batch CLI provider registry. Evidence: `cabal test baikai-test` passed all 23 tests after adding `Baikai.Interactive`, including existing completion registry and trace tests.
 
 
 ## Decision Log

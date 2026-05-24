@@ -22,6 +22,26 @@ Options-as-data, the event stream, the registry, the trace bridge)
 works uniformly across "API call" and "CLI subprocess." They're
 not a tool-equivalent feature path — see [Limitations](#limitations).
 
+## Batch subprocesses vs interactive launches
+
+The providers described on this page are batch subprocess providers.
+They call `claude -p` or `codex exec`, wait for the command to finish,
+and return a normal `Response` through `completeRequest` or synthetic
+events through `streamRequest`.
+
+Interactive local agent sessions are a separate surface. The core
+`Baikai.Interactive` module defines the provider-neutral request and
+result types for launching a real Claude Code or Codex terminal session:
+a rendered system prompt, an initial user prompt, optional model,
+working directory, extra readable directories, safety preferences, and
+extra provider arguments. Vendor packages consume that request type and
+translate it into their CLI's flags.
+
+Use the batch providers when your program needs a single response value.
+Use the interactive launch surface when your program wants to hand
+control to the local CLI so the provider can own its terminal UI, tool
+loop, approvals, session state, and final process exit code.
+
 ## Smallest example
 
 ```haskell

@@ -5,6 +5,7 @@ title: "Add interactive launch core abstraction"
 kind: exec-plan
 created_at: 2026-05-24T21:48:55Z
 master_plan: "docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md"
+intention: intention_01ksdzsd7jenf8w00bapj1mjyr
 ---
 
 # Add interactive launch core abstraction
@@ -22,15 +23,17 @@ The observable result is not a live Claude or Codex process yet. The observable 
 
 ## Progress
 
-- [ ] Add `Baikai.Interactive` to the core `baikai` library and cabal exposed modules.
-- [ ] Define provider-neutral request, result, provider, scope, and safety-option types.
-- [ ] Add pure tests for default values and helper constructors.
-- [ ] Document the boundary between completion providers and interactive launchers.
+- [x] 2026-05-24: Add `Baikai.Interactive` to the core `baikai` library and cabal exposed modules.
+- [x] 2026-05-24: Define provider-neutral request, result, provider, scope, and safety-option types.
+- [x] 2026-05-24: Add pure tests for default values and helper constructors.
+- [x] 2026-05-24: Document the boundary between completion providers and interactive launchers.
 
 
 ## Surprises & Discoveries
 
 - Existing batch CLI providers intentionally use `completeRequest` and `streamRequest`, so this work must not alter `Baikai.Provider.Registry.ApiProvider`. Evidence: `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` register handlers by API tag and return `Baikai.Response.Response`.
+
+- Running `cabal build baikai` and `cabal test baikai-test` in parallel can race on Cabal's in-place package database. Evidence: the parallel build failed with `package.conf.inplace already exists`, while the test command continued successfully. Re-running `cabal build baikai` by itself succeeded.
 
 
 ## Decision Log
@@ -43,10 +46,26 @@ The observable result is not a live Claude or Codex process yet. The observable 
   Rationale: An interactive launch hands control to the local CLI and its terminal UI. Baikai can report whether the process exited successfully, but it cannot truthfully return a single assistant message.
   Date: 2026-05-24
 
+- Decision: Include stable text renderers for provider, scope, Codex sandbox, and Codex approval values in the core module.
+  Rationale: EP-2 needs to translate the core vocabulary to CLI flags without duplicating string names in every launcher, while EP-1 tests can prove that mapping without spawning external processes.
+  Date: 2026-05-24
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Implemented `Baikai.Interactive` as an additive core module and exposed it through both `baikai/baikai.cabal` and the umbrella `Baikai` module. The module now defines `InteractiveLaunchRequest`, `InteractiveLaunchResult`, `InteractiveProvider`, `InteractiveScope`, `InteractiveSafety`, Codex sandbox and approval options, default constructors, and stable renderer helpers for command-independent names.
+
+Added `baikai/test/InteractiveSpec.hs` and registered it in the core test suite. The new tests prove request defaults, provider and scope rendering, Codex safety rendering, and launch result construction without spawning any external process. Documentation in `docs/user/cli-providers.md` now explains that `claude -p` and `codex exec` remain batch subprocess providers, while interactive launches are a separate surface.
+
+Validation completed on 2026-05-24:
+
+```text
+cabal test baikai-test
+All 23 tests passed (1.18s)
+
+cabal build baikai
+completed successfully
+```
 
 
 ## Context and Orientation
