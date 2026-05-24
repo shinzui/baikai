@@ -4,6 +4,7 @@ slug: add-agent-asset-layout-helpers-for-kits
 title: "Add agent asset layout helpers for kits"
 kind: exec-plan
 created_at: 2026-05-24T21:48:55Z
+intention: intention_01ksdzsd7jenf8w00bapj1mjyr
 master_plan: "docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md"
 ---
 
@@ -22,16 +23,20 @@ The observable behavior is a compiling `Baikai.AgentAssets` module with tests pr
 
 ## Progress
 
-- [ ] Add `Baikai.AgentAssets` to the core `baikai` library.
-- [ ] Define scope, artifact kind, provider, format, and path helper types.
-- [ ] Add tests for Claude Code and Codex user/project paths.
-- [ ] Document how consumers should use layout helpers in kit installers.
-- [ ] Reconcile documentation with the interactive launch modules from EP-2.
+- [x] Add `Baikai.AgentAssets` to the core `baikai` library. Completed 2026-05-24. The module is exposed from `baikai/baikai.cabal` and re-exported by `Baikai`.
+- [x] Define scope, artifact kind, provider, format, and path helper types. Completed 2026-05-24. `AgentAssetProvider` and `AgentAssetScope` reuse `InteractiveProvider` and `InteractiveScope`; `AgentAssetKind`, `AgentAssetFormat`, `AgentAssetLayout`, and `CodexCustomAgent` are asset-specific.
+- [x] Add tests for Claude Code and Codex user/project paths. Completed 2026-05-24. `AgentAssetsSpec` covers every provider, scope, and kind combination, including the Codex `.agents/skills` project path.
+- [x] Document how consumers should use layout helpers in kit installers. Completed 2026-05-24. Added `docs/user/agent-assets.md`.
+- [x] Reconcile documentation with the interactive launch modules from EP-2. Completed 2026-05-24. `docs/user/interactive-launches.md` now links to asset layout docs and states that launchers do not install or verify provider asset files.
 
 
 ## Surprises & Discoveries
 
 - Seihou's implementation showed that Codex project skills should use `.agents/skills`, not `.codex/skills`. This plan should encode that corrected path and document that consumers must verify provider docs before changing it.
+
+- Official Codex documentation confirms that Codex project skills are discovered from `.agents/skills` and user skills from `$HOME/.agents/skills`; custom agents are TOML files under `.codex/agents/` for project scope and `~/.codex/agents/` for user scope. Evidence: <https://developers.openai.com/codex/skills> and <https://developers.openai.com/codex/subagents>.
+
+- Official Claude Code documentation confirms `.claude/skills` for skills and `.claude/agents` for custom subagents. Evidence: <https://docs.anthropic.com/en/docs/claude-code/skills> and <https://docs.anthropic.com/en/docs/claude-code/sub-agents>.
 
 
 ## Decision Log
@@ -44,10 +49,36 @@ The observable behavior is a compiling `Baikai.AgentAssets` module with tests pr
   Rationale: Consumers may already have their own manifest and conversion rules. Baikai should make the target format explicit and optionally provide a small TOML renderer only if tests show repeated consumers need it.
   Date: 2026-05-24
 
+- Decision: Reuse `InteractiveProvider` and `InteractiveScope` as the asset provider and scope vocabulary.
+  Rationale: The asset helpers and interactive launchers describe the same local provider families and user/project scope distinction. Reusing those types prevents drift between launch options and layout metadata.
+  Date: 2026-05-24
+
+- Decision: Include a minimal Codex custom-agent TOML renderer.
+  Rationale: Seihou already needed to convert kit agent metadata into Codex TOML. Keeping the renderer small and pure gives consumers a reusable default without turning Baikai into a kit manifest system.
+  Date: 2026-05-24
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Implemented `Baikai.AgentAssets` as a pure core module that computes provider-native skill and custom-agent paths for Claude Code and Codex. The module reuses `InteractiveProvider` and `InteractiveScope`, exposes path and format metadata through `AgentAssetLayout`, and includes `codexCustomAgentToml` for the minimal Codex TOML shape.
+
+Tests now assert all user/project path combinations and format choices. Documentation explains that Baikai owns provider layout metadata only, while consuming applications own manifests, copying, updates, status, and uninstall behavior. The documentation also records that debug-mode launches do not prove provider asset loading.
+
+Validation completed on 2026-05-24:
+
+```text
+cabal build baikai
+Build completed successfully.
+
+cabal test baikai-test
+All 31 tests passed.
+
+cabal build all
+Build completed successfully.
+
+cabal test all
+All baikai, baikai-claude, baikai-openai, baikai-smoke, and baikai-trace-otel test suites passed.
+```
 
 
 ## Context and Orientation
@@ -94,6 +125,8 @@ Milestone 3 adds tests. Add `baikai/test/AgentAssetsSpec.hs` and register it in 
 
 Milestone 4 documents consumer usage. Add documentation explaining that a kit command should use Baikai for layout metadata, but still own manifest loading, file copying, update repair, status reporting, and uninstall behavior.
 
+This plan is complete as of 2026-05-24.
+
 
 ## Concrete Steps
 
@@ -136,3 +169,8 @@ This work is additive and pure. Re-running tests is safe. Because the module onl
 ## Interfaces and Dependencies
 
 This plan should not add dependencies. Use `System.FilePath` from `filepath` if needed; the core package already depends on `base` but does not currently list `filepath`, so prefer simple relative path strings or add `filepath` only if it materially improves path handling. The final public module is `baikai/src/Baikai/AgentAssets.hs`, exposed by `baikai/baikai.cabal`.
+
+
+## Revision Note
+
+2026-05-24: Implemented the plan, recorded provider documentation sources for the selected paths, updated progress and outcomes with validation evidence, and documented the completed asset layout API.

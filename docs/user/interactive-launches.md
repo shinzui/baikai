@@ -98,3 +98,7 @@ command -v codex
 
 Then call `launchClaudeInteractive` or `launchCodexInteractive` from an
 interactive terminal and exit the provider session normally when done.
+
+Provider-native skill and custom-agent paths are documented in
+`docs/user/agent-assets.md`. Interactive launch helpers start the local
+CLI; they do not install or verify provider asset files.

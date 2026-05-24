@@ -4,7 +4,8 @@
 -- through the registered handler.
 module Baikai
   ( -- * Types
-    module Baikai.Api
+    module Baikai.AgentAssets
+  , module Baikai.Api
   , module Baikai.Model
   , module Baikai.Content
   , module Baikai.StopReason
@@ -32,6 +33,7 @@ module Baikai
   ) where
 
 import Baikai.Api
+import Baikai.AgentAssets
 import Baikai.CacheRetention
 import Baikai.Compat
 import Baikai.Content

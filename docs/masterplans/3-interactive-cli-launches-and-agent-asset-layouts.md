@@ -41,7 +41,7 @@ Alternatives considered and rejected: extending `ApiProvider` with an optional i
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add interactive launch core abstraction | docs/plans/13-add-interactive-launch-core-abstraction.md | None | None | Complete |
 | EP-2 | Implement Claude and Codex interactive launchers | docs/plans/14-implement-claude-and-codex-interactive-launchers.md | EP-1 | None | Complete |
-| EP-3 | Add agent asset layout helpers for kits | docs/plans/15-add-agent-asset-layout-helpers-for-kits.md | EP-1 | EP-2 | Not Started |
+| EP-3 | Add agent asset layout helpers for kits | docs/plans/15-add-agent-asset-layout-helpers-for-kits.md | EP-1 | EP-2 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -79,9 +79,9 @@ Documentation is shared across all three plans. EP-1 should document the concept
 - [x] EP-2: Implement Claude Code interactive launcher without changing `Baikai.Provider.Claude.Cli`.
 - [x] EP-2: Implement Codex interactive launcher without changing `Baikai.Provider.OpenAI.Cli`.
 - [x] EP-2: Add command-construction tests and smoke checks for installed CLI flag availability without starting live interactive sessions.
-- [ ] EP-3: Add provider-native skill and custom-agent layout helpers for Claude Code and Codex.
-- [ ] EP-3: Document how kit installers should consume layout helpers while retaining ownership of filesystem lifecycle.
-- [ ] EP-3: Add tests for all user/project layout paths and Codex custom-agent TOML generation if that helper is included.
+- [x] EP-3: Add provider-native skill and custom-agent layout helpers for Claude Code and Codex.
+- [x] EP-3: Document how kit installers should consume layout helpers while retaining ownership of filesystem lifecycle.
+- [x] EP-3: Add tests for all user/project layout paths and Codex custom-agent TOML generation if that helper is included.
 
 
 ## Surprises & Discoveries
@@ -98,6 +98,10 @@ interactions between child plans. Provide concise evidence.
 - EP-2 completed without changing the batch CLI providers. Evidence: `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive` are new exposed modules, while `Baikai.Provider.Claude.Cli` and `Baikai.Provider.OpenAI.Cli` remained batch providers. `cabal test all` passed, including new command-construction tests and smoke help checks for locally installed `claude` and `codex` flags.
 
 - Codex interactive launches do not have a top-level system-prompt flag in the installed CLI. Evidence: `codex --help` lists `--model`, `--cd`, `--add-dir`, `--sandbox`, and `--ask-for-approval`, but not a system-prompt option. EP-2 records the decision to embed the system prompt into the initial prompt text for Codex.
+
+- EP-3 completed by reusing `InteractiveProvider` and `InteractiveScope` for asset layout metadata. Evidence: `Baikai.AgentAssets` exposes asset-specific kinds, formats, layouts, and Codex TOML rendering while keeping provider and scope vocabulary shared with `Baikai.Interactive`.
+
+- Provider documentation confirmed the path split used by EP-3. Evidence: Codex skills use `.agents/skills` and `$HOME/.agents/skills`, while Codex custom agents use `.codex/agents` and `$HOME/.codex/agents`; Claude Code uses `.claude/skills` and `.claude/agents`.
 
 
 ## Decision Log
@@ -117,9 +121,15 @@ interactions between child plans. Provide concise evidence.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+The initiative is complete. Baikai now has a provider-neutral interactive launch vocabulary in `Baikai.Interactive`, vendor interactive launchers in `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive`, and provider-native asset layout helpers in `Baikai.AgentAssets`.
+
+The existing batch completion registry remains intact. `Baikai.Provider.Claude.Cli` still drives `claude -p` through `completeRequest` / `streamRequest`, and `Baikai.Provider.OpenAI.Cli` still drives `codex exec`. The new interactive launch modules start real terminal sessions and return an `InteractiveLaunchResult` after the CLI exits.
+
+Asset layout support stayed intentionally pure. Baikai computes and documents where Claude Code and Codex expect skills and custom agents, including Codex TOML rendering, but does not own kit manifests or filesystem lifecycle operations. Consumers such as Seihou can now replace duplicated layout constants with Baikai helpers while retaining application-specific install, update, status, and uninstall behavior.
 
 
 ## Revision Note
 
 2026-05-24: Marked EP-2 complete after adding vendor interactive launchers, command-construction tests, smoke help checks, and interactive launch documentation. Recorded the Codex system-prompt flag discovery because EP-3 documentation should preserve that distinction.
+
+2026-05-24: Marked EP-3 complete after adding `Baikai.AgentAssets`, path and TOML tests, and asset-layout documentation. Filled the MasterPlan retrospective because all child plans are complete.

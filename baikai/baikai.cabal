@@ -38,6 +38,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai
+    Baikai.AgentAssets
     Baikai.Api
     Baikai.Auth
     Baikai.CacheRetention
@@ -105,6 +106,7 @@ test-suite baikai-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    AgentAssetsSpec
     CatalogSpec
     CostSpec
     InteractiveSpec

@@ -2,6 +2,7 @@ module Main (main) where
 
 import Baikai
 import Baikai.Prelude
+import AgentAssetsSpec qualified
 import CatalogSpec qualified
 import CostSpec qualified
 import Data.Vector qualified as V
@@ -52,6 +53,7 @@ main = do
     testGroup
       "baikai"
       [ tests
+      , AgentAssetsSpec.tests
       , CatalogSpec.tests
       , CostSpec.tests
       , InteractiveSpec.tests
