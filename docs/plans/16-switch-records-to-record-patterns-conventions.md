@@ -113,11 +113,13 @@ This section must always reflect the actual current state of the work.
   - [x] `TextContent.text` and `TraceSink.runSink` are `newtype` fields; GHC rejects `!` on a newtype field (`GHC-04049`). Documented in the Decision Log; the audit grep treats them as a known exception.
   - [x] Audit grep #3 (implicit deriving) returned no hits — every `deriving` clause is explicit `stock` / `anyclass` / `newtype`.
   - [x] Spot-checked the modules touched in Milestones 2–4: every file that uses `#field` either imports `Baikai.Prelude` (which re-exports `Data.Generics.Labels`) or already had `import Data.Generics.Labels ()` + `Control.Lens` imports. The migration added `(%~), (&), (.~)` to existing `Control.Lens` imports in `Baikai.Stream`, `Baikai.Context`, `Baikai.Cost.Pricing`, `Baikai.Provider.Claude.Api`, and `Baikai.Provider.OpenAI.Api`; no new module needed a new prelude/imports block.
-- [ ] Milestone 6 — Validation, commit log, retrospective.
-  - [ ] Run `cabal build all` from `/Users/shinzui/Keikaku/bokuno/baikai` and confirm a clean build.
-  - [ ] Run `cabal test all` from the same directory and confirm every test suite reports the same passing count as the baseline.
-  - [ ] Run the three audit greps from Milestone 1 again and confirm the file lists are empty (or shrink to only the documented exceptions).
-  - [ ] Fill in Outcomes & Retrospective with what changed, what was learned, and any residual debt.
+- [x] Milestone 6 — Validation, commit log, retrospective. (2026-05-28)
+  - [x] `cabal build all` clean — only the pre-existing `relative-path-outside` warnings on `CHANGELOG.md`/`LICENSE` symlinks remain.
+  - [x] `cabal test all` — every suite passes at baseline counts: `baikai-test` 31/31, `baikai-claude-test` 1/1, `baikai-openai-test` 2/2, `baikai-trace-otel-test` 2/2, `baikai-smoke` PASS (live providers via `OPENAI_API_KEY`, `claude`, `codex`).
+  - [x] Audit grep #1 (record-update sites): only `_Cost = Cost {usd = 0, breakdown = _CostBreakdown}` (a full smart-constructor literal) and the OpenAI SDK destructuring `OpenAI.Methods {OpenAI.createChatCompletionStream = stream'} = call ^. #methods` remain in src/ — both documented exceptions.
+  - [x] Audit grep #2 (lazy fields): only the two newtype fields (`TextContent.text`, `TraceSink.runSink`) remain, documented in the Decision Log as the GHC newtype-strictness exception.
+  - [x] Audit grep #3 (implicit deriving): no hits.
+  - [x] Audit grep #4 (Hungarian-style prefixes): no hits with the prefixes `rs`, `ts`, `cc`, `ps`, `ab`, `oc`, `rc`, `rtd`, `ru`. The remaining matches (`maxTokens`, `maxOutputTokens`, `apiKey`, `apiTag`, `isError`, `runSink`) are legitimate field names whose leading short word is part of the name, not a prefix; called out as false-positives in the plan's Validation section.
 
 
 ## Surprises & Discoveries
@@ -125,7 +127,27 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- **Generic deriving was missing on every renamed record.** Every record
+  the plan renamed (`ReassemblyState`, `TraceState`, `ClaudeCall`,
+  `ProducerState` ×2, `Assembler` ×2, `OpenAICall`, `RawChunk`,
+  `RawToolDelta`, `RawUsage`) carried no `Generic` instance before this
+  plan, because nothing was using `^. #field` on them. The first
+  `cabal build baikai` after introducing `s & #model .~ ...` in
+  `Baikai.Stream.step` failed with
+  `No instance for Generic ReassemblyState`. Adding
+  `deriving stock (Generic)` to each record cleared the build.
+  Evidence: build error at `src/Baikai/Stream.hs:151` before the fix.
+- **GHC rejects strictness on newtype constructor fields.** Adding `!`
+  to `TextContent.text` failed with `GHC-04049: A newtype constructor
+  must not have a strictness annotation`. Reverted and recorded in the
+  Decision Log; the two newtype fields stay lazy in source even though
+  they are operationally strict.
+- **`Resp.message resp` selector reads decayed into unused-import
+  warnings.** Once every read of a Response field switched to lens form
+  (`resp ^. #message`), the `import Baikai.Response qualified as Resp`
+  at the top of `Baikai.Stream` was redundant. Same story for
+  `Baikai.Usage qualified as Usage` and the `_Response` import in two
+  test files. Fixed by removing the unused imports.
 
 
 ## Decision Log
@@ -199,7 +221,68 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**Outcome.** Every record-update site under `baikai/src`,
+`baikai-claude/src`, `baikai-openai/src`, `baikai-trace-otel/src`,
+`baikai/test`, `baikai-smoke/test`, and `baikai-trace-otel/test` now
+uses the `& #field .~ value` / `& #field %~ f` idiom from
+`bokuno/haskell-jitsurei/core/record-patterns.md`. Every Hungarian-style
+field prefix on a project-defined record (`rs…`, `ts…`, `cc…`, `ps…`,
+`ab…`, `oc…`, `rc…`, `rtd…`, `ru…`) is gone, replaced by the
+disambiguation that `DuplicateRecordFields` + `OverloadedLabels` already
+provided. Reads of these renamed fields go through `^. #field`. Every
+data-declared field that was previously lazy now carries the `!` bang,
+with the documented exception of the two `newtype` fields GHC will not
+let us annotate. `cabal build all` is clean; every test suite reports
+the same passing count as the baseline.
+
+**What changed across packages**:
+
+- `baikai` library: 4 modules touched (`Baikai.Stream`, `Baikai.Context`,
+  `Baikai.Trace`, `Baikai.Cost.Pricing`) plus the strictness pass on
+  `Baikai.Interactive` and `Baikai.Provider.Registry`. Two records
+  renamed (`ReassemblyState`, `TraceState`) and gained
+  `deriving stock (Generic)` clauses.
+- `baikai-claude`: one large file (`Baikai.Provider.Claude.Api`) was the
+  bulk of the work — three records renamed (`ClaudeCall`,
+  `ProducerState`, `Assembler`) and every record-update site rewritten.
+- `baikai-openai`: one large file (`Baikai.Provider.OpenAI.Api`) — six
+  records renamed (`OpenAICall`, `RawChunk`, `RawToolDelta`, `RawUsage`,
+  `ProducerState`, `Assembler`). `RawToolDelta.id_` carries the
+  trailing underscore to dodge `Prelude.id`, matching the existing
+  `Baikai.Content.ToolCall.id_` field.
+- `baikai-trace-otel`: no source changes beyond the test fixture
+  conversions.
+- Test suites: every smart-constructor update (`_Model { … }`,
+  `_Context { … }`, `_Response { … }`, `Models.X { … }`,
+  `knownModel { … }`) converted to a lens chain; full-field
+  constructions converted to direct constructor literals where they
+  were redundantly going through a smart constructor.
+
+**What surprised me**:
+
+- GHC rejects `!` on `newtype` constructor fields (`GHC-04049`).
+  Newtypes are representationally equal to their wrapped type, so the
+  bang would be a no-op anyway, but the audit grep does not know that.
+  The plan's seed list had to be amended with a Decision-Log carve-out.
+- `record-patterns.md`'s "no field prefixes" rule turns out to be
+  universal in this codebase, including on module-internal records.
+  The first draft of this plan tried to preserve the assembler-state
+  prefixes (`ab…`, `ps…`) on the grounds that they were never exported
+  — the user pushed back and the plan was revised on 2026-05-28 to
+  rename them too. Worth recording for next time: a rule the user calls
+  "applies everywhere" really does, and an exec-plan should not invent
+  carve-outs.
+
+**Residual debt**:
+
+- Several modules still read fields through qualified selector calls
+  (`Usage.cost u`, `Usage.inputTokens u`, etc.) rather than `u ^. #cost`
+  / `u ^. #inputTokens`. The plan's milestones were scoped to record
+  updates and prefix renames, so these reads stayed. A follow-up pass
+  could convert them, but doing so today would have ballooned the diff
+  with no behavioural benefit.
+- The `cabal build all` warning on `relative-path-outside` for
+  `CHANGELOG.md` and `LICENSE` symlinks predates this plan; not in scope.
 
 
 ## Context and Orientation
