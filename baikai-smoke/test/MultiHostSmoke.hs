@@ -68,7 +68,7 @@ runMultiHostCase = do
           pure False
         Just (SecondHost label _envVars secondModel, envVar, secondKey) -> do
           let openaiModel =
-                Models.openai_gpt_4o_mini {maxOutputTokens = 64}
+                Models.openai_gpt_4o_mini & #maxOutputTokens .~ 64
               ctx =
                 _Context
                   & #systemPrompt .~ Just "Reply in two words."
@@ -127,13 +127,13 @@ pickSecondHost = do
             { hostLabel = "deepseek"
             , hostEnvVars = ["DEEPSEEK_API_KEY"]
             , hostModel =
-                Models.deepseek_deepseek_chat {maxOutputTokens = 64}
+                Models.deepseek_deepseek_chat & #maxOutputTokens .~ 64
             }
         , SecondHost
             { hostLabel = "openrouter"
             , hostEnvVars = ["OPENROUTER_API_KEY"]
             , hostModel =
-                Models.openrouter_openai_gpt_4o_mini {maxOutputTokens = 64}
+                Models.openrouter_openai_gpt_4o_mini & #maxOutputTokens .~ 64
             }
         , -- One hand-rolled entry kept here to demonstrate that
           -- callers can still target hosts the generated catalog
@@ -145,13 +145,12 @@ pickSecondHost = do
             , hostEnvVars = ["TOGETHER_API_KEY"]
             , hostModel =
                 _Model
-                  { modelId = "meta-llama/Meta-Llama-3-8B-Instruct-Turbo"
-                  , name = "Llama 3 8B Instruct Turbo"
-                  , api = OpenAIChatCompletions
-                  , provider = "together"
-                  , baseUrl = "https://api.together.xyz"
-                  , maxOutputTokens = 64
-                  }
+                  & #modelId .~ "meta-llama/Meta-Llama-3-8B-Instruct-Turbo"
+                  & #name .~ "Llama 3 8B Instruct Turbo"
+                  & #api .~ OpenAIChatCompletions
+                  & #provider .~ "together"
+                  & #baseUrl .~ "https://api.together.xyz"
+                  & #maxOutputTokens .~ 64
             }
         ]
   pickFirst candidates

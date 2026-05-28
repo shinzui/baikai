@@ -19,11 +19,10 @@ import Baikai.Provider
   ( ApiProvider (..)
   , registerApiProvider
   )
-import Baikai.Response (Response (..), _Response, flattenAssistantBlocks)
+import Baikai.Response (Response (..), flattenAssistantBlocks)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (Usage, _Usage)
-import Baikai.Usage qualified as Usage
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
@@ -58,20 +57,22 @@ sampleUsage =
 knownModel :: Model
 knownModel =
   _Model
-    { modelId = "claude-haiku-4-5-20251001"
-    , api = Custom "test"
-    , provider = "anthropic"
-    , cost =
-        ModelCost
-          { inputCost = 1
-          , outputCost = 5
-          , cacheReadCost = 1 / 10
-          , cacheWriteCost = 5 / 4
-          }
-    }
+    & #modelId .~ "claude-haiku-4-5-20251001"
+    & #api .~ Custom "test"
+    & #provider .~ "anthropic"
+    & #cost
+      .~ ModelCost
+        { inputCost = 1
+        , outputCost = 5
+        , cacheReadCost = 1 / 10
+        , cacheWriteCost = 5 / 4
+        }
 
 unknownModel :: Model
-unknownModel = _Model {modelId = "totally-fake-model", api = Custom "test"}
+unknownModel =
+  _Model
+    & #modelId .~ "totally-fake-model"
+    & #api .~ Custom "test"
 
 computeTests :: TestTree
 computeTests =
@@ -113,10 +114,10 @@ attachCostTests =
   where
     attachedUsd m =
       let resp = attachCost m (mkResp m)
-          AssistantMessage {usage = u} = message resp
-       in Cost.usd (Usage.cost u)
+          AssistantMessage {usage = u} = resp ^. #message
+       in Cost.usd (u ^. #cost)
     mkResp m =
-      _Response
+      Response
         { message =
             AssistantMessage
               { assistantContent = V.singleton (AssistantText (TextContent "hi"))
@@ -140,7 +141,7 @@ cannedApi = Custom "baikai-cost-canned"
 cannedHaiku :: Response
 cannedHaiku =
   let u = sampleUsage & #cost .~ computeCost knownModel sampleUsage
-   in _Response
+   in Response
         { message =
             AssistantMessage
               { assistantContent = V.singleton (AssistantText (TextContent "ok"))
@@ -149,7 +150,7 @@ cannedHaiku =
               , errorMessage = Nothing
               , timestamp = read "2026-05-14 00:00:00 UTC"
               }
-        , model = knownModel {api = cannedApi}
+        , model = knownModel & #api .~ cannedApi
         , api = cannedApi
         , provider = "canned"
         , responseId = Nothing
@@ -167,10 +168,10 @@ registerCanned resp =
           }
 
 cannedModel :: Model
-cannedModel = knownModel {api = cannedApi}
+cannedModel = knownModel & #api .~ cannedApi
 
 ctxHello :: Context
-ctxHello = _Context {messages = V.fromList [user "Hello world"]}
+ctxHello = _Context & #messages .~ V.fromList [user "Hello world"]
 
 optsZero :: Options
 optsZero = _Options

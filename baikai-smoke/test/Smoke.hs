@@ -74,13 +74,13 @@ apiCases =
       , caseEnvVars = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
       , caseModel =
           Models.anthropic_claude_haiku_4_5_20251001
-            {maxOutputTokens = 1024}
+            & #maxOutputTokens .~ 1024
       }
   , ApiCase
       { caseLabel = "gpt-4o-mini"
       , caseEnvVars = ["OPENAI_KEY", "OPENAI_API_KEY"]
       , caseModel =
-          Models.openai_gpt_4o_mini {maxOutputTokens = 1024}
+          Models.openai_gpt_4o_mini & #maxOutputTokens .~ 1024
       }
   ]
 
@@ -208,20 +208,18 @@ cliCases =
       , cliBinary = "claude"
       , cliModel =
           _Model
-            { modelId = "sonnet"
-            , api = AnthropicMessagesCli
-            , provider = "anthropic"
-            }
+            & #modelId .~ "sonnet"
+            & #api .~ AnthropicMessagesCli
+            & #provider .~ "anthropic"
       }
   , CliCase
       { cliLabel = "<codex-default>"
       , cliBinary = "codex"
       , cliModel =
           _Model
-            { modelId = ""
-            , api = OpenAICompletionsCli
-            , provider = "openai"
-            }
+            & #modelId .~ ""
+            & #api .~ OpenAICompletionsCli
+            & #provider .~ "openai"
       }
   ]
 
@@ -286,7 +284,7 @@ runImageCase = do
               }
           model =
             Models.anthropic_claude_haiku_4_5_20251001
-              {maxOutputTokens = 64}
+              & #maxOutputTokens .~ 64
           ctx =
             _Context
               & #systemPrompt .~ Just "Reply in one word."

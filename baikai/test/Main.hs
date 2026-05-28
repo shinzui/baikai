@@ -20,11 +20,10 @@ testApi = Custom "baikai-test"
 testModel :: Model
 testModel =
   _Model
-    { modelId = "test-model"
-    , name = "Test Model"
-    , api = testApi
-    , provider = "test"
-    }
+    & #modelId .~ "test-model"
+    & #name .~ "Test Model"
+    & #api .~ testApi
+    & #provider .~ "test"
 
 -- | Install a handler that returns a fixed assistant message for
 -- the 'testApi' tag. Idempotent: re-registering the same tag
@@ -32,13 +31,12 @@ testModel =
 registerTestHandler :: Text -> IO ()
 registerTestHandler canned =
   let handler m _ctx _opts =
-        pure
+        pure $
           _Response
-            { message = assistant canned
-            , model = m
-            , api = testApi
-            , provider = "test"
-            }
+            & #message .~ assistant canned
+            & #model .~ m
+            & #api .~ testApi
+            & #provider .~ "test"
    in registerApiProvider
         ApiProvider
           { apiTag = testApi
@@ -72,7 +70,7 @@ tests =
         _Options ^. #temperature @?= Nothing
         _Options ^. #apiKey @?= Nothing
     , testCase "completeRequest dispatches through the registered handler" $ do
-        let ctx = _Context {messages = V.fromList [user "ping"]}
+        let ctx = _Context & #messages .~ V.fromList [user "ping"]
         resp <- completeRequest testModel ctx _Options
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hello from the test provider"))

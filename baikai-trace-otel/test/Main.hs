@@ -10,7 +10,7 @@ import Baikai.Message (Message (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Provider (ApiProvider (..), registerApiProvider)
-import Baikai.Response (Response (..), _Response)
+import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace)
@@ -43,21 +43,20 @@ main =
 stubModel :: Api -> Model
 stubModel a =
   _Model
-    { modelId = "stub-1"
-    , api = a
-    , provider = "stub.otel"
-    , maxOutputTokens = 16
-    }
+    & #modelId .~ "stub-1"
+    & #api .~ a
+    & #provider .~ "stub.otel"
+    & #maxOutputTokens .~ 16
 
 stubContext :: Context
-stubContext = _Context {messages = V.fromList [user "hello"]}
+stubContext = _Context & #messages .~ V.fromList [user "hello"]
 
 stubOptions :: Options
 stubOptions = _Options & #maxTokens .~ Just 16
 
 stubResponse :: Api -> Response
 stubResponse a =
-  _Response
+  Response
     { message =
         AssistantMessage
           { assistantContent = V.singleton (AssistantText (TextContent "hi"))

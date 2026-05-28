@@ -102,10 +102,12 @@ This section must always reflect the actual current state of the work.
   - [x] `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` / `Interactive.hs`: audit returned no record-update sites — nothing to convert.
   - [x] `baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs`: audit returned no record-update sites — nothing to convert.
   - [x] `cabal build all` clean; `cabal test {baikai-test,baikai-claude-test,baikai-openai-test,baikai-trace-otel-test}` all pass at baseline counts.
-- [ ] Milestone 4 — Test suites converted.
-  - [ ] `baikai/test/*.hs`: audit and convert.
-  - [ ] `baikai-claude/test/Main.hs`, `baikai-openai/test/Main.hs`, `baikai-trace-otel/test/Main.hs`: audit and convert.
-  - [ ] `baikai-smoke/test/*.hs`: audit and convert.
+- [x] Milestone 4 — Test suites converted. (2026-05-28)
+  - [x] `baikai/test/TraceSpec.hs`, `baikai/test/CostSpec.hs`, `baikai/test/Main.hs`: converted smart-constructor updates (`_Model { … }`, `_Context { … }`, `_Response { … }`, `knownModel { … }`) to lens chains; converted `_Response { all 6 fields }` to direct `Response { … }` literal where every field was named; replaced the `message resp` and `Usage.cost u` selector reads in `CostSpec.attachedUsd` with `resp ^. #message` and `u ^. #cost`; removed now-unused `_Response`/`Baikai.Usage qualified as Usage` imports.
+  - [x] `baikai-claude/test/Main.hs`, `baikai-openai/test/Main.hs`: audit returned no record-update sites.
+  - [x] `baikai-trace-otel/test/Main.hs`: same smart-constructor / `_Response { all fields }` conversions as TraceSpec.
+  - [x] `baikai-smoke/test/Smoke.hs`, `baikai-smoke/test/MultiHostSmoke.hs`: converted `Models.X { maxOutputTokens = … }` and `_Model { … }` updates to lens chains.
+  - [x] `cabal test {baikai-test, baikai-claude-test, baikai-openai-test, baikai-trace-otel-test}` all pass at baseline counts (31/1/2/2).
 - [ ] Milestone 5 — Strictness, deriving, prelude audit.
   - [ ] For every `data` declaration in `baikai/src`, `baikai-claude/src`, `baikai-openai/src`, `baikai-trace-otel/src`, and the test suites, confirm every field is `!`-annotated. Add the bang on any field that is missing it. The currently known offenders (from the baseline audit) are the records in `baikai/src/Baikai/Interactive.hs` (`InteractiveLaunchRequest`, `InteractiveLaunchResult`), the `ApiProvider` record fields in `baikai/src/Baikai/Provider/Registry.hs`, the `runSink` field in `baikai/src/Baikai/Trace/Sink.hs`, and the `text :: Text` field of `TextContent` in `baikai/src/Baikai/Content.hs`.
   - [ ] Confirm every `data` and `newtype` carries an explicit `deriving stock` / `deriving anyclass` / `deriving newtype` clause. (Spot-check at audit time showed none missing in the project tree, but recheck after the bang edits land.)
