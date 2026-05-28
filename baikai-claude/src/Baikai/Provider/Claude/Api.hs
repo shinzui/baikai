@@ -47,7 +47,7 @@ import Claude.V1.Tool qualified as ClaudeTool
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, try)
-import Control.Lens ((^.))
+import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
@@ -64,6 +64,7 @@ import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import GHC.Generics (Generic)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 
@@ -101,26 +102,27 @@ claudeMessagesStream m ctx opts =
     case setup of
       Left err -> pure (Stream.fromEffect (immediateError err))
       Right call -> do
-        chan <- newChan :: IO (Chan (Maybe Messages.MessageStreamEvent))
-        terminalRef <- newIORef False
-        _ <- forkIO (worker call chan terminalRef)
+        ch <- newChan :: IO (Chan (Maybe Messages.MessageStreamEvent))
+        tref <- newIORef False
+        _ <- forkIO (worker call ch tref)
         startTime <- getCurrentTime
         let initialState =
               ProducerState
-                { psChan = chan
-                , psPending = []
-                , psAssembler = emptyAssembler m startTime
-                , psFinished = False
-                , psTerminalRef = terminalRef
+                { chan = ch
+                , pending = []
+                , assembler = emptyAssembler m startTime
+                , finished = False
+                , terminalRef = tref
                 }
         pure (Stream.unfoldrM step initialState)
 
 -- | Per-call prepared values: the typed SDK request, plus the
 -- methods record to invoke the streaming endpoint.
 data ClaudeCall = ClaudeCall
-  { ccMethods :: !Claude.Methods
-  , ccRequest :: !Messages.CreateMessage
+  { methods :: !Claude.Methods
+  , request :: !Messages.CreateMessage
   }
+  deriving stock (Generic)
 
 prepareCall
   :: Model -> Context -> Options -> IO (Either Text ClaudeCall)
@@ -133,8 +135,8 @@ prepareCall m ctx opts = do
             "" -> "https://api.anthropic.com"
             u -> u
       env <- Claude.getClientEnv url
-      let methods = Claude.makeMethods env key (Just "2023-06-01")
-      pure (Right ClaudeCall {ccMethods = methods, ccRequest = req})
+      let mtds = Claude.makeMethods env key (Just "2023-06-01")
+      pure (Right ClaudeCall {methods = mtds, request = req})
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
@@ -151,69 +153,81 @@ worker
   -> Chan (Maybe Messages.MessageStreamEvent)
   -> IORef Bool
   -> IO ()
-worker call chan _terminalRef = do
-  let Claude.Methods {Claude.createMessageStreamTyped = stream'} = ccMethods call
+worker call ch _terminalRef = do
+  let Claude.Methods {Claude.createMessageStreamTyped = stream'} = call ^. #methods
   r <-
     try @SomeException $
-      stream' (ccRequest call) $ \case
-        Left errText -> writeChan chan (Just (errorEvent errText))
-        Right ev -> writeChan chan (Just ev)
+      stream' (call ^. #request) $ \case
+        Left errText -> writeChan ch (Just (errorEvent errText))
+        Right ev -> writeChan ch (Just ev)
   case r of
     Right () -> pure ()
-    Left e -> writeChan chan (Just (errorEvent (Text.pack (displayException e))))
-  writeChan chan Nothing
+    Left e -> writeChan ch (Just (errorEvent (Text.pack (displayException e))))
+  writeChan ch Nothing
   where
     errorEvent :: Text -> Messages.MessageStreamEvent
     errorEvent t = Messages.Error {Messages.error = Aeson.String t}
 
 -- | The streaming 'Stream' state.
 data ProducerState = ProducerState
-  { psChan :: !(Chan (Maybe Messages.MessageStreamEvent))
-  , psPending :: ![AssistantMessageEvent]
-  , psAssembler :: !Assembler
-  , psFinished :: !Bool
-  , psTerminalRef :: !(IORef Bool)
+  { chan :: !(Chan (Maybe Messages.MessageStreamEvent))
+  , pending :: ![AssistantMessageEvent]
+  , assembler :: !Assembler
+  , finished :: !Bool
+  , terminalRef :: !(IORef Bool)
   }
+  deriving stock (Generic)
 
 step :: ProducerState -> IO (Maybe (AssistantMessageEvent, ProducerState))
 step s
-  | (e : rest) <- psPending s = do
+  | (e : rest) <- s ^. #pending = do
       writeTerminal s e
-      pure (Just (e, s {psPending = rest, psFinished = psFinished s || terminal e}))
-  | psFinished s = pure Nothing
+      pure
+        ( Just
+            ( e
+            , s
+                & #pending .~ rest
+                & #finished .~ (s ^. #finished || terminal e)
+            )
+        )
+  | s ^. #finished = pure Nothing
   | otherwise = do
-      mRaw <- readChan (psChan s)
+      mRaw <- readChan (s ^. #chan)
       case mRaw of
         Nothing -> do
-          alreadyTerminal <- readIORef (psTerminalRef s)
+          alreadyTerminal <- readIORef (s ^. #terminalRef)
           if alreadyTerminal
             then pure Nothing
             else do
               now <- getCurrentTime
-              let (ev, ass') = unexpectedEoS now (psAssembler s)
+              let (ev, ass') = unexpectedEoS now (s ^. #assembler)
               writeTerminal s ev
-              pure (Just (ev, s {psAssembler = ass', psFinished = True}))
+              pure
+                ( Just
+                    ( ev
+                    , s & #assembler .~ ass' & #finished .~ True
+                    )
+                )
         Just raw -> do
           now <- getCurrentTime
-          let (events, ass') = translate raw (psAssembler s) now
+          let (events, ass') = translate raw (s ^. #assembler) now
           case events of
-            [] -> step (s {psAssembler = ass'})
+            [] -> step (s & #assembler .~ ass')
             (e : rest) -> do
               writeTerminal s e
               pure
                 ( Just
                     ( e
                     , s
-                        { psPending = rest
-                        , psAssembler = ass'
-                        , psFinished = psFinished s || terminal e
-                        }
+                        & #pending .~ rest
+                        & #assembler .~ ass'
+                        & #finished .~ (s ^. #finished || terminal e)
                     )
                 )
 
 writeTerminal :: ProducerState -> AssistantMessageEvent -> IO ()
 writeTerminal s ev
-  | terminal ev = writeIORef (psTerminalRef s) True
+  | terminal ev = writeIORef (s ^. #terminalRef) True
   | otherwise = pure ()
 
 terminal :: AssistantMessageEvent -> Bool
@@ -234,33 +248,34 @@ unexpectedEoS now ass =
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
-  { abModel :: !Model
-  , abStart :: !UTCTime
-  , abResponseId :: !(Maybe Text)
-  , abClosed :: !(IntMap Content.AssistantContent)
-  , abTextBuf :: !(IntMap Text)
-  , abThinkBuf :: !(IntMap Text)
-  , abThinkSig :: !(IntMap Text)
-  , abToolArgsBuf :: !(IntMap Text)
-  , abToolMeta :: !(IntMap (Text, Text))
-  , abUsage :: !Usage.Usage
-  , abStopReason :: !Stop.StopReason
+  { model :: !Model
+  , start :: !UTCTime
+  , responseId :: !(Maybe Text)
+  , closed :: !(IntMap Content.AssistantContent)
+  , textBuf :: !(IntMap Text)
+  , thinkBuf :: !(IntMap Text)
+  , thinkSig :: !(IntMap Text)
+  , toolArgsBuf :: !(IntMap Text)
+  , toolMeta :: !(IntMap (Text, Text))
+  , usage :: !Usage.Usage
+  , stopReason :: !Stop.StopReason
   }
+  deriving stock (Generic)
 
 emptyAssembler :: Model -> UTCTime -> Assembler
-emptyAssembler m start =
+emptyAssembler m s =
   Assembler
-    { abModel = m
-    , abStart = start
-    , abResponseId = Nothing
-    , abClosed = IntMap.empty
-    , abTextBuf = IntMap.empty
-    , abThinkBuf = IntMap.empty
-    , abThinkSig = IntMap.empty
-    , abToolArgsBuf = IntMap.empty
-    , abToolMeta = IntMap.empty
-    , abUsage = Usage._Usage
-    , abStopReason = Stop.Stop
+    { model = m
+    , start = s
+    , responseId = Nothing
+    , closed = IntMap.empty
+    , textBuf = IntMap.empty
+    , thinkBuf = IntMap.empty
+    , thinkSig = IntMap.empty
+    , toolArgsBuf = IntMap.empty
+    , toolMeta = IntMap.empty
+    , usage = Usage._Usage
+    , stopReason = Stop.Stop
     }
 
 translate
@@ -272,7 +287,7 @@ translate raw ass now = case raw of
   Messages.Ping -> ([], ass)
   Messages.Message_Start {Messages.message = mr} ->
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
-        ass' = ass {abResponseId = Just (mr ^. #id), abUsage = usage0}
+        ass' = ass & #responseId .~ Just (mr ^. #id) & #usage .~ usage0
         skeleton = skeletonMessage ass' now
      in ([EventStart {partial = skeleton}], ass')
   Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
@@ -283,13 +298,17 @@ translate raw ass now = case raw of
     handleBlockStop (fromIntegral idx) ass
   Messages.Message_Delta {Messages.message_delta = md, Messages.usage = su} ->
     let stopR = mapStopReason (md ^. #stop_reason)
-        u = abUsage ass
-        outputTokensFinal = fromMaybe (Usage.outputTokens u) (Just (su ^. #output_tokens))
-        u' = u {Usage.outputTokens = outputTokensFinal, Usage.totalTokens = Usage.inputTokens u + outputTokensFinal + Usage.cacheReadTokens u + Usage.cacheWriteTokens u}
-     in ([], ass {abStopReason = stopR, abUsage = u'})
+        u = ass ^. #usage
+        outputTokensFinal = fromMaybe (u ^. #outputTokens) (Just (su ^. #output_tokens))
+        u' =
+          u
+            & #outputTokens .~ outputTokensFinal
+            & #totalTokens
+              .~ ((u ^. #inputTokens) + outputTokensFinal + (u ^. #cacheReadTokens) + (u ^. #cacheWriteTokens))
+     in ([], ass & #stopReason .~ stopR & #usage .~ u')
   Messages.Message_Stop ->
     let msg = finalMessage ass now
-     in ([EventDone {reason = abStopReason ass, message = msg}], ass)
+     in ([EventDone {reason = ass ^. #stopReason, message = msg}], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
         msg = finalMessageOnError ass now errText
@@ -303,22 +322,21 @@ handleBlockStart
 handleBlockStart i block ass = case block of
   Messages.ContentBlock_Text {} ->
     ( [TextStart {contentIndex = i}]
-    , ass {abTextBuf = IntMap.insert i Text.empty (abTextBuf ass)}
+    , ass & #textBuf %~ IntMap.insert i Text.empty
     )
   Messages.ContentBlock_Thinking {} ->
     ( [ThinkingStart {contentIndex = i}]
-    , ass {abThinkBuf = IntMap.insert i Text.empty (abThinkBuf ass)}
+    , ass & #thinkBuf %~ IntMap.insert i Text.empty
     )
   Messages.ContentBlock_Redacted_Thinking {} ->
     ( [ThinkingStart {contentIndex = i}]
-    , ass {abThinkBuf = IntMap.insert i Text.empty (abThinkBuf ass)}
+    , ass & #thinkBuf %~ IntMap.insert i Text.empty
     )
   Messages.ContentBlock_Tool_Use {Messages.id = tid, Messages.name = tn} ->
     ( [ToolCallStart {contentIndex = i}]
     , ass
-        { abToolArgsBuf = IntMap.insert i Text.empty (abToolArgsBuf ass)
-        , abToolMeta = IntMap.insert i (tid, tn) (abToolMeta ass)
-        }
+        & #toolArgsBuf %~ IntMap.insert i Text.empty
+        & #toolMeta %~ IntMap.insert i (tid, tn)
     )
   _ ->
     -- Server-tool, code-execution-tool, unknown — pass-through with no events.
@@ -332,37 +350,36 @@ handleBlockDelta
 handleBlockDelta i d ass = case d of
   Messages.Delta_Text_Delta {Messages.text = t} ->
     ( [TextDelta {contentIndex = i, delta = t}]
-    , ass {abTextBuf = IntMap.insertWith (\new old -> old <> new) i t (abTextBuf ass)}
+    , ass & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i t
     )
   Messages.Delta_Thinking_Delta {Messages.thinking = t} ->
     ( [ThinkingDelta {contentIndex = i, delta = t}]
-    , ass {abThinkBuf = IntMap.insertWith (\new old -> old <> new) i t (abThinkBuf ass)}
+    , ass & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i t
     )
   Messages.Delta_Signature_Delta {Messages.signature = sig} ->
     -- Signatures are tail-end metadata on thinking blocks; they
     -- attach to the ThinkingEnd event's content build, not a public
     -- delta event.
     ( []
-    , ass {abThinkSig = IntMap.insertWith (\new old -> old <> new) i sig (abThinkSig ass)}
+    , ass & #thinkSig %~ IntMap.insertWith (\new old -> old <> new) i sig
     )
   Messages.Delta_Input_Json_Delta {Messages.partial_json = j} ->
     ( [ToolCallDelta {contentIndex = i, delta = j}]
-    , ass {abToolArgsBuf = IntMap.insertWith (\new old -> old <> new) i j (abToolArgsBuf ass)}
+    , ass & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i j
     )
 
 handleBlockStop
   :: Int -> Assembler -> ([AssistantMessageEvent], Assembler)
 handleBlockStop i ass
-  | Just body <- IntMap.lookup i (abTextBuf ass) =
+  | Just body <- IntMap.lookup i (ass ^. #textBuf) =
       let block = Content.AssistantText (Content.TextContent body)
        in ( [TextEnd {contentIndex = i, content = body}]
           , ass
-              { abClosed = IntMap.insert i block (abClosed ass)
-              , abTextBuf = IntMap.delete i (abTextBuf ass)
-              }
+              & #closed %~ IntMap.insert i block
+              & #textBuf %~ IntMap.delete i
           )
-  | Just body <- IntMap.lookup i (abThinkBuf ass) =
-      let sig = IntMap.lookup i (abThinkSig ass)
+  | Just body <- IntMap.lookup i (ass ^. #thinkBuf) =
+      let sig = IntMap.lookup i (ass ^. #thinkSig)
           block =
             Content.AssistantThinking
               Content.ThinkingContent
@@ -372,13 +389,12 @@ handleBlockStop i ass
                 }
        in ( [ThinkingEnd {contentIndex = i, content = body}]
           , ass
-              { abClosed = IntMap.insert i block (abClosed ass)
-              , abThinkBuf = IntMap.delete i (abThinkBuf ass)
-              , abThinkSig = IntMap.delete i (abThinkSig ass)
-              }
+              & #closed %~ IntMap.insert i block
+              & #thinkBuf %~ IntMap.delete i
+              & #thinkSig %~ IntMap.delete i
           )
-  | Just argsText <- IntMap.lookup i (abToolArgsBuf ass) =
-      let (tid, tn) = fromMaybe ("", "") (IntMap.lookup i (abToolMeta ass))
+  | Just argsText <- IntMap.lookup i (ass ^. #toolArgsBuf) =
+      let (tid, tn) = fromMaybe ("", "") (IntMap.lookup i (ass ^. #toolMeta))
           decoded :: Value
           decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 argsText) of
             Right v -> v
@@ -397,10 +413,9 @@ handleBlockStop i ass
           block = Content.AssistantToolCall tc
        in ( [ToolCallEnd {contentIndex = i, toolCall = tc}]
           , ass
-              { abClosed = IntMap.insert i block (abClosed ass)
-              , abToolArgsBuf = IntMap.delete i (abToolArgsBuf ass)
-              , abToolMeta = IntMap.delete i (abToolMeta ass)
-              }
+              & #closed %~ IntMap.insert i block
+              & #toolArgsBuf %~ IntMap.delete i
+              & #toolMeta %~ IntMap.delete i
           )
   | otherwise = ([], ass)
 
@@ -410,23 +425,23 @@ skeletonMessage :: Assembler -> UTCTime -> Msg.Message
 skeletonMessage ass _now =
   Msg.AssistantMessage
     { Msg.assistantContent = Vector.empty
-    , Msg.usage = abUsage ass
+    , Msg.usage = ass ^. #usage
     , Msg.stopReason = Stop.Stop
     , Msg.errorMessage = Nothing
-    , Msg.timestamp = abStart ass
+    , Msg.timestamp = ass ^. #start
     }
 
 finalMessage :: Assembler -> UTCTime -> Msg.Message
 finalMessage ass now =
   let blocks = blocksInOrder ass
-      m = abModel ass
-      usageBare = abUsage ass
+      m = ass ^. #model
+      usageBare = ass ^. #usage
       computed = Pricing.computeCost m usageBare
-      usage' = usageBare {Usage.cost = computed}
+      usage' = usageBare & #cost .~ computed
    in Msg.AssistantMessage
         { Msg.assistantContent = blocks
         , Msg.usage = usage'
-        , Msg.stopReason = abStopReason ass
+        , Msg.stopReason = ass ^. #stopReason
         , Msg.errorMessage = Nothing
         , Msg.timestamp = now
         }
@@ -434,10 +449,10 @@ finalMessage ass now =
 finalMessageOnError :: Assembler -> UTCTime -> Text -> Msg.Message
 finalMessageOnError ass now reason =
   let blocks = blocksInOrder ass
-      m = abModel ass
-      usageBare = abUsage ass
+      m = ass ^. #model
+      usageBare = ass ^. #usage
       computed = Pricing.computeCost m usageBare
-      usage' = usageBare {Usage.cost = computed}
+      usage' = usageBare & #cost .~ computed
    in Msg.AssistantMessage
         { Msg.assistantContent = blocks
         , Msg.usage = usage'
@@ -447,7 +462,7 @@ finalMessageOnError ass now reason =
         }
 
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
-blocksInOrder ass = Vector.fromList (IntMap.elems (abClosed ass))
+blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 
 -- | The immediate "request invalid" stream — emitted when
 -- 'mapRequest' fails or 'prepareCall' is otherwise unable to build
