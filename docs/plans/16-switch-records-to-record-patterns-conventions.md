@@ -108,10 +108,11 @@ This section must always reflect the actual current state of the work.
   - [x] `baikai-trace-otel/test/Main.hs`: same smart-constructor / `_Response { all fields }` conversions as TraceSpec.
   - [x] `baikai-smoke/test/Smoke.hs`, `baikai-smoke/test/MultiHostSmoke.hs`: converted `Models.X { maxOutputTokens = … }` and `_Model { … }` updates to lens chains.
   - [x] `cabal test {baikai-test, baikai-claude-test, baikai-openai-test, baikai-trace-otel-test}` all pass at baseline counts (31/1/2/2).
-- [ ] Milestone 5 — Strictness, deriving, prelude audit.
-  - [ ] For every `data` declaration in `baikai/src`, `baikai-claude/src`, `baikai-openai/src`, `baikai-trace-otel/src`, and the test suites, confirm every field is `!`-annotated. Add the bang on any field that is missing it. The currently known offenders (from the baseline audit) are the records in `baikai/src/Baikai/Interactive.hs` (`InteractiveLaunchRequest`, `InteractiveLaunchResult`), the `ApiProvider` record fields in `baikai/src/Baikai/Provider/Registry.hs`, the `runSink` field in `baikai/src/Baikai/Trace/Sink.hs`, and the `text :: Text` field of `TextContent` in `baikai/src/Baikai/Content.hs`.
-  - [ ] Confirm every `data` and `newtype` carries an explicit `deriving stock` / `deriving anyclass` / `deriving newtype` clause. (Spot-check at audit time showed none missing in the project tree, but recheck after the bang edits land.)
-  - [ ] Confirm every module that names a field through `#field` either imports `Baikai.Prelude` or has the equivalent `Data.Generics.Labels ()` + `Control.Lens` imports already. Add the import where it is missing.
+- [x] Milestone 5 — Strictness, deriving, prelude audit. (2026-05-28)
+  - [x] Added `!` annotations to every previously-lazy `data` field: `InteractiveLaunchRequest` (7 fields), `InteractiveLaunchResult` (2 fields), `ApiProvider.stream`/`ApiProvider.complete` (function-typed strict fields). Records added by the migration (`ReassemblyState`, `TraceState`, `ClaudeCall`, the two `ProducerState`s, the two `Assembler`s, `OpenAICall`, `RawChunk`, `RawToolDelta`, `RawUsage`) are strict end-to-end — the bang was carried through the rename.
+  - [x] `TextContent.text` and `TraceSink.runSink` are `newtype` fields; GHC rejects `!` on a newtype field (`GHC-04049`). Documented in the Decision Log; the audit grep treats them as a known exception.
+  - [x] Audit grep #3 (implicit deriving) returned no hits — every `deriving` clause is explicit `stock` / `anyclass` / `newtype`.
+  - [x] Spot-checked the modules touched in Milestones 2–4: every file that uses `#field` either imports `Baikai.Prelude` (which re-exports `Data.Generics.Labels`) or already had `import Data.Generics.Labels ()` + `Control.Lens` imports. The migration added `(%~), (&), (.~)` to existing `Control.Lens` imports in `Baikai.Stream`, `Baikai.Context`, `Baikai.Cost.Pricing`, `Baikai.Provider.Claude.Api`, and `Baikai.Provider.OpenAI.Api`; no new module needed a new prelude/imports block.
 - [ ] Milestone 6 — Validation, commit log, retrospective.
   - [ ] Run `cabal build all` from `/Users/shinzui/Keikaku/bokuno/baikai` and confirm a clean build.
   - [ ] Run `cabal test all` from the same directory and confirm every test suite reports the same passing count as the baseline.
@@ -180,6 +181,16 @@ Record every decision made while working on the plan.
   contributors look for a working example, so they must demonstrate the right
   pattern.
   Rationale: future contributors learn the codebase by reading tests.
+  Date: 2026-05-28.
+- Decision: Leave the `text` field of `Baikai.Content.TextContent` and the
+  `runSink` field of `Baikai.Trace.Sink.TraceSink` without a `!` annotation,
+  even though Milestone 5 listed them as offenders.
+  Rationale: both are `newtype` declarations, and GHC rejects a strictness
+  annotation on a newtype constructor field (`GHC-04049`: "A newtype
+  constructor must not have a strictness annotation"). Newtypes are
+  representationally equal to their wrapped type, so the `!` would be
+  redundant even if accepted. The audit grep matches them by syntactic shape
+  only; they are documented exceptions, not a regression.
   Date: 2026-05-28.
 
 

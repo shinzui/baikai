@@ -40,13 +40,13 @@ data InteractiveScope
 
 -- | Inputs common to local interactive agent launches.
 data InteractiveLaunchRequest = InteractiveLaunchRequest
-  { systemPrompt :: Maybe Text
-  , userPrompt :: Text
-  , model :: Maybe Text
-  , workingDir :: Maybe FilePath
-  , extraDirs :: [FilePath]
-  , safety :: InteractiveSafety
-  , extraArgs :: [Text]
+  { systemPrompt :: !(Maybe Text)
+  , userPrompt :: !Text
+  , model :: !(Maybe Text)
+  , workingDir :: !(Maybe FilePath)
+  , extraDirs :: ![FilePath]
+  , safety :: !InteractiveSafety
+  , extraArgs :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -74,8 +74,8 @@ data CodexApprovalPolicy
 
 -- | Process-level outcome after the interactive CLI exits.
 data InteractiveLaunchResult = InteractiveLaunchResult
-  { provider :: InteractiveProvider
-  , exitCode :: ExitCode
+  { provider :: !InteractiveProvider
+  , exitCode :: !ExitCode
   }
   deriving stock (Eq, Show, Generic)
 

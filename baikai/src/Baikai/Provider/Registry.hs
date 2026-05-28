@@ -39,8 +39,8 @@ import System.IO.Unsafe (unsafePerformIO)
 -- typically @streamingComplete . stream@ from "Baikai.Stream".
 data ApiProvider = ApiProvider
   { apiTag :: !Api
-  , stream :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
-  , complete :: Model -> Context -> Options -> IO Response
+  , stream :: !(Model -> Context -> Options -> Stream IO AssistantMessageEvent)
+  , complete :: !(Model -> Context -> Options -> IO Response)
   }
 
 -- | Process-global handler map. The 'unsafePerformIO' + 'NOINLINE'
