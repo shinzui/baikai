@@ -97,19 +97,19 @@ withTraceStream
 withTraceStream (TraceSink sinkFold) m ctx opts =
   Stream.concatEffect $ do
     state <- newTraceState
-    let chan = tsChan state
-        done = tsDone state
+    let c = state ^. #chan
+        d = state ^. #done
     _ <-
       forkIO $ do
         let stepDrain () = do
-              msg <- readChan chan
+              msg <- readChan c
               pure (fmap (\e -> (e, ())) msg)
         Stream.unfoldrM stepDrain ()
           & Stream.fold sinkFold
-        putMVar done ()
+        putMVar d ()
     eid <- newEventId
     start <- getCurrentTime
-    writeChan chan $
+    writeChan c $
       Just
         CallStarted
           { eventId = eid
@@ -150,25 +150,26 @@ withTrace sink model ctx opts =
 -- ============================================================
 
 data TraceState = TraceState
-  { tsChan :: !(Chan (Maybe TraceEvent))
-  , tsDone :: !(MVar ())
-  , tsClosed :: !(IORef Bool)
+  { chan :: !(Chan (Maybe TraceEvent))
+  , done :: !(MVar ())
+  , closed :: !(IORef Bool)
   }
+  deriving stock (Generic)
 
 newTraceState :: IO TraceState
 newTraceState = do
   c <- newChan
   d <- newEmptyMVar
   r <- newIORef False
-  pure TraceState {tsChan = c, tsDone = d, tsClosed = r}
+  pure TraceState {chan = c, done = d, closed = r}
 
 cleanupTrace :: TraceState -> IO ()
 cleanupTrace s = do
   alreadyClosed <-
-    atomicModifyIORef' (tsClosed s) (\b -> (True, b))
+    atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
   unless alreadyClosed $ do
-    writeChan (tsChan s) Nothing
-    takeMVar (tsDone s)
+    writeChan (s ^. #chan) Nothing
+    takeMVar (s ^. #done)
 
 traceEvent
   :: TraceState
@@ -198,7 +199,7 @@ traceEvent state eid start m ev = do
                     then fmap (usdAsScientific . Usage.cost) mu
                     else Nothing
               }
-      writeChan (tsChan state) (Just finished)
+      writeChan (state ^. #chan) (Just finished)
       cleanupTrace state
     EventError {errorPartial = msg} -> do
       now <- getCurrentTime
@@ -215,7 +216,7 @@ traceEvent state eid start m ev = do
               , latencyMs = latency
               , errorMessage = errMsg
               }
-      writeChan (tsChan state) (Just failed)
+      writeChan (state ^. #chan) (Just failed)
       cleanupTrace state
     _ -> pure ()
   pure ev

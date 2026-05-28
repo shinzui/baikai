@@ -49,7 +49,7 @@ computeCost m u =
 -- when 'message' is not an 'AssistantMessage' (providers never
 -- produce a different constructor in practice).
 attachCost :: Model -> Response -> Response
-attachCost m r = case message r of
+attachCost m r = case r ^. #message of
   AssistantMessage
     { usage = u
     , assistantContent = c
@@ -58,7 +58,7 @@ attachCost m r = case message r of
     , timestamp = ts
     } ->
       let computed = computeCost m u
-          u' = u {cost = computed}
+          u' = u & #cost .~ computed
           msg' =
             AssistantMessage
               { assistantContent = c
@@ -67,5 +67,5 @@ attachCost m r = case message r of
               , errorMessage = em
               , timestamp = ts
               }
-       in r {message = msg'}
+       in r & #message .~ msg'
   _ -> r

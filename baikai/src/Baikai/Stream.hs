@@ -35,12 +35,11 @@ import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Registry (ApiProvider (..), lookupApiProvider)
 import Baikai.Response (Response (..))
-import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event (AssistantMessageEvent (..))
 import Baikai.Usage (_Usage)
 import Control.Exception qualified
-import Control.Lens ((^.))
+import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
@@ -53,6 +52,7 @@ import Data.Time (UTCTime, getCurrentTime)
 import Data.Time.Clock qualified
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import GHC.Generics (Generic)
 import Streamly.Data.Fold (Fold)
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream (Stream)
@@ -90,33 +90,33 @@ reassembleResponse m =
 
 -- | One frozen-in-time view of the partial assembly.
 data ReassemblyState = ReassemblyState
-  { rsModel :: !Model
-  , rsSkeleton :: !(Maybe Message)
+  { model :: !Model
+  , skeleton :: !(Maybe Message)
     -- ^ 'Just' once 'EventStart' has been observed.
-  , rsStartTime :: !(Maybe UTCTime)
+  , startTime :: !(Maybe UTCTime)
     -- ^ Captured from the EventStart message's timestamp.
-  , rsBlocks :: !(IntMap AssistantContent)
+  , blocks :: !(IntMap AssistantContent)
     -- ^ Content blocks closed so far, keyed by @contentIndex@.
-  , rsTextBuf :: !(IntMap Text)
+  , textBuf :: !(IntMap Text)
     -- ^ Open text accumulators, indexed by @contentIndex@.
-  , rsThinkBuf :: !(IntMap Text)
-  , rsToolArgsBuf :: !(IntMap Text)
-  , rsTerminal :: !(Maybe (StopReason, Message))
+  , thinkBuf :: !(IntMap Text)
+  , toolArgsBuf :: !(IntMap Text)
+  , terminal :: !(Maybe (StopReason, Message))
     -- ^ 'Just (reason, msg)' once 'EventDone' or 'EventError' fires.
   }
-  deriving stock (Show)
+  deriving stock (Show, Generic)
 
 initialState :: Model -> ReassemblyState
 initialState m =
   ReassemblyState
-    { rsModel = m
-    , rsSkeleton = Nothing
-    , rsStartTime = Nothing
-    , rsBlocks = IntMap.empty
-    , rsTextBuf = IntMap.empty
-    , rsThinkBuf = IntMap.empty
-    , rsToolArgsBuf = IntMap.empty
-    , rsTerminal = Nothing
+    { model = m
+    , skeleton = Nothing
+    , startTime = Nothing
+    , blocks = IntMap.empty
+    , textBuf = IntMap.empty
+    , thinkBuf = IntMap.empty
+    , toolArgsBuf = IntMap.empty
+    , terminal = Nothing
     }
 
 step :: ReassemblyState -> AssistantMessageEvent -> ReassemblyState
@@ -125,72 +125,65 @@ step s = \case
     let t = case sk of
           AssistantMessage {Msg.timestamp = ts} -> Just ts
           _ -> Nothing
-     in s {rsSkeleton = Just sk, rsStartTime = t}
+     in s & #skeleton .~ Just sk & #startTime .~ t
   TextStart {contentIndex = i} ->
-    s {rsTextBuf = IntMap.insert i Text.empty (rsTextBuf s)}
+    s & #textBuf %~ IntMap.insert i Text.empty
   TextDelta {contentIndex = i, delta = d} ->
-    s {rsTextBuf = IntMap.insertWith (\new old -> old <> new) i d (rsTextBuf s)}
+    s & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i d
   TextEnd {contentIndex = i, content = body} ->
     s
-      { rsBlocks = IntMap.insert i (AssistantText (TextContent body)) (rsBlocks s)
-      , rsTextBuf = IntMap.delete i (rsTextBuf s)
-      }
+      & #blocks %~ IntMap.insert i (AssistantText (TextContent body))
+      & #textBuf %~ IntMap.delete i
   ThinkingStart {contentIndex = i} ->
-    s {rsThinkBuf = IntMap.insert i Text.empty (rsThinkBuf s)}
+    s & #thinkBuf %~ IntMap.insert i Text.empty
   ThinkingDelta {contentIndex = i, delta = d} ->
-    s {rsThinkBuf = IntMap.insertWith (\new old -> old <> new) i d (rsThinkBuf s)}
+    s & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i d
   ThinkingEnd {contentIndex = i, content = body} ->
     s
-      { rsBlocks =
-          IntMap.insert
-            i
-            ( AssistantThinking
-                ThinkingContent {thinking = body, signature = Nothing, redacted = False}
-            )
-            (rsBlocks s)
-      , rsThinkBuf = IntMap.delete i (rsThinkBuf s)
-      }
+      & #blocks
+        %~ IntMap.insert
+          i
+          ( AssistantThinking
+              ThinkingContent {thinking = body, signature = Nothing, redacted = False}
+          )
+      & #thinkBuf %~ IntMap.delete i
   ToolCallStart {contentIndex = i} ->
-    s {rsToolArgsBuf = IntMap.insert i Text.empty (rsToolArgsBuf s)}
+    s & #toolArgsBuf %~ IntMap.insert i Text.empty
   ToolCallDelta {contentIndex = i, delta = d} ->
-    s
-      { rsToolArgsBuf =
-          IntMap.insertWith (\new old -> old <> new) i d (rsToolArgsBuf s)
-      }
+    s & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i d
   ToolCallEnd {contentIndex = i, toolCall = tc} ->
     s
-      { rsBlocks = IntMap.insert i (AssistantToolCall tc) (rsBlocks s)
-      , rsToolArgsBuf = IntMap.delete i (rsToolArgsBuf s)
-      }
+      & #blocks %~ IntMap.insert i (AssistantToolCall tc)
+      & #toolArgsBuf %~ IntMap.delete i
   EventDone {reason = r, message = msg} ->
-    s {rsTerminal = Just (r, msg)}
+    s & #terminal .~ Just (r, msg)
   EventError {reason = r, errorPartial = msg} ->
-    s {rsTerminal = Just (r, msg)}
+    s & #terminal .~ Just (r, msg)
 
 finalizeState :: ReassemblyState -> IO Response
 finalizeState s = do
   now <- getCurrentTime
-  let m = rsModel s
+  let m = s ^. #model
       assembled = assembleBlocks s
-      (terminalMsg, terminalReason) = case rsTerminal s of
+      (terminalMsg, terminalReason) = case s ^. #terminal of
         Just (r, msg) -> (msg, r)
         Nothing -> (synthesizeTerminal now assembled, Stop)
       message' = overrideBlocksAndReason terminalReason terminalMsg assembled
       endTs = case message' of
         AssistantMessage {Msg.timestamp = ts} -> ts
         _ -> now
-      latency = case rsStartTime s of
+      latency = case s ^. #startTime of
         Just startTs ->
           round (realToFrac (Data.Time.Clock.diffUTCTime endTs startTs) * (1000 :: Double))
         Nothing -> 0
   pure
     Response
-      { Resp.message = message'
-      , Resp.model = m
-      , Resp.api = m ^. #api
-      , Resp.provider = m ^. #provider
-      , Resp.responseId = Nothing
-      , Resp.latencyMs = latency
+      { message = message'
+      , model = m
+      , api = m ^. #api
+      , provider = m ^. #provider
+      , responseId = Nothing
+      , latencyMs = latency
       }
 
 -- | Project the closed content blocks in 'contentIndex' order, plus
@@ -198,16 +191,16 @@ finalizeState s = do
 -- content (recovery path; providers should not exercise this).
 assembleBlocks :: ReassemblyState -> Vector AssistantContent
 assembleBlocks s =
-  let closed = IntMap.elems (rsBlocks s)
+  let closed = IntMap.elems (s ^. #blocks)
       danglingText =
         [ AssistantText (TextContent t)
-        | (_, t) <- IntMap.toAscList (rsTextBuf s)
+        | (_, t) <- IntMap.toAscList (s ^. #textBuf)
         , not (Text.null t)
         ]
       danglingThink =
         [ AssistantThinking
             ThinkingContent {thinking = t, signature = Nothing, redacted = False}
-        | (_, t) <- IntMap.toAscList (rsThinkBuf s)
+        | (_, t) <- IntMap.toAscList (s ^. #thinkBuf)
         , not (Text.null t)
         ]
    in Vector.fromList (closed <> danglingText <> danglingThink)
@@ -281,7 +274,7 @@ tryAny = Control.Exception.try
 -- start/end timestamps.
 eventsFor :: UTCTime -> Response -> [AssistantMessageEvent]
 eventsFor startTs resp =
-  let msg = Resp.message resp
+  let msg = resp ^. #message
       skeleton = case msg of
         AssistantMessage {Msg.usage = u, Msg.stopReason = sr, Msg.errorMessage = em} ->
           AssistantMessage

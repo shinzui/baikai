@@ -23,7 +23,9 @@ import Baikai.Content (AssistantContent (..), ToolCall (..))
 import Baikai.Message (Message (..), toolResult)
 import Baikai.Response (Response (..))
 import Baikai.Tool (Tool)
+import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (ToJSON)
+import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -60,7 +62,7 @@ appendToolResult
   -> (ToolCall -> IO Text)
   -> IO Context
 appendToolResult ctx resp dispatcher = do
-  let respMsg = message resp
+  let respMsg = resp ^. #message
       toolCalls = case respMsg of
         AssistantMessage {assistantContent = blocks} ->
           [tc | AssistantToolCall tc <- V.toList blocks]
@@ -69,13 +71,13 @@ appendToolResult ctx resp dispatcher = do
     traverse
       ( \tc -> do
           body <- dispatcher tc
-          pure (toolResult (id_ tc) (name tc) body False)
+          pure (toolResult (tc ^. #id_) (tc ^. #name) body False)
       )
       toolCalls
-  pure
+  pure $
     ctx
-      { messages =
-          messages ctx
-            <> V.singleton respMsg
-            <> V.fromList results
-      }
+      & #messages
+        .~ ( (ctx ^. #messages)
+              <> V.singleton respMsg
+              <> V.fromList results
+           )
