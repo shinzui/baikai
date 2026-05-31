@@ -15,12 +15,13 @@ import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
-import Baikai.Usage (_Usage)
+import Baikai.Usage (Usage, _Usage)
 import Control.Exception (throwIO)
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, readIORef)
+import Data.Text (Text)
 import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
@@ -33,8 +34,8 @@ main =
   defaultMain $
     testGroup
       "baikai-trace-otel"
-      [ successSpanTest
-      , failureSpanTest
+      [ successSpanTest,
+        failureSpanTest
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses
@@ -54,22 +55,29 @@ stubContext = _Context & #messages .~ V.fromList [user "hello"]
 stubOptions :: Options
 stubOptions = _Options & #maxTokens .~ Just 16
 
+sampleUsage :: Usage
+sampleUsage =
+  _Usage
+    & #inputTokens .~ 12
+    & #outputTokens .~ 3
+    & #totalTokens .~ 15
+
 stubResponse :: Api -> Response
 stubResponse a =
   Response
     { message =
         AssistantMessage
-          { assistantContent = V.singleton (AssistantText (TextContent "hi"))
-          , usage = _Usage
-          , stopReason = Stop
-          , errorMessage = Nothing
-          , timestamp = read "2026-05-14 00:00:00 UTC"
-          }
-    , model = stubModel a
-    , api = a
-    , provider = "stub.otel"
-    , responseId = Nothing
-    , latencyMs = 0
+          { assistantContent = V.singleton (AssistantText (TextContent "hi")),
+            usage = sampleUsage,
+            stopReason = Stop,
+            errorMessage = Nothing,
+            timestamp = read "2026-05-14 00:00:00 UTC"
+          },
+      model = stubModel a,
+      api = a,
+      provider = "stub.otel",
+      responseId = Nothing,
+      latencyMs = 0
     }
 
 registerOk :: Api -> IO ()
@@ -77,9 +85,9 @@ registerOk a =
   let handler _m _ctx _opts = pure (stubResponse a)
    in registerApiProvider
         ApiProvider
-          { apiTag = a
-          , stream = liftCompleteToStream handler
-          , complete = handler
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler
           }
 
 registerFail :: Api -> BaikaiError -> IO ()
@@ -87,9 +95,9 @@ registerFail a e =
   let handler _m _ctx _opts = throwIO e
    in registerApiProvider
         ApiProvider
-          { apiTag = a
-          , stream = liftCompleteToStream handler
-          , complete = handler
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler
           }
 
 newTracerWithInMemory :: IO (Otel.Tracer, IO [Otel.ImmutableSpan])
@@ -98,6 +106,12 @@ newTracerWithInMemory = do
   tp <- Otel.createTracerProvider [proc] Otel.emptyTracerProviderOptions
   let tracer = Otel.makeTracer tp "baikai-trace-otel-test" Otel.tracerOptions
   pure (tracer, reverse <$> readIORef spansRef)
+
+spanHotSnapshot :: Otel.ImmutableSpan -> IO Otel.SpanHot
+spanHotSnapshot = readIORef . Otel.spanHot
+
+deprecatedGenAiSystemKey :: Text
+deprecatedGenAiSystemKey = "gen_ai." <> "system"
 
 successSpanTest :: TestTree
 successSpanTest =
@@ -111,17 +125,22 @@ successSpanTest =
     assertEqual "exactly one span recorded" 1 (length spans)
     case spans of
       [sp] -> do
-        Otel.spanName sp @?= "baikai.call"
-        let attrs = Attr.getAttributeMap (Otel.spanAttributes sp)
+        hot <- spanHotSnapshot sp
+        Otel.hotName hot @?= "baikai.call"
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
         assertBool
-          ("has gen_ai.system; got keys: " <> show (HashMap.keys attrs))
-          (HashMap.member "gen_ai.system" attrs)
+          ("has gen_ai.provider.name; got keys: " <> show (HashMap.keys attrs))
+          (HashMap.member "gen_ai.provider.name" attrs)
+        assertBool "has gen_ai.operation.name" (HashMap.member "gen_ai.operation.name" attrs)
         assertBool "has gen_ai.request.model" (HashMap.member "gen_ai.request.model" attrs)
         assertBool "has gen_ai.request.max_tokens" (HashMap.member "gen_ai.request.max_tokens" attrs)
         assertBool "has gen_ai.response.model" (HashMap.member "gen_ai.response.model" attrs)
+        assertBool "has gen_ai.usage.input_tokens" (HashMap.member "gen_ai.usage.input_tokens" attrs)
+        assertBool "has gen_ai.usage.output_tokens" (HashMap.member "gen_ai.usage.output_tokens" attrs)
         assertBool "has baikai.event_id" (HashMap.member "baikai.event_id" attrs)
         assertBool "has baikai.latency_ms" (HashMap.member "baikai.latency_ms" attrs)
-        case Otel.spanStatus sp of
+        assertBool "does not emit deprecated GenAI system key" (not (HashMap.member deprecatedGenAiSystemKey attrs))
+        case Otel.hotStatus hot of
           Otel.Ok -> pure ()
           other -> assertFailure ("expected Ok status, got: " <> show other)
         case Otel.spanKind sp of
@@ -147,13 +166,14 @@ failureSpanTest =
     assertEqual "exactly one span recorded" 1 (length spans)
     case spans of
       [sp] -> do
-        case Otel.spanStatus sp of
+        hot <- spanHotSnapshot sp
+        case Otel.hotStatus hot of
           Otel.Error msg ->
             assertBool
               ("expected error to mention stub-otel-boom; got: " <> show msg)
               (not (null (show msg)))
           other -> assertFailure ("expected Error status, got: " <> show other)
-        let attrs = Attr.getAttributeMap (Otel.spanAttributes sp)
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
         assertBool "has baikai.error" (HashMap.member "baikai.error" attrs)
         assertBool "has baikai.latency_ms" (HashMap.member "baikai.latency_ms" attrs)
       _ -> assertFailure "expected exactly one span"
