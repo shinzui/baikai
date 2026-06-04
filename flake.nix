@@ -1,39 +1,45 @@
 {
   description = "baikai is a Haskell library that provides a unified abstraction over AI providers such as OpenAI, Anthropic, and others.";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs = {
+    # The shared base flake. Provides the GHC 9.12.4 / cabal / HLS toolchain via
+    # `mkDevShell`, and the single pinned nixpkgs the whole fleet follows.
+    haskell-nix-dev.url = "github:shinzui/haskell-nix-dev";
+    nixpkgs.follows = "haskell-nix-dev/nixpkgs";
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs { inherit system; };
-        haskellPackages = pkgs.haskell.packages."ghc912";
-      in
-      {
-        packages = {
-          default = haskellPackages.baikai;
-        };
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    flake-parts.inputs.nixpkgs-lib.follows = "nixpkgs";
 
-        checks = {
-        };
+    treefmt-nix.follows = "haskell-nix-dev/treefmt-nix";
 
-        devShells.default = pkgs.mkShell {
-          nativeBuildInputs = [
-            pkgs.zlib
-            pkgs.just
-            pkgs.cabal-install
-            pkgs.pkg-config
-            (haskellPackages.ghcWithPackages (ps: [
-              ps.haskell-language-server
-            ]))
-          ]
-          ++ pkgs.lib.optional false pkgs.process-compose;
+    pre-commit-hooks.url = "github:cachix/git-hooks.nix";
+    pre-commit-hooks.inputs.nixpkgs.follows = "nixpkgs";
 
-          shellHook = ''
-            export LANG=en_US.UTF-8
-          '';
-        };
-      }
-    );
+    # ---- PROJECT-SPECIFIC INPUTS ----
+    # (none: this project declared only nixpkgs + flake-utils, both subsumed by
+    # the standard inputs above. flake-utils is dropped.)
+  };
+
+  nixConfig = {
+    extra-substituters = [ ];
+    extra-trusted-public-keys = [ ];
+  };
+
+  # Thin flake-parts shell. The dev toolchain comes from the haskell-nix-dev base
+  # flake (GHC 9.12.4 / cabal / HLS via mkDevShell); project wiring lives in the
+  # imported ./nix modules; the package build and any custom checks live in
+  # ./flake.module.nix (omitted here — this project builds via cabal in the dev
+  # shell and exposes no Nix package output).
+  outputs = inputs@{ flake-parts, nixpkgs, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = nixpkgs.lib.systems.flakeExposed;
+
+      imports =
+        [
+          ./nix/haskell.nix
+          ./nix/treefmt.nix
+          ./nix/pre-commit.nix
+        ]
+        ++ nixpkgs.lib.optional (builtins.pathExists ./flake.module.nix) ./flake.module.nix;
+    };
 }
