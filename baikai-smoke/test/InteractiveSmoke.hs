@@ -4,8 +4,9 @@
 -- that locally installed CLI binaries expose the flags Baikai's
 -- interactive command builders render.
 module InteractiveSmoke
-  ( runInteractiveHelpCases
-  ) where
+  ( runInteractiveHelpCases,
+  )
+where
 
 import Control.Monad (when)
 import Data.List (isInfixOf)
@@ -21,35 +22,35 @@ runInteractiveHelpCases = do
   pure (claudeRan || codexRan)
 
 data HelpCase = HelpCase
-  { label :: !String
-  , binary :: !String
-  , requiredNeedles :: ![String]
+  { label :: !String,
+    binary :: !String,
+    requiredNeedles :: ![String]
   }
 
 claudeCase :: HelpCase
 claudeCase =
   HelpCase
-    { label = "claude interactive flags"
-    , binary = "claude"
-    , requiredNeedles =
-        [ "--model"
-        , "--system-prompt"
-        , "--add-dir"
-        , "--allowedTools"
+    { label = "claude interactive flags",
+      binary = "claude",
+      requiredNeedles =
+        [ "--model",
+          "--system-prompt",
+          "--add-dir",
+          "--allowedTools"
         ]
     }
 
 codexCase :: HelpCase
 codexCase =
   HelpCase
-    { label = "codex interactive flags"
-    , binary = "codex"
-    , requiredNeedles =
-        [ "--model"
-        , "--cd"
-        , "--add-dir"
-        , "--sandbox"
-        , "--ask-for-approval"
+    { label = "codex interactive flags",
+      binary = "codex",
+      requiredNeedles =
+        [ "--model",
+          "--cd",
+          "--add-dir",
+          "--sandbox",
+          "--ask-for-approval"
         ]
     }
 

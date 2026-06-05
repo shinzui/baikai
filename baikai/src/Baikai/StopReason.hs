@@ -14,12 +14,12 @@
 module Baikai.StopReason (StopReason (..)) where
 
 import Data.Aeson
-  ( FromJSON (parseJSON)
-  , Options (..)
-  , ToJSON (toJSON)
-  , defaultOptions
-  , genericParseJSON
-  , genericToJSON
+  ( FromJSON (parseJSON),
+    Options (..),
+    ToJSON (toJSON),
+    defaultOptions,
+    genericParseJSON,
+    genericToJSON,
   )
 import Data.Char (toLower)
 import GHC.Generics (Generic)
@@ -50,4 +50,5 @@ stopReasonOptions =
           | otherwise = x : go xs
 
 instance FromJSON StopReason where parseJSON = genericParseJSON stopReasonOptions
+
 instance ToJSON StopReason where toJSON = genericToJSON stopReasonOptions

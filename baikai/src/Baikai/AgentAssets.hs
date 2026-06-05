@@ -4,24 +4,25 @@
 -- cloning, copying, updating, status reporting, and uninstalling kit
 -- content.
 module Baikai.AgentAssets
-  ( AgentAssetProvider
-  , AgentAssetScope
-  , AgentAssetKind (..)
-  , AgentAssetFormat (..)
-  , AgentAssetLayout (..)
-  , CodexCustomAgent (..)
-  , skillAsset
-  , customAgentAsset
-  , agentAssetLayout
-  , skillTargetPath
-  , agentTargetPath
-  , agentAssetFormat
-  , codexCustomAgentToml
-  ) where
+  ( AgentAssetProvider,
+    AgentAssetScope,
+    AgentAssetKind (..),
+    AgentAssetFormat (..),
+    AgentAssetLayout (..),
+    CodexCustomAgent (..),
+    skillAsset,
+    customAgentAsset,
+    agentAssetLayout,
+    skillTargetPath,
+    agentTargetPath,
+    agentAssetFormat,
+    codexCustomAgentToml,
+  )
+where
 
 import Baikai.Interactive
-  ( InteractiveProvider (..)
-  , InteractiveScope (..)
+  ( InteractiveProvider (..),
+    InteractiveScope (..),
   )
 import Baikai.Prelude
 import Data.Text qualified as Text
@@ -46,44 +47,44 @@ data AgentAssetFormat
   deriving stock (Eq, Ord, Show, Generic)
 
 data AgentAssetLayout = AgentAssetLayout
-  { provider :: !AgentAssetProvider
-  , scope :: !AgentAssetScope
-  , kind :: !AgentAssetKind
-  , format :: !AgentAssetFormat
-  , path :: !FilePath
+  { provider :: !AgentAssetProvider,
+    scope :: !AgentAssetScope,
+    kind :: !AgentAssetKind,
+    format :: !AgentAssetFormat,
+    path :: !FilePath
   }
   deriving stock (Eq, Show, Generic)
 
 data CodexCustomAgent = CodexCustomAgent
-  { name :: !Text
-  , description :: !Text
-  , developerInstructions :: !Text
+  { name :: !Text,
+    description :: !Text,
+    developerInstructions :: !Text
   }
   deriving stock (Eq, Show, Generic)
 
-skillAsset
-  :: AgentAssetProvider -> AgentAssetScope -> FilePath -> AgentAssetLayout
+skillAsset ::
+  AgentAssetProvider -> AgentAssetScope -> FilePath -> AgentAssetLayout
 skillAsset provider scope name =
   agentAssetLayout provider scope SkillAsset name
 
-customAgentAsset
-  :: AgentAssetProvider -> AgentAssetScope -> FilePath -> AgentAssetLayout
+customAgentAsset ::
+  AgentAssetProvider -> AgentAssetScope -> FilePath -> AgentAssetLayout
 customAgentAsset provider scope name =
   agentAssetLayout provider scope CustomAgentAsset name
 
-agentAssetLayout
-  :: AgentAssetProvider
-  -> AgentAssetScope
-  -> AgentAssetKind
-  -> FilePath
-  -> AgentAssetLayout
+agentAssetLayout ::
+  AgentAssetProvider ->
+  AgentAssetScope ->
+  AgentAssetKind ->
+  FilePath ->
+  AgentAssetLayout
 agentAssetLayout provider scope kind name =
   AgentAssetLayout
-    { provider
-    , scope
-    , kind
-    , format = agentAssetFormat provider kind
-    , path = case kind of
+    { provider,
+      scope,
+      kind,
+      format = agentAssetFormat provider kind,
+      path = case kind of
         SkillAsset -> skillTargetPath provider scope name
         CustomAgentAsset -> agentTargetPath provider scope name
     }
@@ -117,9 +118,9 @@ agentAssetFormat InteractiveCodex CustomAgentAsset = TomlFile
 codexCustomAgentToml :: CodexCustomAgent -> Text
 codexCustomAgentToml agent =
   Text.unlines
-    [ "name = " <> tomlString (agent ^. #name)
-    , "description = " <> tomlString (agent ^. #description)
-    , "developer_instructions = " <> tomlMultilineString (agent ^. #developerInstructions)
+    [ "name = " <> tomlString (agent ^. #name),
+      "description = " <> tomlString (agent ^. #description),
+      "developer_instructions = " <> tomlMultilineString (agent ^. #developerInstructions)
     ]
 
 joinPath :: [FilePath] -> FilePath

@@ -13,6 +13,14 @@
     {
       treefmt = {
         projectRootFile = "flake.nix";
+
+        # Baikai.Models.Generated is emitted verbatim by the baikai-gen-models
+        # code generator (gen/GenModels.hs) and a round-trip test asserts the
+        # committed file is byte-identical to that output. The generator emits
+        # its own layout, so keep fourmolu's hands off it — otherwise formatting
+        # and generation fight and the round-trip test fails.
+        settings.global.excludes = [ "baikai/src/Baikai/Models/Generated.hs" ];
+
         programs.nixpkgs-fmt.enable = true;
         programs.fourmolu.enable = true;
         programs.fourmolu.package = haskellPkgs.fourmolu;

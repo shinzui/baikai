@@ -31,13 +31,13 @@ module Main (main) where
 
 import Baikai.Api (Api (..), parseApi)
 import Baikai.Compat
-  ( AnthropicMessagesCompat (..)
-  , CacheControlFormat (..)
-  , MaxTokensField (..)
-  , OpenAICompletionsCompat (..)
-  , ThinkingFormat (..)
-  , defaultAnthropicMessagesCompat
-  , defaultOpenAICompletionsCompat
+  ( AnthropicMessagesCompat (..),
+    CacheControlFormat (..),
+    MaxTokensField (..),
+    OpenAICompletionsCompat (..),
+    ThinkingFormat (..),
+    defaultAnthropicMessagesCompat,
+    defaultOpenAICompletionsCompat,
   )
 import Baikai.Model (InputModality (..))
 import Control.Monad (forM)
@@ -105,8 +105,8 @@ resolveDefaults mModelsDir mOutputPath = do
         \ancestor directory; pass --models-dir and --out explicitly"
     Just pkg ->
       pure
-        ( maybe (pkg </> "data/models") id mModelsDir
-        , maybe (pkg </> "src/Baikai/Models/Generated.hs") id mOutputPath
+        ( maybe (pkg </> "data/models") id mModelsDir,
+          maybe (pkg </> "src/Baikai/Models/Generated.hs") id mOutputPath
         )
 
 -- | Locate the directory containing @baikai.cabal@ by walking up from
@@ -126,7 +126,7 @@ locatePackageDir = getCurrentDirectory >>= walk
             then pure (Just (dir </> "baikai"))
             else
               let parent = takeDirectory dir
-              in if parent == dir then pure Nothing else walk parent
+               in if parent == dir then pure Nothing else walk parent
 
 -- | List the @.json@ files in @dir@, sorted alphabetically so the
 -- output is deterministic across filesystems.
@@ -139,11 +139,11 @@ listCatalogFiles dir = do
 
 -- | One catalog file, in source form.
 data CatalogFile = CatalogFile
-  { provider :: !Text
-  , baseUrl :: !Text
-  , api :: !Api
-  , compat :: !CatalogCompat
-  , models :: ![ModelEntry]
+  { provider :: !Text,
+    baseUrl :: !Text,
+    api :: !Api,
+    compat :: !CatalogCompat,
+    models :: ![ModelEntry]
   }
 
 instance FromJSON CatalogFile where
@@ -191,14 +191,14 @@ parseOpenAICompat o = do
   slcr <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
   pure
     OpenAICompletionsCompat
-      { maxTokensField = mtf
-      , supportsDeveloperRole = sdr
-      , supportsStrictMode = sst
-      , requiresThinkingAsText = rtat
-      , thinkingFormat = tf
-      , cacheControlFormat = ccf
-      , supportsUsageInStreaming = sus
-      , supportsLongCacheRetention = slcr
+      { maxTokensField = mtf,
+        supportsDeveloperRole = sdr,
+        supportsStrictMode = sst,
+        requiresThinkingAsText = rtat,
+        thinkingFormat = tf,
+        cacheControlFormat = ccf,
+        supportsUsageInStreaming = sus,
+        supportsLongCacheRetention = slcr
       }
 
 parseAnthropicCompat :: Aeson.Object -> Parser AnthropicMessagesCompat
@@ -210,10 +210,10 @@ parseAnthropicCompat o = do
   ssah <- o .:? "sendSessionAffinityHeaders" .!= d.sendSessionAffinityHeaders
   pure
     AnthropicMessagesCompat
-      { supportsLongCacheRetention = slcr
-      , supportsCacheControlOnTools = scot
-      , supportsEagerToolInputStreaming = seti
-      , sendSessionAffinityHeaders = ssah
+      { supportsLongCacheRetention = slcr,
+        supportsCacheControlOnTools = scot,
+        supportsEagerToolInputStreaming = seti,
+        sendSessionAffinityHeaders = ssah
       }
 
 parseMaxTokensField :: Text -> Parser MaxTokensField
@@ -249,12 +249,12 @@ optionalField o key parser def = do
 -- | Look up an optional @Maybe@-typed field. JSON @null@ or absence
 -- yields @def@; otherwise the value is parsed through @parser@ and
 -- wrapped in 'Just'.
-optionalMaybeField
-  :: Aeson.Object
-  -> Aeson.Key
-  -> (Text -> Parser a)
-  -> Maybe a
-  -> Parser (Maybe a)
+optionalMaybeField ::
+  Aeson.Object ->
+  Aeson.Key ->
+  (Text -> Parser a) ->
+  Maybe a ->
+  Parser (Maybe a)
 optionalMaybeField o key parser def = do
   mv <- o .:? key
   case mv of
@@ -265,15 +265,15 @@ optionalMaybeField o key parser def = do
 
 -- | One model row in a catalog file.
 data ModelEntry = ModelEntry
-  { entryId :: !Text
-  , entryName :: !Text
-  , entryReasoning :: !Bool
-  , entryInput :: ![InputModality]
-  , entryCost :: !CostEntry
-  , entryContextWindow :: !Natural
-  , entryMaxOutputTokens :: !Natural
-  , entryEnabled :: !Bool
-  , entryCompatOverride :: !(Maybe CatalogCompat)
+  { entryId :: !Text,
+    entryName :: !Text,
+    entryReasoning :: !Bool,
+    entryInput :: ![InputModality],
+    entryCost :: !CostEntry,
+    entryContextWindow :: !Natural,
+    entryMaxOutputTokens :: !Natural,
+    entryEnabled :: !Bool,
+    entryCompatOverride :: !(Maybe CatalogCompat)
   }
 
 instance FromJSON ModelEntry where
@@ -299,10 +299,10 @@ parseInputModality = \case
 -- round-trip into 'Rational' produces a small, canonical fraction
 -- (@1.5@ → @3 % 2@) rather than an arbitrary IEEE-754 approximation.
 data CostEntry = CostEntry
-  { costInput :: !Scientific
-  , costOutput :: !Scientific
-  , costCacheRead :: !Scientific
-  , costCacheWrite :: !Scientific
+  { costInput :: !Scientific,
+    costOutput :: !Scientific,
+    costCacheRead :: !Scientific,
+    costCacheWrite :: !Scientific
   }
 
 instance FromJSON CostEntry where
@@ -319,40 +319,40 @@ instance FromJSON CostEntry where
 -- it should be rendered as. Keeping these together lets the renderer
 -- stay a pure transformation over a flat list.
 data GeneratedEntry = GeneratedEntry
-  { genIdent :: !Text
-  , genModelId :: !Text
-  , genName :: !Text
-  , genApi :: !Api
-  , genProvider :: !Text
-  , genBaseUrl :: !Text
-  , genReasoning :: !Bool
-  , genInput :: ![InputModality]
-  , genCost :: !CostEntry
-  , genContextWindow :: !Natural
-  , genMaxOutputTokens :: !Natural
-  , genCompat :: !CatalogCompat
+  { genIdent :: !Text,
+    genModelId :: !Text,
+    genName :: !Text,
+    genApi :: !Api,
+    genProvider :: !Text,
+    genBaseUrl :: !Text,
+    genReasoning :: !Bool,
+    genInput :: ![InputModality],
+    genCost :: !CostEntry,
+    genContextWindow :: !Natural,
+    genMaxOutputTokens :: !Natural,
+    genCompat :: !CatalogCompat
   }
 
 flattenEntries :: CatalogFile -> [(Text, GeneratedEntry)]
 flattenEntries c =
   [ (genIdent g, g)
-  | m <- models c
-  , entryEnabled m
-  , let g =
+  | m <- models c,
+    entryEnabled m,
+    let g =
           GeneratedEntry
             { genIdent =
-                sanitizeIdentifier (provider c <> "_" <> entryId m)
-            , genModelId = entryId m
-            , genName = entryName m
-            , genApi = api c
-            , genProvider = provider c
-            , genBaseUrl = baseUrl c
-            , genReasoning = entryReasoning m
-            , genInput = entryInput m
-            , genCost = entryCost m
-            , genContextWindow = entryContextWindow m
-            , genMaxOutputTokens = entryMaxOutputTokens m
-            , genCompat =
+                sanitizeIdentifier (provider c <> "_" <> entryId m),
+              genModelId = entryId m,
+              genName = entryName m,
+              genApi = api c,
+              genProvider = provider c,
+              genBaseUrl = baseUrl c,
+              genReasoning = entryReasoning m,
+              genInput = entryInput m,
+              genCost = entryCost m,
+              genContextWindow = entryContextWindow m,
+              genMaxOutputTokens = entryMaxOutputTokens m,
+              genCompat =
                 case entryCompatOverride m of
                   Just c' -> c'
                   Nothing -> compat c
@@ -384,52 +384,52 @@ renderModule entries =
     )
   where
     header =
-      [ "-- AUTO-GENERATED by baikai-gen-models. Do not edit by hand."
-      , "-- Regenerate with: cabal run baikai-gen-models"
-      , "{-# LANGUAGE OverloadedStrings #-}"
-      , "{-# OPTIONS_GHC -Wno-missing-export-lists #-}"
-      , "{-# OPTIONS_GHC -Wno-unused-imports #-}"
-      , ""
-      , "module Baikai.Models.Generated where"
-      , ""
-      , "import Baikai.Api (Api (..))"
-      , "import Baikai.Compat"
-      , "  ( AnthropicMessagesCompat (..)"
-      , "  , CacheControlFormat (..)"
-      , "  , MaxTokensField (..)"
-      , "  , OpenAICompletionsCompat (..)"
-      , "  , ThinkingFormat (..)"
-      , "  )"
-      , "import Baikai.Model"
-      , "  ( Compat (..)"
-      , "  , InputModality (..)"
-      , "  , Model (..)"
-      , "  , ModelCost (..)"
-      , "  )"
-      , "import Data.Map.Strict qualified as Map"
-      , "import Data.Ratio ((%))"
-      , ""
+      [ "-- AUTO-GENERATED by baikai-gen-models. Do not edit by hand.",
+        "-- Regenerate with: cabal run baikai-gen-models",
+        "{-# LANGUAGE OverloadedStrings #-}",
+        "{-# OPTIONS_GHC -Wno-missing-export-lists #-}",
+        "{-# OPTIONS_GHC -Wno-unused-imports #-}",
+        "",
+        "module Baikai.Models.Generated where",
+        "",
+        "import Baikai.Api (Api (..))",
+        "import Baikai.Compat",
+        "  ( AnthropicMessagesCompat (..)",
+        "  , CacheControlFormat (..)",
+        "  , MaxTokensField (..)",
+        "  , OpenAICompletionsCompat (..)",
+        "  , ThinkingFormat (..)",
+        "  )",
+        "import Baikai.Model",
+        "  ( Compat (..)",
+        "  , InputModality (..)",
+        "  , Model (..)",
+        "  , ModelCost (..)",
+        "  )",
+        "import Data.Map.Strict qualified as Map",
+        "import Data.Ratio ((%))",
+        ""
       ]
 
 renderEntry :: GeneratedEntry -> [Text]
 renderEntry g =
-  [ genIdent g <> " :: Model"
-  , genIdent g <> " ="
-  , "  Model"
-  , "    { modelId = " <> renderText (genModelId g)
-  , "    , name = " <> renderText (genName g)
-  , "    , api = " <> renderApiCtor (genApi g)
-  , "    , provider = " <> renderText (genProvider g)
-  , "    , baseUrl = " <> renderText (genBaseUrl g)
-  , "    , reasoning = " <> renderBool (genReasoning g)
-  , "    , input = " <> renderInputList (genInput g)
-  , "    , cost = " <> renderCost (genCost g)
-  , "    , contextWindow = " <> Text.pack (show (genContextWindow g))
-  , "    , maxOutputTokens = " <> Text.pack (show (genMaxOutputTokens g))
-  , "    , headers = Map.empty"
-  , "    , compat = " <> renderCompat (genCompat g)
-  , "    }"
-  , ""
+  [ genIdent g <> " :: Model",
+    genIdent g <> " =",
+    "  Model",
+    "    { modelId = " <> renderText (genModelId g),
+    "    , name = " <> renderText (genName g),
+    "    , api = " <> renderApiCtor (genApi g),
+    "    , provider = " <> renderText (genProvider g),
+    "    , baseUrl = " <> renderText (genBaseUrl g),
+    "    , reasoning = " <> renderBool (genReasoning g),
+    "    , input = " <> renderInputList (genInput g),
+    "    , cost = " <> renderCost (genCost g),
+    "    , contextWindow = " <> Text.pack (show (genContextWindow g)),
+    "    , maxOutputTokens = " <> Text.pack (show (genMaxOutputTokens g)),
+    "    , headers = Map.empty",
+    "    , compat = " <> renderCompat (genCompat g),
+    "    }",
+    ""
   ]
 
 renderText :: Text -> Text
@@ -461,12 +461,12 @@ renderCost :: CostEntry -> Text
 renderCost c =
   Text.intercalate
     "\n"
-    [ "ModelCost"
-    , "        { inputCost = " <> renderRational (toRational (costInput c))
-    , "        , outputCost = " <> renderRational (toRational (costOutput c))
-    , "        , cacheReadCost = " <> renderRational (toRational (costCacheRead c))
-    , "        , cacheWriteCost = " <> renderRational (toRational (costCacheWrite c))
-    , "        }"
+    [ "ModelCost",
+      "        { inputCost = " <> renderRational (toRational (costInput c)),
+      "        , outputCost = " <> renderRational (toRational (costOutput c)),
+      "        , cacheReadCost = " <> renderRational (toRational (costCacheRead c)),
+      "        , cacheWriteCost = " <> renderRational (toRational (costCacheWrite c)),
+      "        }"
     ]
 
 renderRational :: Rational -> Text
@@ -479,28 +479,28 @@ renderCompat = \case
   CatalogCompatOpenAI c ->
     Text.intercalate
       "\n"
-      [ "CompatOpenAICompletions"
-      , "        OpenAICompletionsCompat"
-      , "          { maxTokensField = " <> renderMaxTokensField c.maxTokensField
-      , "          , supportsDeveloperRole = " <> renderBool c.supportsDeveloperRole
-      , "          , supportsStrictMode = " <> renderBool c.supportsStrictMode
-      , "          , requiresThinkingAsText = " <> renderBool c.requiresThinkingAsText
-      , "          , thinkingFormat = " <> renderThinkingFormat c.thinkingFormat
-      , "          , cacheControlFormat = " <> renderMaybeCacheControl c.cacheControlFormat
-      , "          , supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming
-      , "          , supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention
-      , "          }"
+      [ "CompatOpenAICompletions",
+        "        OpenAICompletionsCompat",
+        "          { maxTokensField = " <> renderMaxTokensField c.maxTokensField,
+        "          , supportsDeveloperRole = " <> renderBool c.supportsDeveloperRole,
+        "          , supportsStrictMode = " <> renderBool c.supportsStrictMode,
+        "          , requiresThinkingAsText = " <> renderBool c.requiresThinkingAsText,
+        "          , thinkingFormat = " <> renderThinkingFormat c.thinkingFormat,
+        "          , cacheControlFormat = " <> renderMaybeCacheControl c.cacheControlFormat,
+        "          , supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming,
+        "          , supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
+        "          }"
       ]
   CatalogCompatAnthropic c ->
     Text.intercalate
       "\n"
-      [ "CompatAnthropicMessages"
-      , "        AnthropicMessagesCompat"
-      , "          { supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention
-      , "          , supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools
-      , "          , supportsEagerToolInputStreaming = " <> renderBool c.supportsEagerToolInputStreaming
-      , "          , sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders
-      , "          }"
+      [ "CompatAnthropicMessages",
+        "        AnthropicMessagesCompat",
+        "          { supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
+        "          , supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools,
+        "          , supportsEagerToolInputStreaming = " <> renderBool c.supportsEagerToolInputStreaming,
+        "          , sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders,
+        "          }"
       ]
 
 renderMaxTokensField :: MaxTokensField -> Text

@@ -8,10 +8,11 @@
 -- 'thinkingTokenBudget' provides the recommended budget for the
 -- token-based providers.
 module Baikai.ThinkingLevel
-  ( ThinkingLevel (..)
-  , renderThinkingLevel
-  , thinkingTokenBudget
-  ) where
+  ( ThinkingLevel (..),
+    renderThinkingLevel,
+    thinkingTokenBudget,
+  )
+where
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text)

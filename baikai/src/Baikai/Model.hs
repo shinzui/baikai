@@ -11,29 +11,30 @@
 -- convenience until callers fully migrate to 'modelId'.
 module Baikai.Model
   ( -- * Model
-    Model (..)
-  , _Model
-  , unModel
+    Model (..),
+    _Model,
+    unModel,
 
     -- * Cost rates
-  , ModelCost (..)
-  , _ModelCost
+    ModelCost (..),
+    _ModelCost,
 
     -- * Capabilities
-  , InputModality (..)
+    InputModality (..),
 
     -- * Compatibility shim
-  , Compat (..)
-  , openaiCompletionsCompatFor
-  , anthropicMessagesCompatFor
-  ) where
+    Compat (..),
+    openaiCompletionsCompatFor,
+    anthropicMessagesCompatFor,
+  )
+where
 
 import Baikai.Api (Api (..))
 import Baikai.Compat
-  ( AnthropicMessagesCompat
-  , OpenAICompletionsCompat
-  , autoDetectAnthropicMessages
-  , autoDetectOpenAICompletions
+  ( AnthropicMessagesCompat,
+    OpenAICompletionsCompat,
+    autoDetectAnthropicMessages,
+    autoDetectOpenAICompletions,
   )
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map.Strict (Map)
@@ -53,10 +54,10 @@ data InputModality
 
 -- | Per-million-token prices in USD as exact 'Rational' values.
 data ModelCost = ModelCost
-  { inputCost :: !Rational
-  , outputCost :: !Rational
-  , cacheReadCost :: !Rational
-  , cacheWriteCost :: !Rational
+  { inputCost :: !Rational,
+    outputCost :: !Rational,
+    cacheReadCost :: !Rational,
+    cacheWriteCost :: !Rational
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -93,18 +94,18 @@ anthropicMessagesCompatFor m = case compat m of
 
 -- | The data record baikai dispatches on.
 data Model = Model
-  { modelId :: !Text
-  , name :: !Text
-  , api :: !Api
-  , provider :: !Text
-  , baseUrl :: !Text
-  , reasoning :: !Bool
-  , input :: ![InputModality]
-  , cost :: !ModelCost
-  , contextWindow :: !Natural
-  , maxOutputTokens :: !Natural
-  , headers :: !(Map Text Text)
-  , compat :: !Compat
+  { modelId :: !Text,
+    name :: !Text,
+    api :: !Api,
+    provider :: !Text,
+    baseUrl :: !Text,
+    reasoning :: !Bool,
+    input :: ![InputModality],
+    cost :: !ModelCost,
+    contextWindow :: !Natural,
+    maxOutputTokens :: !Natural,
+    headers :: !(Map Text Text),
+    compat :: !Compat
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -119,10 +120,10 @@ unModel = modelId
 _ModelCost :: ModelCost
 _ModelCost =
   ModelCost
-    { inputCost = 0
-    , outputCost = 0
-    , cacheReadCost = 0
-    , cacheWriteCost = 0
+    { inputCost = 0,
+      outputCost = 0,
+      cacheReadCost = 0,
+      cacheWriteCost = 0
     }
 
 -- | A blank 'Model'. Useful as a record-update base for hand-rolled
@@ -130,16 +131,16 @@ _ModelCost =
 _Model :: Model
 _Model =
   Model
-    { modelId = ""
-    , name = ""
-    , api = Custom ""
-    , provider = ""
-    , baseUrl = ""
-    , reasoning = False
-    , input = [InputText]
-    , cost = _ModelCost
-    , contextWindow = 0
-    , maxOutputTokens = 0
-    , headers = Map.empty
-    , compat = CompatNone
+    { modelId = "",
+      name = "",
+      api = Custom "",
+      provider = "",
+      baseUrl = "",
+      reasoning = False,
+      input = [InputText],
+      cost = _ModelCost,
+      contextWindow = 0,
+      maxOutputTokens = 0,
+      headers = Map.empty,
+      compat = CompatNone
     }

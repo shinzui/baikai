@@ -8,13 +8,14 @@
 -- failing a predicate), and 'Fold.lmap' (project each input), so future
 -- sinks (OpenTelemetry, redaction, projection) plug in without an adapter.
 module Baikai.Trace.Sink
-  ( TraceSink (..)
-  , silent
-  , stdoutSink
-  , fileSink
-  , multiSink
-  , renderHuman
-  ) where
+  ( TraceSink (..),
+    silent,
+    stdoutSink,
+    fileSink,
+    multiSink,
+    renderHuman,
+  )
+where
 
 import Baikai.Trace.Event (TraceEvent (..))
 import Data.Aeson qualified as Aeson
@@ -66,34 +67,34 @@ renderHuman :: TraceEvent -> Text
 renderHuman = \case
   CallStarted {timestamp, provider, model, maxTokens, promptSummary} ->
     Text.unwords
-      [ "[" <> fmtTime timestamp <> "]"
-      , provider
-      , model
-      , "START"
-      , "max=" <> tshow maxTokens
-      , Text.take 80 promptSummary
+      [ "[" <> fmtTime timestamp <> "]",
+        provider,
+        model,
+        "START",
+        "max=" <> tshow maxTokens,
+        Text.take 80 promptSummary
       ]
   CallFinished {timestamp, provider, model, latencyMs, inputTokens, outputTokens, usd} ->
     Text.unwords
-      [ "[" <> fmtTime timestamp <> "]"
-      , provider
-      , model
-      , "->"
-      , tshow latencyMs <> "ms"
-      , maybe "" (\n -> "in=" <> tshow n) inputTokens
-      , maybe "" (\n -> "out=" <> tshow n) outputTokens
-      , maybe "(no-cost)" (\s -> "$" <> tshow s) usd
+      [ "[" <> fmtTime timestamp <> "]",
+        provider,
+        model,
+        "->",
+        tshow latencyMs <> "ms",
+        maybe "" (\n -> "in=" <> tshow n) inputTokens,
+        maybe "" (\n -> "out=" <> tshow n) outputTokens,
+        maybe "(no-cost)" (\s -> "$" <> tshow s) usd
       ]
   CallFailed {timestamp, provider, model, latencyMs, errorMessage} ->
     Text.unwords
-      [ "[" <> fmtTime timestamp <> "]"
-      , provider
-      , model
-      , "FAILED"
-      , tshow latencyMs <> "ms:"
-      , errorMessage
+      [ "[" <> fmtTime timestamp <> "]",
+        provider,
+        model,
+        "FAILED",
+        tshow latencyMs <> "ms:",
+        errorMessage
       ]
   where
-    tshow :: Show a => a -> Text
+    tshow :: (Show a) => a -> Text
     tshow x = Text.pack (show x)
     fmtTime t = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" t)

@@ -14,10 +14,11 @@
 -- between 'Api' and 'Text' go through 'renderApi' and 'parseApi';
 -- any unknown tag becomes 'Custom !Text'.
 module Baikai.Api
-  ( Api (..)
-  , renderApi
-  , parseApi
-  ) where
+  ( Api (..),
+    renderApi,
+    parseApi,
+  )
+where
 
 import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), withText)
 import Data.Text (Text)

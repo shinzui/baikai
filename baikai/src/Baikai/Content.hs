@@ -17,37 +17,38 @@
 -- that varies in failure modes.
 module Baikai.Content
   ( -- * Block primitives
-    TextContent (..)
-  , ThinkingContent (..)
-  , ToolCall (..)
-  , ImageContent (..)
+    TextContent (..),
+    ThinkingContent (..),
+    ToolCall (..),
+    ImageContent (..),
 
     -- * Per-role block sums
-  , UserContent (..)
-  , AssistantContent (..)
-  , ToolResultContent (..)
+    UserContent (..),
+    AssistantContent (..),
+    ToolResultContent (..),
 
     -- * Smart defaults
-  , _TextContent
-  , _ThinkingContent
-  , _ToolCall
-  , _ImageContent
-  ) where
+    _TextContent,
+    _ThinkingContent,
+    _ToolCall,
+    _ImageContent,
+  )
+where
 
 import Data.Aeson
-  ( FromJSON (parseJSON)
-  , Options (..)
-  , SumEncoding (..)
-  , ToJSON (toJSON)
-  , Value (Null)
-  , camelTo2
-  , defaultOptions
-  , genericParseJSON
-  , genericToJSON
-  , object
-  , withObject
-  , (.:)
-  , (.=)
+  ( FromJSON (parseJSON),
+    Options (..),
+    SumEncoding (..),
+    ToJSON (toJSON),
+    Value (Null),
+    camelTo2,
+    defaultOptions,
+    genericParseJSON,
+    genericToJSON,
+    object,
+    withObject,
+    (.:),
+    (.=),
   )
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
@@ -71,9 +72,9 @@ newtype TextContent = TextContent
 -- provider hid the underlying content (Anthropic flags this when its
 -- safety system removes a thinking block from the wire response).
 data ThinkingContent = ThinkingContent
-  { thinking :: !Text
-  , signature :: !(Maybe Text)
-  , redacted :: !Bool
+  { thinking :: !Text,
+    signature :: !(Maybe Text),
+    redacted :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
@@ -81,9 +82,9 @@ data ThinkingContent = ThinkingContent
 -- Haskell to dodge a clash with @Prelude.id@; the JSON encoding strips
 -- it back to @id@.
 data ToolCall = ToolCall
-  { id_ :: !Text
-  , name :: !Text
-  , arguments :: !Value
+  { id_ :: !Text,
+    name :: !Text,
+    arguments :: !Value
   }
   deriving stock (Eq, Show, Generic)
 
@@ -91,8 +92,8 @@ data ToolCall = ToolCall
 -- emits base64 under @data@ and the @mimeType@ camel-snakes to
 -- @mime_type@.
 data ImageContent = ImageContent
-  { imageData :: !ByteString
-  , mimeType :: !Text
+  { imageData :: !ByteString,
+    mimeType :: !Text
   }
   deriving stock (Eq, Show, Generic)
 
@@ -121,24 +122,24 @@ _TextContent = TextContent {text = Text.empty}
 _ThinkingContent :: ThinkingContent
 _ThinkingContent =
   ThinkingContent
-    { thinking = Text.empty
-    , signature = Nothing
-    , redacted = False
+    { thinking = Text.empty,
+      signature = Nothing,
+      redacted = False
     }
 
 _ToolCall :: ToolCall
 _ToolCall =
   ToolCall
-    { id_ = Text.empty
-    , name = Text.empty
-    , arguments = Null
+    { id_ = Text.empty,
+      name = Text.empty,
+      arguments = Null
     }
 
 _ImageContent :: ImageContent
 _ImageContent =
   ImageContent
-    { imageData = BS.empty
-    , mimeType = Text.empty
+    { imageData = BS.empty,
+      mimeType = Text.empty
     }
 
 -- Aeson plumbing ---------------------------------------------------------
@@ -173,8 +174,8 @@ instance ToJSON ToolCall where
 instance ToJSON ImageContent where
   toJSON c =
     object
-      [ "data" .= Text.decodeUtf8 (Base64.encode (imageData c))
-      , "mime_type" .= mimeType c
+      [ "data" .= Text.decodeUtf8 (Base64.encode (imageData c)),
+        "mime_type" .= mimeType c
       ]
 
 instance FromJSON ImageContent where
@@ -188,8 +189,8 @@ instance FromJSON ImageContent where
 contentSumOptions :: Options
 contentSumOptions =
   defaultOptions
-    { sumEncoding = TaggedObject {tagFieldName = "type", contentsFieldName = "data"}
-    , constructorTagModifier = camelTo2 '_'
+    { sumEncoding = TaggedObject {tagFieldName = "type", contentsFieldName = "data"},
+      constructorTagModifier = camelTo2 '_'
     }
 
 instance FromJSON UserContent where

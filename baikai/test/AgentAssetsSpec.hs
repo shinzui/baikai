@@ -10,9 +10,9 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.AgentAssets"
-    [ pathTests
-    , layoutTests
-    , codexTomlTest
+    [ pathTests,
+      layoutTests,
+      codexTomlTest
     ]
 
 pathTests :: TestTree
@@ -23,18 +23,18 @@ pathTests =
         skillTargetPath InteractiveClaude InteractiveProjectScope "example"
           @?= ".claude/skills/example"
         agentTargetPath InteractiveClaude InteractiveProjectScope "example"
-          @?= ".claude/agents/example.md"
-    , testCase "Claude Code user paths" $ do
+          @?= ".claude/agents/example.md",
+      testCase "Claude Code user paths" $ do
         skillTargetPath InteractiveClaude InteractiveUserScope "example"
           @?= "$HOME/.claude/skills/example"
         agentTargetPath InteractiveClaude InteractiveUserScope "example"
-          @?= "$HOME/.claude/agents/example.md"
-    , testCase "Codex project paths use .agents for skills and .codex for agents" $ do
+          @?= "$HOME/.claude/agents/example.md",
+      testCase "Codex project paths use .agents for skills and .codex for agents" $ do
         skillTargetPath InteractiveCodex InteractiveProjectScope "example"
           @?= ".agents/skills/example"
         agentTargetPath InteractiveCodex InteractiveProjectScope "example"
-          @?= ".codex/agents/example.toml"
-    , testCase "Codex user paths use home discovery roots" $ do
+          @?= ".codex/agents/example.toml",
+      testCase "Codex user paths use home discovery roots" $ do
         skillTargetPath InteractiveCodex InteractiveUserScope "example"
           @?= "$HOME/.agents/skills/example"
         agentTargetPath InteractiveCodex InteractiveUserScope "example"
@@ -47,18 +47,18 @@ layoutTests =
     "layout metadata"
     [ testCase "skills are directory assets" $ do
         agentAssetFormat InteractiveClaude SkillAsset @?= DirectoryAsset
-        agentAssetFormat InteractiveCodex SkillAsset @?= DirectoryAsset
-    , testCase "custom agents use provider-native file formats" $ do
+        agentAssetFormat InteractiveCodex SkillAsset @?= DirectoryAsset,
+      testCase "custom agents use provider-native file formats" $ do
         agentAssetFormat InteractiveClaude CustomAgentAsset @?= MarkdownFile
-        agentAssetFormat InteractiveCodex CustomAgentAsset @?= TomlFile
-    , testCase "layout carries provider, scope, kind, format, and path" $ do
+        agentAssetFormat InteractiveCodex CustomAgentAsset @?= TomlFile,
+      testCase "layout carries provider, scope, kind, format, and path" $ do
         customAgentAsset InteractiveCodex InteractiveProjectScope "reviewer"
           @?= AgentAssetLayout
-            { provider = InteractiveCodex
-            , scope = InteractiveProjectScope
-            , kind = CustomAgentAsset
-            , format = TomlFile
-            , path = ".codex/agents/reviewer.toml"
+            { provider = InteractiveCodex,
+              scope = InteractiveProjectScope,
+              kind = CustomAgentAsset,
+              format = TomlFile,
+              path = ".codex/agents/reviewer.toml"
             }
     ]
 
@@ -67,12 +67,12 @@ codexTomlTest =
   testCase "Codex custom-agent TOML escapes strings and preserves instructions" $ do
     codexCustomAgentToml
       CodexCustomAgent
-        { name = "repo\"reviewer"
-        , description = "Reviews\tchanges"
-        , developerInstructions = "Read first.\nAvoid triple quotes: \"\"\""
+        { name = "repo\"reviewer",
+          description = "Reviews\tchanges",
+          developerInstructions = "Read first.\nAvoid triple quotes: \"\"\""
         }
       @?= Text.unlines
-        [ "name = \"repo\\\"reviewer\""
-        , "description = \"Reviews\\tchanges\""
-        , "developer_instructions = \"\"\"\nRead first.\nAvoid triple quotes: \\\"\\\"\\\"\n\"\"\""
+        [ "name = \"repo\\\"reviewer\"",
+          "description = \"Reviews\\tchanges\"",
+          "developer_instructions = \"\"\"\nRead first.\nAvoid triple quotes: \\\"\\\"\\\"\n\"\"\""
         ]

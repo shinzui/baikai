@@ -6,18 +6,19 @@
 -- batch completion provider, while this module starts the interactive
 -- terminal UI and returns only after the CLI exits.
 module Baikai.Provider.Claude.Interactive
-  ( ClaudeInteractiveConfig (..)
-  , defaultClaudeInteractiveConfig
-  , claudeInteractiveCommand
-  , launchClaudeInteractive
-  ) where
+  ( ClaudeInteractiveConfig (..),
+    defaultClaudeInteractiveConfig,
+    claudeInteractiveCommand,
+    launchClaudeInteractive,
+  )
+where
 
 import Baikai.Interactive
-  ( InteractiveLaunchRequest (..)
-  , InteractiveLaunchResult
-  , InteractiveProvider (..)
-  , InteractiveSafety (..)
-  , _InteractiveLaunchResult
+  ( InteractiveLaunchRequest (..),
+    InteractiveLaunchResult,
+    InteractiveProvider (..),
+    InteractiveSafety (..),
+    _InteractiveLaunchResult,
   )
 import Baikai.Prelude
 import Cradle (addArgs, cmd, run, setWorkingDir)
@@ -27,26 +28,26 @@ import Data.Vector qualified as Vector
 
 -- | Configuration for the interactive @claude@ process.
 data ClaudeInteractiveConfig = ClaudeInteractiveConfig
-  { executable :: !FilePath
-  , extraArgs :: !(Vector Text)
+  { executable :: !FilePath,
+    extraArgs :: !(Vector Text)
   }
   deriving stock (Eq, Show, Generic)
 
 defaultClaudeInteractiveConfig :: ClaudeInteractiveConfig
 defaultClaudeInteractiveConfig =
   ClaudeInteractiveConfig
-    { executable = "claude"
-    , extraArgs = mempty
+    { executable = "claude",
+      extraArgs = mempty
     }
 
 -- | Render the executable and arguments for an interactive Claude
 -- Code launch. The final positional argument is the initial user
 -- prompt.
-claudeInteractiveCommand
-  :: ClaudeInteractiveConfig -> InteractiveLaunchRequest -> (FilePath, [String])
+claudeInteractiveCommand ::
+  ClaudeInteractiveConfig -> InteractiveLaunchRequest -> (FilePath, [String])
 claudeInteractiveCommand cfg req =
-  ( cfg ^. #executable
-  , modelArgs req
+  ( cfg ^. #executable,
+    modelArgs req
       <> systemPromptArgs req
       <> extraDirArgs req
       <> safetyArgs req
@@ -57,8 +58,8 @@ claudeInteractiveCommand cfg req =
 
 -- | Launch Claude Code with inherited stdin, stdout, and stderr so
 -- the local CLI owns the interactive terminal experience.
-launchClaudeInteractive
-  :: ClaudeInteractiveConfig -> InteractiveLaunchRequest -> IO InteractiveLaunchResult
+launchClaudeInteractive ::
+  ClaudeInteractiveConfig -> InteractiveLaunchRequest -> IO InteractiveLaunchResult
 launchClaudeInteractive cfg req = do
   let (exe, args) = claudeInteractiveCommand cfg req
   code <-

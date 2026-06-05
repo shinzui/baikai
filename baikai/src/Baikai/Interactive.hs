@@ -5,20 +5,21 @@
 -- The core package owns the shared vocabulary, while vendor
 -- packages own the command-line flags for their local CLI.
 module Baikai.Interactive
-  ( InteractiveProvider (..)
-  , InteractiveScope (..)
-  , InteractiveLaunchRequest (..)
-  , InteractiveSafety (..)
-  , CodexSandboxMode (..)
-  , CodexApprovalPolicy (..)
-  , InteractiveLaunchResult (..)
-  , _InteractiveLaunchRequest
-  , _InteractiveLaunchResult
-  , renderInteractiveProvider
-  , renderInteractiveScope
-  , renderCodexSandboxMode
-  , renderCodexApprovalPolicy
-  ) where
+  ( InteractiveProvider (..),
+    InteractiveScope (..),
+    InteractiveLaunchRequest (..),
+    InteractiveSafety (..),
+    CodexSandboxMode (..),
+    CodexApprovalPolicy (..),
+    InteractiveLaunchResult (..),
+    _InteractiveLaunchRequest,
+    _InteractiveLaunchResult,
+    renderInteractiveProvider,
+    renderInteractiveScope,
+    renderCodexSandboxMode,
+    renderCodexApprovalPolicy,
+  )
+where
 
 import Baikai.Prelude
 import System.Exit (ExitCode)
@@ -40,13 +41,13 @@ data InteractiveScope
 
 -- | Inputs common to local interactive agent launches.
 data InteractiveLaunchRequest = InteractiveLaunchRequest
-  { systemPrompt :: !(Maybe Text)
-  , userPrompt :: !Text
-  , model :: !(Maybe Text)
-  , workingDir :: !(Maybe FilePath)
-  , extraDirs :: ![FilePath]
-  , safety :: !InteractiveSafety
-  , extraArgs :: ![Text]
+  { systemPrompt :: !(Maybe Text),
+    userPrompt :: !Text,
+    model :: !(Maybe Text),
+    workingDir :: !(Maybe FilePath),
+    extraDirs :: ![FilePath],
+    safety :: !InteractiveSafety,
+    extraArgs :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -74,28 +75,28 @@ data CodexApprovalPolicy
 
 -- | Process-level outcome after the interactive CLI exits.
 data InteractiveLaunchResult = InteractiveLaunchResult
-  { provider :: !InteractiveProvider
-  , exitCode :: !ExitCode
+  { provider :: !InteractiveProvider,
+    exitCode :: !ExitCode
   }
   deriving stock (Eq, Show, Generic)
 
 _InteractiveLaunchRequest :: Text -> InteractiveLaunchRequest
 _InteractiveLaunchRequest prompt =
   InteractiveLaunchRequest
-    { systemPrompt = Nothing
-    , userPrompt = prompt
-    , model = Nothing
-    , workingDir = Nothing
-    , extraDirs = []
-    , safety = DefaultSafety
-    , extraArgs = []
+    { systemPrompt = Nothing,
+      userPrompt = prompt,
+      model = Nothing,
+      workingDir = Nothing,
+      extraDirs = [],
+      safety = DefaultSafety,
+      extraArgs = []
     }
 
 _InteractiveLaunchResult :: InteractiveProvider -> ExitCode -> InteractiveLaunchResult
 _InteractiveLaunchResult p code =
   InteractiveLaunchResult
-    { provider = p
-    , exitCode = code
+    { provider = p,
+      exitCode = code
     }
 
 renderInteractiveProvider :: InteractiveProvider -> Text

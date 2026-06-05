@@ -6,8 +6,9 @@
 -- become 24h. Hosts that do not advertise prompt caching ignore the
 -- preference.
 module Baikai.CacheRetention
-  ( CacheRetention (..)
-  ) where
+  ( CacheRetention (..),
+  )
+where
 
 import Data.Aeson (FromJSON, ToJSON)
 import GHC.Generics (Generic)

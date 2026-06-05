@@ -10,10 +10,10 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Interactive"
-    [ requestDefaultTest
-    , providerRenderingTest
-    , codexSafetyRenderingTest
-    , resultConstructorTest
+    [ requestDefaultTest,
+      providerRenderingTest,
+      codexSafetyRenderingTest,
+      resultConstructorTest
     ]
 
 requestDefaultTest :: TestTree

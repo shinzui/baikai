@@ -8,19 +8,20 @@
 -- so a JSON-Lines stream of these can be filtered with
 -- @jq 'select(.kind == "call_finished")'@.
 module Baikai.Trace.Event
-  ( TraceEvent (..)
-  , traceEventOptions
-  ) where
+  ( TraceEvent (..),
+    traceEventOptions,
+  )
+where
 
 import Data.Aeson
-  ( FromJSON (parseJSON)
-  , Options (..)
-  , SumEncoding (..)
-  , ToJSON (..)
-  , defaultOptions
-  , genericParseJSON
-  , genericToEncoding
-  , genericToJSON
+  ( FromJSON (parseJSON),
+    Options (..),
+    SumEncoding (..),
+    ToJSON (..),
+    defaultOptions,
+    genericParseJSON,
+    genericToEncoding,
+    genericToJSON,
   )
 import Data.Char (toLower)
 import Data.Scientific (Scientific)
@@ -38,30 +39,30 @@ import Numeric.Natural (Natural)
 -- absent fields out of the rendered JSON.
 data TraceEvent
   = CallStarted
-      { eventId :: !Text
-      , timestamp :: !UTCTime
-      , provider :: !Text
-      , model :: !Text
-      , maxTokens :: !Natural
-      , promptSummary :: !Text
+      { eventId :: !Text,
+        timestamp :: !UTCTime,
+        provider :: !Text,
+        model :: !Text,
+        maxTokens :: !Natural,
+        promptSummary :: !Text
       }
   | CallFinished
-      { eventId :: !Text
-      , timestamp :: !UTCTime
-      , provider :: !Text
-      , model :: !Text
-      , latencyMs :: !Integer
-      , inputTokens :: !(Maybe Natural)
-      , outputTokens :: !(Maybe Natural)
-      , usd :: !(Maybe Scientific)
+      { eventId :: !Text,
+        timestamp :: !UTCTime,
+        provider :: !Text,
+        model :: !Text,
+        latencyMs :: !Integer,
+        inputTokens :: !(Maybe Natural),
+        outputTokens :: !(Maybe Natural),
+        usd :: !(Maybe Scientific)
       }
   | CallFailed
-      { eventId :: !Text
-      , timestamp :: !UTCTime
-      , provider :: !Text
-      , model :: !Text
-      , latencyMs :: !Integer
-      , errorMessage :: !Text
+      { eventId :: !Text,
+        timestamp :: !UTCTime,
+        provider :: !Text,
+        model :: !Text,
+        latencyMs :: !Integer,
+        errorMessage :: !Text
       }
   deriving stock (Eq, Show, Generic)
 
@@ -75,9 +76,9 @@ data TraceEvent
 traceEventOptions :: Options
 traceEventOptions =
   defaultOptions
-    { sumEncoding = TaggedObject {tagFieldName = "kind", contentsFieldName = "data"}
-    , constructorTagModifier = dropWhile (== '_') . camelToSnake
-    , omitNothingFields = True
+    { sumEncoding = TaggedObject {tagFieldName = "kind", contentsFieldName = "data"},
+      constructorTagModifier = dropWhile (== '_') . camelToSnake,
+      omitNothingFields = True
     }
   where
     camelToSnake :: String -> String

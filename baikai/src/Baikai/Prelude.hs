@@ -9,24 +9,30 @@
 --   anything that imports this Prelude.
 module Baikai.Prelude
   ( -- * Lens vocabulary
-    module Control.Lens
+    module Control.Lens,
+
     -- * Generic-lens vocabulary
-  , module Data.Generics.Product
-  , module Data.Generics.Sum
+    module Data.Generics.Product,
+    module Data.Generics.Sum,
+
     -- * IO lifting (`liftIO` re-exported as a method of `MonadIO`)
-  , MonadIO (..)
+    MonadIO (..),
+
     -- * Scalar types
-  , Text
-  , Vector
-  , Natural
+    Text,
+    Vector,
+    Natural,
+
     -- * Generics
-  , Generic
+    Generic,
+
     -- * JSON
-  , FromJSON (..)
-  , ToJSON (..)
-  , genericParseJSON
-  , genericToJSON
-  ) where
+    FromJSON (..),
+    ToJSON (..),
+    genericParseJSON,
+    genericToJSON,
+  )
+where
 
 import Control.Lens hiding (Context)
 import Control.Monad.IO.Class (MonadIO (..))
