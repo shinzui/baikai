@@ -11,7 +11,7 @@ import Baikai.Cost.Log
     withCallLog,
   )
 import Baikai.Cost.Pricing (attachCost, computeCost)
-import Baikai.Message (AssistantPayload (..), Message (..), user)
+import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), ModelCost (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Prelude
@@ -122,20 +122,18 @@ attachCostTests =
     ]
   where
     attachedUsd m =
-      case attachCost m (mkResp m) ^. #message of
-        AssistantMessage AssistantPayload {usage = u} -> Cost.usd (u ^. #cost)
-        _ -> error "attachedUsd: expected AssistantMessage"
+      let AssistantPayload {usage = u} = attachCost m (mkResp m) ^. #message
+       in Cost.usd (u ^. #cost)
     mkResp m =
       Response
         { message =
-            AssistantMessage
-              AssistantPayload
-                { content = V.singleton (AssistantText (TextContent "hi")),
-                  usage = sampleUsage,
-                  stopReason = Stop,
-                  errorMessage = Nothing,
-                  timestamp = read "2026-05-14 00:00:00 UTC"
-                },
+            AssistantPayload
+              { content = V.singleton (AssistantText (TextContent "hi")),
+                usage = sampleUsage,
+                stopReason = Stop,
+                errorMessage = Nothing,
+                timestamp = read "2026-05-14 00:00:00 UTC"
+              },
           model = m,
           api = Custom "test",
           provider = "claude-api",
@@ -153,14 +151,13 @@ cannedHaiku =
   let u = sampleUsage & #cost .~ computeCost knownModel sampleUsage
    in Response
         { message =
-            AssistantMessage
-              AssistantPayload
-                { content = V.singleton (AssistantText (TextContent "ok")),
-                  usage = u,
-                  stopReason = Stop,
-                  errorMessage = Nothing,
-                  timestamp = read "2026-05-14 00:00:00 UTC"
-                },
+            AssistantPayload
+              { content = V.singleton (AssistantText (TextContent "ok")),
+                usage = u,
+                stopReason = Stop,
+                errorMessage = Nothing,
+                timestamp = read "2026-05-14 00:00:00 UTC"
+              },
           model = knownModel & #api .~ cannedApi,
           api = cannedApi,
           provider = "canned",

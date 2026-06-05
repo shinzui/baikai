@@ -18,7 +18,7 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (AssistantPayload (..), Message (..))
+import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
@@ -164,15 +164,14 @@ consume start m (_, mOut, mErr, ph) = do
       pure
         Resp.Response
           { Resp.message =
-              AssistantMessage
-                AssistantPayload
-                  { content =
-                      Vector.singleton (AssistantText (TextContent (Text.strip body))),
-                    usage = _Usage,
-                    stopReason = Stop,
-                    errorMessage = Nothing,
-                    timestamp = end
-                  },
+              AssistantPayload
+                { content =
+                    Vector.singleton (AssistantText (TextContent (Text.strip body))),
+                  usage = _Usage,
+                  stopReason = Stop,
+                  errorMessage = Nothing,
+                  timestamp = end
+                },
             Resp.model = m,
             Resp.api = OpenAICompletionsCli,
             Resp.provider = m ^. #provider,

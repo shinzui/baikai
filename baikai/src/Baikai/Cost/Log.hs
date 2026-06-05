@@ -29,8 +29,7 @@ import Baikai.Content (TextContent (..), UserContent (..))
 import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
 import Baikai.Message
-  ( AssistantPayload (..),
-    Message (..),
+  ( Message (..),
     UserPayload (..),
   )
 import Baikai.Model (Model)
@@ -160,9 +159,7 @@ runRequestWithLogWith reg h m ctx opts = do
   resp <- liftIO (completeRequestWith reg m ctx opts)
   now <- liftIO getCurrentTime
   let u :: Usage
-      u = case resp ^. #message of
-        AssistantMessage AssistantPayload {usage = uu} -> uu
-        _ -> error "runRequestWithLog: provider returned a non-assistant message"
+      u = (resp ^. #message) ^. #usage
       meaningfulCost = (Usage.cost u) ^. #usd > 0
       entry =
         CallLogEntry

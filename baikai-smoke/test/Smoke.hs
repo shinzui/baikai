@@ -113,10 +113,8 @@ runApiCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
       let blocks = flattenAssistantBlocks resp
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
-          uOk = case resp ^. #message of
-            AssistantMessage AssistantPayload {usage = u} ->
-              (u ^. #inputTokens) > 0 && (u ^. #outputTokens) > 0
-            _ -> False
+          u = (resp ^. #message) ^. #usage
+          uOk = (u ^. #inputTokens) > 0 && (u ^. #outputTokens) > 0
       when (not contentOk || not uOk) $ do
         hPutStrLn stderr $ "[baikai-smoke] failed for " <> caseLabel <> "."
         exitFailure
@@ -241,10 +239,8 @@ runCliCase CliCase {cliLabel, cliBinary, cliModel} = do
       let blocks = flattenAssistantBlocks resp
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
-          usageZero = case resp ^. #message of
-            AssistantMessage AssistantPayload {usage = u} ->
-              (u ^. #inputTokens) == 0 && (u ^. #outputTokens) == 0
-            _ -> False
+          u = (resp ^. #message) ^. #usage
+          usageZero = (u ^. #inputTokens) == 0 && (u ^. #outputTokens) == 0
           latencyOk = resp ^. #latencyMs > 0
       when (not contentOk || not usageZero || not latencyOk) $ do
         hPutStrLn stderr $

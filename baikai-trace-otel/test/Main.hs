@@ -6,7 +6,7 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (AssistantPayload (..), Message (..), user)
+import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Provider (ApiProvider (..), registerApiProvider)
@@ -66,14 +66,13 @@ stubResponse :: Api -> Response
 stubResponse a =
   Response
     { message =
-        AssistantMessage
-          AssistantPayload
-            { content = V.singleton (AssistantText (TextContent "hi")),
-              usage = sampleUsage,
-              stopReason = Stop,
-              errorMessage = Nothing,
-              timestamp = read "2026-05-14 00:00:00 UTC"
-            },
+        AssistantPayload
+          { content = V.singleton (AssistantText (TextContent "hi")),
+            usage = sampleUsage,
+            stopReason = Stop,
+            errorMessage = Nothing,
+            timestamp = read "2026-05-14 00:00:00 UTC"
+          },
       model = stubModel a,
       api = a,
       provider = "stub.otel",
@@ -160,9 +159,8 @@ failureSpanTest =
     -- surfaces as ErrorReason on the response and as the OTel span's
     -- Error status.
     resp <- withTrace sink (stubModel a) stubContext stubOptions
-    case resp ^. #message of
-      AssistantMessage AssistantPayload {stopReason = sr} -> sr @?= ErrorReason
-      _ -> assertFailure "expected AssistantMessage on the response"
+    let AssistantPayload {stopReason = sr} = resp ^. #message
+    sr @?= ErrorReason
     spans <- getSpans
     assertEqual "exactly one span recorded" 1 (length spans)
     case spans of

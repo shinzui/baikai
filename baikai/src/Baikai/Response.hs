@@ -1,17 +1,18 @@
 -- | The provider response envelope.
 --
--- A 'Response' wraps the model's assistant turn ('message') with
+-- A 'Response' wraps the model's assistant payload ('message') with
 -- metadata baikai owns: the originating 'Api' tag (now typed via
 -- 'Baikai.Api'), the input 'Model' echoed back, the provider name,
 -- an optional 'responseId', and the measured 'latencyMs'. The
--- 'message' carries the assistant content blocks, 'Usage' (with
--- 'Cost' embedded), 'StopReason', and optional error text.
+-- 'message' carries only assistant content blocks, 'Usage' (with
+-- 'Cost' embedded), 'StopReason', optional error text, and timestamp.
 --
 -- 'flattenAssistantBlocks' is a convenience accessor that flattens
 -- the message's content blocks.
 module Baikai.Response
   ( Response (..),
     _Response,
+    responseMessage,
     flattenAssistantBlocks,
   )
 where
@@ -29,8 +30,8 @@ import Data.Vector qualified as V
 import GHC.Generics (Generic)
 
 data Response = Response
-  { -- | Always built with the 'AssistantMessage' constructor.
-    message :: !Message,
+  { -- | Assistant-only payload returned by the provider.
+    message :: !AssistantPayload,
     model :: !Model,
     api :: !Api,
     provider :: !Text,
@@ -46,14 +47,13 @@ _Response :: Response
 _Response =
   Response
     { message =
-        AssistantMessage
-          AssistantPayload
-            { content = V.empty,
-              usage = _Usage,
-              stopReason = Stop,
-              errorMessage = Nothing,
-              timestamp = read "2000-01-01 00:00:00 UTC" :: UTCTime
-            },
+        AssistantPayload
+          { content = V.empty,
+            usage = _Usage,
+            stopReason = Stop,
+            errorMessage = Nothing,
+            timestamp = read "2000-01-01 00:00:00 UTC" :: UTCTime
+          },
       model = _Model,
       api = Custom "",
       provider = "",
@@ -61,10 +61,10 @@ _Response =
       latencyMs = 0
     }
 
--- | Pull the response's assistant content blocks out. The result is
--- empty when 'message' is not an 'AssistantMessage' — providers
--- never produce a different constructor in practice.
+-- | Wrap the response payload as a conversation 'AssistantMessage'.
+responseMessage :: Response -> Message
+responseMessage r = AssistantMessage (message r)
+
+-- | Pull the response's assistant content blocks out.
 flattenAssistantBlocks :: Response -> Vector AssistantContent
-flattenAssistantBlocks r = case message r of
-  AssistantMessage AssistantPayload {content = c} -> c
-  _ -> V.empty
+flattenAssistantBlocks Response {message = AssistantPayload {content = c}} = c

@@ -47,7 +47,13 @@ testProvider providerName canned =
         pure $
           _Response
             & #message
-            .~ assistant canned
+            .~ AssistantPayload
+              { content = V.singleton (AssistantText (TextContent canned)),
+                usage = _Usage,
+                stopReason = Stop,
+                errorMessage = Nothing,
+                timestamp = read "2026-06-05 00:00:00 UTC"
+              }
             & #model
             .~ m
             & #api
@@ -127,16 +133,26 @@ tests =
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hello from stream")),
       testCase "user smart constructor produces a UserMessage" $ do
-        case user "hello" of
-          UserMessage UserPayload {content = uc} ->
+        let ts = read "2026-06-05 01:02:03 UTC"
+        case userAt ts "hello" of
+          UserMessage UserPayload {content = uc, timestamp = actualTs} -> do
             uc @?= V.singleton (UserText (TextContent "hello"))
+            actualTs @?= ts
           _ -> error "expected UserMessage",
       testCase "assistant smart constructor produces an AssistantMessage" $ do
-        case assistant "world" of
-          AssistantMessage AssistantPayload {content = ac, stopReason = sr} -> do
+        let ts = read "2026-06-05 01:02:03 UTC"
+        case assistantAt ts "world" of
+          AssistantMessage AssistantPayload {content = ac, stopReason = sr, timestamp = actualTs} -> do
             ac @?= V.singleton (AssistantText (TextContent "world"))
             sr @?= Stop
+            actualTs @?= ts
           _ -> error "expected AssistantMessage",
+      testCase "effectful user constructor produces a UserMessage in IO" $ do
+        msg <- userNow "hello now"
+        case msg of
+          UserMessage UserPayload {content = uc} ->
+            uc @?= V.singleton (UserText (TextContent "hello now"))
+          _ -> error "expected UserMessage",
       testCase "appendToolResult carries text, image, and error payloads" $ do
         let textCall =
               _ToolCall
@@ -170,7 +186,10 @@ tests =
                     errorMessage = Nothing,
                     timestamp = read "2026-06-05 00:00:00 UTC"
                   }
-            resp = _Response & #message .~ assistantTurn
+            resp = _Response & #message .~ assistantPayload
+            assistantPayload = case assistantTurn of
+              AssistantMessage p -> p
+              _ -> error "expected assistant fixture"
             ctx0 = _Context & #messages .~ V.singleton (user "use tools")
             image = ImageContent {imageData = BS8.pack "png-bytes", mimeType = "image/png"}
             dispatcher tc = case tc ^. #name of

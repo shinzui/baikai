@@ -4,7 +4,7 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (AssistantPayload (..), Message (..), user)
+import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Prelude
@@ -58,14 +58,13 @@ stubResponse :: Api -> Response
 stubResponse a =
   Response
     { message =
-        AssistantMessage
-          AssistantPayload
-            { content = V.singleton (AssistantText (TextContent "hi")),
-              usage = _Usage,
-              stopReason = Stop,
-              errorMessage = Nothing,
-              timestamp = read "2026-05-14 00:00:00 UTC"
-            },
+        AssistantPayload
+          { content = V.singleton (AssistantText (TextContent "hi")),
+            usage = _Usage,
+            stopReason = Stop,
+            errorMessage = Nothing,
+            timestamp = read "2026-05-14 00:00:00 UTC"
+          },
       model = stubModel a,
       api = a,
       provider = "stub.trace",
@@ -113,13 +112,11 @@ silentTest =
         let a = Custom "baikai-trace-silent-fail"
         registerFail a (ProviderError "boom")
         resp <- withTrace silent (stubModel a) stubContext stubOptions
-        case resp ^. #message of
-          AssistantMessage AssistantPayload {stopReason = sr, errorMessage = em} -> do
-            sr @?= ErrorReason
-            assertBool
-              ("expected errorMessage to mention boom, got: " <> show em)
-              (maybe False ("boom" `Text.isInfixOf`) em)
-          _ -> assertFailure "expected AssistantMessage on the response"
+        let AssistantPayload {stopReason = sr, errorMessage = em} = resp ^. #message
+        sr @?= ErrorReason
+        assertBool
+          ("expected errorMessage to mention boom, got: " <> show em)
+          (maybe False ("boom" `Text.isInfixOf`) em)
     ]
 
 memoryFinishTest :: TestTree
@@ -150,9 +147,8 @@ memoryFailTest =
     resp <- withTrace sink (stubModel a) stubContext stubOptions
     -- The producer-side failure surfaces as an ErrorReason on the
     -- response (no throw) and as CallFailed on the trace sink.
-    case resp ^. #message of
-      AssistantMessage AssistantPayload {stopReason = sr} -> sr @?= ErrorReason
-      _ -> assertFailure "expected AssistantMessage on the response"
+    let AssistantPayload {stopReason = sr} = resp ^. #message
+    sr @?= ErrorReason
     rev <- readTVarIO ref
     let events = reverse rev
     length events @?= 2

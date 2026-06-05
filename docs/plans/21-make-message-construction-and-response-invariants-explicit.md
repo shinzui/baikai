@@ -27,12 +27,12 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Audit every use of `user`, `assistant`, `userImage`, `toolResult`, `Response.message`, and `flattenAssistantBlocks`.
-- [ ] Add explicit-time and effectful message constructors.
-- [ ] Migrate tests, docs, and provider code away from hidden-time pure constructors.
-- [ ] Redesign `Response` so assistant-only output is encoded in the type.
-- [ ] Update streaming reassembly, tracing, cost logging, and provider packages for the response invariant.
-- [ ] Validate deterministic timestamp behavior and assistant-response invariants.
+- [x] Audit every use of `user`, `assistant`, `userImage`, `toolResult`, `Response.message`, and `flattenAssistantBlocks`. Completed 2026-06-05; the audit found hidden-time constructors in `Baikai.Message`, response assumptions in `Baikai.Stream`, `Baikai.Cost.Log`, `Baikai.Cost.Pricing`, `Baikai.Trace`, provider CLI constructors, tests, smoke tests, and user docs.
+- [x] Add explicit-time and effectful message constructors. Completed 2026-06-05; `userAt`/`userNow`, `userImageAt`/`userImageNow`, `assistantAt`/`assistantNow`, and `toolResult...At`/`toolResult...Now` helpers were added.
+- [x] Migrate tests, docs, and provider code away from hidden-time pure constructors. Completed 2026-06-05; user docs now show `userNow`, `appendToolResult` timestamps tool results in `IO`, and deterministic tests use explicit timestamps.
+- [x] Redesign `Response` so assistant-only output is encoded in the type. Completed 2026-06-05; `Response.message` is now `AssistantPayload`, and `responseMessage` wraps it as a broad `Message` when needed.
+- [x] Update streaming reassembly, tracing, cost logging, and provider packages for the response invariant. Completed 2026-06-05; reassembly constructs assistant payloads, cost logging reads usage directly, and provider CLI responses populate `AssistantPayload`.
+- [x] Validate deterministic timestamp behavior and assistant-response invariants. Completed 2026-06-05; `nix develop --command cabal test all` passed, and `rg -n "unsafePerformIO" baikai/src/Baikai/Message.hs` returned no matches.
 
 
 ## Surprises & Discoveries
@@ -40,7 +40,10 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-None yet.
+- Discovery: Keeping the field name `Response.message` while changing its type to `AssistantPayload` avoided a larger naming churn but still made the non-assistant state unrepresentable.
+  Evidence: GHC forced every former `resp ^. #message` pattern match to either consume `AssistantPayload` directly or use `responseMessage` where a broad `Message` was required.
+  Impact: EP-5 can treat `Response.message` as assistant-only and decide separately whether streaming terminal events should also narrow from `Message` to `AssistantPayload`.
+  Date: 2026-06-05
 
 
 ## Decision Log
@@ -53,6 +56,12 @@ Record every decision made while working on the plan.
 - Decision: Prefer encoding assistant-only responses in the type over keeping a runtime convention.
   Rationale: `Response` comments and provider behavior already promise assistant output; the current broader type forces defensive code and one production `error` path.
   Date: 2026-06-05
+- Decision: Keep the existing pure constructor names as deterministic fixture shorthands while adding explicit-time and effectful names.
+  Rationale: Removing `user`, `assistant`, `userImage`, and `toolResult` would create unnecessary churn for tests and simple fixtures. Redefining them to use a fixed timestamp removes hidden effects, while `...At` and `...Now` provide the explicit semantics user-facing docs should prefer.
+  Date: 2026-06-05
+- Decision: Keep streaming terminal events as broad `Message` values for EP-4.
+  Rationale: EP-5 owns streaming extension-point stability. EP-4 only needs `reassembleResponse` to produce an assistant-only `Response`, and `responseMessage` preserves a total bridge from responses back to conversation messages.
+  Date: 2026-06-05
 
 
 ## Outcomes & Retrospective
@@ -60,7 +69,9 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-4 completed 2026-06-05. Public message construction now has explicit-time and effectful APIs, and the old pure names no longer sample time secretly. `Response.message` is now an `AssistantPayload`, so providers cannot return `UserMessage` or `ToolResultMessage` through the response envelope. `responseMessage` provides the total conversion back to a conversation `Message` for context replay and stream events.
+
+Streaming reassembly, tracing, cost logging, CLI providers, tests, smoke tests, and user docs were migrated to the new shape. The production `error` branch in `runRequestWithLog` is gone because usage is read directly from the assistant payload. `nix develop --command cabal test all` passed on 2026-06-05.
 
 
 ## Context and Orientation

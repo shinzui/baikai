@@ -74,10 +74,11 @@ main = do
       ctx =
         _Context
           & #systemPrompt .~ Just "Reply with the single word: pong."
-          & #messages .~ V.singleton (user "ping")
+  prompt <- userNow "ping"
+  let ctx' = ctx & #messages .~ V.singleton prompt
 
-  resp1 <- completeRequest claudeModel ctx _Options
-  resp2 <- completeRequest codexModel  ctx _Options
+  resp1 <- completeRequest claudeModel ctx' _Options
+  resp2 <- completeRequest codexModel  ctx' _Options
   print (resp1, resp2)
 ```
 

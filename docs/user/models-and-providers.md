@@ -243,8 +243,8 @@ providers work.
 
 ## Cost & usage
 
-Every successful call's `Response.message` is an
-`AssistantMessage` carrying a `Usage`:
+Every successful call's `Response.message` is an assistant payload
+carrying a `Usage`:
 
 ```haskell
 data Usage = Usage

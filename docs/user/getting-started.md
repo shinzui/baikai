@@ -84,10 +84,11 @@ import Data.Vector qualified as V
 main :: IO ()
 main = do
   OpenAIApi.register
+  prompt <- userNow "Say hi."
   let ctx =
         _Context
           & #systemPrompt .~ Just "You are terse."
-          & #messages .~ V.singleton (user "Say hi.")
+          & #messages .~ V.singleton prompt
       opts =
         _Options
           & #maxTokens .~ Just 32
@@ -104,9 +105,10 @@ left unset, so the OpenAI handler reads `OPENAI_API_KEY` (or
 `#apiKey .~ Just (ApiKeyLiteral key)` explicitly to override with a
 literal credential; its `Show` and JSON instances redact the key.
 
-The result is a `Response`. Pull out the assistant message with
-`resp ^. #message`, and the text content with
-`flattenAssistantBlocks`:
+The result is a `Response`. `resp ^. #message` is the assistant
+payload. Use `responseMessage resp` when you need it wrapped as a
+conversation `Message`, and use `flattenAssistantBlocks` for text
+extraction:
 
 ```haskell
 let blocks = flattenAssistantBlocks resp     -- Vector AssistantContent

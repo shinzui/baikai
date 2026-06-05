@@ -41,7 +41,7 @@ import Baikai.Provider.Registry
     globalProviderRegistry,
     lookupApiProviderWith,
   )
-import Baikai.Response (Response (..))
+import Baikai.Response (Response (..), responseMessage)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event
   ( AssistantMessageEvent (..),
@@ -193,10 +193,8 @@ finalizeState s = do
       (terminalMsg, terminalReason) = case s ^. #terminal of
         Just (r, msg) -> (msg, r)
         Nothing -> (synthesizeTerminal now assembled, Stop)
-      message' = overrideBlocksAndReason terminalReason terminalMsg assembled
-      endTs = case message' of
-        AssistantMessage AssistantPayload {Msg.timestamp = ts} -> ts
-        _ -> now
+      message' = overrideBlocksAndReason terminalReason terminalMsg assembled now
+      endTs = message' ^. #timestamp
       latency = case s ^. #startTime of
         Just startTs ->
           round (realToFrac (Data.Time.Clock.diffUTCTime endTs startTs) * (1000 :: Double))
@@ -233,18 +231,24 @@ assembleBlocks s =
 -- | Replace the content vector and stop reason of an assistant
 -- message, preserving usage, errorMessage, and timestamp.
 overrideBlocksAndReason ::
-  StopReason -> Message -> Vector AssistantContent -> Message
-overrideBlocksAndReason sr msg blocks = case msg of
+  StopReason -> Message -> Vector AssistantContent -> UTCTime -> AssistantPayload
+overrideBlocksAndReason sr msg blocks fallbackTs = case msg of
   AssistantMessage AssistantPayload {usage = u, errorMessage = em, timestamp = ts} ->
-    AssistantMessage
-      AssistantPayload
-        { Msg.content = blocks,
-          Msg.usage = u,
-          Msg.stopReason = sr,
-          Msg.errorMessage = em,
-          Msg.timestamp = ts
-        }
-  other -> other
+    AssistantPayload
+      { Msg.content = blocks,
+        Msg.usage = u,
+        Msg.stopReason = sr,
+        Msg.errorMessage = em,
+        Msg.timestamp = ts
+      }
+  _ ->
+    AssistantPayload
+      { Msg.content = blocks,
+        Msg.usage = _Usage,
+        Msg.stopReason = sr,
+        Msg.errorMessage = Just "stream terminated with a non-assistant message",
+        Msg.timestamp = fallbackTs
+      }
 
 -- | Build a placeholder 'AssistantMessage' for streams that ended
 -- without a terminal event (a producer bug; the recovery path).
@@ -301,29 +305,24 @@ tryAny = Control.Exception.try
 -- start/end timestamps.
 eventsFor :: UTCTime -> Response -> [AssistantMessageEvent]
 eventsFor startTs resp =
-  let msg = resp ^. #message
-      skeleton = case msg of
-        AssistantMessage AssistantPayload {Msg.usage = u, Msg.stopReason = sr, Msg.errorMessage = em} ->
-          AssistantMessage
-            AssistantPayload
-              { Msg.content = Vector.empty,
-                Msg.usage = u,
-                Msg.stopReason = sr,
-                Msg.errorMessage = em,
-                Msg.timestamp = startTs
-              }
-        other -> other
-      blocks = case msg of
-        AssistantMessage AssistantPayload {Msg.content = c} -> Vector.toList c
-        _ -> []
+  let payload = resp ^. #message
+      msg = responseMessage resp
+      skeleton =
+        AssistantMessage
+          AssistantPayload
+            { Msg.content = Vector.empty,
+              Msg.usage = payload ^. #usage,
+              Msg.stopReason = payload ^. #stopReason,
+              Msg.errorMessage = payload ^. #errorMessage,
+              Msg.timestamp = startTs
+            }
+      blocks = Vector.toList (payload ^. #content)
       blockEvents =
         concat
           [ blockEvent i b
           | (i, b) <- zip [0 ..] blocks
           ]
-      reason = case msg of
-        AssistantMessage AssistantPayload {Msg.stopReason = sr} -> sr
-        _ -> Stop
+      reason = payload ^. #stopReason
    in [EventStart StartPayload {partial = skeleton}]
         <> blockEvents
         <> [EventDone TerminalPayload {reason = reason, message = msg}]

@@ -44,11 +44,13 @@ unions via `oneOf`, descriptions, defaults, …).
 ## Wire tools into a Context
 
 ```haskell
-ctx :: Context
-ctx =
-  _Context
-    & #messages .~ V.singleton (user "What time is it? Use the tool.")
-    & #tools .~ V.singleton getTime
+mkContext :: IO Context
+mkContext = do
+  prompt <- userNow "What time is it? Use the tool."
+  pure $
+    _Context
+      & #messages .~ V.singleton prompt
+      & #tools .~ V.singleton getTime
 ```
 
 The `tools` vector lives on `Context` because the same tool set
@@ -97,10 +99,11 @@ dispatcher tc = case tc ^. #name of
 
 runConversation :: IO Message
 runConversation = do
+  prompt <- userNow "What time is it?"
   let model = Models.openai_gpt_4o_mini
       ctx0 =
         _Context
-          & #messages .~ V.singleton (user "What time is it?")
+          & #messages .~ V.singleton prompt
           & #tools .~ V.singleton getTime
       base =
         _Options
@@ -117,7 +120,7 @@ runConversation = do
 
   -- Turn 2: model speaks freely; should produce a final answer.
   resp2 <- completeRequest model ctx1 turn2Opts
-  pure (resp2 ^. #message)
+  pure (responseMessage resp2)
 ```
 
 `appendToolResult` does three things:

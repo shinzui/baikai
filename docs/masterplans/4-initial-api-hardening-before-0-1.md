@@ -34,7 +34,7 @@ An alternative was one broad "API cleanup" ExecPlan. That was rejected because t
 | EP-1 | Redact and Source API Credentials Safely | docs/plans/18-redact-and-source-api-credentials-safely.md | None | None | Complete |
 | EP-2 | Introduce Explicit Provider Registry Handles | docs/plans/19-introduce-explicit-provider-registry-handles.md | None | EP-1 | Complete |
 | EP-3 | Generalize Tool Result Round Trips | docs/plans/20-generalize-tool-result-round-trips.md | None | EP-4 | Complete |
-| EP-4 | Make Message Construction and Response Invariants Explicit | docs/plans/21-make-message-construction-and-response-invariants-explicit.md | None | None | Not Started |
+| EP-4 | Make Message Construction and Response Invariants Explicit | docs/plans/21-make-message-construction-and-response-invariants-explicit.md | None | None | Complete |
 | EP-5 | Stabilize Compat and Streaming Extension Points | docs/plans/22-stabilize-compat-and-streaming-extension-points.md | EP-4 | EP-2, EP-3 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -70,8 +70,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-1: Add tests proving secrets do not appear in `Show` or JSON output and provider env fallbacks still work.
 - [x] EP-2: Add explicit registry/client handle APIs while preserving global convenience wrappers.
 - [x] EP-2: Update tests and provider registration functions to demonstrate isolated registries.
-- [ ] EP-4: Replace hidden-time pure message constructors with explicit timestamp and effectful convenience constructors.
-- [ ] EP-4: Encode the assistant-response invariant in types and remove production partial/error paths that assume it dynamically.
+- [x] EP-4: Replace hidden-time pure message constructors with explicit timestamp and effectful convenience constructors.
+- [x] EP-4: Encode the assistant-response invariant in types and remove production partial/error paths that assume it dynamically.
 - [x] EP-3: Generalize tool-result helpers to support text, image, and error results.
 - [x] EP-3: Update tool smoke tests and docs to demonstrate multi-result and error-result round trips.
 - [ ] EP-5: Decide and implement the compat exposure policy for core versus provider packages.
@@ -91,6 +91,9 @@ interactions between child plans. Provide concise evidence.
   Date: 2026-06-05
 - Discovery: EP-3 found that the current OpenAI Chat Completions and Anthropic Messages SDK request shapes only support text tool-result messages, while Baikai core can represent `ToolResultImage`.
   Impact: EP-5 should document streaming and content extension points with this provider limitation in mind. It should not assume every public `ToolResultContent` constructor is encodable by every provider; unsupported blocks need explicit provider behavior.
+  Date: 2026-06-05
+- Discovery: EP-4 kept streaming terminal events as broad `Message` values but made `Response.message` assistant-only by changing it to `AssistantPayload`.
+  Impact: EP-5 should decide whether streaming terminal payloads should also narrow to assistant-only payloads, or whether keeping broad `Message` events is the right extension point for future non-assistant event families.
   Date: 2026-06-05
 
 
@@ -114,6 +117,9 @@ plan.
 - Decision: Model provider isolation with explicit `ProviderRegistry` handles instead of introducing a broader `BaikaiClient` record in EP-2.
   Rationale: The current request surface only needs handler-map isolation. A larger client record would add premature shape before EP-5 decides the final streaming and compat extension-point story.
   Date: 2026-06-05
+- Decision: Preserve the `Response.message` field name while narrowing its type to `AssistantPayload` in EP-4.
+  Rationale: The narrowed type encodes the assistant-only invariant without forcing every downstream accessor to learn a new field name before 0.1. The new `responseMessage` helper provides the total broad-message wrapper for context replay.
+  Date: 2026-06-05
 
 
 ## Outcomes & Retrospective
@@ -126,3 +132,5 @@ EP-1 completed 2026-06-05. Baikai now exposes `ApiKeySource` through the umbrell
 EP-2 completed 2026-06-05. Baikai now supports explicit `ProviderRegistry` handles for isolated registration and dispatch while preserving global convenience wrappers. Provider packages expose handle-based registration helpers, tracing and cost logging have explicit-registry variants, and tests prove same-`Api` providers remain isolated across registries.
 
 EP-3 completed 2026-06-05. Baikai now exposes rich `ToolResult` helpers for text, image, explicit blocks, and error results. `appendToolResult` consumes rich results and `appendToolResultText` keeps text-only dispatch concise. Provider encoders reject unsupported image tool-result blocks explicitly instead of silently dropping them, and the user docs and smoke tests demonstrate the migrated text workflow.
+
+EP-4 completed 2026-06-05. Message constructors now expose explicit-time and effectful variants, and the legacy pure names use deterministic fixture timestamps rather than hidden `unsafePerformIO`. `Response.message` is assistant-only as an `AssistantPayload`, `responseMessage` bridges back to a conversation `Message`, and cost logging no longer has a production non-assistant `error` branch. Focused tests and `nix develop --command cabal test all` passed.

@@ -307,9 +307,7 @@ runRequestWithRegistry reg sink h m ctx opts = do
 
 -- | Project the assistant turn's 'Usage' out of a response.
 assistantUsage :: Response -> Maybe Usage
-assistantUsage resp = case resp ^. #message of
-  AssistantMessage AssistantPayload {usage = u} -> Just u
-  _ -> Nothing
+assistantUsage resp = Just ((resp ^. #message) ^. #usage)
 
 assistantUsageFromMsg :: Message -> Maybe Usage
 assistantUsageFromMsg = \case

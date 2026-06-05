@@ -80,8 +80,9 @@ import Data.Vector qualified as V
 main :: IO ()
 main = do
   OpenAIApi.register                       -- install the handler once
+  prompt <- userNow "Say hi."
   let ctx  = _Context & #systemPrompt .~ Just "You are terse."
-                      & #messages .~ V.singleton (user "Say hi.")
+                      & #messages .~ V.singleton prompt
       opts = _Options & #maxTokens .~ Just 32
   resp <- completeRequest Models.openai_gpt_4o_mini ctx opts
   print (flattenAssistantText (flattenAssistantBlocks resp))

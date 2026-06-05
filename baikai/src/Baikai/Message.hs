@@ -37,11 +37,23 @@ module Baikai.Message
     ToolResultPayload (..),
     ToolResult (..),
     user,
+    userAt,
+    userNow,
     userImage,
+    userImageAt,
+    userImageNow,
     assistant,
+    assistantAt,
+    assistantNow,
     toolResultMessage,
+    toolResultMessageAt,
+    toolResultMessageNow,
     toolResultFromCall,
+    toolResultFromCallAt,
+    toolResultFromCallNow,
     toolResult,
+    toolResultAt,
+    toolResultNow,
     toolResultText,
     toolResultErrorText,
     toolResultImage,
@@ -65,7 +77,6 @@ import Data.Time (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import GHC.Generics (Generic)
-import System.IO.Unsafe (unsafePerformIO)
 
 data Message
   = UserMessage UserPayload
@@ -123,84 +134,143 @@ data ToolResult = ToolResult
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
--- | Build a one-text-block user message.
---
--- 'getCurrentTime' is run through 'unsafePerformIO' for ergonomics:
--- tests and one-shot scripts can write @user "hello"@ without threading
--- 'IO'. Production callers that need a controlled timestamp should
--- build the record directly. The 'NOINLINE' pragma ensures every call
--- site samples the clock once rather than sharing a single time across
--- the program.
+defaultTimestamp :: UTCTime
+defaultTimestamp = read "2000-01-01 00:00:00 UTC"
+
+-- | Build a one-text-block user message with a deterministic fixture
+-- timestamp. Prefer 'userAt' when the timestamp matters, or 'userNow'
+-- when the timestamp should be sampled in 'IO'.
 user :: Text -> Message
-user t =
+user = userAt defaultTimestamp
+
+-- | Build a one-text-block user message at an explicit timestamp.
+userAt :: UTCTime -> Text -> Message
+userAt ts t =
   UserMessage
     UserPayload
       { content = V.singleton (UserText (TextContent t)),
-        timestamp = unsafePerformIO getCurrentTime
+        timestamp = ts
       }
-{-# NOINLINE user #-}
+
+-- | Build a one-text-block user message using the current time.
+userNow :: Text -> IO Message
+userNow t = do
+  now <- getCurrentTime
+  pure (userAt now t)
 
 -- | Build a user message carrying one inline image alongside optional
--- preceding text. Bytes are stored decoded; the JSON encoding
--- base64-encodes them on the wire.
+-- preceding text, using a deterministic fixture timestamp.
 userImage :: ImageContent -> Maybe Text -> Message
-userImage img mPrefix =
+userImage = userImageAt defaultTimestamp
+
+-- | Build a user image message at an explicit timestamp. Bytes are
+-- stored decoded; the JSON encoding base64-encodes them on the wire.
+userImageAt :: UTCTime -> ImageContent -> Maybe Text -> Message
+userImageAt ts img mPrefix =
   let prefix = case mPrefix of
         Nothing -> V.empty
         Just t -> V.singleton (UserText (TextContent t))
    in UserMessage
         UserPayload
           { content = prefix <> V.singleton (UserImage img),
-            timestamp = unsafePerformIO getCurrentTime
+            timestamp = ts
           }
-{-# NOINLINE userImage #-}
+
+-- | Build a user image message using the current time.
+userImageNow :: ImageContent -> Maybe Text -> IO Message
+userImageNow img mPrefix = do
+  now <- getCurrentTime
+  pure (userImageAt now img mPrefix)
 
 -- | Build a one-text-block assistant message with zero usage and a
--- @stop@ stop reason. Useful for fixtures and replaying prior turns
--- into a follow-up request.
+-- @stop@ stop reason, using a deterministic fixture timestamp.
 assistant :: Text -> Message
-assistant t =
+assistant = assistantAt defaultTimestamp
+
+-- | Build a one-text-block assistant message at an explicit timestamp.
+assistantAt :: UTCTime -> Text -> Message
+assistantAt ts t =
   AssistantMessage
     AssistantPayload
       { content = V.singleton (AssistantText (TextContent t)),
         usage = _Usage,
         stopReason = Stop,
         errorMessage = Nothing,
-        timestamp = unsafePerformIO getCurrentTime
+        timestamp = ts
       }
-{-# NOINLINE assistant #-}
+
+-- | Build a one-text-block assistant message using the current time.
+assistantNow :: Text -> IO Message
+assistantNow t = do
+  now <- getCurrentTime
+  pure (assistantAt now t)
 
 -- | Build a tool-result message answering a prior 'AssistantToolCall'
--- using rich content blocks.
+-- using rich content blocks and a deterministic fixture timestamp.
 toolResultMessage :: Text -> Text -> ToolResult -> Message
-toolResultMessage callId name ToolResult {content = blocks, isError = err} =
+toolResultMessage callId name =
+  toolResultMessageAt defaultTimestamp callId name
+
+-- | Build a tool-result message at an explicit timestamp.
+toolResultMessageAt :: UTCTime -> Text -> Text -> ToolResult -> Message
+toolResultMessageAt ts callId name ToolResult {content = blocks, isError = err} =
   ToolResultMessage
     ToolResultPayload
       { toolCallId = callId,
         toolName = name,
         content = blocks,
         isError = err,
-        timestamp = unsafePerformIO getCurrentTime
+        timestamp = ts
       }
-{-# NOINLINE toolResultMessage #-}
+
+-- | Build a tool-result message using the current time.
+toolResultMessageNow :: Text -> Text -> ToolResult -> IO Message
+toolResultMessageNow callId name result = do
+  now <- getCurrentTime
+  pure (toolResultMessageAt now callId name result)
 
 -- | Build a rich tool-result message from the original tool call.
 toolResultFromCall :: ToolCall -> ToolResult -> Message
 toolResultFromCall ToolCall {id_ = callId, name = toolName} =
   toolResultMessage callId toolName
 
+-- | Build a rich tool-result message from the original tool call at
+-- an explicit timestamp.
+toolResultFromCallAt :: UTCTime -> ToolCall -> ToolResult -> Message
+toolResultFromCallAt ts ToolCall {id_ = callId, name = toolName} =
+  toolResultMessageAt ts callId toolName
+
+-- | Build a rich tool-result message from the original tool call using
+-- the current time.
+toolResultFromCallNow :: ToolCall -> ToolResult -> IO Message
+toolResultFromCallNow ToolCall {id_ = callId, name = toolName} =
+  toolResultMessageNow callId toolName
+
 -- | Build a one-text-block tool-result message. This is the
 -- text-only compatibility shorthand; prefer 'toolResultMessage'
 -- when the result has multiple blocks or image content.
 toolResult :: Text -> Text -> Text -> Bool -> Message
 toolResult callId name body err =
-  toolResultMessage
+  toolResultAt defaultTimestamp callId name body err
+
+-- | Build a one-text-block tool-result message at an explicit timestamp.
+toolResultAt :: UTCTime -> Text -> Text -> Text -> Bool -> Message
+toolResultAt ts callId name body err =
+  toolResultMessageAt
+    ts
     callId
     name
-    ToolResult
-      { content = V.singleton (ToolResultText (TextContent body)),
-        isError = err
-      }
+    ( ToolResult
+        { content = V.singleton (ToolResultText (TextContent body)),
+          isError = err
+        }
+    )
+
+-- | Build a one-text-block tool-result message using the current time.
+toolResultNow :: Text -> Text -> Text -> Bool -> IO Message
+toolResultNow callId name body err = do
+  now <- getCurrentTime
+  pure (toolResultAt now callId name body err)
 
 -- | Successful one-text-block tool result.
 toolResultText :: Text -> ToolResult

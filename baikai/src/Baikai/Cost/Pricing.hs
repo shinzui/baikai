@@ -12,7 +12,7 @@ module Baikai.Cost.Pricing
 where
 
 import Baikai.Cost (Cost (..), CostBreakdown (..))
-import Baikai.Message (AssistantPayload (..), Message (..))
+import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model, ModelCost (..))
 import Baikai.Prelude
 import Baikai.Response (Response (..))
@@ -45,30 +45,25 @@ computeCost m u =
               }
         }
 
--- | Replace the assistant message's embedded 'Cost' with one
--- computed from the supplied model. Leaves the response untouched
--- when 'message' is not an 'AssistantMessage' (providers never
--- produce a different constructor in practice).
+-- | Replace the assistant response payload's embedded 'Cost' with one
+-- computed from the supplied model.
 attachCost :: Model -> Response -> Response
-attachCost m r = case r ^. #message of
-  AssistantMessage
-    AssistantPayload
-      { usage = u,
-        content = c,
-        stopReason = sr,
-        errorMessage = em,
-        timestamp = ts
-      } ->
-      let computed = computeCost m u
-          u' = u & #cost .~ computed
-          msg' =
-            AssistantMessage
-              AssistantPayload
-                { content = c,
-                  usage = u',
-                  stopReason = sr,
-                  errorMessage = em,
-                  timestamp = ts
-                }
-       in r & #message .~ msg'
-  _ -> r
+attachCost m r =
+  let AssistantPayload
+        { usage = u,
+          content = c,
+          stopReason = sr,
+          errorMessage = em,
+          timestamp = ts
+        } = r ^. #message
+      computed = computeCost m u
+      u' = u & #cost .~ computed
+      msg' =
+        AssistantPayload
+          { content = c,
+            usage = u',
+            stopReason = sr,
+            errorMessage = em,
+            timestamp = ts
+          }
+   in r & #message .~ msg'

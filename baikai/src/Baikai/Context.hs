@@ -22,8 +22,8 @@ module Baikai.Context
 where
 
 import Baikai.Content (AssistantContent (..), ToolCall (..))
-import Baikai.Message (AssistantPayload (..), Message (..), ToolResult, toolResultFromCall, toolResultText)
-import Baikai.Response (Response (..))
+import Baikai.Message (Message (..), ToolResult, toolResultFromCallNow, toolResultText)
+import Baikai.Response (Response (..), responseMessage)
 import Baikai.Tool (Tool)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (ToJSON)
@@ -65,16 +65,14 @@ appendToolResult ::
   (ToolCall -> IO ToolResult) ->
   IO Context
 appendToolResult ctx resp dispatcher = do
-  let respMsg = resp ^. #message
-      toolCalls = case respMsg of
-        AssistantMessage AssistantPayload {content = blocks} ->
-          [tc | AssistantToolCall tc <- V.toList blocks]
-        _ -> []
+  let respPayload = resp ^. #message
+      respMsg = responseMessage resp
+      toolCalls = [tc | AssistantToolCall tc <- V.toList (respPayload ^. #content)]
   results <-
     traverse
       ( \tc -> do
           result <- dispatcher tc
-          pure (toolResultFromCall tc result)
+          toolResultFromCallNow tc result
       )
       toolCalls
   pure $
