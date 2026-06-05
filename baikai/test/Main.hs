@@ -6,6 +6,7 @@ import Baikai.Prelude
 import CatalogSpec qualified
 import CostSpec qualified
 import Data.Aeson qualified as Aeson
+import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Vector qualified as V
@@ -135,5 +136,66 @@ tests =
           AssistantMessage AssistantPayload {content = ac, stopReason = sr} -> do
             ac @?= V.singleton (AssistantText (TextContent "world"))
             sr @?= Stop
-          _ -> error "expected AssistantMessage"
+          _ -> error "expected AssistantMessage",
+      testCase "appendToolResult carries text, image, and error payloads" $ do
+        let textCall =
+              _ToolCall
+                { id_ = "call_text",
+                  name = "text_tool",
+                  arguments = Aeson.object []
+                }
+            imageCall =
+              _ToolCall
+                { id_ = "call_image",
+                  name = "image_tool",
+                  arguments = Aeson.object []
+                }
+            errorCall =
+              _ToolCall
+                { id_ = "call_error",
+                  name = "error_tool",
+                  arguments = Aeson.object []
+                }
+            assistantTurn =
+              AssistantMessage
+                AssistantPayload
+                  { content =
+                      V.fromList
+                        [ AssistantToolCall textCall,
+                          AssistantToolCall imageCall,
+                          AssistantToolCall errorCall
+                        ],
+                    usage = _Usage,
+                    stopReason = ToolUse,
+                    errorMessage = Nothing,
+                    timestamp = read "2026-06-05 00:00:00 UTC"
+                  }
+            resp = _Response & #message .~ assistantTurn
+            ctx0 = _Context & #messages .~ V.singleton (user "use tools")
+            image = ImageContent {imageData = BS8.pack "png-bytes", mimeType = "image/png"}
+            dispatcher tc = case tc ^. #name of
+              "text_tool" -> pure (toolResultText "text result")
+              "image_tool" -> pure (toolResultImage image)
+              "error_tool" -> pure (toolResultErrorText "tool failed")
+              other -> error ("unexpected tool: " <> Text.unpack other)
+        ctx1 <- appendToolResult ctx0 resp dispatcher
+        case V.toList (ctx1 ^. #messages) of
+          [_, assistantMsg, ToolResultMessage textPayload, ToolResultMessage imagePayload, ToolResultMessage errorPayload] -> do
+            assistantMsg @?= assistantTurn
+            case textPayload of
+              ToolResultPayload {toolCallId = callId, content = blocks, isError = err} -> do
+                callId @?= "call_text"
+                blocks @?= V.singleton (ToolResultText (TextContent "text result"))
+                err @?= False
+            case imagePayload of
+              ToolResultPayload {toolCallId = callId, content = blocks, isError = err} -> do
+                callId @?= "call_image"
+                blocks @?= V.singleton (ToolResultImage image)
+                err @?= False
+            case errorPayload of
+              ToolResultPayload {toolCallId = callId, content = blocks, isError = err} -> do
+                callId @?= "call_error"
+                blocks @?= V.singleton (ToolResultText (TextContent "tool failed"))
+                err @?= True
+          msgs -> error ("unexpected context messages: " <> show msgs)
     ]

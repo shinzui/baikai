@@ -67,8 +67,10 @@ test-suite baikai-claude-test
     , baikai
     , baikai-claude
     , base           >=4.20 && <5
+    , bytestring
     , generic-lens
     , lens           ^>=5.3
+    , streamly-core  ^>=0.3
     , tasty
     , tasty-hunit
     , text           ^>=2.1

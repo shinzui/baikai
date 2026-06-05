@@ -63,8 +63,10 @@ test-suite baikai-openai-test
     , baikai
     , baikai-openai
     , base           >=4.20 && <5
+    , bytestring
     , generic-lens
     , lens           ^>=5.3
+    , streamly-core  ^>=0.3
     , tasty
     , tasty-hunit
     , text           ^>=2.1

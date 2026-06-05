@@ -13,25 +13,27 @@
 --
 -- The conversation-level helper for the common case — execute the
 -- model's tool calls and append the results to the next request —
--- lives in 'Baikai.Context.appendToolResult' to avoid an import
--- cycle between this module (which 'Baikai.Context' imports for the
--- @tools@ field type) and 'Baikai.Context' itself.
+-- lives in 'Baikai.Context.appendToolResult' and
+-- 'Baikai.Context.appendToolResultText' to avoid an import cycle
+-- between this module (which 'Baikai.Context' imports for the @tools@
+-- field type) and 'Baikai.Context' itself.
 module Baikai.Tool
-  ( Tool (..)
-  , ToolChoice (..)
-  , _Tool
-  ) where
+  ( Tool (..),
+    ToolChoice (..),
+    _Tool,
+  )
+where
 
 import Data.Aeson
-  ( FromJSON (..)
-  , Options (..)
-  , SumEncoding (..)
-  , ToJSON (..)
-  , Value (..)
-  , camelTo2
-  , defaultOptions
-  , genericParseJSON
-  , genericToJSON
+  ( FromJSON (..),
+    Options (..),
+    SumEncoding (..),
+    ToJSON (..),
+    Value (..),
+    camelTo2,
+    defaultOptions,
+    genericParseJSON,
+    genericToJSON,
   )
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -40,9 +42,9 @@ import GHC.Generics (Generic)
 -- | A caller-declared tool. @parameters@ holds a JSON Schema; the
 -- provider-side encoders pass it through unchanged.
 data Tool = Tool
-  { name :: !Text
-  , description :: !Text
-  , parameters :: !Value
+  { name :: !Text,
+    description :: !Text,
+    parameters :: !Value
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -63,8 +65,8 @@ data ToolChoice
 toolChoiceOptions :: Options
 toolChoiceOptions =
   defaultOptions
-    { sumEncoding = TaggedObject {tagFieldName = "type", contentsFieldName = "name"}
-    , constructorTagModifier = camelTo2 '_' . drop (Text.length "ToolChoice")
+    { sumEncoding = TaggedObject {tagFieldName = "type", contentsFieldName = "name"},
+      constructorTagModifier = camelTo2 '_' . drop (Text.length "ToolChoice")
     }
 
 instance FromJSON ToolChoice where
@@ -77,7 +79,7 @@ instance ToJSON ToolChoice where
 _Tool :: Tool
 _Tool =
   Tool
-    { name = Text.empty
-    , description = Text.empty
-    , parameters = Null
+    { name = Text.empty,
+      description = Text.empty,
+      parameters = Null
     }

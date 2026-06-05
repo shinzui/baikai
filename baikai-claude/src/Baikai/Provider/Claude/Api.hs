@@ -688,18 +688,21 @@ mapMessage = \case
         Msg.content = trc,
         Msg.isError = err
       } ->
-      Right
-        Messages.Message
-          { Messages.role = Messages.User,
-            Messages.content =
-              Vector.singleton
-                Messages.Content_Tool_Result
-                  { Messages.tool_use_id = normalizeToolCallId tid,
-                    Messages.content = nonEmpty (concatToolResultText trc),
-                    Messages.is_error = Just err
-                  },
-            Messages.cache_control = Nothing
-          }
+      case concatToolResultText trc of
+        Left unsupported -> Left unsupported
+        Right body ->
+          Right
+            Messages.Message
+              { Messages.role = Messages.User,
+                Messages.content =
+                  Vector.singleton
+                    Messages.Content_Tool_Result
+                      { Messages.tool_use_id = normalizeToolCallId tid,
+                        Messages.content = nonEmpty body,
+                        Messages.is_error = Just err
+                      },
+                Messages.cache_control = Nothing
+              }
 
 userContentToBlock :: Content.UserContent -> Maybe Messages.Content
 userContentToBlock = \case
@@ -736,15 +739,14 @@ assistantContentToBlock = \case
           Messages.caller = Nothing
         }
 
-concatToolResultText :: Vector Content.ToolResultContent -> Text
+concatToolResultText :: Vector Content.ToolResultContent -> Either Text Text
 concatToolResultText =
-  Text.concat
-    . Vector.toList
-    . Vector.mapMaybe
-      ( \case
-          Content.ToolResultText (Content.TextContent t) -> Just t
-          Content.ToolResultImage _ -> Nothing
-      )
+  fmap (Text.concat . Vector.toList) . traverse oneBlock
+  where
+    oneBlock = \case
+      Content.ToolResultText (Content.TextContent t) -> Right t
+      Content.ToolResultImage _ ->
+        Left "Anthropic Messages cannot encode ToolResultImage blocks in tool-result messages"
 
 nonEmpty :: Text -> Maybe Text
 nonEmpty t

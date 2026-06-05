@@ -100,7 +100,7 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
             exitFailure
           let timestamp = "2026-05-14T15:09:00Z" :: Text
           ctx1 <-
-            appendToolResult ctx0 resp1 (\_ -> pure timestamp)
+            appendToolResultText ctx0 resp1 (\_ -> pure timestamp)
           resp2 <- completeRequest caseModel ctx1 turn2Opts
           let blocks2 = flattenAssistantBlocks resp2
               texts =

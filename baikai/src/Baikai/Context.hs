@@ -17,11 +17,12 @@ module Baikai.Context
   ( Context (..),
     _Context,
     appendToolResult,
+    appendToolResultText,
   )
 where
 
 import Baikai.Content (AssistantContent (..), ToolCall (..))
-import Baikai.Message (AssistantPayload (..), Message (..), toolResult)
+import Baikai.Message (AssistantPayload (..), Message (..), ToolResult, toolResultFromCall, toolResultText)
 import Baikai.Response (Response (..))
 import Baikai.Tool (Tool)
 import Control.Lens ((&), (.~), (^.))
@@ -54,13 +55,14 @@ _Context =
 -- returned 'Context' is ready to drive the follow-up request that
 -- gives the model the tool results.
 --
--- The dispatcher receives one 'ToolCall' at a time and must return
--- the textual result. Any error handling (timeouts, sandboxing,
--- multi-call concurrency) lives in the dispatcher.
+-- The dispatcher receives one 'ToolCall' at a time and returns a rich
+-- 'ToolResult' carrying text blocks, image blocks, and an error flag.
+-- Any error handling (timeouts, sandboxing, multi-call concurrency)
+-- lives in the dispatcher.
 appendToolResult ::
   Context ->
   Response ->
-  (ToolCall -> IO Text) ->
+  (ToolCall -> IO ToolResult) ->
   IO Context
 appendToolResult ctx resp dispatcher = do
   let respMsg = resp ^. #message
@@ -71,8 +73,8 @@ appendToolResult ctx resp dispatcher = do
   results <-
     traverse
       ( \tc -> do
-          body <- dispatcher tc
-          pure (toolResult (tc ^. #id_) (tc ^. #name) body False)
+          result <- dispatcher tc
+          pure (toolResultFromCall tc result)
       )
       toolCalls
   pure $
@@ -82,3 +84,13 @@ appendToolResult ctx resp dispatcher = do
                <> V.singleton respMsg
                <> V.fromList results
            )
+
+-- | Text-only convenience wrapper for the common case where every
+-- tool call returns one successful text block.
+appendToolResultText ::
+  Context ->
+  Response ->
+  (ToolCall -> IO Text) ->
+  IO Context
+appendToolResultText ctx resp dispatcher =
+  appendToolResult ctx resp (fmap toolResultText . dispatcher)

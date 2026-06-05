@@ -35,10 +35,17 @@ module Baikai.Message
     UserPayload (..),
     AssistantPayload (..),
     ToolResultPayload (..),
+    ToolResult (..),
     user,
     userImage,
     assistant,
+    toolResultMessage,
+    toolResultFromCall,
     toolResult,
+    toolResultText,
+    toolResultErrorText,
+    toolResultImage,
+    toolResultBlocks,
   )
 where
 
@@ -46,6 +53,7 @@ import Baikai.Content
   ( AssistantContent (..),
     ImageContent,
     TextContent (TextContent),
+    ToolCall (..),
     ToolResultContent (..),
     UserContent (..),
   )
@@ -102,6 +110,19 @@ data ToolResultPayload = ToolResultPayload
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
+-- | A caller-produced result for one model-issued tool call.
+--
+-- The result can contain one or more text or image blocks, and
+-- @isError@ tells the model whether the tool execution failed in a
+-- recoverable way. Use the smart constructors below for the common
+-- cases.
+data ToolResult = ToolResult
+  { content :: !(Vector ToolResultContent),
+    isError :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
 -- | Build a one-text-block user message.
 --
 -- 'getCurrentTime' is run through 'unsafePerformIO' for ergonomics:
@@ -149,17 +170,66 @@ assistant t =
       }
 {-# NOINLINE assistant #-}
 
--- | Build a tool-result message answering a prior 'AssistantToolCall'.
--- @body@ becomes a single 'ToolResultText' block; pass an empty string
--- when the tool produced only image bytes and build the record by hand.
-toolResult :: Text -> Text -> Text -> Bool -> Message
-toolResult callId name body err =
+-- | Build a tool-result message answering a prior 'AssistantToolCall'
+-- using rich content blocks.
+toolResultMessage :: Text -> Text -> ToolResult -> Message
+toolResultMessage callId name ToolResult {content = blocks, isError = err} =
   ToolResultMessage
     ToolResultPayload
       { toolCallId = callId,
         toolName = name,
-        content = V.singleton (ToolResultText (TextContent body)),
+        content = blocks,
         isError = err,
         timestamp = unsafePerformIO getCurrentTime
       }
-{-# NOINLINE toolResult #-}
+{-# NOINLINE toolResultMessage #-}
+
+-- | Build a rich tool-result message from the original tool call.
+toolResultFromCall :: ToolCall -> ToolResult -> Message
+toolResultFromCall ToolCall {id_ = callId, name = toolName} =
+  toolResultMessage callId toolName
+
+-- | Build a one-text-block tool-result message. This is the
+-- text-only compatibility shorthand; prefer 'toolResultMessage'
+-- when the result has multiple blocks or image content.
+toolResult :: Text -> Text -> Text -> Bool -> Message
+toolResult callId name body err =
+  toolResultMessage
+    callId
+    name
+    ToolResult
+      { content = V.singleton (ToolResultText (TextContent body)),
+        isError = err
+      }
+
+-- | Successful one-text-block tool result.
+toolResultText :: Text -> ToolResult
+toolResultText body =
+  ToolResult
+    { content = V.singleton (ToolResultText (TextContent body)),
+      isError = False
+    }
+
+-- | Error one-text-block tool result.
+toolResultErrorText :: Text -> ToolResult
+toolResultErrorText body =
+  ToolResult
+    { content = V.singleton (ToolResultText (TextContent body)),
+      isError = True
+    }
+
+-- | Successful one-image-block tool result.
+toolResultImage :: ImageContent -> ToolResult
+toolResultImage img =
+  ToolResult
+    { content = V.singleton (ToolResultImage img),
+      isError = False
+    }
+
+-- | Tool result with explicit content blocks and error flag.
+toolResultBlocks :: Vector ToolResultContent -> Bool -> ToolResult
+toolResultBlocks blocks err =
+  ToolResult
+    { content = blocks,
+      isError = err
+    }

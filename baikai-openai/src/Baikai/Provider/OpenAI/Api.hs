@@ -842,13 +842,15 @@ mapMessage = \case
         Msg.content = trc,
         Msg.isError = err
       } ->
-      let body = collectToolResultText trc
-          decorated = if err then "[error] " <> body else body
-       in Right
-            Chat.Tool
-              { Chat.content = Vector.singleton Chat.Text {Chat.text = decorated},
-                Chat.tool_call_id = tid
-              }
+      case collectToolResultText trc of
+        Left unsupported -> Left unsupported
+        Right body ->
+          let decorated = if err then "[error] " <> body else body
+           in Right
+                Chat.Tool
+                  { Chat.content = Vector.singleton Chat.Text {Chat.text = decorated},
+                    Chat.tool_call_id = tid
+                  }
 
 userContentToPart :: Content.UserContent -> Chat.Content
 userContentToPart = \case
@@ -892,15 +894,14 @@ collectToolCalls =
         _ -> Nothing
     )
 
-collectToolResultText :: Vector Content.ToolResultContent -> Text
+collectToolResultText :: Vector Content.ToolResultContent -> Either Text Text
 collectToolResultText =
-  Text.concat
-    . Vector.toList
-    . Vector.mapMaybe
-      ( \case
-          Content.ToolResultText (Content.TextContent t) -> Just t
-          Content.ToolResultImage _ -> Nothing
-      )
+  fmap (Text.concat . Vector.toList) . traverse oneBlock
+  where
+    oneBlock = \case
+      Content.ToolResultText (Content.TextContent t) -> Right t
+      Content.ToolResultImage _ ->
+        Left "OpenAI Chat Completions cannot encode ToolResultImage blocks in tool-result messages"
 
 mapFinishReason :: Text -> Stop.StopReason
 mapFinishReason r = case r of

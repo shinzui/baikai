@@ -87,12 +87,13 @@ import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 
-dispatcher :: ToolCall -> IO Text
+dispatcher :: ToolCall -> IO ToolResult
 dispatcher tc = case tc ^. #name of
   "get_time" -> do
     now <- getCurrentTime
-    pure (Text.pack (iso8601Show now))
-  other -> error $ "unknown tool: " <> Text.unpack other
+    pure (toolResultText (Text.pack (iso8601Show now)))
+  other ->
+    pure (toolResultErrorText ("unknown tool: " <> other))
 
 runConversation :: IO Message
 runConversation = do
@@ -122,16 +123,36 @@ runConversation = do
 `appendToolResult` does three things:
 
 1. Pulls every `AssistantToolCall` block out of `resp1`'s message.
-2. Runs your `dispatcher` once per call, collecting the result text.
+2. Runs your `dispatcher` once per call, collecting rich result content.
 3. Returns a new `Context` with `resp1`'s message appended, then
    one `ToolResultMessage` per tool call.
 
-The dispatcher's signature is `ToolCall -> IO Text` — any
-exception handling, timeouts, or sandboxing is your responsibility.
-If you want to report an error to the model rather than crash, set
-`ToolResultMessage.isError = True`. (Build the message yourself
-with `Baikai.Message.toolResult` and append it manually instead of
-going through `appendToolResult`.)
+The dispatcher's signature is `ToolCall -> IO ToolResult`. A
+`ToolResult` carries a vector of text or image blocks plus an
+`isError` flag. The common constructors are:
+
+```haskell
+toolResultText :: Text -> ToolResult
+toolResultErrorText :: Text -> ToolResult
+toolResultImage :: ImageContent -> ToolResult
+toolResultBlocks :: Vector ToolResultContent -> Bool -> ToolResult
+```
+
+Use `toolResultErrorText` when the tool failed but you want the
+model to recover from that failure in the next turn. Any exception
+handling, timeouts, or sandboxing remains your responsibility. If
+every tool returns one successful text block, `appendToolResultText`
+is the shorthand:
+
+```haskell
+ctx1 <- appendToolResultText ctx0 resp1 (\_ -> pure "2026-05-14T15:09:00Z")
+```
+
+The core helper can carry `ToolResultImage` blocks in the context.
+The current Anthropic Messages and OpenAI Chat Completions provider
+mappings cannot encode image blocks in tool-result messages, so they
+reject such requests with a provider error instead of silently
+dropping the image content.
 
 ## Inspecting tool calls
 

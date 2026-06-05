@@ -4,6 +4,7 @@ slug: initial-api-hardening-before-0-1
 title: "Initial API Hardening Before 0.1"
 kind: master-plan
 created_at: 2026-06-05T02:56:59Z
+intention: intention_01ktavd0a0e08r0mw24mrgjgb7
 ---
 
 # Initial API Hardening Before 0.1
@@ -32,7 +33,7 @@ An alternative was one broad "API cleanup" ExecPlan. That was rejected because t
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Redact and Source API Credentials Safely | docs/plans/18-redact-and-source-api-credentials-safely.md | None | None | Complete |
 | EP-2 | Introduce Explicit Provider Registry Handles | docs/plans/19-introduce-explicit-provider-registry-handles.md | None | EP-1 | Complete |
-| EP-3 | Generalize Tool Result Round Trips | docs/plans/20-generalize-tool-result-round-trips.md | None | EP-4 | Not Started |
+| EP-3 | Generalize Tool Result Round Trips | docs/plans/20-generalize-tool-result-round-trips.md | None | EP-4 | Complete |
 | EP-4 | Make Message Construction and Response Invariants Explicit | docs/plans/21-make-message-construction-and-response-invariants-explicit.md | None | None | Not Started |
 | EP-5 | Stabilize Compat and Streaming Extension Points | docs/plans/22-stabilize-compat-and-streaming-extension-points.md | EP-4 | EP-2, EP-3 | Not Started |
 
@@ -71,8 +72,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-2: Update tests and provider registration functions to demonstrate isolated registries.
 - [ ] EP-4: Replace hidden-time pure message constructors with explicit timestamp and effectful convenience constructors.
 - [ ] EP-4: Encode the assistant-response invariant in types and remove production partial/error paths that assume it dynamically.
-- [ ] EP-3: Generalize tool-result helpers to support text, image, and error results.
-- [ ] EP-3: Update tool smoke tests and docs to demonstrate multi-result and error-result round trips.
+- [x] EP-3: Generalize tool-result helpers to support text, image, and error results.
+- [x] EP-3: Update tool smoke tests and docs to demonstrate multi-result and error-result round trips.
 - [ ] EP-5: Decide and implement the compat exposure policy for core versus provider packages.
 - [ ] EP-5: Document streaming event stability and add tests around any new extension mechanism.
 
@@ -87,6 +88,9 @@ interactions between child plans. Provide concise evidence.
   Date: 2026-06-05
 - Discovery: EP-2 preserves one handler per `Api` tag inside a registry, but multiple registries can hold different handlers for the same tag.
   Impact: Later plans should pass `ProviderRegistry` through any APIs that need handler-set isolation; they should not try to encode multiple same-tag handlers in one registry.
+  Date: 2026-06-05
+- Discovery: EP-3 found that the current OpenAI Chat Completions and Anthropic Messages SDK request shapes only support text tool-result messages, while Baikai core can represent `ToolResultImage`.
+  Impact: EP-5 should document streaming and content extension points with this provider limitation in mind. It should not assume every public `ToolResultContent` constructor is encodable by every provider; unsupported blocks need explicit provider behavior.
   Date: 2026-06-05
 
 
@@ -120,3 +124,5 @@ Compare the result against the original vision.
 EP-1 completed 2026-06-05. Baikai now exposes `ApiKeySource` through the umbrella module, redacts literal credentials in `Show` and JSON output, preserves provider environment fallback behavior, and updates smoke tests and docs to use `ApiKeyLiteral`. Focused tests and `nix develop --command cabal test all` passed.
 
 EP-2 completed 2026-06-05. Baikai now supports explicit `ProviderRegistry` handles for isolated registration and dispatch while preserving global convenience wrappers. Provider packages expose handle-based registration helpers, tracing and cost logging have explicit-registry variants, and tests prove same-`Api` providers remain isolated across registries.
+
+EP-3 completed 2026-06-05. Baikai now exposes rich `ToolResult` helpers for text, image, explicit blocks, and error results. `appendToolResult` consumes rich results and `appendToolResultText` keeps text-only dispatch concise. Provider encoders reject unsupported image tool-result blocks explicitly instead of silently dropping them, and the user docs and smoke tests demonstrate the migrated text workflow.

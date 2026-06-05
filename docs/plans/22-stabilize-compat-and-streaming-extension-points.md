@@ -4,6 +4,7 @@ slug: stabilize-compat-and-streaming-extension-points
 title: "Stabilize Compat and Streaming Extension Points"
 kind: exec-plan
 created_at: 2026-06-05T02:57:16Z
+intention: intention_01ktavd0a0e08r0mw24mrgjgb7
 master_plan: "docs/masterplans/4-initial-api-hardening-before-0-1.md"
 ---
 
