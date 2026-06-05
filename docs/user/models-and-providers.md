@@ -129,6 +129,7 @@ main = do
       deepseek = Models.deepseek_deepseek_chat
       llama = -- the hand-rolled record above
         _Model { … }
+      opts key = _Options & #apiKey .~ Just (ApiKeyLiteral key)
 
   -- All three dispatch through the same registered handler.
   _ <- completeRequest openai   ctx (opts openaiKey)

@@ -5,10 +5,13 @@ import Baikai
 import Baikai.Prelude
 import CatalogSpec qualified
 import CostSpec qualified
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Text qualified as Text
 import Data.Vector qualified as V
 import InteractiveSpec qualified
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import TraceSpec qualified
 
 -- | Ground the test provider on a 'Custom' API tag so it does not
@@ -77,6 +80,18 @@ tests =
         _Options ^. #maxTokens @?= Nothing
         _Options ^. #temperature @?= Nothing
         _Options ^. #apiKey @?= Nothing,
+      testCase "Options Show redacts literal API keys" $ do
+        let secret = "sk-baikai-secret-never-print"
+            opts = _Options & #apiKey .~ Just (ApiKeyLiteral secret)
+        assertBool
+          "show opts must not contain the raw API key"
+          (not (secret `Text.isInfixOf` Text.pack (show opts))),
+      testCase "Options JSON redacts literal API keys" $ do
+        let secret = "sk-baikai-secret-never-print"
+            opts = _Options & #apiKey .~ Just (ApiKeyLiteral secret)
+        assertBool
+          "Aeson.encode opts must not contain the raw API key"
+          (not (secret `Text.isInfixOf` Text.pack (LBS8.unpack (Aeson.encode opts)))),
       testCase "completeRequest dispatches through the registered handler" $ do
         let ctx = _Context & #messages .~ V.fromList [user "ping"]
         resp <- completeRequest testModel ctx _Options

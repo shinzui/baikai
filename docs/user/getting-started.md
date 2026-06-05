@@ -95,8 +95,9 @@ main = do
 `#field .~ value` syntax comes from `generic-lens`. `apiKey` is
 left unset, so the OpenAI handler reads `OPENAI_API_KEY` (or
 `OPENAI_KEY`) from the environment. Anthropic falls back to
-`ANTHROPIC_API_KEY` / `ANTHROPIC_KEY`. Pass `#apiKey .~ Just key`
-explicitly to override.
+`ANTHROPIC_API_KEY` / `ANTHROPIC_KEY`. Pass
+`#apiKey .~ Just (ApiKeyLiteral key)` explicitly to override with a
+literal credential; its `Show` and JSON instances redact the key.
 
 The result is a `Response`. Pull out the assistant message with
 `resp ^. #message`, and the text content with

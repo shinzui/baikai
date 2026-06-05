@@ -12,10 +12,12 @@
 -- primitive — see 'Baikai.CacheRetention' and 'Baikai.ThinkingLevel'
 -- for the mappings).
 module Baikai.Options
-  ( Options (..)
-  , _Options
-  ) where
+  ( Options (..),
+    _Options,
+  )
+where
 
+import Baikai.Auth (ApiKeySource)
 import Baikai.CacheRetention (CacheRetention)
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
@@ -27,15 +29,15 @@ import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
 data Options = Options
-  { maxTokens :: !(Maybe Natural)
-  , temperature :: !(Maybe Double)
-  , apiKey :: !(Maybe Text)
-  , timeoutMs :: !(Maybe Int)
-  , headers :: !(Map Text Text)
-  , metadata :: !(Map Text Value)
-  , toolChoice :: !(Maybe ToolChoice)
-  , cacheRetention :: !(Maybe CacheRetention)
-  , thinking :: !(Maybe ThinkingLevel)
+  { maxTokens :: !(Maybe Natural),
+    temperature :: !(Maybe Double),
+    apiKey :: !(Maybe ApiKeySource),
+    timeoutMs :: !(Maybe Int),
+    headers :: !(Map Text Text),
+    metadata :: !(Map Text Value),
+    toolChoice :: !(Maybe ToolChoice),
+    cacheRetention :: !(Maybe CacheRetention),
+    thinking :: !(Maybe ThinkingLevel)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -43,13 +45,13 @@ data Options = Options
 _Options :: Options
 _Options =
   Options
-    { maxTokens = Nothing
-    , temperature = Nothing
-    , apiKey = Nothing
-    , timeoutMs = Nothing
-    , headers = Map.empty
-    , metadata = Map.empty
-    , toolChoice = Nothing
-    , cacheRetention = Nothing
-    , thinking = Nothing
+    { maxTokens = Nothing,
+      temperature = Nothing,
+      apiKey = Nothing,
+      timeoutMs = Nothing,
+      headers = Map.empty,
+      metadata = Map.empty,
+      toolChoice = Nothing,
+      cacheRetention = Nothing,
+      thinking = Nothing
     }

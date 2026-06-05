@@ -7,13 +7,16 @@
 -- The lookup happens lazily inside 'resolveApiKey'; constructing an 'ApiKeyEnv'
 -- value does not read the environment.
 module Baikai.Auth
-  ( ApiKeySource (..)
-  , resolveApiKey
-  ) where
+  ( ApiKeySource (..),
+    renderApiKeySourceForDebug,
+    resolveApiKey,
+  )
+where
 
 import Baikai.Error (BaikaiError (..))
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Aeson (ToJSON (toJSON), object, (.=))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import System.Environment qualified as Environment
@@ -21,14 +24,36 @@ import System.Environment qualified as Environment
 data ApiKeySource
   = ApiKeyLiteral !Text
   | ApiKeyEnv !String
-  deriving stock (Eq, Show)
+  deriving stock (Eq)
+
+instance Show ApiKeySource where
+  show = Text.unpack . renderApiKeySourceForDebug
+
+instance ToJSON ApiKeySource where
+  toJSON (ApiKeyLiteral _) =
+    object
+      [ "source" .= ("literal-redacted" :: Text)
+      ]
+  toJSON (ApiKeyEnv name) =
+    object
+      [ "source" .= ("env" :: Text),
+        "name" .= name
+      ]
+
+-- | Render a credential source for logs, test failures, and debugging without
+-- exposing literal secret material.
+renderApiKeySourceForDebug :: ApiKeySource -> Text
+renderApiKeySourceForDebug (ApiKeyLiteral _) = "ApiKeyLiteral <redacted>"
+renderApiKeySourceForDebug (ApiKeyEnv name) =
+  "ApiKeyEnv " <> Text.pack (show name)
 
 -- | Resolve a key source to a plain 'Text'. Throws 'ProviderError' (a
 -- constructor of 'BaikaiError') if 'ApiKeyEnv' is used and the named variable
 -- is unset.
-resolveApiKey :: MonadIO m => ApiKeySource -> m Text
+resolveApiKey :: (MonadIO m) => ApiKeySource -> m Text
 resolveApiKey (ApiKeyLiteral t) = pure t
-resolveApiKey (ApiKeyEnv name) = liftIO $
-  Environment.lookupEnv name >>= \case
-    Just v -> pure (Text.pack v)
-    Nothing -> throwIO (ProviderError ("env var " <> Text.pack name <> " is not set"))
+resolveApiKey (ApiKeyEnv name) =
+  liftIO $
+    Environment.lookupEnv name >>= \case
+      Just v -> pure (Text.pack v)
+      Nothing -> throwIO (ProviderError ("env var " <> Text.pack name <> " is not set"))

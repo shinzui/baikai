@@ -4,36 +4,39 @@
 -- through the registered handler.
 module Baikai
   ( -- * Types
-    module Baikai.AgentAssets
-  , module Baikai.Api
-  , module Baikai.Model
-  , module Baikai.Content
-  , module Baikai.StopReason
-  , module Baikai.Message
-  , module Baikai.Tool
-  , module Baikai.Context
-  , module Baikai.Options
-  , module Baikai.Response
-  , module Baikai.Usage
-  , module Baikai.Cost
-  , module Baikai.Error
-  , module Baikai.Interactive
+    module Baikai.AgentAssets,
+    module Baikai.Api,
+    module Baikai.Auth,
+    module Baikai.Model,
+    module Baikai.Content,
+    module Baikai.StopReason,
+    module Baikai.Message,
+    module Baikai.Tool,
+    module Baikai.Context,
+    module Baikai.Options,
+    module Baikai.Response,
+    module Baikai.Usage,
+    module Baikai.Cost,
+    module Baikai.Error,
+    module Baikai.Interactive,
 
     -- * Per-API compat shims and call-time options
-  , module Baikai.Compat
-  , module Baikai.CacheRetention
-  , module Baikai.ThinkingLevel
+    module Baikai.Compat,
+    module Baikai.CacheRetention,
+    module Baikai.ThinkingLevel,
 
     -- * Provider registry
-  , module Baikai.Provider
+    module Baikai.Provider,
 
     -- * Streaming
-  , module Baikai.Stream
-  , module Baikai.Stream.Event
-  ) where
+    module Baikai.Stream,
+    module Baikai.Stream.Event,
+  )
+where
 
-import Baikai.Api
 import Baikai.AgentAssets
+import Baikai.Api
+import Baikai.Auth
 import Baikai.CacheRetention
 import Baikai.Compat
 import Baikai.Content

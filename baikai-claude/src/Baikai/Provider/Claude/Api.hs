@@ -8,8 +8,8 @@
 -- 'Baikai.Api.api' tag is 'AnthropicMessages' dispatches through
 -- this handler.
 --
--- The handler reads its API key from 'Baikai.Options.apiKey' when
--- present, falling back to the @ANTHROPIC_API_KEY@ env var via
+-- The handler resolves 'Baikai.Options.apiKey' when present, falling
+-- back to the @ANTHROPIC_API_KEY@ env var via
 -- 'Baikai.Auth.resolveApiKey'.
 --
 -- EP-3 promotes streaming to the primary entry point. The handler
@@ -149,7 +149,7 @@ prepareCall m ctx opts = do
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
-  Just k -> pure k
+  Just source -> Auth.resolveApiKey source
   Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "ANTHROPIC_API_KEY")
 
 -- | Worker body: drive the SDK's typed callback, forwarding events

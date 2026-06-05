@@ -1,0 +1,146 @@
+---
+id: 19
+slug: introduce-explicit-provider-registry-handles
+title: "Introduce Explicit Provider Registry Handles"
+kind: exec-plan
+created_at: 2026-06-05T02:57:11Z
+master_plan: "docs/masterplans/4-initial-api-hardening-before-0-1.md"
+---
+
+# Introduce Explicit Provider Registry Handles
+
+This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+
+
+## Purpose / Big Picture
+
+After this change, a Baikai user can choose an explicit provider registry handle instead of relying only on process-global mutable state. The current API stores handlers in a top-level `IORef`, so tests and applications cannot isolate two different handler sets in the same process. The new API should keep the current convenience functions for simple scripts, but it should also expose an explicit `ProviderRegistry` or `BaikaiClient` value that callers can construct, register into, and pass to completion/streaming functions.
+
+The behavior is visible with tests that create two registries in the same process, register different fake providers under the same `Api` tag, and verify that calls through each registry return different responses without overwriting each other.
+
+
+## Progress
+
+Use a checklist to summarize granular steps. Every stopping point must be documented here,
+even if it requires splitting a partially completed task into two ("done" vs. "remaining").
+This section must always reflect the actual current state of the work.
+
+- [ ] Audit every public and internal caller of `registerApiProvider`, `lookupApiProvider`, `completeRequest`, and `streamRequest`.
+- [ ] Add an explicit registry/client handle API in `Baikai.Provider.Registry`.
+- [ ] Rebuild global convenience functions on top of a default registry handle.
+- [ ] Update provider packages to expose both handle-based and global registration helpers.
+- [ ] Add tests proving two registries can hold independent providers for the same `Api`.
+- [ ] Update tracing, cost logging, smoke tests, and docs where dispatch entry points change.
+
+
+## Surprises & Discoveries
+
+Document unexpected behaviors, bugs, optimizations, or insights discovered during
+implementation. Provide concise evidence.
+
+None yet.
+
+
+## Decision Log
+
+Record every decision made while working on the plan.
+
+- Decision: Preserve global registration as a convenience wrapper while introducing explicit handles.
+  Rationale: Existing examples and smoke tests use simple `register :: IO ()` functions. Removing them would create unnecessary migration friction, but keeping only globals would lock in a poor long-term API.
+  Date: 2026-06-05
+- Decision: Verify the change with same-API, different-handler tests.
+  Rationale: The risk is not whether dispatch works once; the risk is whether handler state can be isolated in one process.
+  Date: 2026-06-05
+
+
+## Outcomes & Retrospective
+
+Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
+Compare the result against the original purpose.
+
+(To be filled during and after implementation.)
+
+
+## Context and Orientation
+
+The provider registry is the mechanism that maps an `Api` tag to the code that knows how to call that API. It lives in `baikai/src/Baikai/Provider/Registry.hs`. Today it defines `ApiProvider`, a process-global `registry :: IORef (Map Api ApiProvider)`, `registerApiProvider`, `lookupApiProvider`, and `completeRequest`.
+
+The public re-export module `baikai/src/Baikai/Provider.hs` exposes the registry functions. Streaming dispatch in `baikai/src/Baikai/Stream.hs` calls `lookupApiProvider` and returns a one-event error stream if no provider is registered. Tracing in `baikai/src/Baikai/Trace.hs` calls `streamRequest`. Cost logging in `baikai/src/Baikai/Cost/Log.hs` calls `completeRequest`.
+
+Provider packages register handlers in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`, `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs`, `baikai-claude/src/Baikai/Provider/Claude/Api.hs`, and `baikai-claude/src/Baikai/Provider/Claude/Cli.hs`. Each package currently exposes `register :: IO ()`, and CLI packages also expose `registerWith`.
+
+Tests rely on global registration in `baikai/test/Main.hs`, `baikai/test/CostSpec.hs`, and `baikai/test/TraceSpec.hs`. Those tests are good places to add explicit-registry coverage.
+
+
+## Plan of Work
+
+Milestone 1 introduces the explicit handle. In `baikai/src/Baikai/Provider/Registry.hs`, add a public `ProviderRegistry` newtype or record that owns the `IORef (Map Api ApiProvider)`. Add `newProviderRegistry :: IO ProviderRegistry`, `registerApiProviderWith :: ProviderRegistry -> ApiProvider -> IO ()`, `lookupApiProviderWith :: ProviderRegistry -> Api -> IO (Maybe ApiProvider)`, and `completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response`. Keep the existing top-level functions, but implement them by calling the `With` variants against a `globalProviderRegistry`.
+
+Milestone 2 updates streaming and tracing. In `baikai/src/Baikai/Stream.hs`, add `streamRequestWith :: ProviderRegistry -> Model -> Context -> Options -> Stream IO AssistantMessageEvent`. Keep `streamRequest` as a wrapper using `globalProviderRegistry`. In `baikai/src/Baikai/Trace.hs`, add handle-based variants if needed, such as `withTraceStreamWith` and `withTraceWith`, or choose a naming scheme that reads naturally. The exact names may change, but the API must let a caller trace calls through an explicit registry.
+
+Milestone 3 updates provider packages. Each provider module should expose handle-based registration in addition to the current global helper. A reasonable target is `registerWithRegistry :: ProviderRegistry -> IO ()` for API providers and `registerWithRegistryAndConfig :: ProviderRegistry -> Config -> IO ()` for configurable CLI providers. Preserve current `register` and `registerWith` names as global convenience wrappers.
+
+Milestone 4 updates tests and docs. Add tests that create two registries, register two fake providers for the same `Custom "test"` API tag, and assert that `completeRequestWith registryA` and `completeRequestWith registryB` return different providers/messages. Update docs and README snippets that describe calling `register`.
+
+
+## Concrete Steps
+
+Work from the repository root:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/baikai
+```
+
+Audit dispatch call sites:
+
+```bash
+rg -n "registerApiProvider|lookupApiProvider|completeRequest|streamRequest|withTrace" baikai baikai-openai baikai-claude baikai-trace-otel baikai-smoke docs
+```
+
+Run focused tests after the core registry changes:
+
+```bash
+nix develop --command cabal test baikai-test
+```
+
+Run provider tests after provider package registration changes:
+
+```bash
+nix develop --command cabal test baikai-openai-test baikai-claude-test
+```
+
+Run the full suite before completion:
+
+```bash
+nix develop --command cabal test all
+```
+
+
+## Validation and Acceptance
+
+Acceptance requires a test that proves isolation. The test should create two explicit registries, register a fake provider under the same API tag in each, and call `completeRequestWith` against both. The observed responses must differ according to the provider registered in the selected registry. This test would fail or be impossible with only the current process-global registry.
+
+Existing global behavior must still work. Existing tests that call `registerApiProvider` and `completeRequest` should either remain valid or be updated to assert the same behavior through the global convenience wrappers.
+
+Streaming must have an explicit-registry path. A caller must be able to obtain a stream through a selected registry without mutating the global registry.
+
+The command:
+
+```bash
+nix develop --command cabal test all
+```
+
+must complete successfully.
+
+
+## Idempotence and Recovery
+
+The safest migration is additive first. Add explicit-registry functions and tests while leaving existing globals in place. Once the explicit API is proven, reimplement globals in terms of the explicit registry. If a later provider update fails, the core can remain in the additive state while provider modules are migrated one at a time.
+
+
+## Interfaces and Dependencies
+
+This plan should not add new dependencies. It uses `Data.IORef`, `Data.Map.Strict`, and existing Streamly types already used by `Baikai.Provider.Registry` and `Baikai.Stream`.
+
+At the end, `baikai/src/Baikai/Provider/Registry.hs` must expose an explicit registry handle and handle-based variants of registration, lookup, and completion. `baikai/src/Baikai/Stream.hs` must expose an explicit-registry streaming function. Provider packages must expose handle-based registration while preserving global convenience helpers.

@@ -8,8 +8,8 @@
 -- whose 'Baikai.Api.api' tag is 'OpenAIChatCompletions' dispatches
 -- through this handler.
 --
--- The handler reads its API key from 'Baikai.Options.apiKey' when
--- present, falling back to the @OPENAI_API_KEY@ env var via
+-- The handler resolves 'Baikai.Options.apiKey' when present, falling
+-- back to the @OPENAI_API_KEY@ env var via
 -- 'Baikai.Auth.resolveApiKey'.
 --
 -- EP-3 promotes streaming to the primary entry point. The handler
@@ -176,7 +176,7 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
-  Just k -> pure k
+  Just source -> Auth.resolveApiKey source
   Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "OPENAI_API_KEY")
 
 -- | A loose summary of one streamed chunk. The raw 'Aeson.Value' is

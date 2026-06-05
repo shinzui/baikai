@@ -24,8 +24,9 @@
 -- handler is registered exactly once; the second host inherits the
 -- registration via its 'Model.api = OpenAIChatCompletions'.
 module MultiHostSmoke
-  ( runMultiHostCase
-  ) where
+  ( runMultiHostCase,
+  )
+where
 
 import Baikai
 import Baikai.Models.Generated qualified as Models
@@ -45,9 +46,9 @@ import System.IO (hPutStrLn, stderr)
 -- builds a 'Model' once a key is found. Two such records define the
 -- two hosts the smoke compares.
 data SecondHost = SecondHost
-  { hostLabel :: !String
-  , hostEnvVars :: ![String]
-  , hostModel :: !Model
+  { hostLabel :: !String,
+    hostEnvVars :: ![String],
+    hostModel :: !Model
   }
 
 runMultiHostCase :: IO Bool
@@ -55,14 +56,16 @@ runMultiHostCase = do
   matchedOpenai <- firstSetEnv ["OPENAI_API_KEY", "OPENAI_KEY"]
   case matchedOpenai of
     Nothing -> do
-      hPutStrLn stderr
+      hPutStrLn
+        stderr
         "[baikai-smoke] no OpenAI key set; skipping multi-host case."
       pure False
     Just (openaiVar, openaiKey) -> do
       mSecond <- pickSecondHost
       case mSecond of
         Nothing -> do
-          hPutStrLn stderr
+          hPutStrLn
+            stderr
             "[baikai-smoke] no second-host key (DEEPSEEK_API_KEY / \
             \OPENROUTER_API_KEY / TOGETHER_API_KEY); skipping multi-host case."
           pure False
@@ -78,12 +81,12 @@ runMultiHostCase = do
                 _Options
                   & #maxTokens .~ Just 32
                   & #temperature .~ Just 0.0
-                  & #apiKey .~ Just (Text.pack openaiKey)
+                  & #apiKey .~ Just (ApiKeyLiteral (Text.pack openaiKey))
               secondOpts =
                 _Options
                   & #maxTokens .~ Just 32
                   & #temperature .~ Just 0.0
-                  & #apiKey .~ Just (Text.pack secondKey)
+                  & #apiKey .~ Just (ApiKeyLiteral (Text.pack secondKey))
           resp1 <- completeRequest openaiModel ctx openaiOpts
           resp2 <- completeRequest secondModel ctx secondOpts
           let blocksOpenai = flattenAssistantBlocks resp1
@@ -124,26 +127,26 @@ pickSecondHost :: IO (Maybe (SecondHost, String, String))
 pickSecondHost = do
   let candidates =
         [ SecondHost
-            { hostLabel = "deepseek"
-            , hostEnvVars = ["DEEPSEEK_API_KEY"]
-            , hostModel =
+            { hostLabel = "deepseek",
+              hostEnvVars = ["DEEPSEEK_API_KEY"],
+              hostModel =
                 Models.deepseek_deepseek_chat & #maxOutputTokens .~ 64
-            }
-        , SecondHost
-            { hostLabel = "openrouter"
-            , hostEnvVars = ["OPENROUTER_API_KEY"]
-            , hostModel =
+            },
+          SecondHost
+            { hostLabel = "openrouter",
+              hostEnvVars = ["OPENROUTER_API_KEY"],
+              hostModel =
                 Models.openrouter_openai_gpt_4o_mini & #maxOutputTokens .~ 64
-            }
-        , -- One hand-rolled entry kept here to demonstrate that
+            },
+          -- One hand-rolled entry kept here to demonstrate that
           -- callers can still target hosts the generated catalog
           -- does not (yet) cover. The OpenAI auto-detection in
           -- 'Baikai.Compat' picks ThinkingFormatTogether from the
           -- @api.together.xyz@ host name.
           SecondHost
-            { hostLabel = "together"
-            , hostEnvVars = ["TOGETHER_API_KEY"]
-            , hostModel =
+            { hostLabel = "together",
+              hostEnvVars = ["TOGETHER_API_KEY"],
+              hostModel =
                 _Model
                   & #modelId .~ "meta-llama/Meta-Llama-3-8B-Instruct-Turbo"
                   & #name .~ "Llama 3 8B Instruct Turbo"

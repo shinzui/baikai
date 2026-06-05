@@ -8,15 +8,16 @@
 -- 'System.Exit.exitFailure' on assertion failure so the wrapping
 -- @main@ surfaces it as a test-suite failure.
 module ToolsSmoke
-  ( ApiCase (..)
-  , runToolCase
-  ) where
+  ( ApiCase (..),
+    runToolCase,
+  )
+where
 
 import Baikai
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (when)
-import Data.Aeson qualified as Aeson
 import Data.Aeson ((.=))
+import Data.Aeson qualified as Aeson
 import Data.Foldable (find)
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
@@ -31,9 +32,9 @@ import System.IO (hPutStrLn, stderr)
 -- it locally so 'ToolsSmoke' has no dependency on the smoke
 -- entry-point module's internals.
 data ApiCase = ApiCase
-  { caseLabel :: !String
-  , caseEnvVars :: ![String]
-  , caseModel :: !Model
+  { caseLabel :: !String,
+    caseEnvVars :: ![String],
+    caseModel :: !Model
   }
 
 runToolCase :: ApiCase -> IO Bool
@@ -51,13 +52,13 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
     Just (envVar, key) -> do
       let getTime =
             _Tool
-              { name = "get_time"
-              , description = "Return the current UTC ISO-8601 timestamp."
-              , parameters =
+              { name = "get_time",
+                description = "Return the current UTC ISO-8601 timestamp.",
+                parameters =
                   Aeson.object
-                    [ "type" .= ("object" :: Text)
-                    , "properties" .= Aeson.object []
-                    , "required" .= ([] :: [Text])
+                    [ "type" .= ("object" :: Text),
+                      "properties" .= Aeson.object [],
+                      "required" .= ([] :: [Text])
                     ]
               }
           ctx0 =
@@ -70,7 +71,7 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
             _Options
               & #maxTokens .~ Just 1024
               & #temperature .~ Just 0.0
-              & #apiKey .~ Just (Text.pack key)
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
           -- Turn 1: force a tool call so the round-trip is
           -- deterministic. Turn 2: let the model speak freely (it
           -- must produce text, not another tool call).

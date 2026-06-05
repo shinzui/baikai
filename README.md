@@ -90,8 +90,9 @@ main = do
 `_Context` / `_Options` / `_Model` are empty bases you fill with
 `generic-lens` record updates. `apiKey` left unset falls back to the
 provider's environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-…). Swap `completeRequest` for `streamRequest` to fold over typed
-events instead of a single `Response`. See
+…). Set `#apiKey .~ Just (ApiKeyLiteral key)` to override with an
+explicit credential. Swap `completeRequest` for `streamRequest` to fold
+over typed events instead of a single `Response`. See
 [Getting Started](docs/user/getting-started.md) for the streaming
 walkthrough.
 

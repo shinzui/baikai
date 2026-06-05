@@ -108,7 +108,7 @@ runApiCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
             _Options
               & #maxTokens .~ Just 16
               & #temperature .~ Just 0.0
-              & #apiKey .~ Just (Text.pack key)
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
       resp <- completeRequest caseModel sampleContext opts
       let blocks = flattenAssistantBlocks resp
           flat = flattenAssistantText blocks
@@ -146,7 +146,7 @@ runStreamCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
             _Options
               & #maxTokens .~ Just 32
               & #temperature .~ Just 0.0
-              & #apiKey .~ Just (Text.pack key)
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
       events <- Stream.toList (streamRequest caseModel sampleContext opts)
       let textDeltas =
             [ d
@@ -296,7 +296,7 @@ runImageCase = do
             _Options
               & #maxTokens .~ Just 64
               & #temperature .~ Just 0.0
-              & #apiKey .~ Just (Text.pack key)
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
       resp <- completeRequest model ctx opts
       let blocks = flattenAssistantBlocks resp
           hasText = any isText (Vector.toList blocks)
