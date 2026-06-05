@@ -8,12 +8,12 @@ description:
   baikai provides a unified Haskell interface for working with multiple AI providers.
 
 license:         BSD-3-Clause
-license-file:    ../LICENSE
+license-file:    LICENSE
 author:          Nadeem Bitar
 maintainer:      nadeem@gmail.com
 copyright:       (c) 2026 Nadeem Bitar
 build-type:      Simple
-extra-doc-files: ../CHANGELOG.md
+extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
