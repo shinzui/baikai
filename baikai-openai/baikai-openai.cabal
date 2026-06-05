@@ -5,6 +5,7 @@ synopsis:      OpenAI providers for the baikai abstraction
 description:
   Wraps the openai Haskell package as a Baikai Provider for OpenAI's Chat Completions API.
 
+category:      AI
 license:       BSD-3-Clause
 license-file:  LICENSE
 author:        Nadeem Bitar
@@ -36,8 +37,8 @@ library
 
   build-depends:
     , aeson
-    , baikai
-    , base               >=4.20  && <5
+    , baikai             ^>=0.1.0
+    , base               >=4.20   && <5
     , base64-bytestring
     , bytestring
     , containers
@@ -48,8 +49,8 @@ library
     , openai
     , process
     , servant-client
-    , streamly           ^>=0.11
-    , streamly-core      ^>=0.3
+    , streamly           >=0.11   && <0.13
+    , streamly-core      >=0.3    && <0.5
     , text               ^>=2.1
     , time
     , vector
@@ -60,13 +61,13 @@ test-suite baikai-openai-test
   hs-source-dirs: test
   main-is:        Main.hs
   build-depends:
-    , baikai
+    , baikai         ^>=0.1.0
     , baikai-openai
-    , base           >=4.20 && <5
+    , base           >=4.20   && <5
     , bytestring
     , generic-lens
     , lens           ^>=5.3
-    , streamly-core  ^>=0.3
+    , streamly-core  >=0.3    && <0.5
     , tasty
     , tasty-hunit
     , text           ^>=2.1

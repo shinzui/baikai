@@ -1,12 +1,15 @@
 cabal-version:   3.4
 name:            baikai
 version:         0.1.0.0
-synopsis:
-  baikai provides a unified Haskell interface for working with multiple AI providers.
-
+synopsis:        Unified Haskell interface for multiple AI providers
 description:
-  baikai provides a unified Haskell interface for working with multiple AI providers.
+  baikai provides a unified, provider-agnostic Haskell interface for working
+  with multiple AI providers. It abstracts chat and streaming completions, tool
+  use, model catalogs, cost accounting, and tracing behind a single API, with
+  concrete provider implementations supplied by companion packages such as
+  @baikai-claude@ and @baikai-openai@.
 
+category:        AI
 license:         BSD-3-Clause
 license-file:    LICENSE
 author:          Nadeem Bitar
@@ -67,15 +70,15 @@ library
 
   build-depends:
     , aeson
-    , base               >=4.20  && <5
+    , base               >=4.20 && <5
     , base64-bytestring
     , bytestring
     , containers
     , generic-lens
     , lens               ^>=5.3
     , scientific
-    , streamly           ^>=0.11
-    , streamly-core      ^>=0.3
+    , streamly           >=0.11 && <0.13
+    , streamly-core      >=0.3  && <0.5
     , text               ^>=2.1
     , time
     , unliftio-core
@@ -118,7 +121,7 @@ test-suite baikai-test
     , filepath
     , process
     , stm
-    , streamly-core  ^>=0.3
+    , streamly-core  >=0.3 && <0.5
     , tasty
     , tasty-hunit
     , temporary
