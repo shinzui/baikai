@@ -5,36 +5,16 @@ packages:
   baikai-smoke
   baikai-trace-otel
 
-source-repository-package
-  type: git
-  location: https://github.com/composewell/streamly
-  tag: a97ea85a194f6fd83513f84ce8ee2547147f553f
-
-source-repository-package
-  type: git
-  location: https://github.com/composewell/streamly
-  tag: a97ea85a194f6fd83513f84ce8ee2547147f553f
-  subdir: core
-
 -- GHC is provided by the Nix devShell from `nix-haskell-flake` (currently
 -- pinned to ghc912). Add a `with-compiler:` line here if you want
 -- cabal to fail loudly when the version drifts from the flake.
 --
--- claude, openai, cradle, hs-opentelemetry-api, hs-opentelemetry-sdk, and
--- hs-opentelemetry-exporter-in-memory resolve from Hackage. streamly and
--- streamly-core are pinned to GitHub because the project depends on the
--- unreleased 0.12/0.4 package pair.
+-- All dependencies resolve from Hackage: claude, openai, cradle,
+-- hs-opentelemetry-api, hs-opentelemetry-sdk, hs-opentelemetry-exporter-in-memory,
+-- and the streamly / streamly-core pair (latest released 0.11 / 0.3).
 
 test-show-details: direct
 tests: True
-
--- The vendored streamly packages ship live tasty suites that we do not
--- want to drag into `cabal test all`. Library only.
-package streamly
-  tests: False
-
-package streamly-core
-  tests: False
 
 -- Parallel module compilation
 jobs: $ncpus

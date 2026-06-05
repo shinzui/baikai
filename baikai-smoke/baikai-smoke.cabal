@@ -1,33 +1,27 @@
 cabal-version: 3.4
-name: baikai-smoke
-version: 0.1.0.0
-synopsis: Live smoke tests across baikai providers
+name:          baikai-smoke
+version:       0.1.0.0
+synopsis:      Live smoke tests across baikai providers
 description:
   Runs minimal real-network requests against every shipped baikai provider when the
   corresponding API key environment variable is set. Skips, never fails, when keys
   are absent.
 
-license: BSD-3-Clause
-license-file: ../LICENSE
-author: Nadeem Bitar
-maintainer: nadeem@gmail.com
-copyright: (c) 2026 Nadeem Bitar
-build-type: Simple
+license:       BSD-3-Clause
+license-file:  ../LICENSE
+author:        Nadeem Bitar
+maintainer:    nadeem@gmail.com
+copyright:     (c) 2026 Nadeem Bitar
+build-type:    Simple
 
 common common-options
   ghc-options:
-    -Wall
-    -Wcompat
-    -Widentities
-    -Wincomplete-uni-patterns
-    -Wincomplete-record-updates
-    -Wredundant-constraints
-    -fhide-source-paths
-    -Wmissing-export-lists
-    -Wpartial-fields
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wredundant-constraints
+    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
     -Wmissing-deriving-strategies
 
-  default-language: GHC2024
+  default-language:   GHC2024
   default-extensions:
     DeriveAnyClass
     DuplicateRecordFields
@@ -35,29 +29,30 @@ common common-options
     OverloadedStrings
 
 test-suite baikai-smoke
-  import: common-options
-  type: exitcode-stdio-1.0
+  import:         common-options
+  type:           exitcode-stdio-1.0
   hs-source-dirs: test
-  main-is: Smoke.hs
+  main-is:        Smoke.hs
   other-modules:
     InteractiveSmoke
     MultiHostSmoke
     ToolsSmoke
+
   -- cradle (used by Baikai.Provider.Claude.Cli) requires the threaded RTS.
-  ghc-options: -threaded -with-rtsopts=-N
+  ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
-    , base >=4.20 && <5
     , aeson
     , baikai
     , baikai-claude
     , baikai-openai
+    , base               >=4.20  && <5
     , base64-bytestring
     , bytestring
     , directory
     , generic-lens
-    , lens ^>=5.3
+    , lens               ^>=5.3
     , process
-    , streamly ^>=0.12
-    , streamly-core ^>=0.4
-    , text ^>=2.1
+    , streamly           ^>=0.11
+    , streamly-core      ^>=0.3
+    , text               ^>=2.1
     , vector

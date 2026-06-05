@@ -1,32 +1,28 @@
-cabal-version: 3.4
-name: baikai
-version: 0.1.0.0
-synopsis: baikai provides a unified Haskell interface for working with multiple AI providers.
+cabal-version:   3.4
+name:            baikai
+version:         0.1.0.0
+synopsis:
+  baikai provides a unified Haskell interface for working with multiple AI providers.
+
 description:
   baikai provides a unified Haskell interface for working with multiple AI providers.
 
-license: BSD-3-Clause
-license-file: ../LICENSE
-author: Nadeem Bitar
-maintainer: nadeem@gmail.com
-copyright: (c) 2026 Nadeem Bitar
-build-type: Simple
+license:         BSD-3-Clause
+license-file:    ../LICENSE
+author:          Nadeem Bitar
+maintainer:      nadeem@gmail.com
+copyright:       (c) 2026 Nadeem Bitar
+build-type:      Simple
 extra-doc-files: ../CHANGELOG.md
 
 common common-options
   ghc-options:
-    -Wall
-    -Wcompat
-    -Widentities
-    -Wincomplete-uni-patterns
-    -Wincomplete-record-updates
-    -Wredundant-constraints
-    -fhide-source-paths
-    -Wmissing-export-lists
-    -Wpartial-fields
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wredundant-constraints
+    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
     -Wmissing-deriving-strategies
 
-  default-language: GHC2024
+  default-language:   GHC2024
   default-extensions:
     DeriveAnyClass
     DuplicateRecordFields
@@ -34,8 +30,8 @@ common common-options
     OverloadedStrings
 
 library
-  import: common-options
-  hs-source-dirs: src
+  import:          common-options
+  hs-source-dirs:  src
   exposed-modules:
     Baikai
     Baikai.AgentAssets
@@ -70,61 +66,61 @@ library
     Baikai.Usage
 
   build-depends:
-    base >=4.20 && <5,
-    aeson,
-    base64-bytestring,
-    bytestring,
-    containers,
-    generic-lens,
-    lens ^>=5.3,
-    scientific,
-    streamly ^>=0.12,
-    streamly-core ^>=0.4,
-    text ^>=2.1,
-    time,
-    unliftio-core,
-    vector,
+    , aeson
+    , base               >=4.20  && <5
+    , base64-bytestring
+    , bytestring
+    , containers
+    , generic-lens
+    , lens               ^>=5.3
+    , scientific
+    , streamly           ^>=0.11
+    , streamly-core      ^>=0.3
+    , text               ^>=2.1
+    , time
+    , unliftio-core
+    , vector
 
 executable baikai-gen-models
-  import: common-options
+  import:         common-options
   hs-source-dirs: gen
-  main-is: GenModels.hs
+  main-is:        GenModels.hs
   build-depends:
-    base >=4.20 && <5,
-    aeson,
-    baikai,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    scientific,
-    text ^>=2.1,
+    , aeson
+    , baikai
+    , base        >=4.20 && <5
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , scientific
+    , text        ^>=2.1
 
 test-suite baikai-test
-  import: common-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is: Main.hs
+  import:             common-options
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Main.hs
   other-modules:
     AgentAssetsSpec
     CatalogSpec
     CostSpec
     InteractiveSpec
     TraceSpec
-  build-tool-depends:
-    baikai:baikai-gen-models
+
+  build-tool-depends: baikai:baikai-gen-models
   build-depends:
-    base,
-    aeson,
-    baikai,
-    bytestring,
-    directory,
-    filepath,
-    process,
-    stm,
-    streamly-core ^>=0.4,
-    tasty,
-    tasty-hunit,
-    temporary,
-    text,
-    vector,
+    , aeson
+    , baikai
+    , base
+    , bytestring
+    , directory
+    , filepath
+    , process
+    , stm
+    , streamly-core  ^>=0.3
+    , tasty
+    , tasty-hunit
+    , temporary
+    , text
+    , vector
