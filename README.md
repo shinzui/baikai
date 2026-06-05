@@ -157,6 +157,11 @@ source-repository-package
 - [Models & Providers](docs/user/models-and-providers.md) — the
   generated catalog, hand-rolled models, multi-host OpenAI-compat
   targets, the registry, custom providers, usage & cost.
+- [Streaming](docs/user/streaming.md) — the `AssistantMessageEvent`
+  algebra, event stability policy, fold patterns, and partial output
+  recovery.
+- [Tools](docs/user/tools.md) — declaring tools, tool-choice options,
+  and the two-turn tool-result round trip.
 - [CLI Providers](docs/user/cli-providers.md) — driving `claude -p` and
   `codex exec` as subprocess providers.
 - [Interactive Launches](docs/user/interactive-launches.md) — opening
