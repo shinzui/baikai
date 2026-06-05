@@ -43,9 +43,9 @@ build-depends:
 
 ## Register providers
 
-Each vendor package exposes a single `register :: IO ()`. Call them
-once from `main` (or any equivalent startup point) before
-dispatching a request:
+Each vendor package exposes a `register :: IO ()` convenience helper.
+Call it once from `main` (or any equivalent startup point) before
+dispatching a request through the global registry:
 
 ```haskell
 import Baikai.Provider.Claude.Api qualified as ClaudeApi
@@ -66,6 +66,11 @@ Registration is idempotent per `Api` tag: calling `register` twice
 keeps the second handler. Only register the providers you actually
 use; an unregistered API tag throws `Baikai.Error.ProviderError` on
 dispatch.
+
+For isolated tests or applications with more than one handler set,
+construct a `ProviderRegistry` with `newProviderRegistry`, call the
+provider's `registerWithRegistry`, and dispatch with
+`completeRequestWith` or `streamRequestWith`.
 
 ## Your first call (blocking)
 

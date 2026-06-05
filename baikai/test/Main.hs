@@ -10,6 +10,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 import InteractiveSpec qualified
+import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import TraceSpec qualified
@@ -37,6 +38,10 @@ testModel =
 -- overwrites.
 registerTestHandler :: Text -> IO ()
 registerTestHandler canned =
+  registerApiProvider (testProvider "test" canned)
+
+testProvider :: Text -> Text -> ApiProvider
+testProvider providerName canned =
   let handler m _ctx _opts =
         pure $
           _Response
@@ -47,13 +52,12 @@ registerTestHandler canned =
             & #api
             .~ testApi
             & #provider
-            .~ "test"
-   in registerApiProvider
-        ApiProvider
-          { apiTag = testApi,
-            stream = liftCompleteToStream handler,
-            complete = handler
-          }
+            .~ providerName
+   in ApiProvider
+        { apiTag = testApi,
+          stream = liftCompleteToStream handler,
+          complete = handler
+        }
 
 main :: IO ()
 main = do
@@ -99,6 +103,28 @@ tests =
           @?= V.singleton (AssistantText (TextContent "hello from the test provider"))
         (resp ^. #model) ^. #modelId @?= "test-model"
         resp ^. #provider @?= "test",
+      testCase "explicit registries isolate providers for the same API" $ do
+        regA <- newProviderRegistry
+        regB <- newProviderRegistry
+        registerApiProviderWith regA (testProvider "provider-a" "hello from A")
+        registerApiProviderWith regB (testProvider "provider-b" "hello from B")
+        let ctx = _Context & #messages .~ V.fromList [user "ping"]
+        respA <- completeRequestWith regA testModel ctx _Options
+        respB <- completeRequestWith regB testModel ctx _Options
+        flattenAssistantBlocks respA
+          @?= V.singleton (AssistantText (TextContent "hello from A"))
+        flattenAssistantBlocks respB
+          @?= V.singleton (AssistantText (TextContent "hello from B"))
+        respA ^. #provider @?= "provider-a"
+        respB ^. #provider @?= "provider-b",
+      testCase "streamRequestWith dispatches through an explicit registry" $ do
+        reg <- newProviderRegistry
+        registerApiProviderWith reg (testProvider "stream-provider" "hello from stream")
+        let ctx = _Context & #messages .~ V.fromList [user "ping"]
+        events <- Stream.toList (streamRequestWith reg testModel ctx _Options)
+        resp <- Stream.fold (reassembleResponse testModel) (Stream.fromList events)
+        flattenAssistantBlocks resp
+          @?= V.singleton (AssistantText (TextContent "hello from stream")),
       testCase "user smart constructor produces a UserMessage" $ do
         case user "hello" of
           UserMessage UserPayload {content = uc} ->

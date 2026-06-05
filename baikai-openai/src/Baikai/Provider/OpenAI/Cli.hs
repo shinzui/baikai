@@ -9,6 +9,8 @@ module Baikai.Provider.OpenAI.Cli
     defaultCodexCliConfig,
     register,
     registerWith,
+    registerWithRegistry,
+    registerWithRegistryAndConfig,
   )
 where
 
@@ -20,7 +22,12 @@ import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
-import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
+import Baikai.Provider.Registry
+  ( ApiProvider (..),
+    ProviderRegistry,
+    globalProviderRegistry,
+    registerApiProviderWith,
+  )
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
@@ -76,8 +83,19 @@ register = registerWith defaultCodexCliConfig
 -- Log records the deviation from "complete = streamingComplete .
 -- stream".
 registerWith :: CodexCliConfig -> IO ()
-registerWith cfg =
-  registerApiProvider
+registerWith = registerWithRegistryAndConfig globalProviderRegistry
+
+-- | Install the Codex CLI handler with 'defaultCodexCliConfig' into an explicit
+-- registry.
+registerWithRegistry :: ProviderRegistry -> IO ()
+registerWithRegistry reg = registerWithRegistryAndConfig reg defaultCodexCliConfig
+
+-- | Install the Codex CLI handler with a caller-supplied config into an
+-- explicit registry.
+registerWithRegistryAndConfig :: ProviderRegistry -> CodexCliConfig -> IO ()
+registerWithRegistryAndConfig reg cfg =
+  registerApiProviderWith
+    reg
     ApiProvider
       { apiTag = OpenAICompletionsCli,
         stream = liftCompleteToStream (runCodexCli cfg),

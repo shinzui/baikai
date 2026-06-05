@@ -98,9 +98,13 @@ walkthrough.
 
 ## How it fits together
 
-- **Registry.** `Baikai.Provider.Registry` is a process-global map from
-  `Api` tag to handler. Each vendor package exposes `register :: IO ()`
-  (and a `registerWith` for configuration). Dispatch looks the handler
+- **Registry.** `Baikai.Provider.Registry` maps each `Api` tag to a
+  handler. Simple programs can use the process-global convenience
+  registry through each vendor package's `register :: IO ()` (and
+  `registerWith` for configuration). Tests and larger apps can instead
+  create a `ProviderRegistry` with `newProviderRegistry`, register into
+  it with `registerWithRegistry` or `registerApiProviderWith`, and call
+  `completeRequestWith` / `streamRequestWith`. Dispatch looks the handler
   up by `Model.api`; an unregistered tag throws `ProviderError`.
 
   | `Api` tag                | Registered by                  | Backend |

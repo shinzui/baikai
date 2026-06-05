@@ -28,6 +28,7 @@
 -- same fully-assembled 'Response' they had before.
 module Baikai.Provider.OpenAI.Api
   ( register,
+    registerWithRegistry,
     openaiChatStream,
   )
 where
@@ -45,7 +46,12 @@ import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
-import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
+import Baikai.Provider.Registry
+  ( ApiProvider (..),
+    ProviderRegistry,
+    globalProviderRegistry,
+    registerApiProviderWith,
+  )
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event
@@ -96,8 +102,13 @@ import Streamly.Data.Stream qualified as Stream
 
 -- | Install the OpenAI Chat Completions handler into the registry.
 register :: IO ()
-register =
-  registerApiProvider
+register = registerWithRegistry globalProviderRegistry
+
+-- | Install the OpenAI Chat Completions handler into an explicit registry.
+registerWithRegistry :: ProviderRegistry -> IO ()
+registerWithRegistry reg =
+  registerApiProviderWith
+    reg
     ApiProvider
       { apiTag = OpenAIChatCompletions,
         stream = openaiChatStream,

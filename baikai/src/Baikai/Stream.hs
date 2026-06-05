@@ -16,6 +16,7 @@
 -- ceremony.
 module Baikai.Stream
   ( streamRequest,
+    streamRequestWith,
     streamingComplete,
     reassembleResponse,
     liftCompleteToStream,
@@ -34,7 +35,12 @@ import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
 import Baikai.Options (Options)
-import Baikai.Provider.Registry (ApiProvider (..), lookupApiProvider)
+import Baikai.Provider.Registry
+  ( ApiProvider (..),
+    ProviderRegistry,
+    globalProviderRegistry,
+    lookupApiProviderWith,
+  )
 import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event
@@ -72,9 +78,19 @@ import Streamly.Data.Stream qualified as Stream
 -- is registered for that tag — the caller always sees at least one
 -- terminal event.
 streamRequest :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
-streamRequest m ctx opts =
+streamRequest = streamRequestWith globalProviderRegistry
+
+-- | Dispatch a streaming call through the selected provider registry.
+-- Returns a one-event error stream when no handler is registered for that tag.
+streamRequestWith ::
+  ProviderRegistry ->
+  Model ->
+  Context ->
+  Options ->
+  Stream IO AssistantMessageEvent
+streamRequestWith reg m ctx opts =
   Stream.concatEffect $ do
-    mProvider <- lookupApiProvider (m ^. #api)
+    mProvider <- lookupApiProviderWith reg (m ^. #api)
     case mProvider of
       Just p -> pure (stream p m ctx opts)
       Nothing -> pure (Stream.fromEffect (noProviderEvent m))

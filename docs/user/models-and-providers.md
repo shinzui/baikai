@@ -143,9 +143,19 @@ example.
 
 ## The registry
 
-`Baikai.Provider.Registry` is a process-global `IORef (Map Api
-ApiProvider)`. Each vendor package's `register :: IO ()` installs
-itself into the map under a specific `Api` tag:
+`Baikai.Provider.Registry` maps an `Api` tag to an `ApiProvider`.
+Simple scripts can use the process-global convenience registry: each
+vendor package's `register :: IO ()` installs itself under a specific
+`Api` tag, and `completeRequest` / `streamRequest` dispatch through
+that global registry.
+
+Applications and tests that need isolated handler sets can construct an
+explicit registry with `newProviderRegistry`, register handlers with
+`registerApiProviderWith` or a provider package's `registerWithRegistry`,
+and dispatch through `completeRequestWith` / `streamRequestWith`.
+Within one registry, registering a second handler for the same `Api` tag
+replaces the first. Keep multiple configured handler sets alive by using
+multiple `ProviderRegistry` values and selecting the registry at call time.
 
 | `Api` tag                  | Registered by                       |
 |----------------------------|-------------------------------------|
@@ -155,9 +165,10 @@ itself into the map under a specific `Api` tag:
 | `OpenAICompletionsCli`     | `Baikai.Provider.OpenAI.Cli`        |
 | `Custom !Text`             | Any caller — register your own.     |
 
-`completeRequest` and `streamRequest` look the handler up by the
-model's `api` tag. Unregistered tag → `Baikai.Error.ProviderError`
-at dispatch time.
+Both global and explicit dispatch look the handler up by the model's
+`api` tag. Unregistered tag -> `Baikai.Error.ProviderError` for
+blocking calls; `streamRequest` / `streamRequestWith` return a terminal
+error event.
 
 The two `*Cli` tags drive local subprocesses (`claude -p` and
 `codex exec`) rather than HTTP calls; their semantics differ from
@@ -171,7 +182,13 @@ ship:
 
 ```haskell
 import Baikai
-import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
+import Baikai.Provider.Registry
+  ( ApiProvider (..)
+  , completeRequestWith
+  , newProviderRegistry
+  , registerApiProvider
+  , registerApiProviderWith
+  )
 import qualified Streamly.Data.Stream as Stream
 
 myProvider :: ApiProvider
@@ -193,6 +210,17 @@ main :: IO ()
 main = do
   registerApiProvider myProvider
   resp <- completeRequest myModel ctx opts
+  print resp
+```
+
+For an isolated registry, keep the handler out of global state:
+
+```haskell
+main :: IO ()
+main = do
+  registry <- newProviderRegistry
+  registerApiProviderWith registry myProvider
+  resp <- completeRequestWith registry myModel ctx opts
   print resp
 ```
 

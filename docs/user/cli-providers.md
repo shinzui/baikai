@@ -98,6 +98,9 @@ string to let the CLI pick its own default.
 The defaults assume the binary is on `PATH` and don't pass any
 extra flags. To override:
 
+Use `registerWithRegistry` or `registerWithRegistryAndConfig` instead
+when registering CLI providers into an explicit `ProviderRegistry`.
+
 ### `claude -p`
 
 ```haskell

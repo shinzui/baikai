@@ -31,7 +31,7 @@ An alternative was one broad "API cleanup" ExecPlan. That was rejected because t
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Redact and Source API Credentials Safely | docs/plans/18-redact-and-source-api-credentials-safely.md | None | None | Complete |
-| EP-2 | Introduce Explicit Provider Registry Handles | docs/plans/19-introduce-explicit-provider-registry-handles.md | None | EP-1 | Not Started |
+| EP-2 | Introduce Explicit Provider Registry Handles | docs/plans/19-introduce-explicit-provider-registry-handles.md | None | EP-1 | Complete |
 | EP-3 | Generalize Tool Result Round Trips | docs/plans/20-generalize-tool-result-round-trips.md | None | EP-4 | Not Started |
 | EP-4 | Make Message Construction and Response Invariants Explicit | docs/plans/21-make-message-construction-and-response-invariants-explicit.md | None | None | Not Started |
 | EP-5 | Stabilize Compat and Streaming Extension Points | docs/plans/22-stabilize-compat-and-streaming-extension-points.md | EP-4 | EP-2, EP-3 | Not Started |
@@ -67,8 +67,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 
 - [x] EP-1: Replace raw `Options.apiKey :: Maybe Text` with a redacted credential source API and update provider key resolution.
 - [x] EP-1: Add tests proving secrets do not appear in `Show` or JSON output and provider env fallbacks still work.
-- [ ] EP-2: Add explicit registry/client handle APIs while preserving global convenience wrappers.
-- [ ] EP-2: Update tests and provider registration functions to demonstrate isolated registries.
+- [x] EP-2: Add explicit registry/client handle APIs while preserving global convenience wrappers.
+- [x] EP-2: Update tests and provider registration functions to demonstrate isolated registries.
 - [ ] EP-4: Replace hidden-time pure message constructors with explicit timestamp and effectful convenience constructors.
 - [ ] EP-4: Encode the assistant-response invariant in types and remove production partial/error paths that assume it dynamically.
 - [ ] EP-3: Generalize tool-result helpers to support text, image, and error results.
@@ -84,6 +84,9 @@ interactions between child plans. Provide concise evidence.
 
 - Discovery: EP-1 kept the public field name `Options.apiKey` but changed its type to `Maybe ApiKeySource`, and `Baikai.Auth` is now re-exported by `Baikai`.
   Impact: Later plans can continue referring to `#apiKey` but should construct explicit credentials with `ApiKeyLiteral` or `ApiKeyEnv`; they should not assume the field contains raw `Text`.
+  Date: 2026-06-05
+- Discovery: EP-2 preserves one handler per `Api` tag inside a registry, but multiple registries can hold different handlers for the same tag.
+  Impact: Later plans should pass `ProviderRegistry` through any APIs that need handler-set isolation; they should not try to encode multiple same-tag handlers in one registry.
   Date: 2026-06-05
 
 
@@ -104,6 +107,9 @@ plan.
 - Decision: Keep `Options.apiKey` as the migration field name for EP-1 instead of renaming it to `apiKeySource`.
   Rationale: The type change carries the safety improvement and forces explicit credential construction, while preserving record-update call sites for downstream users and later child plans.
   Date: 2026-06-05
+- Decision: Model provider isolation with explicit `ProviderRegistry` handles instead of introducing a broader `BaikaiClient` record in EP-2.
+  Rationale: The current request surface only needs handler-map isolation. A larger client record would add premature shape before EP-5 decides the final streaming and compat extension-point story.
+  Date: 2026-06-05
 
 
 ## Outcomes & Retrospective
@@ -112,3 +118,5 @@ Summarize outcomes, gaps, and lessons learned at major milestones or at completi
 Compare the result against the original vision.
 
 EP-1 completed 2026-06-05. Baikai now exposes `ApiKeySource` through the umbrella module, redacts literal credentials in `Show` and JSON output, preserves provider environment fallback behavior, and updates smoke tests and docs to use `ApiKeyLiteral`. Focused tests and `nix develop --command cabal test all` passed.
+
+EP-2 completed 2026-06-05. Baikai now supports explicit `ProviderRegistry` handles for isolated registration and dispatch while preserving global convenience wrappers. Provider packages expose handle-based registration helpers, tracing and cost logging have explicit-registry variants, and tests prove same-`Api` providers remain isolated across registries.

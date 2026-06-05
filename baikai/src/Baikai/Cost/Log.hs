@@ -20,6 +20,7 @@ module Baikai.Cost.Log
     withCallLog,
     appendEntry,
     runRequestWithLog,
+    runRequestWithLogWith,
     summarizeContext,
   )
 where
@@ -34,7 +35,11 @@ import Baikai.Message
   )
 import Baikai.Model (Model)
 import Baikai.Options (Options)
-import Baikai.Provider.Registry (completeRequest)
+import Baikai.Provider.Registry
+  ( ProviderRegistry,
+    completeRequestWith,
+    globalProviderRegistry,
+  )
 import Baikai.Response (Response)
 import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
@@ -139,8 +144,20 @@ runRequestWithLog ::
   Context ->
   Options ->
   m Response
-runRequestWithLog h m ctx opts = do
-  resp <- liftIO (completeRequest m ctx opts)
+runRequestWithLog = runRequestWithLogWith globalProviderRegistry
+
+-- | Dispatch through the selected registry, then (if logging is enabled)
+-- enqueue a single JSONL record summarizing the call.
+runRequestWithLogWith ::
+  (MonadIO m) =>
+  ProviderRegistry ->
+  CallLogHandle ->
+  Model ->
+  Context ->
+  Options ->
+  m Response
+runRequestWithLogWith reg h m ctx opts = do
+  resp <- liftIO (completeRequestWith reg m ctx opts)
   now <- liftIO getCurrentTime
   let u :: Usage
       u = case resp ^. #message of

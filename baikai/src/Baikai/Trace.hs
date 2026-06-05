@@ -27,8 +27,11 @@ module Baikai.Trace
 
     -- * Wrappers
     withTrace,
+    withTraceWith,
     withTraceStream,
+    withTraceStreamWith,
     runRequestWith,
+    runRequestWithRegistry,
 
     -- * Helpers
     newEventId,
@@ -49,8 +52,9 @@ import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Prelude
+import Baikai.Provider.Registry (ProviderRegistry, globalProviderRegistry)
 import Baikai.Response (Response)
-import Baikai.Stream (reassembleResponse, streamRequest)
+import Baikai.Stream (reassembleResponse, streamRequestWith)
 import Baikai.Stream.Event (AssistantMessageEvent (..), TerminalPayload (..))
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
@@ -95,7 +99,17 @@ withTraceStream ::
   Context ->
   Options ->
   Stream IO AssistantMessageEvent
-withTraceStream (TraceSink sinkFold) m ctx opts =
+withTraceStream = withTraceStreamWith globalProviderRegistry
+
+-- | Decorate a streaming provider call through an explicit registry handle.
+withTraceStreamWith ::
+  ProviderRegistry ->
+  TraceSink ->
+  Model ->
+  Context ->
+  Options ->
+  Stream IO AssistantMessageEvent
+withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
   Stream.concatEffect $ do
     state <- newTraceState
     let c = state ^. #chan
@@ -123,7 +137,7 @@ withTraceStream (TraceSink sinkFold) m ctx opts =
     pure $
       Stream.finallyIO
         (cleanupTrace state)
-        (Stream.mapM (traceEvent state eid start m) (streamRequest m ctx opts))
+        (Stream.mapM (traceEvent state eid start m) (streamRequestWith reg m ctx opts))
 
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
 -- 'Response' through 'reassembleResponse'.
@@ -141,11 +155,23 @@ withTraceStream (TraceSink sinkFold) m ctx opts =
 withTrace ::
   (MonadUnliftIO m) =>
   TraceSink -> Model -> Context -> Options -> m Response
-withTrace sink model ctx opts =
+withTrace = withTraceWith globalProviderRegistry
+
+-- | Synchronous trace wrapper that dispatches through an explicit provider
+-- registry handle.
+withTraceWith ::
+  (MonadUnliftIO m) =>
+  ProviderRegistry ->
+  TraceSink ->
+  Model ->
+  Context ->
+  Options ->
+  m Response
+withTraceWith reg sink model ctx opts =
   withRunInIO $ \_ ->
     Stream.fold
       (reassembleResponse model)
-      (withTraceStream sink model ctx opts)
+      (withTraceStreamWith reg sink model ctx opts)
 
 -- ============================================================
 -- Per-call trace state
@@ -238,8 +264,21 @@ runRequestWith ::
   Context ->
   Options ->
   m Response
-runRequestWith sink h m ctx opts = do
-  resp <- withTrace sink m ctx opts
+runRequestWith = runRequestWithRegistry globalProviderRegistry
+
+-- | Combine tracing with call-log persistence while dispatching through an
+-- explicit provider registry handle.
+runRequestWithRegistry ::
+  (MonadUnliftIO m) =>
+  ProviderRegistry ->
+  TraceSink ->
+  CallLogHandle ->
+  Model ->
+  Context ->
+  Options ->
+  m Response
+runRequestWithRegistry reg sink h m ctx opts = do
+  resp <- withTraceWith reg sink m ctx opts
   now <- liftIO getCurrentTime
   let mu = assistantUsage resp
       meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu

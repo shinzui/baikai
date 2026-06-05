@@ -7,7 +7,9 @@ supports blocking, and vice versa.
 
 ```haskell
 streamRequest :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
+streamRequestWith :: ProviderRegistry -> Model -> Context -> Options -> Stream IO AssistantMessageEvent
 completeRequest :: Model -> Context -> Options -> IO Response
+completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response
 ```
 
 The stream comes from `streamly`. Everything in this guide assumes:

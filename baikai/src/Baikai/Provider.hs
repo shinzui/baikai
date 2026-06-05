@@ -10,15 +10,28 @@
 -- @import Baikai.Provider@ habit still resolves the symbols a
 -- caller cares about.
 module Baikai.Provider
-  ( ApiProvider (..)
-  , registerApiProvider
-  , lookupApiProvider
-  , completeRequest
-  ) where
+  ( ApiProvider (..),
+    ProviderRegistry,
+    newProviderRegistry,
+    globalProviderRegistry,
+    registerApiProviderWith,
+    registerApiProvider,
+    lookupApiProviderWith,
+    lookupApiProvider,
+    completeRequestWith,
+    completeRequest,
+  )
+where
 
 import Baikai.Provider.Registry
-  ( ApiProvider (..)
-  , completeRequest
-  , lookupApiProvider
-  , registerApiProvider
+  ( ApiProvider (..),
+    ProviderRegistry,
+    completeRequest,
+    completeRequestWith,
+    globalProviderRegistry,
+    lookupApiProvider,
+    lookupApiProviderWith,
+    newProviderRegistry,
+    registerApiProvider,
+    registerApiProviderWith,
   )

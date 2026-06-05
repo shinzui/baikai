@@ -26,12 +26,12 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Audit every public and internal caller of `registerApiProvider`, `lookupApiProvider`, `completeRequest`, and `streamRequest`.
-- [ ] Add an explicit registry/client handle API in `Baikai.Provider.Registry`.
-- [ ] Rebuild global convenience functions on top of a default registry handle.
-- [ ] Update provider packages to expose both handle-based and global registration helpers.
-- [ ] Add tests proving two registries can hold independent providers for the same `Api`.
-- [ ] Update tracing, cost logging, smoke tests, and docs where dispatch entry points change.
+- [x] Audit every public and internal caller of `registerApiProvider`, `lookupApiProvider`, `completeRequest`, and `streamRequest`. Completed 2026-06-05. `rg -n "registerApiProvider|lookupApiProvider|completeRequest|streamRequest|withTrace" baikai baikai-openai baikai-claude baikai-trace-otel baikai-smoke docs` found the registry implementation in `baikai/src/Baikai/Provider/Registry.hs`, streaming lookup in `baikai/src/Baikai/Stream.hs`, tracing in `baikai/src/Baikai/Trace.hs`, cost logging in `baikai/src/Baikai/Cost/Log.hs`, provider registration in the OpenAI and Claude API/CLI modules, and docs under `README.md` and `docs/user/`.
+- [x] Add an explicit registry/client handle API in `Baikai.Provider.Registry`. Completed 2026-06-05. The core module now exposes `ProviderRegistry`, `newProviderRegistry`, `globalProviderRegistry`, `registerApiProviderWith`, `lookupApiProviderWith`, and `completeRequestWith`.
+- [x] Rebuild global convenience functions on top of a default registry handle. Completed 2026-06-05. `registerApiProvider`, `lookupApiProvider`, `completeRequest`, and `streamRequest` delegate to `globalProviderRegistry`.
+- [x] Update provider packages to expose both handle-based and global registration helpers. Completed 2026-06-05. OpenAI and Claude API providers expose `registerWithRegistry`; CLI providers expose `registerWithRegistry` and `registerWithRegistryAndConfig` while preserving `register` and `registerWith`.
+- [x] Add tests proving two registries can hold independent providers for the same `Api`. Completed 2026-06-05. `baikai/test/Main.hs` creates two registries, registers different fake providers under the same `Custom "baikai-test"` tag, and verifies `completeRequestWith` returns different responses.
+- [x] Update tracing, cost logging, smoke tests, and docs where dispatch entry points change. Completed 2026-06-05. `Baikai.Trace` and `Baikai.Cost.Log` expose explicit-registry variants, smoke tests continue to pass through global wrappers, and README/user docs describe explicit registry handles.
 
 
 ## Surprises & Discoveries
@@ -39,7 +39,12 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-None yet.
+- Discovery: `streamRequestWith` can be tested without a live provider by registering a fake provider whose `stream` uses `liftCompleteToStream`.
+  Evidence: `nix develop --command cabal test baikai-test` passed a new `streamRequestWith dispatches through an explicit registry` test.
+  Date: 2026-06-05
+- Discovery: The full suite still exercised global OpenAI smoke behavior after globals were rebuilt on `globalProviderRegistry`.
+  Evidence: `nix develop --command cabal test all` reported `gpt-4o-mini ok via OPENAI_API_KEY`, CLI smoke passes, and all test suites passed.
+  Date: 2026-06-05
 
 
 ## Decision Log
@@ -52,6 +57,9 @@ Record every decision made while working on the plan.
 - Decision: Verify the change with same-API, different-handler tests.
   Rationale: The risk is not whether dispatch works once; the risk is whether handler state can be isolated in one process.
   Date: 2026-06-05
+- Decision: Preserve the one-handler-per-`Api`-tag replacement rule inside each registry.
+  Rationale: This matches the existing global registry behavior and keeps dispatch unambiguous. Applications that need multiple configured handler sets for the same tag can now create multiple `ProviderRegistry` handles and choose the handle at call time.
+  Date: 2026-06-05
 
 
 ## Outcomes & Retrospective
@@ -59,7 +67,7 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Completed 2026-06-05. Baikai now has explicit provider registry handles for registration, lookup, blocking dispatch, streaming dispatch, tracing, and cost logging. The existing global registration and request functions remain available as wrappers over `globalProviderRegistry`. Provider packages can register into explicit handles, including configured CLI providers. Tests prove two registries can isolate different providers under the same `Api` tag, and the full test suite passes.
 
 
 ## Context and Orientation

@@ -17,6 +17,8 @@ module Baikai.Provider.Claude.Cli
     defaultClaudeCliConfig,
     register,
     registerWith,
+    registerWithRegistry,
+    registerWithRegistryAndConfig,
   )
 where
 
@@ -28,7 +30,12 @@ import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
-import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
+import Baikai.Provider.Registry
+  ( ApiProvider (..),
+    ProviderRegistry,
+    globalProviderRegistry,
+    registerApiProviderWith,
+  )
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
@@ -94,8 +101,19 @@ register = registerWith defaultClaudeCliConfig
 -- the deviation from the plan's "complete = streamingComplete .
 -- stream" default.
 registerWith :: ClaudeCliConfig -> IO ()
-registerWith cfg =
-  registerApiProvider
+registerWith = registerWithRegistryAndConfig globalProviderRegistry
+
+-- | Install the CLI handler with 'defaultClaudeCliConfig' into an explicit
+-- registry.
+registerWithRegistry :: ProviderRegistry -> IO ()
+registerWithRegistry reg = registerWithRegistryAndConfig reg defaultClaudeCliConfig
+
+-- | Install the CLI handler with a caller-supplied config into an explicit
+-- registry.
+registerWithRegistryAndConfig :: ProviderRegistry -> ClaudeCliConfig -> IO ()
+registerWithRegistryAndConfig reg cfg =
+  registerApiProviderWith
+    reg
     ApiProvider
       { apiTag = AnthropicMessagesCli,
         stream = liftCompleteToStream (runClaudeCli cfg),
