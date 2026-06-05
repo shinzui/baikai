@@ -111,6 +111,41 @@ The OpenAI provider auto-detects the compat record from the
 explicitly if you need something the auto-detection doesn't
 cover.
 
+## Compatibility policy
+
+`Compat`, `OpenAICompletionsCompat`, and `AnthropicMessagesCompat`
+are public 0.1 API. They are provider-quirk records: each field says
+whether a host accepts one request shape, such as OpenAI-style
+reasoning controls, Anthropic cache markers, or long cache
+retention.
+
+Most callers should leave `compat = CompatNone`; providers then call
+`openaiCompletionsCompatFor` or `anthropicMessagesCompatFor` and
+auto-detect the record from `baseUrl`. Hand-rolled models and catalog
+entries can carry an explicit override:
+
+```haskell
+let compat =
+      defaultOpenAICompletionsCompat
+        { supportsStrictMode = False
+        , thinkingFormat = ThinkingFormatNone
+        }
+
+let model =
+      _Model
+        { modelId = "custom-chat"
+        , api = OpenAIChatCompletions
+        , baseUrl = "https://proxy.example.com"
+        , compat = CompatOpenAICompletions compat
+        }
+```
+
+Prefer starting from `defaultOpenAICompletionsCompat` or
+`defaultAnthropicMessagesCompat` and using record updates. New hosts
+may require new fields or enum constructors in later versions, and
+record updates keep those changes easier to absorb than spelling out
+every field manually.
+
 ## Multi-host on `openai-completions`
 
 The same `Baikai.Provider.OpenAI.Api` handler serves every host

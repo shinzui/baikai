@@ -35,7 +35,7 @@ An alternative was one broad "API cleanup" ExecPlan. That was rejected because t
 | EP-2 | Introduce Explicit Provider Registry Handles | docs/plans/19-introduce-explicit-provider-registry-handles.md | None | EP-1 | Complete |
 | EP-3 | Generalize Tool Result Round Trips | docs/plans/20-generalize-tool-result-round-trips.md | None | EP-4 | Complete |
 | EP-4 | Make Message Construction and Response Invariants Explicit | docs/plans/21-make-message-construction-and-response-invariants-explicit.md | None | None | Complete |
-| EP-5 | Stabilize Compat and Streaming Extension Points | docs/plans/22-stabilize-compat-and-streaming-extension-points.md | EP-4 | EP-2, EP-3 | Not Started |
+| EP-5 | Stabilize Compat and Streaming Extension Points | docs/plans/22-stabilize-compat-and-streaming-extension-points.md | EP-4 | EP-2, EP-3 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -74,8 +74,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-4: Encode the assistant-response invariant in types and remove production partial/error paths that assume it dynamically.
 - [x] EP-3: Generalize tool-result helpers to support text, image, and error results.
 - [x] EP-3: Update tool smoke tests and docs to demonstrate multi-result and error-result round trips.
-- [ ] EP-5: Decide and implement the compat exposure policy for core versus provider packages.
-- [ ] EP-5: Document streaming event stability and add tests around any new extension mechanism.
+- [x] EP-5: Decide and implement the compat exposure policy for core versus provider packages.
+- [x] EP-5: Document streaming event stability and add tests around any new extension mechanism.
 
 
 ## Surprises & Discoveries
@@ -94,6 +94,12 @@ interactions between child plans. Provide concise evidence.
   Date: 2026-06-05
 - Discovery: EP-4 kept streaming terminal events as broad `Message` values but made `Response.message` assistant-only by changing it to `AssistantPayload`.
   Impact: EP-5 should decide whether streaming terminal payloads should also narrow to assistant-only payloads, or whether keeping broad `Message` events is the right extension point for future non-assistant event families.
+  Date: 2026-06-05
+- Discovery: EP-5 kept compat records public and streaming events closed, and updated docs to state those are deliberate 0.1 policies.
+  Impact: Downstream users may explicitly construct compat records for host quirks, while streaming consumers can rely on exhaustive pattern matching until a breaking event-algebra change is released.
+  Date: 2026-06-05
+- Discovery: EP-5 found that provider request builders remain private, so provider-package compat tests assert the public projection functions consumed by those builders without widening provider exports.
+  Impact: Future work that needs deeper request-shape assertions can extract mapper helpers into hidden internal modules instead of exposing them from public provider modules.
   Date: 2026-06-05
 
 
@@ -120,6 +126,12 @@ plan.
 - Decision: Preserve the `Response.message` field name while narrowing its type to `AssistantPayload` in EP-4.
   Rationale: The narrowed type encodes the assistant-only invariant without forcing every downstream accessor to learn a new field name before 0.1. The new `responseMessage` helper provides the total broad-message wrapper for context replay.
   Date: 2026-06-05
+- Decision: Preserve public compat record constructors for 0.1.
+  Rationale: Generated catalog overrides and hand-rolled models need a direct escape hatch for host quirks, and starting from default records with updates is a smaller and clearer API than introducing an opaque builder layer before the initial release.
+  Date: 2026-06-05
+- Decision: Preserve `AssistantMessageEvent` as a closed event algebra for 0.1.
+  Rationale: Exhaustive typed consumption is more useful than a raw provider-event escape hatch for the initial API. Constructor additions will be treated as breaking changes, and docs now advise wildcard branches for consumers that prefer source resilience.
+  Date: 2026-06-05
 
 
 ## Outcomes & Retrospective
@@ -134,3 +146,7 @@ EP-2 completed 2026-06-05. Baikai now supports explicit `ProviderRegistry` handl
 EP-3 completed 2026-06-05. Baikai now exposes rich `ToolResult` helpers for text, image, explicit blocks, and error results. `appendToolResult` consumes rich results and `appendToolResultText` keeps text-only dispatch concise. Provider encoders reject unsupported image tool-result blocks explicitly instead of silently dropping them, and the user docs and smoke tests demonstrate the migrated text workflow.
 
 EP-4 completed 2026-06-05. Message constructors now expose explicit-time and effectful variants, and the legacy pure names use deterministic fixture timestamps rather than hidden `unsafePerformIO`. `Response.message` is assistant-only as an `AssistantPayload`, `responseMessage` bridges back to a conversation `Message`, and cost logging no longer has a production non-assistant `error` branch. Focused tests and `nix develop --command cabal test all` passed.
+
+EP-5 completed 2026-06-05. Compat records are documented as public 0.1 extension points, streaming events are documented as a closed public algebra, and examples now use the final payload-record event patterns and assistant-only `Response.message` type. Core and provider tests cover compat projection for OpenAI-compatible and Anthropic-compatible hosts, and `nix develop --command cabal test all` passed with enabled smoke tests.
+
+The full master plan completed 2026-06-05. The initial API now has safer credential handling, explicit registry handles, richer tool-result helpers, explicit message construction and assistant-response invariants, and documented compat/streaming stability policies before the 0.1 release.

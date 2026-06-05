@@ -27,12 +27,12 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Audit exported compat and streaming event constructors.
-- [ ] Decide whether compat records remain public, become opaque, or move toward provider packages.
-- [ ] Decide whether streaming remains a closed event algebra or gains an extension constructor.
-- [ ] Implement the chosen API changes after response invariants are settled.
-- [ ] Update generated model catalog expectations and provider mapping tests.
-- [ ] Update user docs with the compatibility and streaming stability policy.
+- [x] Audit exported compat and streaming event constructors. Completed 2026-06-05.
+- [x] Decide whether compat records remain public, become opaque, or move toward provider packages. Completed 2026-06-05.
+- [x] Decide whether streaming remains a closed event algebra or gains an extension constructor. Completed 2026-06-05.
+- [x] Implement the chosen API changes after response invariants are settled. Completed 2026-06-05.
+- [x] Update generated model catalog expectations and provider mapping tests. Completed 2026-06-05.
+- [x] Update user docs with the compatibility and streaming stability policy. Completed 2026-06-05.
 
 
 ## Surprises & Discoveries
@@ -40,7 +40,15 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-None yet.
+- Discovery: Compat is part of the public core surface through `Baikai`, `Baikai.Compat`, `Baikai.Model`, and `Baikai.Models.Generated`; generated model code also imports record constructors to render explicit catalog overrides.
+  Evidence: `rg -n "Compat \\(\\.\\.\\)|OpenAICompletionsCompat|AnthropicMessagesCompat" baikai docs` shows the umbrella export, model sum export, compat module export, generator imports, and generated model imports.
+  Date: 2026-06-05
+- Discovery: Streaming constructors are public through `Baikai.Stream.Event`; `Baikai.Stream` imports them internally but does not re-export them directly, and the umbrella `Baikai` module re-exports both modules.
+  Evidence: `baikai/src/Baikai/Stream/Event.hs` exports `AssistantMessageEvent (..)`, while `baikai/src/Baikai.hs` re-exports `Baikai.Stream` and `Baikai.Stream.Event`.
+  Date: 2026-06-05
+- Discovery: Provider request builders are private inside the public provider modules, so focused compat tests use the public projection functions that those builders consume instead of widening the provider package export lists.
+  Evidence: `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` and `baikai-claude/src/Baikai/Provider/Claude/Api.hs` export registration and stream functions, while `mapRequest` remains private.
+  Date: 2026-06-05
 
 
 ## Decision Log
@@ -53,6 +61,12 @@ Record every decision made while working on the plan.
 - Decision: Treat compat and streaming as API policy work, not only code cleanup.
   Rationale: The core question is what downstream users are allowed to rely on in 0.1; documentation and constructor exposure matter as much as implementation.
   Date: 2026-06-05
+- Decision: Keep `OpenAICompletionsCompat`, `AnthropicMessagesCompat`, and `Compat` constructors public for 0.1.
+  Rationale: The generated catalog and hand-rolled model workflow already rely on concrete records for host-specific quirks. Making them opaque before 0.1 would require a larger builder/update API without improving current safety; documenting the records as deliberate public extension points is clearer.
+  Date: 2026-06-05
+- Decision: Keep `AssistantMessageEvent` as a closed public algebra for 0.1 instead of adding a generic provider/unknown event constructor.
+  Rationale: Exhaustive pattern matching is valuable for streaming consumers, and a generic raw event constructor would weaken the typed content-block guarantees. New event constructors will be treated as breaking API changes; consumers who want source resilience can include a wildcard branch.
+  Date: 2026-06-05
 
 
 ## Outcomes & Retrospective
@@ -60,7 +74,9 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-5 completed 2026-06-05. Baikai now documents compat records as deliberate public 0.1 extension points and documents `AssistantMessageEvent` as a closed public event algebra where adding a constructor is breaking. Core Haddocks and user docs describe those policies, streaming examples now use the post-EP-4 payload-record pattern shapes, and provider/core tests assert the compat projection behavior used by request mapping. `nix develop --command cabal test all` passed, including the generated catalog regeneration check and live/smoke tests that were enabled in the local environment.
+
+The main tradeoff was avoiding a premature opaque compat builder API. Concrete records remain public because generated catalog overrides and hand-rolled models need direct request-shaping control before 0.1. The streaming algebra also stays closed because typed exhaustive consumption is more valuable here than accepting arbitrary raw provider events.
 
 
 ## Context and Orientation
@@ -156,3 +172,8 @@ Make policy decisions before large code edits. If hiding compat constructors cau
 This plan should not add dependencies. It uses existing `aeson` only if an extension event constructor carries raw provider data.
 
 At the end, `baikai/src/Baikai/Compat.hs`, `baikai/src/Baikai/Model.hs`, and `baikai/src/Baikai.hs` must expose compat in a way that matches the recorded policy. `baikai/src/Baikai/Stream/Event.hs` and `docs/user/streaming.md` must expose and document streaming event stability in a way that matches the recorded policy. Provider mapping modules must continue to compile and apply compat decisions.
+
+
+## Revision Notes
+
+2026-06-05: Implemented the plan by keeping public compat records, keeping streaming events closed, updating docs/Haddocks/tests to match those decisions, and recording successful full-suite validation.

@@ -3,7 +3,7 @@ module Main (main) where
 import Baikai
 import Baikai.Provider.OpenAI.Api
 import Baikai.Provider.OpenAI.Interactive
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
@@ -19,6 +19,7 @@ main =
       "Baikai.Provider.OpenAI.Interactive"
       [ commandRenderingTest,
         promptRenderingTest,
+        compatDetectionTest,
         rejectsImageToolResultsTest
       ]
 
@@ -62,6 +63,19 @@ promptRenderingTest :: TestTree
 promptRenderingTest =
   testCase "omits the system-instruction wrapper when no system prompt is present" $ do
     codexInteractivePrompt (_InteractiveLaunchRequest "hello") @?= "hello"
+
+compatDetectionTest :: TestTree
+compatDetectionTest =
+  testCase "OpenAI-compatible hosts auto-detect request-shaping compat flags" $ do
+    let model =
+          _Model
+            & #api .~ OpenAIChatCompletions
+            & #baseUrl .~ "https://api.deepseek.com"
+        compat = openaiCompletionsCompatFor model
+    compat ^. #thinkingFormat @?= ThinkingFormatDeepseek
+    compat ^. #maxTokensField @?= MaxTokensField
+    compat ^. #supportsStrictMode @?= False
+    compat ^. #supportsDeveloperRole @?= False
 
 rejectsImageToolResultsTest :: TestTree
 rejectsImageToolResultsTest =

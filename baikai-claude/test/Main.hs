@@ -3,7 +3,7 @@ module Main (main) where
 import Baikai
 import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Interactive
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
@@ -18,6 +18,7 @@ main =
     testGroup
       "Baikai.Provider.Claude.Interactive"
       [ commandRenderingTest,
+        compatDetectionTest,
         rejectsImageToolResultsTest
       ]
 
@@ -55,6 +56,18 @@ commandRenderingTest =
               "inspect the repo"
             ]
           )
+
+compatDetectionTest :: TestTree
+compatDetectionTest =
+  testCase "Anthropic-compatible hosts auto-detect request-shaping compat flags" $ do
+    let model =
+          _Model
+            & #api .~ AnthropicMessages
+            & #baseUrl .~ "https://api.fireworks.ai/inference/v1"
+        compat = anthropicMessagesCompatFor model
+    compat ^. #supportsCacheControlOnTools @?= False
+    compat ^. #sendSessionAffinityHeaders @?= True
+    compat ^. #supportsLongCacheRetention @?= False
 
 rejectsImageToolResultsTest :: TestTree
 rejectsImageToolResultsTest =

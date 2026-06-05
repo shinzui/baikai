@@ -132,6 +132,46 @@ tests =
         resp <- Stream.fold (reassembleResponse testModel) (Stream.fromList events)
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hello from stream")),
+      testCase "OpenAI compat auto-detection drives provider request policy" $ do
+        let deepseek =
+              _Model
+                & #api
+                .~ OpenAIChatCompletions
+                & #baseUrl
+                .~ "https://api.deepseek.com"
+            compat = openaiCompletionsCompatFor deepseek
+        compat ^. #thinkingFormat @?= ThinkingFormatDeepseek
+        compat ^. #maxTokensField @?= MaxTokensField
+        compat ^. #supportsStrictMode @?= False
+        compat ^. #supportsDeveloperRole @?= False,
+      testCase "explicit OpenAI compat overrides baseUrl auto-detection" $ do
+        let explicit =
+              defaultOpenAICompletionsCompat
+                { supportsStrictMode = False,
+                  thinkingFormat = ThinkingFormatNone
+                }
+            model =
+              _Model
+                & #api
+                .~ OpenAIChatCompletions
+                & #baseUrl
+                .~ "https://api.openai.com"
+                & #compat
+                .~ CompatOpenAICompletions explicit
+            compat = openaiCompletionsCompatFor model
+        compat ^. #supportsStrictMode @?= False
+        compat ^. #thinkingFormat @?= ThinkingFormatNone,
+      testCase "Anthropic compat auto-detection drives cache request policy" $ do
+        let fireworks =
+              _Model
+                & #api
+                .~ AnthropicMessages
+                & #baseUrl
+                .~ "https://api.fireworks.ai/inference/v1"
+            compat = anthropicMessagesCompatFor fireworks
+        compat ^. #supportsCacheControlOnTools @?= False
+        compat ^. #sendSessionAffinityHeaders @?= True
+        compat ^. #supportsLongCacheRetention @?= False,
       testCase "user smart constructor produces a UserMessage" $ do
         let ts = read "2026-06-05 01:02:03 UTC"
         case userAt ts "hello" of

@@ -13,12 +13,16 @@
 -- only pattern-matches on the terminal event still gets a correct
 -- response without folding deltas.
 --
--- The algebra is closed and shared by every provider. Adding a new
--- variant is a breaking change to baikai's public surface. Providers
--- MUST emit @_Start@, then zero or more @_Delta@, then @_End@ for
--- each content block in increasing @contentIndex@ order; the
--- reassembler defends against missing @_End@ events but no built-in
--- provider should rely on the recovery path.
+-- The algebra is closed and shared by every provider in baikai 0.1.
+-- Adding a new variant is a breaking change to baikai's public
+-- surface. Consumers that prefer source resilience over exhaustiveness
+-- can include a final wildcard branch in their pattern match, but
+-- providers MUST NOT emit untyped provider-specific events through
+-- this algebra. Providers MUST emit @_Start@, then zero or more
+-- @_Delta@, then @_End@ for each content block in increasing
+-- @contentIndex@ order; the reassembler defends against missing
+-- @_End@ events but no built-in provider should rely on the recovery
+-- path.
 module Baikai.Stream.Event
   ( AssistantMessageEvent (..),
     StartPayload (..),

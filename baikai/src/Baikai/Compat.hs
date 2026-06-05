@@ -14,28 +14,35 @@
 -- on a per-'Baikai.Model.Model' record means the same provider
 -- handler can serve both hosts without any per-host code branching.
 --
--- The records live here, separately from 'Baikai.Model', so EP-2's
--- placeholder 'Baikai.Model.Compat' sum can be extended without that
--- module gaining a transitive dependency on every later compat
--- field. Auto-detection from the model's @baseUrl@ provides
+-- These record constructors are intentionally public in baikai 0.1.
+-- They are the supported escape hatch for hand-rolled models and
+-- generated catalog overrides when a host speaks a familiar protocol
+-- but rejects or requires a small request-shaping difference. New
+-- fields or enum constructors may be added in later minor versions as
+-- new provider quirks are discovered; callers that want fewer upgrade
+-- edits should start from the @default*@ values and use record updates
+-- rather than constructing every field from scratch.
+--
+-- Auto-detection from a 'Baikai.Model.Model' @baseUrl@ provides
 -- reasonable defaults so callers rarely need to spell out a full
 -- compat record.
 module Baikai.Compat
   ( -- * OpenAI Chat Completions compat
-    OpenAICompletionsCompat (..)
-  , defaultOpenAICompletionsCompat
-  , MaxTokensField (..)
-  , ThinkingFormat (..)
-  , CacheControlFormat (..)
+    OpenAICompletionsCompat (..),
+    defaultOpenAICompletionsCompat,
+    MaxTokensField (..),
+    ThinkingFormat (..),
+    CacheControlFormat (..),
 
     -- * Anthropic Messages compat
-  , AnthropicMessagesCompat (..)
-  , defaultAnthropicMessagesCompat
+    AnthropicMessagesCompat (..),
+    defaultAnthropicMessagesCompat,
 
     -- * Auto-detection from baseUrl
-  , autoDetectOpenAICompletions
-  , autoDetectAnthropicMessages
-  ) where
+    autoDetectOpenAICompletions,
+    autoDetectAnthropicMessages,
+  )
+where
 
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text)
@@ -91,32 +98,32 @@ data CacheControlFormat = CacheControlFormatAnthropic
 -- override the differing fields only.
 data OpenAICompletionsCompat = OpenAICompletionsCompat
   { -- | Where the max-output-tokens cap goes in the request body.
-    maxTokensField :: !MaxTokensField
-  , -- | Whether the host accepts the @developer@ message role
+    maxTokensField :: !MaxTokensField,
+    -- | Whether the host accepts the @developer@ message role
     --   (OpenAI's o-series) or only @system@.
-    supportsDeveloperRole :: !Bool
-  , -- | Whether the host accepts @strict: true@ on function tool
+    supportsDeveloperRole :: !Bool,
+    -- | Whether the host accepts @strict: true@ on function tool
     --   definitions. Set 'False' to drop the field on hosts that
     --   reject it.
-    supportsStrictMode :: !Bool
-  , -- | Whether the host smuggles thinking into the assistant text as
+    supportsStrictMode :: !Bool,
+    -- | Whether the host smuggles thinking into the assistant text as
     --   @\<thinking\>...\</thinking\>@ markers. When 'True', the
     --   provider's stream transformer extracts those markers into
     --   typed thinking deltas on the way out. (The transformer itself
     --   is wired in by EP-3; EP-5 only flips the switch.)
-    requiresThinkingAsText :: !Bool
-  , -- | The wire shape the host accepts for reasoning-effort
+    requiresThinkingAsText :: !Bool,
+    -- | The wire shape the host accepts for reasoning-effort
     --   preferences.
-    thinkingFormat :: !ThinkingFormat
-  , -- | Whether the host accepts Anthropic-style @cache_control@
+    thinkingFormat :: !ThinkingFormat,
+    -- | Whether the host accepts Anthropic-style @cache_control@
     --   markers (some OpenRouter routes pass them through to an
     --   Anthropic backend).
-    cacheControlFormat :: !(Maybe CacheControlFormat)
-  , -- | Whether the host emits a final @usage@ chunk in streaming
+    cacheControlFormat :: !(Maybe CacheControlFormat),
+    -- | Whether the host emits a final @usage@ chunk in streaming
     --   responses. OpenAI does; older OpenAI-compatible servers may
     --   not. Currently advisory.
-    supportsUsageInStreaming :: !Bool
-  , -- | Whether the host honours long (1h) cache TTLs through the
+    supportsUsageInStreaming :: !Bool,
+    -- | Whether the host honours long (1h) cache TTLs through the
     --   Anthropic-style cache_control marker. Currently only relevant
     --   when 'cacheControlFormat' is 'Just CacheControlFormatAnthropic'.
     supportsLongCacheRetention :: !Bool
@@ -128,14 +135,14 @@ data OpenAICompletionsCompat = OpenAICompletionsCompat
 defaultOpenAICompletionsCompat :: OpenAICompletionsCompat
 defaultOpenAICompletionsCompat =
   OpenAICompletionsCompat
-    { maxTokensField = MaxCompletionTokensField
-    , supportsDeveloperRole = True
-    , supportsStrictMode = True
-    , requiresThinkingAsText = False
-    , thinkingFormat = ThinkingFormatOpenAI
-    , cacheControlFormat = Nothing
-    , supportsUsageInStreaming = True
-    , supportsLongCacheRetention = True
+    { maxTokensField = MaxCompletionTokensField,
+      supportsDeveloperRole = True,
+      supportsStrictMode = True,
+      requiresThinkingAsText = False,
+      thinkingFormat = ThinkingFormatOpenAI,
+      cacheControlFormat = Nothing,
+      supportsUsageInStreaming = True,
+      supportsLongCacheRetention = True
     }
 
 -- | Feature flags for one Anthropic Messages-compatible host.
@@ -143,15 +150,15 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
   { -- | Whether the host honours Anthropic's
     --   @cache_control.ttl: "1h"@ long-retention marker. When 'False',
     --   long-retention preferences silently downgrade to ephemeral.
-    supportsLongCacheRetention :: !Bool
-  , -- | Whether tool definitions accept @cache_control@ markers.
+    supportsLongCacheRetention :: !Bool,
+    -- | Whether tool definitions accept @cache_control@ markers.
     --   Anthropic's own host does; some compatible hosts do not.
-    supportsCacheControlOnTools :: !Bool
-  , -- | Whether the host supports per-tool eager input streaming
+    supportsCacheControlOnTools :: !Bool,
+    -- | Whether the host supports per-tool eager input streaming
     --   (Anthropic's @fine-grained-tool-streaming@ beta). Currently
     --   advisory; the SDK does not expose the field directly.
-    supportsEagerToolInputStreaming :: !Bool
-  , -- | Whether to add session-affinity headers on every request
+    supportsEagerToolInputStreaming :: !Bool,
+    -- | Whether to add session-affinity headers on every request
     --   (Fireworks-style routing).
     sendSessionAffinityHeaders :: !Bool
   }
@@ -162,10 +169,10 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
 defaultAnthropicMessagesCompat :: AnthropicMessagesCompat
 defaultAnthropicMessagesCompat =
   AnthropicMessagesCompat
-    { supportsLongCacheRetention = True
-    , supportsCacheControlOnTools = True
-    , supportsEagerToolInputStreaming = True
-    , sendSessionAffinityHeaders = False
+    { supportsLongCacheRetention = True,
+      supportsCacheControlOnTools = True,
+      supportsEagerToolInputStreaming = True,
+      sendSessionAffinityHeaders = False
     }
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
@@ -177,34 +184,34 @@ autoDetectOpenAICompletions url
   | hasInfix "api.openai.com" = defaultOpenAICompletionsCompat
   | hasInfix "api.deepseek.com" =
       defaultOpenAICompletionsCompat
-        { thinkingFormat = ThinkingFormatDeepseek
-        , requiresThinkingAsText = True
-        , maxTokensField = MaxTokensField
-        , supportsStrictMode = False
-        , supportsDeveloperRole = False
+        { thinkingFormat = ThinkingFormatDeepseek,
+          requiresThinkingAsText = True,
+          maxTokensField = MaxTokensField,
+          supportsStrictMode = False,
+          supportsDeveloperRole = False
         }
   | hasInfix "openrouter.ai" =
       defaultOpenAICompletionsCompat
-        { thinkingFormat = ThinkingFormatOpenRouter
-        , supportsStrictMode = False
-        , supportsDeveloperRole = False
-        , cacheControlFormat = Just CacheControlFormatAnthropic
+        { thinkingFormat = ThinkingFormatOpenRouter,
+          supportsStrictMode = False,
+          supportsDeveloperRole = False,
+          cacheControlFormat = Just CacheControlFormatAnthropic
         }
   | hasInfix "together.xyz" || hasInfix "api.together.ai" =
       defaultOpenAICompletionsCompat
-        { thinkingFormat = ThinkingFormatTogether
-        , supportsStrictMode = False
-        , supportsDeveloperRole = False
+        { thinkingFormat = ThinkingFormatTogether,
+          supportsStrictMode = False,
+          supportsDeveloperRole = False
         }
   | hasInfix "z.ai" =
       defaultOpenAICompletionsCompat
-        { thinkingFormat = ThinkingFormatZai
-        , supportsStrictMode = False
+        { thinkingFormat = ThinkingFormatZai,
+          supportsStrictMode = False
         }
   | hasInfix "dashscope" || hasInfix "qwen" =
       defaultOpenAICompletionsCompat
-        { thinkingFormat = ThinkingFormatQwen
-        , supportsStrictMode = False
+        { thinkingFormat = ThinkingFormatQwen,
+          supportsStrictMode = False
         }
   | otherwise = defaultOpenAICompletionsCompat
   where
@@ -220,9 +227,9 @@ autoDetectAnthropicMessages url
   | hasInfix "api.anthropic.com" = defaultAnthropicMessagesCompat
   | hasInfix "fireworks.ai" =
       defaultAnthropicMessagesCompat
-        { supportsCacheControlOnTools = False
-        , sendSessionAffinityHeaders = True
-        , supportsLongCacheRetention = False
+        { supportsCacheControlOnTools = False,
+          sendSessionAffinityHeaders = True,
+          supportsLongCacheRetention = False
         }
   | otherwise = defaultAnthropicMessagesCompat
   where

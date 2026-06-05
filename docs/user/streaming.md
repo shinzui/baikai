@@ -33,23 +33,23 @@ EventDone | EventError   -- exactly once, last
 ```
 
 Content blocks are identified by an integer `contentIndex` so
-deltas of different kinds can interleave across indices. The
-constructors:
+deltas of different kinds can interleave across indices. Each event
+constructor carries a payload record:
 
-| Constructor      | Fields                                          | When                                                                          |
-|------------------|-------------------------------------------------|-------------------------------------------------------------------------------|
-| `EventStart`     | `partial :: Message`                            | First event. `partial` is an `AssistantMessage` skeleton with empty content.  |
-| `TextStart`      | `contentIndex`                                  | A new text block opens.                                                       |
-| `TextDelta`      | `contentIndex`, `delta`                         | A chunk of text appended to the open block at this index.                     |
-| `TextEnd`        | `contentIndex`, `content`                       | The text block closes. `content` is the concatenation of every delta.         |
-| `ThinkingStart`  | `contentIndex`                                  | A reasoning block opens (reasoning models only).                              |
-| `ThinkingDelta`  | `contentIndex`, `delta`                         | Reasoning chunk.                                                              |
-| `ThinkingEnd`    | `contentIndex`, `content`                       | Reasoning block closes.                                                       |
-| `ToolCallStart`  | `contentIndex`                                  | A tool-call block opens.                                                      |
-| `ToolCallDelta`  | `contentIndex`, `delta`                         | A chunk of the tool call's argument JSON.                                     |
-| `ToolCallEnd`    | `contentIndex`, `toolCall :: ToolCall`          | Tool-call block closes; arguments are parsed.                                 |
-| `EventDone`      | `reason :: StopReason`, `message :: Message`    | Terminal success. `message` is the fully assembled `AssistantMessage`.        |
-| `EventError`     | `reason :: StopReason`, `errorPartial :: Message` | Terminal failure. `errorPartial` carries whatever content closed before the failure plus a populated `errorMessage`. |
+| Constructor      | Payload type         | Important fields                         | When                                                                          |
+|------------------|----------------------|------------------------------------------|-------------------------------------------------------------------------------|
+| `EventStart`     | `StartPayload`       | `partial :: Message`                     | First event. `partial` is an `AssistantMessage` skeleton with empty content.  |
+| `TextStart`      | `IndexPayload`       | `contentIndex`                           | A new text block opens.                                                       |
+| `TextDelta`      | `DeltaPayload`       | `contentIndex`, `delta`                  | A chunk of text appended to the open block at this index.                     |
+| `TextEnd`        | `BlockEndPayload`    | `contentIndex`, `content`                | The text block closes. `content` is the concatenation of every delta.         |
+| `ThinkingStart`  | `IndexPayload`       | `contentIndex`                           | A reasoning block opens (reasoning models only).                              |
+| `ThinkingDelta`  | `DeltaPayload`       | `contentIndex`, `delta`                  | Reasoning chunk.                                                              |
+| `ThinkingEnd`    | `BlockEndPayload`    | `contentIndex`, `content`                | Reasoning block closes.                                                       |
+| `ToolCallStart`  | `IndexPayload`       | `contentIndex`                           | A tool-call block opens.                                                      |
+| `ToolCallDelta`  | `DeltaPayload`       | `contentIndex`, `delta`                  | A chunk of the tool call's argument JSON.                                     |
+| `ToolCallEnd`    | `ToolCallEndPayload` | `contentIndex`, `toolCall :: ToolCall`   | Tool-call block closes; arguments are parsed.                                 |
+| `EventDone`      | `TerminalPayload`    | `reason :: StopReason`, `message :: Message` | Terminal success. `message` is the fully assembled `AssistantMessage`.    |
+| `EventError`     | `TerminalPayload`    | `reason :: StopReason`, `message :: Message` | Terminal failure. `message` carries whatever content closed before the failure plus a populated `errorMessage`. |
 
 `isTerminal :: AssistantMessageEvent -> Bool` returns `True` on
 `EventDone` / `EventError` and `False` everywhere else.
@@ -77,7 +77,7 @@ events <- Stream.toList $
   Stream.mapM
     ( \e -> do
         case e of
-          TextDelta _ d -> TIO.putStr d
+          TextDelta DeltaPayload {delta = d} -> TIO.putStr d
           _ -> pure ()
         pure e
     )
@@ -91,8 +91,8 @@ import qualified Streamly.Data.Fold as Fold
 
 mMsg <- Stream.fold Fold.last (streamRequest model ctx opts)
 case mMsg of
-  Just (EventDone _ msg) -> handleSuccess msg
-  Just (EventError r partial) -> handleFailure r partial
+  Just (EventDone TerminalPayload {message = msg}) -> handleSuccess msg
+  Just (EventError TerminalPayload {reason = r, message = partial}) -> handleFailure r partial
   _ -> error "stream ended without a terminal event"  -- never happens
 ```
 
@@ -102,7 +102,7 @@ In practice you don't need to write this fold yourself —
 
 ```haskell
 data Response = Response
-  { message :: !Message      -- always AssistantMessage; success or failure
+  { message :: !AssistantPayload  -- assistant-only success or failure payload
   , latencyMs :: !Int
   , …
   }
@@ -111,16 +111,16 @@ data Response = Response
 ### Recover partial output on failure
 
 `EventError` is not an exception. The terminal event is delivered
-through the stream, and `errorPartial` carries every content block
+through the stream, and its `message` carries every content block
 that closed before the failure. A network drop mid-response still
 gives you whatever text the model had already streamed:
 
 ```haskell
 events <- Stream.toList (streamRequest model ctx opts)
 case last events of
-  EventDone _ msg ->
+  EventDone TerminalPayload {message = msg} ->
     putStrLn $ "ok: " <> render msg
-  EventError reason partial ->
+  EventError TerminalPayload {reason = reason, message = partial} ->
     putStrLn $ "failed (" <> show reason <> "): partial = " <> render partial
 ```
 
@@ -129,6 +129,26 @@ This is the inverse of how most SDKs handle streaming errors
 wraps the same flow into a single `Response` whose `stopReason` is
 `ErrorReason` or `Aborted` on failure; the partial content is on
 the response's message.
+
+## Event stability policy
+
+`AssistantMessageEvent` is a closed 0.1 API. The constructors listed
+above are the complete event set every provider must use; providers
+do not emit raw provider-specific or unknown-event values. Adding a
+new constructor is therefore a breaking API change for consumers who
+pattern-match exhaustively.
+
+If you want compiler help when the event set changes, match every
+constructor explicitly. If you prefer source resilience across future
+minor versions, add a wildcard branch after the cases you care about:
+
+```haskell
+case event of
+  TextDelta DeltaPayload {delta = d} -> TIO.putStr d
+  EventDone TerminalPayload {message = msg} -> handleSuccess msg
+  EventError TerminalPayload {reason = r, message = partial} -> handleFailure r partial
+  _ -> pure ()
+```
 
 ## CLI providers
 
@@ -159,12 +179,13 @@ across every `Api` tag. For the full CLI provider surface
 | `Length`       | Hit the `maxTokens` cap or the model's `maxOutputTokens`.                                  |
 | `ToolUse`      | Model emitted tool calls and expects you to dispatch them. See [Tools](tools.md).          |
 | `ErrorReason`  | Provider returned an error (auth, rate limit, malformed input, …). `errorMessage` is set.  |
-| `Aborted`      | The caller cancelled via signal/timeout. `errorPartial` carries whatever streamed first.   |
+| `Aborted`      | The caller cancelled via signal/timeout. The terminal `message` carries whatever streamed first. |
 
 ## Notes
 
-- Field name. The `EventError` payload field is `errorPartial`, not
-  `error` (which would shadow `Prelude.error`).
+- Payloads. Event constructors carry payload records such as
+  `DeltaPayload` and `TerminalPayload`; terminal payloads use the
+  field name `message` for both success and failure.
 - Block ordering. The stream guarantees `_Start` < `_Delta`* <
   `_End` per `contentIndex`, but indices can interleave: a
   `ThinkingStart` for index 0 can be followed by a `TextStart` for
