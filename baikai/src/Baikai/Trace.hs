@@ -22,35 +22,36 @@
 -- leaks the worker.
 module Baikai.Trace
   ( -- * Re-exports
-    TraceEvent (..)
-  , TraceSink (..)
+    TraceEvent (..),
+    TraceSink (..),
 
     -- * Wrappers
-  , withTrace
-  , withTraceStream
-  , runRequestWith
+    withTrace,
+    withTraceStream,
+    runRequestWith,
 
     -- * Helpers
-  , newEventId
-  , summarizeContext
-  ) where
+    newEventId,
+    summarizeContext,
+  )
+where
 
 import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
-  ( CallLogEntry (..)
-  , CallLogHandle
-  , appendEntry
-  , summarizeContext
+  ( CallLogEntry (..),
+    CallLogHandle,
+    appendEntry,
+    summarizeContext,
   )
-import Baikai.Message (Message (..))
+import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Prelude
 import Baikai.Response (Response)
 import Baikai.Stream (reassembleResponse, streamRequest)
-import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Stream.Event (AssistantMessageEvent (..), TerminalPayload (..))
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Usage (Usage)
@@ -88,12 +89,12 @@ import System.IO.Unsafe (unsafePerformIO)
 -- the terminal event is yielded to the consumer. Intermediate delta
 -- events are not traced — emitting one trace per token would
 -- explode trace volume.
-withTraceStream
-  :: TraceSink
-  -> Model
-  -> Context
-  -> Options
-  -> Stream IO AssistantMessageEvent
+withTraceStream ::
+  TraceSink ->
+  Model ->
+  Context ->
+  Options ->
+  Stream IO AssistantMessageEvent
 withTraceStream (TraceSink sinkFold) m ctx opts =
   Stream.concatEffect $ do
     state <- newTraceState
@@ -112,15 +113,16 @@ withTraceStream (TraceSink sinkFold) m ctx opts =
     writeChan c $
       Just
         CallStarted
-          { eventId = eid
-          , timestamp = start
-          , provider = m ^. #provider
-          , model = m ^. #modelId
-          , maxTokens = resolvedMaxTokens m opts
-          , promptSummary = summarizeContext ctx
+          { eventId = eid,
+            timestamp = start,
+            provider = m ^. #provider,
+            model = m ^. #modelId,
+            maxTokens = resolvedMaxTokens m opts,
+            promptSummary = summarizeContext ctx
           }
     pure $
-      Stream.finallyIO (cleanupTrace state)
+      Stream.finallyIO
+        (cleanupTrace state)
         (Stream.mapM (traceEvent state eid start m) (streamRequest m ctx opts))
 
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
@@ -136,9 +138,9 @@ withTraceStream (TraceSink sinkFold) m ctx opts =
 -- failures must surface as response data, not exceptions.
 -- Downstream-of-the-fold exceptions (e.g. an 'appendEntry' that
 -- fails) still propagate unchanged.
-withTrace
-  :: MonadUnliftIO m
-  => TraceSink -> Model -> Context -> Options -> m Response
+withTrace ::
+  (MonadUnliftIO m) =>
+  TraceSink -> Model -> Context -> Options -> m Response
 withTrace sink model ctx opts =
   withRunInIO $ \_ ->
     Stream.fold
@@ -150,9 +152,9 @@ withTrace sink model ctx opts =
 -- ============================================================
 
 data TraceState = TraceState
-  { chan :: !(Chan (Maybe TraceEvent))
-  , done :: !(MVar ())
-  , closed :: !(IORef Bool)
+  { chan :: !(Chan (Maybe TraceEvent)),
+    done :: !(MVar ()),
+    closed :: !(IORef Bool)
   }
   deriving stock (Generic)
 
@@ -171,50 +173,50 @@ cleanupTrace s = do
     writeChan (s ^. #chan) Nothing
     takeMVar (s ^. #done)
 
-traceEvent
-  :: TraceState
-  -> Text
-  -> UTCTime
-  -> Model
-  -> AssistantMessageEvent
-  -> IO AssistantMessageEvent
+traceEvent ::
+  TraceState ->
+  Text ->
+  UTCTime ->
+  Model ->
+  AssistantMessageEvent ->
+  IO AssistantMessageEvent
 traceEvent state eid start m ev = do
   case ev of
-    EventDone {message = msg} -> do
+    EventDone TerminalPayload {message = msg} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
           mu = assistantUsageFromMsg msg
           meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
           finished =
             CallFinished
-              { eventId = eid
-              , timestamp = now
-              , provider = m ^. #provider
-              , model = m ^. #modelId
-              , latencyMs = latency
-              , inputTokens = fmap Usage.inputTokens mu
-              , outputTokens = fmap Usage.outputTokens mu
-              , usd =
+              { eventId = eid,
+                timestamp = now,
+                provider = m ^. #provider,
+                model = m ^. #modelId,
+                latencyMs = latency,
+                inputTokens = fmap Usage.inputTokens mu,
+                outputTokens = fmap Usage.outputTokens mu,
+                usd =
                   if meaningfulCost
                     then fmap (usdAsScientific . Usage.cost) mu
                     else Nothing
               }
       writeChan (state ^. #chan) (Just finished)
       cleanupTrace state
-    EventError {errorPartial = msg} -> do
+    EventError TerminalPayload {message = msg} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
           errMsg = case msg of
-            AssistantMessage {errorMessage = Just t} -> t
+            AssistantMessage AssistantPayload {errorMessage = Just t} -> t
             _ -> "stream terminated with EventError"
           failed =
             CallFailed
-              { eventId = eid
-              , timestamp = now
-              , provider = m ^. #provider
-              , model = m ^. #modelId
-              , latencyMs = latency
-              , errorMessage = errMsg
+              { eventId = eid,
+                timestamp = now,
+                provider = m ^. #provider,
+                model = m ^. #modelId,
+                latencyMs = latency,
+                errorMessage = errMsg
               }
       writeChan (state ^. #chan) (Just failed)
       cleanupTrace state
@@ -228,14 +230,14 @@ traceEvent state eid start m ev = do
 -- | Combine tracing with call-log persistence in one call. Traces
 -- the streaming call, drains it into a 'Response', then appends a
 -- 'CallLogEntry' to the given handle.
-runRequestWith
-  :: MonadUnliftIO m
-  => TraceSink
-  -> CallLogHandle
-  -> Model
-  -> Context
-  -> Options
-  -> m Response
+runRequestWith ::
+  (MonadUnliftIO m) =>
+  TraceSink ->
+  CallLogHandle ->
+  Model ->
+  Context ->
+  Options ->
+  m Response
 runRequestWith sink h m ctx opts = do
   resp <- withTrace sink m ctx opts
   now <- liftIO getCurrentTime
@@ -243,19 +245,19 @@ runRequestWith sink h m ctx opts = do
       meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
       entry =
         CallLogEntry
-          { timestamp = now
-          , provider = m ^. #provider
-          , model = m ^. #modelId
-          , inputTokens = mu >>= positiveNat . Usage.inputTokens
-          , outputTokens = mu >>= positiveNat . Usage.outputTokens
-          , cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens
-          , reasoningTokens = mu >>= Usage.reasoningTokens
-          , usd =
+          { timestamp = now,
+            provider = m ^. #provider,
+            model = m ^. #modelId,
+            inputTokens = mu >>= positiveNat . Usage.inputTokens,
+            outputTokens = mu >>= positiveNat . Usage.outputTokens,
+            cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens,
+            reasoningTokens = mu >>= Usage.reasoningTokens,
+            usd =
               if meaningfulCost
                 then fmap (usdAsScientific . Usage.cost) mu
-                else Nothing
-          , latencyMs = resp ^. #latencyMs
-          , promptSummary = summarizeContext ctx
+                else Nothing,
+            latencyMs = resp ^. #latencyMs,
+            promptSummary = summarizeContext ctx
           }
   appendEntry h entry
   pure resp
@@ -267,12 +269,12 @@ runRequestWith sink h m ctx opts = do
 -- | Project the assistant turn's 'Usage' out of a response.
 assistantUsage :: Response -> Maybe Usage
 assistantUsage resp = case resp ^. #message of
-  AssistantMessage {usage = u} -> Just u
+  AssistantMessage AssistantPayload {usage = u} -> Just u
   _ -> Nothing
 
 assistantUsageFromMsg :: Message -> Maybe Usage
 assistantUsageFromMsg = \case
-  AssistantMessage {usage = u} -> Just u
+  AssistantMessage AssistantPayload {usage = u} -> Just u
   _ -> Nothing
 
 usdRat :: Cost.Cost -> Rational

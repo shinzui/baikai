@@ -6,21 +6,27 @@
 -- library's interface to the CLI provider packages and should not be
 -- relied on by application code.
 module Baikai.Provider.Cli.Internal
-  ( renderPrompt
-  , maybeApply
-  , decodeUtf8Lenient
-  , extractAgentMessage
-  , parseCodexJsonlStream
-  ) where
+  ( renderPrompt,
+    maybeApply,
+    decodeUtf8Lenient,
+    extractAgentMessage,
+    parseCodexJsonlStream,
+  )
+where
 
 import Baikai.Content
-  ( AssistantContent (..)
-  , TextContent (..)
-  , ToolResultContent (..)
-  , UserContent (..)
+  ( AssistantContent (..),
+    TextContent (..),
+    ToolResultContent (..),
+    UserContent (..),
   )
 import Baikai.Context (Context)
-import Baikai.Message (Message (..))
+import Baikai.Message
+  ( AssistantPayload (..),
+    Message (..),
+    ToolResultPayload (..),
+    UserPayload (..),
+  )
 import Control.Lens ((^.))
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
@@ -56,17 +62,17 @@ renderPrompt :: Context -> Text
 renderPrompt ctx =
   let msgs = Vector.toList (ctx ^. #messages)
    in case msgs of
-        [UserMessage {userContent = uc}]
+        [UserMessage UserPayload {content = uc}]
           | [UserText (TextContent t)] <- Vector.toList uc ->
               t
         _ -> Text.intercalate "\n" (fmap tag msgs)
   where
     tag :: Message -> Text
-    tag (UserMessage {userContent = uc}) =
+    tag (UserMessage UserPayload {content = uc}) =
       "[user]: " <> flattenUser uc
-    tag (AssistantMessage {assistantContent = ac}) =
+    tag (AssistantMessage AssistantPayload {content = ac}) =
       "[assistant]: " <> flattenAssistant ac
-    tag (ToolResultMessage {toolName = n, toolResultContent = trc}) =
+    tag (ToolResultMessage ToolResultPayload {toolName = n, content = trc}) =
       "[tool:" <> n <> "]: " <> flattenToolResult trc
 
     flattenUser :: Vector UserContent -> Text

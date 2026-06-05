@@ -27,15 +27,16 @@
 -- 'streamingComplete', so callers that drain the stream get the
 -- same fully-assembled 'Response' they had before.
 module Baikai.Provider.OpenAI.Api
-  ( register
-  , openaiChatStream
-  ) where
+  ( register,
+    openaiChatStream,
+  )
+where
 
 import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
 import Baikai.Compat
-  ( OpenAICompletionsCompat (..)
-  , ThinkingFormat (..)
+  ( OpenAICompletionsCompat (..),
+    ThinkingFormat (..),
   )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
@@ -47,9 +48,17 @@ import Baikai.Options (Options (..))
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
-import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Stream.Event
+  ( AssistantMessageEvent (..),
+    BlockEndPayload (..),
+    DeltaPayload (..),
+    IndexPayload (..),
+    StartPayload (..),
+    TerminalPayload (..),
+    ToolCallEndPayload (..),
+  )
 import Baikai.ThinkingLevel
-  ( ThinkingLevel (..)
+  ( ThinkingLevel (..),
   )
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
@@ -90,9 +99,9 @@ register :: IO ()
 register =
   registerApiProvider
     ApiProvider
-      { apiTag = OpenAIChatCompletions
-      , stream = openaiChatStream
-      , complete = streamingComplete openaiChatStream
+      { apiTag = OpenAIChatCompletions,
+        stream = openaiChatStream,
+        complete = streamingComplete openaiChatStream
       }
 
 -- | Streaming producer for the OpenAI Chat Completions API.
@@ -104,8 +113,8 @@ register =
 -- 'Nothing'; the consumer translates each chunk into zero or more
 -- baikai 'AssistantMessageEvent' values and terminates with exactly
 -- one 'EventDone' or 'EventError'.
-openaiChatStream
-  :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
+openaiChatStream ::
+  Model -> Context -> Options -> Stream IO AssistantMessageEvent
 openaiChatStream m ctx opts =
   Stream.concatEffect $ do
     setup <- prepareCall m ctx opts
@@ -118,28 +127,29 @@ openaiChatStream m ctx opts =
         startTime <- getCurrentTime
         let initialState =
               ProducerState
-                { chan = ch
-                , pending = [EventStart {partial = skeletonStart m startTime}]
-                , assembler = emptyAssembler m startTime
-                , finished = False
-                , terminalRef = tref
+                { chan = ch,
+                  pending = [EventStart StartPayload {partial = skeletonStart m startTime}],
+                  assembler = emptyAssembler m startTime,
+                  finished = False,
+                  terminalRef = tref
                 }
         pure (Stream.unfoldrM step initialState)
 
 skeletonStart :: Model -> UTCTime -> Msg.Message
 skeletonStart _m start =
   Msg.AssistantMessage
-    { Msg.assistantContent = Vector.empty
-    , Msg.usage = Usage._Usage
-    , Msg.stopReason = Stop.Stop
-    , Msg.errorMessage = Nothing
-    , Msg.timestamp = start
-    }
+    Msg.AssistantPayload
+      { Msg.content = Vector.empty,
+        Msg.usage = Usage._Usage,
+        Msg.stopReason = Stop.Stop,
+        Msg.errorMessage = Nothing,
+        Msg.timestamp = start
+      }
 
 -- | Per-call prepared values.
 data OpenAICall = OpenAICall
-  { methods :: !OpenAI.Methods
-  , request :: !Chat.CreateChatCompletion
+  { methods :: !OpenAI.Methods,
+    request :: !Chat.CreateChatCompletion
   }
   deriving stock (Generic)
 
@@ -155,11 +165,12 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
     let mtds = OpenAI.makeMethods env key Nothing Nothing
         req' =
           req
-            { Chat.stream = Just True
-            , Chat.stream_options =
+            { Chat.stream = Just True,
+              Chat.stream_options =
                 Just
                   Chat._ChatCompletionStreamOptions
-                    {Chat.include_usage = Just True}
+                    { Chat.include_usage = Just True
+                    }
             }
     pure (Right OpenAICall {methods = mtds, request = req'})
 
@@ -173,32 +184,32 @@ resolveKey opts = case opts ^. #apiKey of
 -- ignored. Missing fields are 'Nothing' (we tolerate partial
 -- tool-call deltas).
 data RawChunk = RawChunk
-  { contentDelta :: !(Maybe Text)
-  , finishReason :: !(Maybe Text)
-  , toolDeltas :: ![RawToolDelta]
-  , usage :: !(Maybe RawUsage)
-  , error :: !(Maybe Text)
+  { contentDelta :: !(Maybe Text),
+    finishReason :: !(Maybe Text),
+    toolDeltas :: ![RawToolDelta],
+    usage :: !(Maybe RawUsage),
+    error :: !(Maybe Text)
   }
   deriving stock (Show, Generic)
 
 data RawToolDelta = RawToolDelta
-  { index :: !Int
-  , id_ :: !(Maybe Text)
-  , name :: !(Maybe Text)
-  , args :: !(Maybe Text)
+  { index :: !Int,
+    id_ :: !(Maybe Text),
+    name :: !(Maybe Text),
+    args :: !(Maybe Text)
   }
   deriving stock (Show, Generic)
 
 data RawUsage = RawUsage
-  { inputTokens :: !Natural
-  , outputTokens :: !Natural
-  , cacheReadTokens :: !Natural
-  , reasoningTokens :: !(Maybe Natural)
+  { inputTokens :: !Natural,
+    outputTokens :: !Natural,
+    cacheReadTokens :: !Natural,
+    reasoningTokens :: !(Maybe Natural)
   }
   deriving stock (Show, Generic)
 
-worker
-  :: OpenAICall -> Chan (Maybe RawChunk) -> IO ()
+worker ::
+  OpenAICall -> Chan (Maybe RawChunk) -> IO ()
 worker call ch = do
   let OpenAI.Methods {OpenAI.createChatCompletionStream = stream'} = call ^. #methods
   r <-
@@ -217,11 +228,11 @@ worker call ch = do
 errorChunk :: Text -> RawChunk
 errorChunk t =
   RawChunk
-    { contentDelta = Nothing
-    , finishReason = Nothing
-    , toolDeltas = []
-    , usage = Nothing
-    , error = Just t
+    { contentDelta = Nothing,
+      finishReason = Nothing,
+      toolDeltas = [],
+      usage = Nothing,
+      error = Just t
     }
 
 -- | Aeson parser tolerant of partial tool-call fields.
@@ -255,11 +266,11 @@ parseChunk = Aeson.parseEither $ Aeson.withObject "ChatCompletionChunk" $ \o -> 
         _ -> Nothing
   pure
     RawChunk
-      { contentDelta = contentDelta
-      , finishReason = finishR
-      , toolDeltas = toolDeltas
-      , usage = ru
-      , error = Nothing
+      { contentDelta = contentDelta,
+        finishReason = finishR,
+        toolDeltas = toolDeltas,
+        usage = ru,
+        error = Nothing
       }
 
 parseToolCallDeltas :: Maybe Value -> [RawToolDelta]
@@ -278,10 +289,10 @@ parseToolCallDeltas = \case
             getArgs = funcObj >>= lookupText "arguments"
          in Just
               RawToolDelta
-                { index = maybe 0 fromInt (lookupField "index" o)
-                , id_ = lookupText "id" o
-                , name = getName
-                , args = getArgs
+                { index = maybe 0 fromInt (lookupField "index" o),
+                  id_ = lookupText "id" o,
+                  name = getName,
+                  args = getArgs
                 }
       _ -> Nothing
 
@@ -308,10 +319,10 @@ parseUsage o =
             _ -> Nothing
       pure
         RawUsage
-          { inputTokens = fromMaybe 0 i
-          , outputTokens = fromMaybe 0 out
-          , cacheReadTokens = cached
-          , reasoningTokens = reasoning
+          { inputTokens = fromMaybe 0 i,
+            outputTokens = fromMaybe 0 out,
+            cacheReadTokens = cached,
+            reasoningTokens = reasoning
           }
 
 lookupField :: Text -> Aeson.Object -> Maybe Value
@@ -334,11 +345,11 @@ fromInt = \case
 -- ============================================================
 
 data ProducerState = ProducerState
-  { chan :: !(Chan (Maybe RawChunk))
-  , pending :: ![AssistantMessageEvent]
-  , assembler :: !Assembler
-  , finished :: !Bool
-  , terminalRef :: !(IORef Bool)
+  { chan :: !(Chan (Maybe RawChunk)),
+    pending :: ![AssistantMessageEvent],
+    assembler :: !Assembler,
+    finished :: !Bool,
+    terminalRef :: !(IORef Bool)
   }
   deriving stock (Generic)
 
@@ -348,8 +359,8 @@ step s
       writeTerminal s e
       pure
         ( Just
-            ( e
-            , s
+            ( e,
+              s
                 & #pending .~ rest
                 & #finished .~ (s ^. #finished || terminal e)
             )
@@ -371,8 +382,8 @@ step s
                   writeTerminal s e
                   pure
                     ( Just
-                        ( e
-                        , s
+                        ( e,
+                          s
                             & #pending .~ rest
                             & #assembler .~ ass'
                             & #finished .~ True
@@ -387,8 +398,8 @@ step s
               writeTerminal s e
               pure
                 ( Just
-                    ( e
-                    , s
+                    ( e,
+                      s
                         & #pending .~ rest
                         & #assembler .~ ass'
                         & #finished .~ (s ^. #finished || terminal e)
@@ -412,62 +423,62 @@ terminal = \case
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
-  { model :: !Model
-  , start :: !UTCTime
-  , textOpen :: !(Maybe Int)
-    -- ^ 'Just i' when a text block at baikai contentIndex @i@ is
+  { model :: !Model,
+    start :: !UTCTime,
+    -- | 'Just i' when a text block at baikai contentIndex @i@ is
     -- currently open; 'Nothing' when no text block is open.
-  , textAccum :: !Text
-  , textEverOpened :: !Bool
-  , toolIndexMap :: !(IntMap Int)
-    -- ^ Maps OpenAI's per-call tool-call index to baikai's
+    textOpen :: !(Maybe Int),
+    textAccum :: !Text,
+    textEverOpened :: !Bool,
+    -- | Maps OpenAI's per-call tool-call index to baikai's
     -- 'contentIndex'.
-  , toolMeta :: !(IntMap (Text, Text))
-    -- ^ baikai contentIndex → (id, name).
-  , toolArgs :: !(IntMap Text)
-    -- ^ baikai contentIndex → accumulated arguments JSON.
-  , closed :: !(IntMap Content.AssistantContent)
-  , nextContentIndex :: !Int
-  , usage :: !Usage.Usage
-  , stopReason :: !Stop.StopReason
-  , finishSeen :: !Bool
-    -- ^ 'True' once a chunk carrying @finish_reason@ has been
+    toolIndexMap :: !(IntMap Int),
+    -- | baikai contentIndex → (id, name).
+    toolMeta :: !(IntMap (Text, Text)),
+    -- | baikai contentIndex → accumulated arguments JSON.
+    toolArgs :: !(IntMap Text),
+    closed :: !(IntMap Content.AssistantContent),
+    nextContentIndex :: !Int,
+    usage :: !Usage.Usage,
+    stopReason :: !Stop.StopReason,
+    -- | 'True' once a chunk carrying @finish_reason@ has been
     -- observed. The terminal 'EventDone' fires on channel close so
     -- the post-@finish_reason@ usage chunk (when @include_usage@ is
     -- enabled) has a chance to land.
-  , errorMsg :: !(Maybe Text)
+    finishSeen :: !Bool,
+    errorMsg :: !(Maybe Text)
   }
   deriving stock (Generic)
 
 emptyAssembler :: Model -> UTCTime -> Assembler
 emptyAssembler m s =
   Assembler
-    { model = m
-    , start = s
-    , textOpen = Nothing
-    , textAccum = Text.empty
-    , textEverOpened = False
-    , toolIndexMap = IntMap.empty
-    , toolMeta = IntMap.empty
-    , toolArgs = IntMap.empty
-    , closed = IntMap.empty
-    , nextContentIndex = 0
-    , usage = Usage._Usage
-    , stopReason = Stop.Stop
-    , finishSeen = False
-    , errorMsg = Nothing
+    { model = m,
+      start = s,
+      textOpen = Nothing,
+      textAccum = Text.empty,
+      textEverOpened = False,
+      toolIndexMap = IntMap.empty,
+      toolMeta = IntMap.empty,
+      toolArgs = IntMap.empty,
+      closed = IntMap.empty,
+      nextContentIndex = 0,
+      usage = Usage._Usage,
+      stopReason = Stop.Stop,
+      finishSeen = False,
+      errorMsg = Nothing
     }
 
-translate
-  :: RawChunk
-  -> Assembler
-  -> UTCTime
-  -> ([AssistantMessageEvent], Assembler)
+translate ::
+  RawChunk ->
+  Assembler ->
+  UTCTime ->
+  ([AssistantMessageEvent], Assembler)
 translate chunk ass now
   | Just errMsg <- chunk ^. #error =
       let msg = finalMessage ass now (Just errMsg) Stop.ErrorReason
-       in ( [EventError {reason = Stop.ErrorReason, errorPartial = msg}]
-          , ass & #errorMsg .~ Just errMsg
+       in ( [EventError TerminalPayload {reason = Stop.ErrorReason, message = msg}],
+            ass & #errorMsg .~ Just errMsg
           )
   | otherwise =
       let -- 1. Apply content delta (open text block if needed).
@@ -485,36 +496,36 @@ translate chunk ass now
             Nothing -> ([], ass3)
        in (textEvents <> toolEvents <> closeEvents, ass4)
 
-applyContentDelta
-  :: Maybe Text -> Assembler -> ([AssistantMessageEvent], Assembler)
+applyContentDelta ::
+  Maybe Text -> Assembler -> ([AssistantMessageEvent], Assembler)
 applyContentDelta Nothing ass = ([], ass)
 applyContentDelta (Just "") ass = ([], ass)
 applyContentDelta (Just d) ass =
   case ass ^. #textOpen of
     Just i ->
-      ( [TextDelta {contentIndex = i, delta = d}]
-      , ass & #textAccum %~ (<> d)
+      ( [TextDelta DeltaPayload {contentIndex = i, delta = d}],
+        ass & #textAccum %~ (<> d)
       )
     Nothing ->
       let i = ass ^. #nextContentIndex
-       in ( [TextStart {contentIndex = i}, TextDelta {contentIndex = i, delta = d}]
-          , ass
+       in ( [TextStart IndexPayload {contentIndex = i}, TextDelta DeltaPayload {contentIndex = i, delta = d}],
+            ass
               & #textOpen .~ Just i
               & #textAccum .~ d
               & #textEverOpened .~ True
               & #nextContentIndex .~ (i + 1)
           )
 
-applyToolDeltas
-  :: [RawToolDelta] -> Assembler -> ([AssistantMessageEvent], Assembler)
+applyToolDeltas ::
+  [RawToolDelta] -> Assembler -> ([AssistantMessageEvent], Assembler)
 applyToolDeltas deltas ass = foldl' apply ([], ass) deltas
   where
     apply (acc, a) d =
       let (events, a') = applyOneToolDelta d a
        in (acc <> events, a')
 
-applyOneToolDelta
-  :: RawToolDelta -> Assembler -> ([AssistantMessageEvent], Assembler)
+applyOneToolDelta ::
+  RawToolDelta -> Assembler -> ([AssistantMessageEvent], Assembler)
 applyOneToolDelta d ass =
   let openaiIdx = d ^. #index
       (baikaiIdx, ass1, opened) = case IntMap.lookup openaiIdx (ass ^. #toolIndexMap) of
@@ -534,19 +545,19 @@ applyOneToolDelta d ass =
           & #toolMeta
             %~ IntMap.adjust
               ( \(existingId, existingName) ->
-                  ( maybe existingId (\x -> if Text.null existingId then x else existingId) (d ^. #id_)
-                  , maybe existingName (\x -> if Text.null existingName then x else existingName) (d ^. #name)
+                  ( maybe existingId (\x -> if Text.null existingId then x else existingId) (d ^. #id_),
+                    maybe existingName (\x -> if Text.null existingName then x else existingName) (d ^. #name)
                   )
               )
               baikaiIdx
       -- Append args if present.
       argsDelta = fromMaybe "" (d ^. #args)
       ass3 = ass2 & #toolArgs %~ IntMap.adjust (<> argsDelta) baikaiIdx
-      events0 = if opened then [ToolCallStart {contentIndex = baikaiIdx}] else []
+      events0 = if opened then [ToolCallStart IndexPayload {contentIndex = baikaiIdx}] else []
       events1 =
         if Text.null argsDelta
           then events0
-          else events0 <> [ToolCallDelta {contentIndex = baikaiIdx, delta = argsDelta}]
+          else events0 <> [ToolCallDelta DeltaPayload {contentIndex = baikaiIdx, delta = argsDelta}]
    in (events1, ass3)
 
 applyUsage :: Maybe RawUsage -> Assembler -> Assembler
@@ -554,20 +565,20 @@ applyUsage Nothing ass = ass
 applyUsage (Just u) ass =
   let usage' =
         Usage.Usage
-          { Usage.inputTokens = u ^. #inputTokens
-          , Usage.outputTokens = u ^. #outputTokens
-          , Usage.cacheReadTokens = u ^. #cacheReadTokens
-          , Usage.cacheWriteTokens = 0
-          , Usage.reasoningTokens = u ^. #reasoningTokens
-          , Usage.totalTokens = (u ^. #inputTokens) + (u ^. #outputTokens) + (u ^. #cacheReadTokens)
-          , Usage.cost = _Cost
+          { Usage.inputTokens = u ^. #inputTokens,
+            Usage.outputTokens = u ^. #outputTokens,
+            Usage.cacheReadTokens = u ^. #cacheReadTokens,
+            Usage.cacheWriteTokens = 0,
+            Usage.reasoningTokens = u ^. #reasoningTokens,
+            Usage.totalTokens = (u ^. #inputTokens) + (u ^. #outputTokens) + (u ^. #cacheReadTokens),
+            Usage.cost = _Cost
           }
    in ass & #usage .~ usage'
 
 -- | Close all open content blocks and stash the resolved stop
 -- reason; defer 'EventDone' to channel close.
-closeOnFinish
-  :: Text -> Assembler -> ([AssistantMessageEvent], Assembler)
+closeOnFinish ::
+  Text -> Assembler -> ([AssistantMessageEvent], Assembler)
 closeOnFinish finishReason ass =
   let (closeText, ass1) = closeOpenText ass
       (closeTools, ass2) = closeOpenTools ass1
@@ -583,8 +594,8 @@ closeOpenText ass = case ass ^. #textOpen of
   Just i ->
     let body = ass ^. #textAccum
         block = Content.AssistantText (Content.TextContent body)
-     in ( [TextEnd {contentIndex = i, content = body}]
-        , ass
+     in ( [TextEnd BlockEndPayload {contentIndex = i, content = body}],
+          ass
             & #textOpen .~ Nothing
             & #textAccum .~ Text.empty
             & #closed %~ IntMap.insert i block
@@ -606,27 +617,27 @@ closeOpenTools ass =
             Left _ -> Aeson.Object mempty
           tc =
             Content.ToolCall
-              { Content.id_ = tid
-              , Content.name = tn
-              , Content.arguments = decoded
+              { Content.id_ = tid,
+                Content.name = tn,
+                Content.arguments = decoded
               }
           block = Content.AssistantToolCall tc
-       in ( acc <> [ToolCallEnd {contentIndex = i, toolCall = tc}]
-          , a
+       in ( acc <> [ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc}],
+            a
               & #closed %~ IntMap.insert i block
               & #toolArgs %~ IntMap.delete i
               & #toolMeta %~ IntMap.delete i
           )
 
-closeOpenStream
-  :: UTCTime -> Assembler -> ([AssistantMessageEvent], Assembler)
+closeOpenStream ::
+  UTCTime -> Assembler -> ([AssistantMessageEvent], Assembler)
 closeOpenStream now ass
   | ass ^. #finishSeen =
       -- Channel closed cleanly after finish_reason. Emit
       -- EventDone with the accumulated content + usage.
       let reason = ass ^. #stopReason
           msg = finalMessage ass now Nothing reason
-       in ([EventDone {reason = reason, message = msg}], ass)
+       in ([EventDone TerminalPayload {reason = reason, message = msg}], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
       -- still-open blocks and emit EventError with the accumulated
@@ -640,11 +651,11 @@ closeOpenStream now ass
               now
               (Just "openai stream ended without finish_reason")
               reason
-          errEv = EventError {reason = reason, errorPartial = msg}
+          errEv = EventError TerminalPayload {reason = reason, message = msg}
        in (closeText <> closeTools <> [errEv], ass2)
 
-finalMessage
-  :: Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message
+finalMessage ::
+  Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message
 finalMessage ass now errMsg sr =
   let blocks = blocksInOrder ass
       m = ass ^. #model
@@ -652,12 +663,13 @@ finalMessage ass now errMsg sr =
       computed = Pricing.computeCost m usageBare
       usage' = usageBare & #cost .~ computed
    in Msg.AssistantMessage
-        { Msg.assistantContent = blocks
-        , Msg.usage = usage'
-        , Msg.stopReason = sr
-        , Msg.errorMessage = errMsg
-        , Msg.timestamp = now
-        }
+        Msg.AssistantPayload
+          { Msg.content = blocks,
+            Msg.usage = usage',
+            Msg.stopReason = sr,
+            Msg.errorMessage = errMsg,
+            Msg.timestamp = now
+          }
 
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
 blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
@@ -669,20 +681,21 @@ immediateError errText = do
   now <- getCurrentTime
   let msg =
         Msg.AssistantMessage
-          { Msg.assistantContent = Vector.empty
-          , Msg.usage = Usage._Usage
-          , Msg.stopReason = Stop.ErrorReason
-          , Msg.errorMessage = Just errText
-          , Msg.timestamp = now
-          }
-  pure EventError {reason = Stop.ErrorReason, errorPartial = msg}
+          Msg.AssistantPayload
+            { Msg.content = Vector.empty,
+              Msg.usage = Usage._Usage,
+              Msg.stopReason = Stop.ErrorReason,
+              Msg.errorMessage = Just errText,
+              Msg.timestamp = now
+            }
+  pure (EventError TerminalPayload {reason = Stop.ErrorReason, message = msg})
 
 -- ============================================================
 -- Request mapping (preserved from EP-2 with minor refactoring)
 -- ============================================================
 
-mapRequest
-  :: Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
+mapRequest ::
+  Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
 mapRequest m ctx opts = do
   body <- traverse mapMessage (Vector.toList (ctx ^. #messages))
   let compat = openaiCompletionsCompatFor m
@@ -690,8 +703,8 @@ mapRequest m ctx opts = do
         Nothing -> []
         Just sp ->
           [ Chat.System
-              { Chat.content = Vector.singleton Chat.Text {Chat.text = sp}
-              , Chat.name = Nothing
+              { Chat.content = Vector.singleton Chat.Text {Chat.text = sp},
+                Chat.name = Nothing
               }
           ]
       mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
@@ -704,13 +717,13 @@ mapRequest m ctx opts = do
         applyThinkingFormat compat (opts ^. #thinking)
   pure
     Chat._CreateChatCompletion
-      { Chat.messages = Vector.fromList (prefix <> body)
-      , Chat.model = OpenAIModels.Model (m ^. #modelId)
-      , Chat.max_completion_tokens = Just mt
-      , Chat.temperature = opts ^. #temperature
-      , Chat.tools = toolsField
-      , Chat.tool_choice = toolChoiceField
-      , Chat.reasoning_effort = reasoningEffortField
+      { Chat.messages = Vector.fromList (prefix <> body),
+        Chat.model = OpenAIModels.Model (m ^. #modelId),
+        Chat.max_completion_tokens = Just mt,
+        Chat.temperature = opts ^. #temperature,
+        Chat.tools = toolsField,
+        Chat.tool_choice = toolChoiceField,
+        Chat.reasoning_effort = reasoningEffortField
       }
 
 -- | Map a 'Baikai.ThinkingLevel.ThinkingLevel' onto the OpenAI SDK's
@@ -724,10 +737,10 @@ mapRequest m ctx opts = do
 -- @openai@ Haskell SDK does not expose. They are silently dropped on
 -- this revision; see the EP-5 Decision Log for the rationale and
 -- pointers to the workaround when one is needed.
-applyThinkingFormat
-  :: OpenAICompletionsCompat
-  -> Maybe ThinkingLevel
-  -> Maybe Chat.ReasoningEffort
+applyThinkingFormat ::
+  OpenAICompletionsCompat ->
+  Maybe ThinkingLevel ->
+  Maybe Chat.ReasoningEffort
 applyThinkingFormat _ Nothing = Nothing
 applyThinkingFormat compat (Just lvl) = case thinkingFormat compat of
   ThinkingFormatOpenAI -> Just (toReasoningEffort lvl)
@@ -756,10 +769,10 @@ mkOpenAITool _compat t =
   OpenAITool.Tool_Function
     { OpenAITool.function =
         OpenAITool.Function
-          { OpenAITool.name = Tool.name t
-          , OpenAITool.description = Just (Tool.description t)
-          , OpenAITool.parameters = Just (Tool.parameters t)
-          , OpenAITool.strict = Nothing
+          { OpenAITool.name = Tool.name t,
+            OpenAITool.description = Just (Tool.description t),
+            OpenAITool.parameters = Just (Tool.parameters t),
+            OpenAITool.strict = Nothing
           }
     }
 
@@ -779,23 +792,23 @@ mkOpenAIToolChoice = \case
       ( OpenAITool.Tool_Function
           { OpenAITool.function =
               OpenAITool.Function
-                { OpenAITool.name = n
-                , OpenAITool.description = Nothing
-                , OpenAITool.parameters = Nothing
-                , OpenAITool.strict = Nothing
+                { OpenAITool.name = n,
+                  OpenAITool.description = Nothing,
+                  OpenAITool.parameters = Nothing,
+                  OpenAITool.strict = Nothing
                 }
           }
       )
 
 mapMessage :: Msg.Message -> Either Text (Chat.Message (Vector Chat.Content))
 mapMessage = \case
-  Msg.UserMessage {Msg.userContent = uc} ->
+  Msg.UserMessage Msg.UserPayload {Msg.content = uc} ->
     Right
       Chat.User
-        { Chat.content = Vector.map userContentToPart uc
-        , Chat.name = Nothing
+        { Chat.content = Vector.map userContentToPart uc,
+          Chat.name = Nothing
         }
-  Msg.AssistantMessage {Msg.assistantContent = ac} ->
+  Msg.AssistantMessage Msg.AssistantPayload {Msg.content = ac} ->
     let textBody = collectAssistantText ac
         toolCalls = collectToolCalls ac
         content
@@ -806,23 +819,24 @@ mapMessage = \case
           | otherwise = Just toolCalls
      in Right
           Chat.Assistant
-            { Chat.assistant_content = content
-            , Chat.refusal = Nothing
-            , Chat.name = Nothing
-            , Chat.assistant_audio = Nothing
-            , Chat.tool_calls = toolCallVec
+            { Chat.assistant_content = content,
+              Chat.refusal = Nothing,
+              Chat.name = Nothing,
+              Chat.assistant_audio = Nothing,
+              Chat.tool_calls = toolCallVec
             }
   Msg.ToolResultMessage
-    { Msg.toolCallId = tid
-    , Msg.toolResultContent = trc
-    , Msg.isError = err
-    } ->
+    Msg.ToolResultPayload
+      { Msg.toolCallId = tid,
+        Msg.content = trc,
+        Msg.isError = err
+      } ->
       let body = collectToolResultText trc
           decorated = if err then "[error] " <> body else body
        in Right
             Chat.Tool
-              { Chat.content = Vector.singleton Chat.Text {Chat.text = decorated}
-              , Chat.tool_call_id = tid
+              { Chat.content = Vector.singleton Chat.Text {Chat.text = decorated},
+                Chat.tool_call_id = tid
               }
 
 userContentToPart :: Content.UserContent -> Chat.Content
@@ -856,11 +870,11 @@ collectToolCalls =
         Content.AssistantToolCall tc ->
           Just
             ToolCall.ToolCall_Function
-              { ToolCall.id = Content.id_ tc
-              , ToolCall.function =
+              { ToolCall.id = Content.id_ tc,
+                ToolCall.function =
                   ToolCall.Function
-                    { ToolCall.name = Content.name tc
-                    , ToolCall.arguments =
+                    { ToolCall.name = Content.name tc,
+                      ToolCall.arguments =
                         Text.decodeUtf8 (BSL.toStrict (Aeson.encode (Content.arguments tc)))
                     }
               }

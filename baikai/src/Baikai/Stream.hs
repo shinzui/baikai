@@ -15,28 +15,37 @@
 -- deltas keeps the original single-shot ergonomics with no new
 -- ceremony.
 module Baikai.Stream
-  ( streamRequest
-  , streamingComplete
-  , reassembleResponse
-  , liftCompleteToStream
-  ) where
+  ( streamRequest,
+    streamingComplete,
+    reassembleResponse,
+    liftCompleteToStream,
+  )
+where
 
 import Baikai.Api (renderApi)
 import Baikai.Content
-  ( AssistantContent (..)
-  , TextContent (..)
-  , ThinkingContent (..)
+  ( AssistantContent (..),
+    TextContent (..),
+    ThinkingContent (..),
   )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context)
-import Baikai.Message (Message (AssistantMessage))
+import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Registry (ApiProvider (..), lookupApiProvider)
 import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
-import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Stream.Event
+  ( AssistantMessageEvent (..),
+    BlockEndPayload (..),
+    DeltaPayload (..),
+    IndexPayload (..),
+    StartPayload (..),
+    TerminalPayload (..),
+    ToolCallEndPayload (..),
+  )
 import Baikai.Usage (_Usage)
 import Control.Exception qualified
 import Control.Lens ((%~), (&), (.~), (^.))
@@ -72,12 +81,12 @@ streamRequest m ctx opts =
 
 -- | Drain an event stream into a 'Response' by folding events into
 -- the assembled message.
-streamingComplete
-  :: (Model -> Context -> Options -> Stream IO AssistantMessageEvent)
-  -> Model
-  -> Context
-  -> Options
-  -> IO Response
+streamingComplete ::
+  (Model -> Context -> Options -> Stream IO AssistantMessageEvent) ->
+  Model ->
+  Context ->
+  Options ->
+  IO Response
 streamingComplete f m ctx opts =
   Stream.fold (reassembleResponse m) (f m ctx opts)
 
@@ -90,55 +99,55 @@ reassembleResponse m =
 
 -- | One frozen-in-time view of the partial assembly.
 data ReassemblyState = ReassemblyState
-  { model :: !Model
-  , skeleton :: !(Maybe Message)
-    -- ^ 'Just' once 'EventStart' has been observed.
-  , startTime :: !(Maybe UTCTime)
-    -- ^ Captured from the EventStart message's timestamp.
-  , blocks :: !(IntMap AssistantContent)
-    -- ^ Content blocks closed so far, keyed by @contentIndex@.
-  , textBuf :: !(IntMap Text)
-    -- ^ Open text accumulators, indexed by @contentIndex@.
-  , thinkBuf :: !(IntMap Text)
-  , toolArgsBuf :: !(IntMap Text)
-  , terminal :: !(Maybe (StopReason, Message))
-    -- ^ 'Just (reason, msg)' once 'EventDone' or 'EventError' fires.
+  { model :: !Model,
+    -- | 'Just' once 'EventStart' has been observed.
+    skeleton :: !(Maybe Message),
+    -- | Captured from the EventStart message's timestamp.
+    startTime :: !(Maybe UTCTime),
+    -- | Content blocks closed so far, keyed by @contentIndex@.
+    blocks :: !(IntMap AssistantContent),
+    -- | Open text accumulators, indexed by @contentIndex@.
+    textBuf :: !(IntMap Text),
+    thinkBuf :: !(IntMap Text),
+    toolArgsBuf :: !(IntMap Text),
+    -- | 'Just (reason, msg)' once 'EventDone' or 'EventError' fires.
+    terminal :: !(Maybe (StopReason, Message))
   }
   deriving stock (Show, Generic)
 
 initialState :: Model -> ReassemblyState
 initialState m =
   ReassemblyState
-    { model = m
-    , skeleton = Nothing
-    , startTime = Nothing
-    , blocks = IntMap.empty
-    , textBuf = IntMap.empty
-    , thinkBuf = IntMap.empty
-    , toolArgsBuf = IntMap.empty
-    , terminal = Nothing
+    { model = m,
+      skeleton = Nothing,
+      startTime = Nothing,
+      blocks = IntMap.empty,
+      textBuf = IntMap.empty,
+      thinkBuf = IntMap.empty,
+      toolArgsBuf = IntMap.empty,
+      terminal = Nothing
     }
 
 step :: ReassemblyState -> AssistantMessageEvent -> ReassemblyState
 step s = \case
-  EventStart {partial = sk} ->
+  EventStart StartPayload {partial = sk} ->
     let t = case sk of
-          AssistantMessage {Msg.timestamp = ts} -> Just ts
+          AssistantMessage AssistantPayload {Msg.timestamp = ts} -> Just ts
           _ -> Nothing
      in s & #skeleton .~ Just sk & #startTime .~ t
-  TextStart {contentIndex = i} ->
+  TextStart IndexPayload {contentIndex = i} ->
     s & #textBuf %~ IntMap.insert i Text.empty
-  TextDelta {contentIndex = i, delta = d} ->
+  TextDelta DeltaPayload {contentIndex = i, delta = d} ->
     s & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  TextEnd {contentIndex = i, content = body} ->
+  TextEnd BlockEndPayload {contentIndex = i, content = body} ->
     s
       & #blocks %~ IntMap.insert i (AssistantText (TextContent body))
       & #textBuf %~ IntMap.delete i
-  ThinkingStart {contentIndex = i} ->
+  ThinkingStart IndexPayload {contentIndex = i} ->
     s & #thinkBuf %~ IntMap.insert i Text.empty
-  ThinkingDelta {contentIndex = i, delta = d} ->
+  ThinkingDelta DeltaPayload {contentIndex = i, delta = d} ->
     s & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  ThinkingEnd {contentIndex = i, content = body} ->
+  ThinkingEnd BlockEndPayload {contentIndex = i, content = body} ->
     s
       & #blocks
         %~ IntMap.insert
@@ -147,17 +156,17 @@ step s = \case
               ThinkingContent {thinking = body, signature = Nothing, redacted = False}
           )
       & #thinkBuf %~ IntMap.delete i
-  ToolCallStart {contentIndex = i} ->
+  ToolCallStart IndexPayload {contentIndex = i} ->
     s & #toolArgsBuf %~ IntMap.insert i Text.empty
-  ToolCallDelta {contentIndex = i, delta = d} ->
+  ToolCallDelta DeltaPayload {contentIndex = i, delta = d} ->
     s & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  ToolCallEnd {contentIndex = i, toolCall = tc} ->
+  ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc} ->
     s
       & #blocks %~ IntMap.insert i (AssistantToolCall tc)
       & #toolArgsBuf %~ IntMap.delete i
-  EventDone {reason = r, message = msg} ->
+  EventDone TerminalPayload {reason = r, message = msg} ->
     s & #terminal .~ Just (r, msg)
-  EventError {reason = r, errorPartial = msg} ->
+  EventError TerminalPayload {reason = r, message = msg} ->
     s & #terminal .~ Just (r, msg)
 
 finalizeState :: ReassemblyState -> IO Response
@@ -170,7 +179,7 @@ finalizeState s = do
         Nothing -> (synthesizeTerminal now assembled, Stop)
       message' = overrideBlocksAndReason terminalReason terminalMsg assembled
       endTs = case message' of
-        AssistantMessage {Msg.timestamp = ts} -> ts
+        AssistantMessage AssistantPayload {Msg.timestamp = ts} -> ts
         _ -> now
       latency = case s ^. #startTime of
         Just startTs ->
@@ -178,12 +187,12 @@ finalizeState s = do
         Nothing -> 0
   pure
     Response
-      { message = message'
-      , model = m
-      , api = m ^. #api
-      , provider = m ^. #provider
-      , responseId = Nothing
-      , latencyMs = latency
+      { message = message',
+        model = m,
+        api = m ^. #api,
+        provider = m ^. #provider,
+        responseId = Nothing,
+        latencyMs = latency
       }
 
 -- | Project the closed content blocks in 'contentIndex' order, plus
@@ -194,30 +203,31 @@ assembleBlocks s =
   let closed = IntMap.elems (s ^. #blocks)
       danglingText =
         [ AssistantText (TextContent t)
-        | (_, t) <- IntMap.toAscList (s ^. #textBuf)
-        , not (Text.null t)
+        | (_, t) <- IntMap.toAscList (s ^. #textBuf),
+          not (Text.null t)
         ]
       danglingThink =
         [ AssistantThinking
             ThinkingContent {thinking = t, signature = Nothing, redacted = False}
-        | (_, t) <- IntMap.toAscList (s ^. #thinkBuf)
-        , not (Text.null t)
+        | (_, t) <- IntMap.toAscList (s ^. #thinkBuf),
+          not (Text.null t)
         ]
    in Vector.fromList (closed <> danglingText <> danglingThink)
 
 -- | Replace the content vector and stop reason of an assistant
 -- message, preserving usage, errorMessage, and timestamp.
-overrideBlocksAndReason
-  :: StopReason -> Message -> Vector AssistantContent -> Message
+overrideBlocksAndReason ::
+  StopReason -> Message -> Vector AssistantContent -> Message
 overrideBlocksAndReason sr msg blocks = case msg of
-  AssistantMessage {usage = u, errorMessage = em, timestamp = ts} ->
+  AssistantMessage AssistantPayload {usage = u, errorMessage = em, timestamp = ts} ->
     AssistantMessage
-      { Msg.assistantContent = blocks
-      , Msg.usage = u
-      , Msg.stopReason = sr
-      , Msg.errorMessage = em
-      , Msg.timestamp = ts
-      }
+      AssistantPayload
+        { Msg.content = blocks,
+          Msg.usage = u,
+          Msg.stopReason = sr,
+          Msg.errorMessage = em,
+          Msg.timestamp = ts
+        }
   other -> other
 
 -- | Build a placeholder 'AssistantMessage' for streams that ended
@@ -225,12 +235,13 @@ overrideBlocksAndReason sr msg blocks = case msg of
 synthesizeTerminal :: UTCTime -> Vector AssistantContent -> Message
 synthesizeTerminal now blocks =
   AssistantMessage
-    { Msg.assistantContent = blocks
-    , Msg.usage = _Usage
-    , Msg.stopReason = Stop
-    , Msg.errorMessage = Just "stream ended without terminal event"
-    , Msg.timestamp = now
-    }
+    AssistantPayload
+      { Msg.content = blocks,
+        Msg.usage = _Usage,
+        Msg.stopReason = Stop,
+        Msg.errorMessage = Just "stream ended without terminal event",
+        Msg.timestamp = now
+      }
 
 -- | Wrap a synchronous @complete@ handler in a one-shot event
 -- stream. Used by vendor providers (notably the CLI providers and
@@ -250,12 +261,12 @@ synthesizeTerminal now blocks =
 -- An exception from @complete@ becomes a single-'EventError' stream
 -- with @stopReason = ErrorReason@ and 'errorMessage' set from the
 -- exception's display.
-liftCompleteToStream
-  :: (Model -> Context -> Options -> IO Response)
-  -> Model
-  -> Context
-  -> Options
-  -> Stream IO AssistantMessageEvent
+liftCompleteToStream ::
+  (Model -> Context -> Options -> IO Response) ->
+  Model ->
+  Context ->
+  Options ->
+  Stream IO AssistantMessageEvent
 liftCompleteToStream f m ctx opts =
   Stream.concatEffect $ do
     startTs <- getCurrentTime
@@ -276,17 +287,18 @@ eventsFor :: UTCTime -> Response -> [AssistantMessageEvent]
 eventsFor startTs resp =
   let msg = resp ^. #message
       skeleton = case msg of
-        AssistantMessage {Msg.usage = u, Msg.stopReason = sr, Msg.errorMessage = em} ->
+        AssistantMessage AssistantPayload {Msg.usage = u, Msg.stopReason = sr, Msg.errorMessage = em} ->
           AssistantMessage
-            { Msg.assistantContent = Vector.empty
-            , Msg.usage = u
-            , Msg.stopReason = sr
-            , Msg.errorMessage = em
-            , Msg.timestamp = startTs
-            }
+            AssistantPayload
+              { Msg.content = Vector.empty,
+                Msg.usage = u,
+                Msg.stopReason = sr,
+                Msg.errorMessage = em,
+                Msg.timestamp = startTs
+              }
         other -> other
       blocks = case msg of
-        AssistantMessage {Msg.assistantContent = c} -> Vector.toList c
+        AssistantMessage AssistantPayload {Msg.content = c} -> Vector.toList c
         _ -> []
       blockEvents =
         concat
@@ -294,30 +306,30 @@ eventsFor startTs resp =
           | (i, b) <- zip [0 ..] blocks
           ]
       reason = case msg of
-        AssistantMessage {Msg.stopReason = sr} -> sr
+        AssistantMessage AssistantPayload {Msg.stopReason = sr} -> sr
         _ -> Stop
-   in [EventStart {partial = skeleton}]
+   in [EventStart StartPayload {partial = skeleton}]
         <> blockEvents
-        <> [EventDone {reason = reason, message = msg}]
+        <> [EventDone TerminalPayload {reason = reason, message = msg}]
 
 blockEvent :: Int -> AssistantContent -> [AssistantMessageEvent]
 blockEvent i = \case
   AssistantText (TextContent t) ->
-    [ TextStart {contentIndex = i}
-    , TextDelta {contentIndex = i, delta = t}
-    , TextEnd {contentIndex = i, content = t}
+    [ TextStart IndexPayload {contentIndex = i},
+      TextDelta DeltaPayload {contentIndex = i, delta = t},
+      TextEnd BlockEndPayload {contentIndex = i, content = t}
     ]
   AssistantThinking ThinkingContent {thinking = t} ->
-    [ ThinkingStart {contentIndex = i}
-    , ThinkingDelta {contentIndex = i, delta = t}
-    , ThinkingEnd {contentIndex = i, content = t}
+    [ ThinkingStart IndexPayload {contentIndex = i},
+      ThinkingDelta DeltaPayload {contentIndex = i, delta = t},
+      ThinkingEnd BlockEndPayload {contentIndex = i, content = t}
     ]
   AssistantToolCall tc ->
     let argsText =
           Text.decodeUtf8 (BSL.toStrict (Aeson.encode (Content.arguments tc)))
-     in [ ToolCallStart {contentIndex = i}
-        , ToolCallDelta {contentIndex = i, delta = argsText}
-        , ToolCallEnd {contentIndex = i, toolCall = tc}
+     in [ ToolCallStart IndexPayload {contentIndex = i},
+          ToolCallDelta DeltaPayload {contentIndex = i, delta = argsText},
+          ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc}
         ]
 
 errorEvent :: Control.Exception.SomeException -> IO AssistantMessageEvent
@@ -325,13 +337,14 @@ errorEvent e = do
   now <- getCurrentTime
   let msg =
         AssistantMessage
-          { Msg.assistantContent = Vector.empty
-          , Msg.usage = _Usage
-          , Msg.stopReason = ErrorReason
-          , Msg.errorMessage = Just (Text.pack (Control.Exception.displayException e))
-          , Msg.timestamp = now
-          }
-  pure EventError {reason = ErrorReason, errorPartial = msg}
+          AssistantPayload
+            { Msg.content = Vector.empty,
+              Msg.usage = _Usage,
+              Msg.stopReason = ErrorReason,
+              Msg.errorMessage = Just (Text.pack (Control.Exception.displayException e)),
+              Msg.timestamp = now
+            }
+  pure (EventError TerminalPayload {reason = ErrorReason, message = msg})
 
 -- | The single 'EventError' value used when no provider is
 -- registered for the model's API tag.
@@ -340,11 +353,12 @@ noProviderEvent m = do
   now <- getCurrentTime
   let msg =
         AssistantMessage
-          { Msg.assistantContent = Vector.empty
-          , Msg.usage = _Usage
-          , Msg.stopReason = ErrorReason
-          , Msg.errorMessage =
-              Just ("No provider registered for API: " <> renderApi (m ^. #api))
-          , Msg.timestamp = now
-          }
-  pure EventError {reason = ErrorReason, errorPartial = msg}
+          AssistantPayload
+            { Msg.content = Vector.empty,
+              Msg.usage = _Usage,
+              Msg.stopReason = ErrorReason,
+              Msg.errorMessage =
+                Just ("No provider registered for API: " <> renderApi (m ^. #api)),
+              Msg.timestamp = now
+            }
+  pure (EventError TerminalPayload {reason = ErrorReason, message = msg})

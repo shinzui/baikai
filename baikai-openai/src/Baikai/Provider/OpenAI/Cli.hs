@@ -5,24 +5,25 @@
 -- 'Baikai.Api.OpenAICompletionsCli' handler with default config.
 -- 'registerWith' accepts a caller-supplied 'CodexCliConfig'.
 module Baikai.Provider.OpenAI.Cli
-  ( CodexCliConfig (..)
-  , defaultCodexCliConfig
-  , register
-  , registerWith
-  ) where
+  ( CodexCliConfig (..),
+    defaultCodexCliConfig,
+    register,
+    registerWith,
+  )
+where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (Message (..))
+import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
-import Baikai.Stream (liftCompleteToStream)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
+import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (_Usage)
 import Control.Exception (bracket, throwIO)
 import Control.Lens ((^.))
@@ -42,22 +43,22 @@ import System.Process qualified as P
 
 -- | Configuration for the @codex exec --json@ subprocess.
 data CodexCliConfig = CodexCliConfig
-  { executable :: !FilePath
-  , extraArgs :: !(Vector Text)
-  , workingDir :: !(Maybe FilePath)
-  , skipGitRepoCheck :: !Bool
-  , ephemeral :: !Bool
+  { executable :: !FilePath,
+    extraArgs :: !(Vector Text),
+    workingDir :: !(Maybe FilePath),
+    skipGitRepoCheck :: !Bool,
+    ephemeral :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
 defaultCodexCliConfig :: CodexCliConfig
 defaultCodexCliConfig =
   CodexCliConfig
-    { executable = "codex"
-    , extraArgs = mempty
-    , workingDir = Nothing
-    , skipGitRepoCheck = True
-    , ephemeral = True
+    { executable = "codex",
+      extraArgs = mempty,
+      workingDir = Nothing,
+      skipGitRepoCheck = True,
+      ephemeral = True
     }
 
 -- | Install the Codex CLI handler with 'defaultCodexCliConfig'.
@@ -78,9 +79,9 @@ registerWith :: CodexCliConfig -> IO ()
 registerWith cfg =
   registerApiProvider
     ApiProvider
-      { apiTag = OpenAICompletionsCli
-      , stream = liftCompleteToStream (runCodexCli cfg)
-      , complete = runCodexCli cfg
+      { apiTag = OpenAICompletionsCli,
+        stream = liftCompleteToStream (runCodexCli cfg),
+        complete = runCodexCli cfg
       }
 
 modelArgs :: Model -> [String]
@@ -110,10 +111,10 @@ runCodexCli cfg m ctx _opts = do
           <> [Text.unpack prompt]
       procSpec =
         (P.proc (cfg ^. #executable) baseArgs)
-          { P.std_in = P.NoStream
-          , P.std_out = P.CreatePipe
-          , P.std_err = P.CreatePipe
-          , P.cwd = cfg ^. #workingDir
+          { P.std_in = P.NoStream,
+            P.std_out = P.CreatePipe,
+            P.std_err = P.CreatePipe,
+            P.cwd = cfg ^. #workingDir
           }
   start <- getCurrentTime
   bracket
@@ -127,11 +128,11 @@ cleanup (_, mOut, mErr, ph) = do
   maybe (pure ()) hClose mErr
   P.terminateProcess ph
 
-consume
-  :: UTCTime
-  -> Model
-  -> (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
-  -> IO Resp.Response
+consume ::
+  UTCTime ->
+  Model ->
+  (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle) ->
+  IO Resp.Response
 consume start m (_, mOut, mErr, ph) = do
   hOut <- maybe (throwIO (ProviderError "codex: stdout handle missing")) pure mOut
   hErr <- maybe (throwIO (ProviderError "codex: stderr handle missing")) pure mErr
@@ -146,18 +147,19 @@ consume start m (_, mOut, mErr, ph) = do
         Resp.Response
           { Resp.message =
               AssistantMessage
-                { assistantContent =
-                    Vector.singleton (AssistantText (TextContent (Text.strip body)))
-                , usage = _Usage
-                , stopReason = Stop
-                , errorMessage = Nothing
-                , timestamp = end
-                }
-          , Resp.model = m
-          , Resp.api = OpenAICompletionsCli
-          , Resp.provider = m ^. #provider
-          , Resp.responseId = Nothing
-          , Resp.latencyMs = millisBetween start end
+                AssistantPayload
+                  { content =
+                      Vector.singleton (AssistantText (TextContent (Text.strip body))),
+                    usage = _Usage,
+                    stopReason = Stop,
+                    errorMessage = Nothing,
+                    timestamp = end
+                  },
+            Resp.model = m,
+            Resp.api = OpenAICompletionsCli,
+            Resp.provider = m ^. #provider,
+            Resp.responseId = Nothing,
+            Resp.latencyMs = millisBetween start end
           }
 
 millisBetween :: UTCTime -> UTCTime -> Integer

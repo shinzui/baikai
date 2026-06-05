@@ -6,12 +6,13 @@
 -- published pricing carry a zero 'Baikai.Model.ModelCost' (the
 -- default in '_Model'), producing a zero 'Cost'.
 module Baikai.Cost.Pricing
-  ( computeCost
-  , attachCost
-  ) where
+  ( computeCost,
+    attachCost,
+  )
+where
 
 import Baikai.Cost (Cost (..), CostBreakdown (..))
-import Baikai.Message (Message (..))
+import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model, ModelCost (..))
 import Baikai.Prelude
 import Baikai.Response (Response (..))
@@ -34,13 +35,13 @@ computeCost m u =
       cacheWriteUsd = toRational (u ^. #cacheWriteTokens) * cwRate / 1_000_000
       total = inUsd + outUsd + cachedUsd + cacheWriteUsd
    in Cost
-        { usd = total
-        , breakdown =
+        { usd = total,
+          breakdown =
             CostBreakdown
-              { inputUsd = inUsd
-              , outputUsd = outUsd
-              , cachedInputUsd = cachedUsd
-              , cachedWriteUsd = cacheWriteUsd
+              { inputUsd = inUsd,
+                outputUsd = outUsd,
+                cachedInputUsd = cachedUsd,
+                cachedWriteUsd = cacheWriteUsd
               }
         }
 
@@ -51,21 +52,23 @@ computeCost m u =
 attachCost :: Model -> Response -> Response
 attachCost m r = case r ^. #message of
   AssistantMessage
-    { usage = u
-    , assistantContent = c
-    , stopReason = sr
-    , errorMessage = em
-    , timestamp = ts
-    } ->
+    AssistantPayload
+      { usage = u,
+        content = c,
+        stopReason = sr,
+        errorMessage = em,
+        timestamp = ts
+      } ->
       let computed = computeCost m u
           u' = u & #cost .~ computed
           msg' =
             AssistantMessage
-              { assistantContent = c
-              , usage = u'
-              , stopReason = sr
-              , errorMessage = em
-              , timestamp = ts
-              }
+              AssistantPayload
+                { content = c,
+                  usage = u',
+                  stopReason = sr,
+                  errorMessage = em,
+                  timestamp = ts
+                }
        in r & #message .~ msg'
   _ -> r

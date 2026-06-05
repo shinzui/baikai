@@ -13,36 +13,37 @@
 -- in tool calling — the masterplan's Decision Log records the
 -- reasoning.
 module Baikai.Provider.Claude.Cli
-  ( ClaudeCliConfig (..)
-  , defaultClaudeCliConfig
-  , register
-  , registerWith
-  ) where
+  ( ClaudeCliConfig (..),
+    defaultClaudeCliConfig,
+    register,
+    registerWith,
+  )
+where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..))
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (Message (..))
+import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
-import Baikai.Stream (liftCompleteToStream)
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
+import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (_Usage)
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Cradle
-  ( ExitCode (..)
-  , StderrRaw (..)
-  , StdoutRaw (..)
-  , addArgs
-  , cmd
-  , run
-  , setNoStdin
-  , setWorkingDir
+  ( ExitCode (..),
+    StderrRaw (..),
+    StdoutRaw (..),
+    addArgs,
+    cmd,
+    run,
+    setNoStdin,
+    setWorkingDir,
   )
 import Data.Aeson (FromJSON, Value (..), eitherDecodeStrict)
 import Data.Aeson qualified as Aeson
@@ -60,18 +61,18 @@ import GHC.Generics (Generic)
 
 -- | Configuration for the @claude -p@ subprocess.
 data ClaudeCliConfig = ClaudeCliConfig
-  { executable :: !FilePath
-  , extraArgs :: !(Vector Text)
-  , workingDir :: !(Maybe FilePath)
+  { executable :: !FilePath,
+    extraArgs :: !(Vector Text),
+    workingDir :: !(Maybe FilePath)
   }
   deriving stock (Eq, Show, Generic)
 
 defaultClaudeCliConfig :: ClaudeCliConfig
 defaultClaudeCliConfig =
   ClaudeCliConfig
-    { executable = "claude"
-    , extraArgs = mempty
-    , workingDir = Nothing
+    { executable = "claude",
+      extraArgs = mempty,
+      workingDir = Nothing
     }
 
 -- | Install the CLI handler with 'defaultClaudeCliConfig'.
@@ -96,16 +97,16 @@ registerWith :: ClaudeCliConfig -> IO ()
 registerWith cfg =
   registerApiProvider
     ApiProvider
-      { apiTag = AnthropicMessagesCli
-      , stream = liftCompleteToStream (runClaudeCli cfg)
-      , complete = runClaudeCli cfg
+      { apiTag = AnthropicMessagesCli,
+        stream = liftCompleteToStream (runClaudeCli cfg),
+        complete = runClaudeCli cfg
       }
 
 -- | The shape of @claude -p --output-format json@ stdout.
 data ClaudeCliResult = ClaudeCliResult
-  { result :: !Text
-  , is_error :: !Bool
-  , session_id :: !(Maybe Text)
+  { result :: !Text,
+    is_error :: !Bool,
+    session_id :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON)
@@ -172,17 +173,18 @@ mkResponse m start end body =
   Resp.Response
     { Resp.message =
         AssistantMessage
-          { assistantContent = Vector.singleton (AssistantText (TextContent body))
-          , usage = _Usage
-          , stopReason = Stop
-          , errorMessage = Nothing
-          , timestamp = end
-          }
-    , Resp.model = m
-    , Resp.api = AnthropicMessagesCli
-    , Resp.provider = m ^. #provider
-    , Resp.responseId = Nothing
-    , Resp.latencyMs = millisBetween start end
+          AssistantPayload
+            { content = Vector.singleton (AssistantText (TextContent body)),
+              usage = _Usage,
+              stopReason = Stop,
+              errorMessage = Nothing,
+              timestamp = end
+            },
+      Resp.model = m,
+      Resp.api = AnthropicMessagesCli,
+      Resp.provider = m ^. #provider,
+      Resp.responseId = Nothing,
+      Resp.latencyMs = millisBetween start end
     }
 
 millisBetween :: UTCTime -> UTCTime -> Integer

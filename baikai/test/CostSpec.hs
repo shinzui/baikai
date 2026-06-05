@@ -5,19 +5,19 @@ import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
-  ( CallLogConfig (..)
-  , CallLogEntry
-  , runRequestWithLog
-  , withCallLog
+  ( CallLogConfig (..),
+    CallLogEntry,
+    runRequestWithLog,
+    withCallLog,
   )
 import Baikai.Cost.Pricing (attachCost, computeCost)
-import Baikai.Message (Message (..), user)
+import Baikai.Message (AssistantPayload (..), Message (..), user)
 import Baikai.Model (Model (..), ModelCost (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Prelude
 import Baikai.Provider
-  ( ApiProvider (..)
-  , registerApiProvider
+  ( ApiProvider (..),
+    registerApiProvider,
   )
 import Baikai.Response (Response (..), flattenAssistantBlocks)
 import Baikai.StopReason (StopReason (..))
@@ -37,9 +37,9 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Cost"
-    [ computeTests
-    , attachCostTests
-    , callLogTests
+    [ computeTests,
+      attachCostTests,
+      callLogTests
     ]
 
 -- Sample: 1000 input + 500 output tokens against a claude-haiku
@@ -48,8 +48,10 @@ tests =
 sampleUsage :: Usage
 sampleUsage =
   _Usage
-    & #inputTokens .~ 1000
-    & #outputTokens .~ 500
+    & #inputTokens
+    .~ 1000
+    & #outputTokens
+    .~ 500
 
 -- Build a known-pricing model that matches the prior
 -- claude-haiku-4-5-20251001 rates: input $1/M, output $5/M,
@@ -57,22 +59,27 @@ sampleUsage =
 knownModel :: Model
 knownModel =
   _Model
-    & #modelId .~ "claude-haiku-4-5-20251001"
-    & #api .~ Custom "test"
-    & #provider .~ "anthropic"
+    & #modelId
+    .~ "claude-haiku-4-5-20251001"
+    & #api
+    .~ Custom "test"
+    & #provider
+    .~ "anthropic"
     & #cost
-      .~ ModelCost
-        { inputCost = 1
-        , outputCost = 5
-        , cacheReadCost = 1 / 10
-        , cacheWriteCost = 5 / 4
-        }
+    .~ ModelCost
+      { inputCost = 1,
+        outputCost = 5,
+        cacheReadCost = 1 / 10,
+        cacheWriteCost = 5 / 4
+      }
 
 unknownModel :: Model
 unknownModel =
   _Model
-    & #modelId .~ "totally-fake-model"
-    & #api .~ Custom "test"
+    & #modelId
+    .~ "totally-fake-model"
+    & #api
+    .~ Custom "test"
 
 computeTests :: TestTree
 computeTests =
@@ -80,21 +87,23 @@ computeTests =
     "computeCost"
     [ testCase "deterministic cost for the known model" $
         Cost.usd (computeCost knownModel sampleUsage)
-          @?= 7 / 2000
-    , testCase "zero cost for unknown models" $
+          @?= 7 / 2000,
+      testCase "zero cost for unknown models" $
         Cost.usd (computeCost unknownModel sampleUsage)
-          @?= 0
-    , testCase "cacheReadTokens contribute when present" $ do
+          @?= 0,
+      testCase "cacheReadTokens contribute when present" $ do
         let u :: Usage
             u =
               _Usage
-                & #cacheReadTokens .~ 1000
-        Cost.usd (computeCost knownModel u) @?= 1 / 10000
-    , testCase "cacheWriteTokens contribute against the known model" $ do
+                & #cacheReadTokens
+                .~ 1000
+        Cost.usd (computeCost knownModel u) @?= 1 / 10000,
+      testCase "cacheWriteTokens contribute against the known model" $ do
         let u :: Usage
             u =
               _Usage
-                & #cacheWriteTokens .~ 1000
+                & #cacheWriteTokens
+                .~ 1000
         Cost.usd (computeCost knownModel u) @?= 1 / 800
     ]
 
@@ -103,34 +112,35 @@ attachCostTests =
   testGroup
     "attachCost"
     [ testCase "fills the cost field on known models" $
-        attachedUsd knownModel @?= 7 / 2000
-    , testCase "leaves cost zero on unknown models" $
-        attachedUsd unknownModel @?= 0
-    , testCase "leaves the response's content alone" $ do
+        attachedUsd knownModel @?= 7 / 2000,
+      testCase "leaves cost zero on unknown models" $
+        attachedUsd unknownModel @?= 0,
+      testCase "leaves the response's content alone" $ do
         let resp = attachCost knownModel (mkResp knownModel)
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hi"))
     ]
   where
     attachedUsd m =
-      let resp = attachCost m (mkResp m)
-          AssistantMessage {usage = u} = resp ^. #message
-       in Cost.usd (u ^. #cost)
+      case attachCost m (mkResp m) ^. #message of
+        AssistantMessage AssistantPayload {usage = u} -> Cost.usd (u ^. #cost)
+        _ -> error "attachedUsd: expected AssistantMessage"
     mkResp m =
       Response
         { message =
             AssistantMessage
-              { assistantContent = V.singleton (AssistantText (TextContent "hi"))
-              , usage = sampleUsage
-              , stopReason = Stop
-              , errorMessage = Nothing
-              , timestamp = read "2026-05-14 00:00:00 UTC"
-              }
-        , model = m
-        , api = Custom "test"
-        , provider = "claude-api"
-        , responseId = Nothing
-        , latencyMs = 100
+              AssistantPayload
+                { content = V.singleton (AssistantText (TextContent "hi")),
+                  usage = sampleUsage,
+                  stopReason = Stop,
+                  errorMessage = Nothing,
+                  timestamp = read "2026-05-14 00:00:00 UTC"
+                },
+          model = m,
+          api = Custom "test",
+          provider = "claude-api",
+          responseId = Nothing,
+          latencyMs = 100
         }
 
 -- Register a handler under a private API tag that returns a canned
@@ -144,17 +154,18 @@ cannedHaiku =
    in Response
         { message =
             AssistantMessage
-              { assistantContent = V.singleton (AssistantText (TextContent "ok"))
-              , usage = u
-              , stopReason = Stop
-              , errorMessage = Nothing
-              , timestamp = read "2026-05-14 00:00:00 UTC"
-              }
-        , model = knownModel & #api .~ cannedApi
-        , api = cannedApi
-        , provider = "canned"
-        , responseId = Nothing
-        , latencyMs = 7
+              AssistantPayload
+                { content = V.singleton (AssistantText (TextContent "ok")),
+                  usage = u,
+                  stopReason = Stop,
+                  errorMessage = Nothing,
+                  timestamp = read "2026-05-14 00:00:00 UTC"
+                },
+          model = knownModel & #api .~ cannedApi,
+          api = cannedApi,
+          provider = "canned",
+          responseId = Nothing,
+          latencyMs = 7
         }
 
 registerCanned :: Response -> IO ()
@@ -162,9 +173,9 @@ registerCanned resp =
   let handler _m _ctx _opts = pure resp
    in registerApiProvider
         ApiProvider
-          { apiTag = cannedApi
-          , stream = liftCompleteToStream handler
-          , complete = handler
+          { apiTag = cannedApi,
+            stream = liftCompleteToStream handler,
+            complete = handler
           }
 
 cannedModel :: Model
@@ -186,8 +197,8 @@ callLogTests =
         withCallLog cfg $ \h -> do
           resp <- runRequestWithLog h cannedModel ctxHello optsZero
           flattenAssistantBlocks resp
-            @?= V.singleton (AssistantText (TextContent "ok"))
-    , testCase "enabled handle writes one JSONL record per call" $ do
+            @?= V.singleton (AssistantText (TextContent "ok")),
+      testCase "enabled handle writes one JSONL record per call" $ do
         registerCanned cannedHaiku
         tmp <- getTemporaryDirectory
         let path' = tmp </> "baikai-cost-test.jsonl"

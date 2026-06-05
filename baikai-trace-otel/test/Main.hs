@@ -6,7 +6,7 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (Message (..), user)
+import Baikai.Message (AssistantPayload (..), Message (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Provider (ApiProvider (..), registerApiProvider)
@@ -67,12 +67,13 @@ stubResponse a =
   Response
     { message =
         AssistantMessage
-          { assistantContent = V.singleton (AssistantText (TextContent "hi")),
-            usage = sampleUsage,
-            stopReason = Stop,
-            errorMessage = Nothing,
-            timestamp = read "2026-05-14 00:00:00 UTC"
-          },
+          AssistantPayload
+            { content = V.singleton (AssistantText (TextContent "hi")),
+              usage = sampleUsage,
+              stopReason = Stop,
+              errorMessage = Nothing,
+              timestamp = read "2026-05-14 00:00:00 UTC"
+            },
       model = stubModel a,
       api = a,
       provider = "stub.otel",
@@ -160,7 +161,7 @@ failureSpanTest =
     -- Error status.
     resp <- withTrace sink (stubModel a) stubContext stubOptions
     case resp ^. #message of
-      AssistantMessage {stopReason = sr} -> sr @?= ErrorReason
+      AssistantMessage AssistantPayload {stopReason = sr} -> sr @?= ErrorReason
       _ -> assertFailure "expected AssistantMessage on the response"
     spans <- getSpans
     assertEqual "exactly one span recorded" 1 (length spans)

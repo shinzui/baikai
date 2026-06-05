@@ -12,21 +12,26 @@
 -- >   _ <- runRequestWithLog h model context options
 -- >   pure ()
 module Baikai.Cost.Log
-  ( CallLogConfig (..)
-  , CallLogEntry (..)
-  , CallLogHandle
-  , openCallLog
-  , closeCallLog
-  , withCallLog
-  , appendEntry
-  , runRequestWithLog
-  , summarizeContext
-  ) where
+  ( CallLogConfig (..),
+    CallLogEntry (..),
+    CallLogHandle,
+    openCallLog,
+    closeCallLog,
+    withCallLog,
+    appendEntry,
+    runRequestWithLog,
+    summarizeContext,
+  )
+where
 
 import Baikai.Content (TextContent (..), UserContent (..))
 import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
-import Baikai.Message (Message (..))
+import Baikai.Message
+  ( AssistantPayload (..),
+    Message (..),
+    UserPayload (..),
+  )
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Registry (completeRequest)
@@ -59,8 +64,8 @@ import System.IO (BufferMode (LineBuffering), IOMode (AppendMode), hSetBuffering
 
 -- | Where (and whether) to write the call log.
 data CallLogConfig = CallLogConfig
-  { path :: !FilePath
-  , enabled :: !Bool
+  { path :: !FilePath,
+    enabled :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
@@ -68,30 +73,30 @@ data CallLogConfig = CallLogConfig
 -- @cachedInputTokens@ keeps its name so existing log readers keep
 -- parsing.
 data CallLogEntry = CallLogEntry
-  { timestamp :: !UTCTime
-  , provider :: !Text
-  , model :: !Text
-  , inputTokens :: !(Maybe Natural)
-  , outputTokens :: !(Maybe Natural)
-  , cachedInputTokens :: !(Maybe Natural)
-  , reasoningTokens :: !(Maybe Natural)
-  , usd :: !(Maybe Scientific)
-  , latencyMs :: !Integer
-  , promptSummary :: !Text
+  { timestamp :: !UTCTime,
+    provider :: !Text,
+    model :: !Text,
+    inputTokens :: !(Maybe Natural),
+    outputTokens :: !(Maybe Natural),
+    cachedInputTokens :: !(Maybe Natural),
+    reasoningTokens :: !(Maybe Natural),
+    usd :: !(Maybe Scientific),
+    latencyMs :: !Integer,
+    promptSummary :: !Text
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 -- | Opaque handle for an open call log.
 data CallLogHandle = CallLogHandle
-  { chan :: !(Chan (Maybe CallLogEntry))
-  , done :: !(MVar ())
-  , cfg :: !CallLogConfig
+  { chan :: !(Chan (Maybe CallLogEntry)),
+    done :: !(MVar ()),
+    cfg :: !CallLogConfig
   }
 
 -- | Open a handle. When @enabled = True@, fork the worker thread
 -- that drains entries to @path@ in append mode.
-openCallLog :: MonadIO m => CallLogConfig -> m CallLogHandle
+openCallLog :: (MonadIO m) => CallLogConfig -> m CallLogHandle
 openCallLog c = liftIO $ do
   ch <- newChan
   d <- newEmptyMVar
@@ -104,7 +109,7 @@ openCallLog c = liftIO $ do
 
 -- | Signal shutdown and block until the worker has drained every
 -- pending entry to disk.
-closeCallLog :: MonadIO m => CallLogHandle -> m ()
+closeCallLog :: (MonadIO m) => CallLogHandle -> m ()
 closeCallLog h = liftIO $ do
   case enabled (cfg h) of
     True -> writeChan (chan h) Nothing
@@ -113,47 +118,47 @@ closeCallLog h = liftIO $ do
 
 -- | Bracketed lifetime: open the handle, run the body, close
 -- exactly once on every path (including exceptions).
-withCallLog :: MonadUnliftIO m => CallLogConfig -> (CallLogHandle -> m a) -> m a
+withCallLog :: (MonadUnliftIO m) => CallLogConfig -> (CallLogHandle -> m a) -> m a
 withCallLog c body =
   withRunInIO $ \run ->
     bracket (openCallLog c) closeCallLog (run . body)
 
 -- | Non-blocking enqueue. When the handle is disabled, returns
 -- immediately without touching the channel.
-appendEntry :: MonadIO m => CallLogHandle -> CallLogEntry -> m ()
+appendEntry :: (MonadIO m) => CallLogHandle -> CallLogEntry -> m ()
 appendEntry h entry
   | not (enabled (cfg h)) = pure ()
   | otherwise = liftIO (writeChan (chan h) (Just entry))
 
 -- | Dispatch through the registry, then (if logging is enabled)
 -- enqueue a single JSONL record summarizing the call.
-runRequestWithLog
-  :: MonadIO m
-  => CallLogHandle
-  -> Model
-  -> Context
-  -> Options
-  -> m Response
+runRequestWithLog ::
+  (MonadIO m) =>
+  CallLogHandle ->
+  Model ->
+  Context ->
+  Options ->
+  m Response
 runRequestWithLog h m ctx opts = do
   resp <- liftIO (completeRequest m ctx opts)
   now <- liftIO getCurrentTime
   let u :: Usage
       u = case resp ^. #message of
-        AssistantMessage {usage = uu} -> uu
+        AssistantMessage AssistantPayload {usage = uu} -> uu
         _ -> error "runRequestWithLog: provider returned a non-assistant message"
       meaningfulCost = (Usage.cost u) ^. #usd > 0
       entry =
         CallLogEntry
-          { timestamp = now
-          , provider = resp ^. #provider
-          , model = (resp ^. #model) ^. #modelId
-          , inputTokens = positive (Usage.inputTokens u)
-          , outputTokens = positive (Usage.outputTokens u)
-          , cachedInputTokens = positive (Usage.cacheReadTokens u)
-          , reasoningTokens = Usage.reasoningTokens u
-          , usd = if meaningfulCost then Just (usdAsScientific (Usage.cost u)) else Nothing
-          , latencyMs = resp ^. #latencyMs
-          , promptSummary = summarizeContext ctx
+          { timestamp = now,
+            provider = resp ^. #provider,
+            model = (resp ^. #model) ^. #modelId,
+            inputTokens = positive (Usage.inputTokens u),
+            outputTokens = positive (Usage.outputTokens u),
+            cachedInputTokens = positive (Usage.cacheReadTokens u),
+            reasoningTokens = Usage.reasoningTokens u,
+            usd = if meaningfulCost then Just (usdAsScientific (Usage.cost u)) else Nothing,
+            latencyMs = resp ^. #latencyMs,
+            promptSummary = summarizeContext ctx
           }
   appendEntry h entry
   pure resp
@@ -188,7 +193,7 @@ worker p ch d =
 summarizeContext :: Context -> Text
 summarizeContext ctx =
   case find isUser (Vector.toList (ctx ^. #messages)) of
-    Just (UserMessage {userContent = cs}) -> Text.take 200 (concatUserText cs)
+    Just (UserMessage UserPayload {content = cs}) -> Text.take 200 (concatUserText cs)
     _ -> Text.empty
   where
     isUser UserMessage {} = True

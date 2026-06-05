@@ -7,17 +7,18 @@
 -- 'message' carries the assistant content blocks, 'Usage' (with
 -- 'Cost' embedded), 'StopReason', and optional error text.
 --
--- 'assistantContent' is a convenience accessor that flattens the
--- message's content blocks.
+-- 'flattenAssistantBlocks' is a convenience accessor that flattens
+-- the message's content blocks.
 module Baikai.Response
-  ( Response (..)
-  , _Response
-  , flattenAssistantBlocks
-  ) where
+  ( Response (..),
+    _Response,
+    flattenAssistantBlocks,
+  )
+where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent)
-import Baikai.Message (Message (..))
+import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model, _Model)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (_Usage)
@@ -28,13 +29,13 @@ import Data.Vector qualified as V
 import GHC.Generics (Generic)
 
 data Response = Response
-  { message :: !Message
-  -- ^ Always built with the 'AssistantMessage' constructor.
-  , model :: !Model
-  , api :: !Api
-  , provider :: !Text
-  , responseId :: !(Maybe Text)
-  , latencyMs :: !Integer
+  { -- | Always built with the 'AssistantMessage' constructor.
+    message :: !Message,
+    model :: !Model,
+    api :: !Api,
+    provider :: !Text,
+    responseId :: !(Maybe Text),
+    latencyMs :: !Integer
   }
   deriving stock (Eq, Show, Generic)
 
@@ -46,17 +47,18 @@ _Response =
   Response
     { message =
         AssistantMessage
-          { assistantContent = V.empty
-          , usage = _Usage
-          , stopReason = Stop
-          , errorMessage = Nothing
-          , timestamp = read "2000-01-01 00:00:00 UTC" :: UTCTime
-          }
-    , model = _Model
-    , api = Custom ""
-    , provider = ""
-    , responseId = Nothing
-    , latencyMs = 0
+          AssistantPayload
+            { content = V.empty,
+              usage = _Usage,
+              stopReason = Stop,
+              errorMessage = Nothing,
+              timestamp = read "2000-01-01 00:00:00 UTC" :: UTCTime
+            },
+      model = _Model,
+      api = Custom "",
+      provider = "",
+      responseId = Nothing,
+      latencyMs = 0
     }
 
 -- | Pull the response's assistant content blocks out. The result is
@@ -64,5 +66,5 @@ _Response =
 -- never produce a different constructor in practice.
 flattenAssistantBlocks :: Response -> Vector AssistantContent
 flattenAssistantBlocks r = case message r of
-  AssistantMessage {assistantContent = c} -> c
+  AssistantMessage AssistantPayload {content = c} -> c
   _ -> V.empty

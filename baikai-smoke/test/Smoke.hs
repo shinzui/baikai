@@ -16,13 +16,13 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import InteractiveSmoke qualified
+import MultiHostSmoke qualified
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
-import InteractiveSmoke qualified
-import MultiHostSmoke qualified
 import ToolsSmoke qualified
 
 main :: IO ()
@@ -47,39 +47,40 @@ main = do
         || or hadTools
         || hadMultiHost
     )
-    $ hPutStrLn stderr
+    $ hPutStrLn
+      stderr
       "[baikai-smoke] no provider keys or CLI binaries available; skipping all cases."
 
 runToolCase :: ApiCase -> IO Bool
 runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} =
   ToolsSmoke.runToolCase
     ToolsSmoke.ApiCase
-      { ToolsSmoke.caseLabel = caseLabel
-      , ToolsSmoke.caseEnvVars = caseEnvVars
-      , ToolsSmoke.caseModel = caseModel
+      { ToolsSmoke.caseLabel = caseLabel,
+        ToolsSmoke.caseEnvVars = caseEnvVars,
+        ToolsSmoke.caseModel = caseModel
       }
 
 -- | An API smoke case: matching env-var candidates for the key, the
 -- model record to dispatch under, and a label.
 data ApiCase = ApiCase
-  { caseLabel :: !String
-  , caseEnvVars :: ![String]
-  , caseModel :: !Model
+  { caseLabel :: !String,
+    caseEnvVars :: ![String],
+    caseModel :: !Model
   }
 
 apiCases :: [ApiCase]
 apiCases =
   [ ApiCase
-      { caseLabel = "claude-haiku-4-5-20251001"
-      , caseEnvVars = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
-      , caseModel =
+      { caseLabel = "claude-haiku-4-5-20251001",
+        caseEnvVars = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"],
+        caseModel =
           Models.anthropic_claude_haiku_4_5_20251001
             & #maxOutputTokens .~ 1024
-      }
-  , ApiCase
-      { caseLabel = "gpt-4o-mini"
-      , caseEnvVars = ["OPENAI_KEY", "OPENAI_API_KEY"]
-      , caseModel =
+      },
+    ApiCase
+      { caseLabel = "gpt-4o-mini",
+        caseEnvVars = ["OPENAI_KEY", "OPENAI_API_KEY"],
+        caseModel =
           Models.openai_gpt_4o_mini & #maxOutputTokens .~ 1024
       }
   ]
@@ -113,7 +114,7 @@ runApiCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
           uOk = case resp ^. #message of
-            AssistantMessage {usage = u} ->
+            AssistantMessage AssistantPayload {usage = u} ->
               (u ^. #inputTokens) > 0 && (u ^. #outputTokens) > 0
             _ -> False
       when (not contentOk || not uOk) $ do
@@ -149,11 +150,11 @@ runStreamCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
       events <- Stream.toList (streamRequest caseModel sampleContext opts)
       let textDeltas =
             [ d
-            | TextDelta _ d <- events
+            | TextDelta (DeltaPayload _ d) <- events
             ]
           textOk = not (null textDeltas)
           terminalOk = case lastMay events of
-            Just (EventDone Stop msg) -> usageNonZero msg
+            Just (EventDone (TerminalPayload Stop msg)) -> usageNonZero msg
             _ -> False
       when (not textOk || not terminalOk) $ do
         hPutStrLn stderr $
@@ -182,7 +183,7 @@ lastMay xs = Just (last xs)
 
 usageNonZero :: Message -> Bool
 usageNonZero = \case
-  AssistantMessage {usage = u} ->
+  AssistantMessage AssistantPayload {usage = u} ->
     (u ^. #inputTokens) > 0 && (u ^. #outputTokens) > 0
   _ -> False
 
@@ -196,26 +197,26 @@ firstSetEnv vars = do
 -- | A CLI smoke case: the binary on PATH, the model dispatched
 -- (typed under the CLI's API tag), and a label.
 data CliCase = CliCase
-  { cliLabel :: !String
-  , cliBinary :: !String
-  , cliModel :: !Model
+  { cliLabel :: !String,
+    cliBinary :: !String,
+    cliModel :: !Model
   }
 
 cliCases :: [CliCase]
 cliCases =
   [ CliCase
-      { cliLabel = "sonnet"
-      , cliBinary = "claude"
-      , cliModel =
+      { cliLabel = "sonnet",
+        cliBinary = "claude",
+        cliModel =
           _Model
             & #modelId .~ "sonnet"
             & #api .~ AnthropicMessagesCli
             & #provider .~ "anthropic"
-      }
-  , CliCase
-      { cliLabel = "<codex-default>"
-      , cliBinary = "codex"
-      , cliModel =
+      },
+    CliCase
+      { cliLabel = "<codex-default>",
+        cliBinary = "codex",
+        cliModel =
           _Model
             & #modelId .~ ""
             & #api .~ OpenAICompletionsCli
@@ -241,7 +242,7 @@ runCliCase CliCase {cliLabel, cliBinary, cliModel} = do
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
           usageZero = case resp ^. #message of
-            AssistantMessage {usage = u} ->
+            AssistantMessage AssistantPayload {usage = u} ->
               (u ^. #inputTokens) == 0 && (u ^. #outputTokens) == 0
             _ -> False
           latencyOk = resp ^. #latencyMs > 0
@@ -279,8 +280,8 @@ runImageCase = do
     Just (_envVar, key) -> do
       let img =
             ImageContent
-              { imageData = dotPngBytes
-              , mimeType = "image/png"
+              { imageData = dotPngBytes,
+                mimeType = "image/png"
               }
           model =
             Models.anthropic_claude_haiku_4_5_20251001

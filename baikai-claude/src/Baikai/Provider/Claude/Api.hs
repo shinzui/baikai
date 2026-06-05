@@ -19,9 +19,10 @@
 -- 'streamingComplete', so callers that drain the stream get the
 -- same fully-assembled 'Response' they had before.
 module Baikai.Provider.Claude.Api
-  ( register
-  , claudeMessagesStream
-  ) where
+  ( register,
+    claudeMessagesStream,
+  )
+where
 
 import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
@@ -37,7 +38,15 @@ import Baikai.Options (Options (..))
 import Baikai.Provider.Registry (ApiProvider (..), registerApiProvider)
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
-import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Stream.Event
+  ( AssistantMessageEvent (..),
+    BlockEndPayload (..),
+    DeltaPayload (..),
+    IndexPayload (..),
+    StartPayload (..),
+    TerminalPayload (..),
+    ToolCallEndPayload (..),
+  )
 import Baikai.ThinkingLevel (ThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
@@ -75,9 +84,9 @@ register :: IO ()
 register =
   registerApiProvider
     ApiProvider
-      { apiTag = AnthropicMessages
-      , stream = claudeMessagesStream
-      , complete = streamingComplete claudeMessagesStream
+      { apiTag = AnthropicMessages,
+        stream = claudeMessagesStream,
+        complete = streamingComplete claudeMessagesStream
       }
 
 -- | Streaming producer for the Anthropic Messages API.
@@ -94,8 +103,8 @@ register =
 -- SDK, etc.) are caught with 'try' and re-encoded into an
 -- 'EventError' carrying whatever content was already assembled —
 -- the masterplan's "partial output is always recoverable" promise.
-claudeMessagesStream
-  :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
+claudeMessagesStream ::
+  Model -> Context -> Options -> Stream IO AssistantMessageEvent
 claudeMessagesStream m ctx opts =
   Stream.concatEffect $ do
     setup <- prepareCall m ctx opts
@@ -108,24 +117,24 @@ claudeMessagesStream m ctx opts =
         startTime <- getCurrentTime
         let initialState =
               ProducerState
-                { chan = ch
-                , pending = []
-                , assembler = emptyAssembler m startTime
-                , finished = False
-                , terminalRef = tref
+                { chan = ch,
+                  pending = [],
+                  assembler = emptyAssembler m startTime,
+                  finished = False,
+                  terminalRef = tref
                 }
         pure (Stream.unfoldrM step initialState)
 
 -- | Per-call prepared values: the typed SDK request, plus the
 -- methods record to invoke the streaming endpoint.
 data ClaudeCall = ClaudeCall
-  { methods :: !Claude.Methods
-  , request :: !Messages.CreateMessage
+  { methods :: !Claude.Methods,
+    request :: !Messages.CreateMessage
   }
   deriving stock (Generic)
 
-prepareCall
-  :: Model -> Context -> Options -> IO (Either Text ClaudeCall)
+prepareCall ::
+  Model -> Context -> Options -> IO (Either Text ClaudeCall)
 prepareCall m ctx opts = do
   case mapRequest m ctx opts of
     Left e -> pure (Left e)
@@ -148,11 +157,11 @@ resolveKey opts = case opts ^. #apiKey of
 -- @Error@ raw event so the consumer side can translate it through
 -- the normal channel. After the SDK call returns (success or
 -- handled failure) we close the channel with 'Nothing'.
-worker
-  :: ClaudeCall
-  -> Chan (Maybe Messages.MessageStreamEvent)
-  -> IORef Bool
-  -> IO ()
+worker ::
+  ClaudeCall ->
+  Chan (Maybe Messages.MessageStreamEvent) ->
+  IORef Bool ->
+  IO ()
 worker call ch _terminalRef = do
   let Claude.Methods {Claude.createMessageStreamTyped = stream'} = call ^. #methods
   r <-
@@ -170,11 +179,11 @@ worker call ch _terminalRef = do
 
 -- | The streaming 'Stream' state.
 data ProducerState = ProducerState
-  { chan :: !(Chan (Maybe Messages.MessageStreamEvent))
-  , pending :: ![AssistantMessageEvent]
-  , assembler :: !Assembler
-  , finished :: !Bool
-  , terminalRef :: !(IORef Bool)
+  { chan :: !(Chan (Maybe Messages.MessageStreamEvent)),
+    pending :: ![AssistantMessageEvent],
+    assembler :: !Assembler,
+    finished :: !Bool,
+    terminalRef :: !(IORef Bool)
   }
   deriving stock (Generic)
 
@@ -184,8 +193,8 @@ step s
       writeTerminal s e
       pure
         ( Just
-            ( e
-            , s
+            ( e,
+              s
                 & #pending .~ rest
                 & #finished .~ (s ^. #finished || terminal e)
             )
@@ -204,8 +213,8 @@ step s
               writeTerminal s ev
               pure
                 ( Just
-                    ( ev
-                    , s & #assembler .~ ass' & #finished .~ True
+                    ( ev,
+                      s & #assembler .~ ass' & #finished .~ True
                     )
                 )
         Just raw -> do
@@ -217,8 +226,8 @@ step s
               writeTerminal s e
               pure
                 ( Just
-                    ( e
-                    , s
+                    ( e,
+                      s
                         & #pending .~ rest
                         & #assembler .~ ass'
                         & #finished .~ (s ^. #finished || terminal e)
@@ -244,52 +253,52 @@ unexpectedEoS now ass =
           ass
           now
           "claude stream ended without message_stop"
-   in (EventError {reason = Stop.ErrorReason, errorPartial = msg}, ass)
+   in (EventError TerminalPayload {reason = Stop.ErrorReason, message = msg}, ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
-  { model :: !Model
-  , start :: !UTCTime
-  , responseId :: !(Maybe Text)
-  , closed :: !(IntMap Content.AssistantContent)
-  , textBuf :: !(IntMap Text)
-  , thinkBuf :: !(IntMap Text)
-  , thinkSig :: !(IntMap Text)
-  , toolArgsBuf :: !(IntMap Text)
-  , toolMeta :: !(IntMap (Text, Text))
-  , usage :: !Usage.Usage
-  , stopReason :: !Stop.StopReason
+  { model :: !Model,
+    start :: !UTCTime,
+    responseId :: !(Maybe Text),
+    closed :: !(IntMap Content.AssistantContent),
+    textBuf :: !(IntMap Text),
+    thinkBuf :: !(IntMap Text),
+    thinkSig :: !(IntMap Text),
+    toolArgsBuf :: !(IntMap Text),
+    toolMeta :: !(IntMap (Text, Text)),
+    usage :: !Usage.Usage,
+    stopReason :: !Stop.StopReason
   }
   deriving stock (Generic)
 
 emptyAssembler :: Model -> UTCTime -> Assembler
 emptyAssembler m s =
   Assembler
-    { model = m
-    , start = s
-    , responseId = Nothing
-    , closed = IntMap.empty
-    , textBuf = IntMap.empty
-    , thinkBuf = IntMap.empty
-    , thinkSig = IntMap.empty
-    , toolArgsBuf = IntMap.empty
-    , toolMeta = IntMap.empty
-    , usage = Usage._Usage
-    , stopReason = Stop.Stop
+    { model = m,
+      start = s,
+      responseId = Nothing,
+      closed = IntMap.empty,
+      textBuf = IntMap.empty,
+      thinkBuf = IntMap.empty,
+      thinkSig = IntMap.empty,
+      toolArgsBuf = IntMap.empty,
+      toolMeta = IntMap.empty,
+      usage = Usage._Usage,
+      stopReason = Stop.Stop
     }
 
-translate
-  :: Messages.MessageStreamEvent
-  -> Assembler
-  -> UTCTime
-  -> ([AssistantMessageEvent], Assembler)
+translate ::
+  Messages.MessageStreamEvent ->
+  Assembler ->
+  UTCTime ->
+  ([AssistantMessageEvent], Assembler)
 translate raw ass now = case raw of
   Messages.Ping -> ([], ass)
   Messages.Message_Start {Messages.message = mr} ->
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
         ass' = ass & #responseId .~ Just (mr ^. #id) & #usage .~ usage0
         skeleton = skeletonMessage ass' now
-     in ([EventStart {partial = skeleton}], ass')
+     in ([EventStart StartPayload {partial = skeleton}], ass')
   Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
     handleBlockStart (fromIntegral idx) block ass
   Messages.Content_Block_Delta {Messages.index = idx, Messages.delta = d} ->
@@ -308,33 +317,33 @@ translate raw ass now = case raw of
      in ([], ass & #stopReason .~ stopR & #usage .~ u')
   Messages.Message_Stop ->
     let msg = finalMessage ass now
-     in ([EventDone {reason = ass ^. #stopReason, message = msg}], ass)
+     in ([EventDone TerminalPayload {reason = ass ^. #stopReason, message = msg}], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
         msg = finalMessageOnError ass now errText
-     in ([EventError {reason = Stop.ErrorReason, errorPartial = msg}], ass)
+     in ([EventError TerminalPayload {reason = Stop.ErrorReason, message = msg}], ass)
 
-handleBlockStart
-  :: Int
-  -> Messages.ContentBlock
-  -> Assembler
-  -> ([AssistantMessageEvent], Assembler)
+handleBlockStart ::
+  Int ->
+  Messages.ContentBlock ->
+  Assembler ->
+  ([AssistantMessageEvent], Assembler)
 handleBlockStart i block ass = case block of
   Messages.ContentBlock_Text {} ->
-    ( [TextStart {contentIndex = i}]
-    , ass & #textBuf %~ IntMap.insert i Text.empty
+    ( [TextStart IndexPayload {contentIndex = i}],
+      ass & #textBuf %~ IntMap.insert i Text.empty
     )
   Messages.ContentBlock_Thinking {} ->
-    ( [ThinkingStart {contentIndex = i}]
-    , ass & #thinkBuf %~ IntMap.insert i Text.empty
+    ( [ThinkingStart IndexPayload {contentIndex = i}],
+      ass & #thinkBuf %~ IntMap.insert i Text.empty
     )
   Messages.ContentBlock_Redacted_Thinking {} ->
-    ( [ThinkingStart {contentIndex = i}]
-    , ass & #thinkBuf %~ IntMap.insert i Text.empty
+    ( [ThinkingStart IndexPayload {contentIndex = i}],
+      ass & #thinkBuf %~ IntMap.insert i Text.empty
     )
   Messages.ContentBlock_Tool_Use {Messages.id = tid, Messages.name = tn} ->
-    ( [ToolCallStart {contentIndex = i}]
-    , ass
+    ( [ToolCallStart IndexPayload {contentIndex = i}],
+      ass
         & #toolArgsBuf %~ IntMap.insert i Text.empty
         & #toolMeta %~ IntMap.insert i (tid, tn)
     )
@@ -342,39 +351,39 @@ handleBlockStart i block ass = case block of
     -- Server-tool, code-execution-tool, unknown — pass-through with no events.
     ([], ass)
 
-handleBlockDelta
-  :: Int
-  -> Messages.ContentBlockDelta
-  -> Assembler
-  -> ([AssistantMessageEvent], Assembler)
+handleBlockDelta ::
+  Int ->
+  Messages.ContentBlockDelta ->
+  Assembler ->
+  ([AssistantMessageEvent], Assembler)
 handleBlockDelta i d ass = case d of
   Messages.Delta_Text_Delta {Messages.text = t} ->
-    ( [TextDelta {contentIndex = i, delta = t}]
-    , ass & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i t
+    ( [TextDelta DeltaPayload {contentIndex = i, delta = t}],
+      ass & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i t
     )
   Messages.Delta_Thinking_Delta {Messages.thinking = t} ->
-    ( [ThinkingDelta {contentIndex = i, delta = t}]
-    , ass & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i t
+    ( [ThinkingDelta DeltaPayload {contentIndex = i, delta = t}],
+      ass & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i t
     )
   Messages.Delta_Signature_Delta {Messages.signature = sig} ->
     -- Signatures are tail-end metadata on thinking blocks; they
     -- attach to the ThinkingEnd event's content build, not a public
     -- delta event.
-    ( []
-    , ass & #thinkSig %~ IntMap.insertWith (\new old -> old <> new) i sig
+    ( [],
+      ass & #thinkSig %~ IntMap.insertWith (\new old -> old <> new) i sig
     )
   Messages.Delta_Input_Json_Delta {Messages.partial_json = j} ->
-    ( [ToolCallDelta {contentIndex = i, delta = j}]
-    , ass & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i j
+    ( [ToolCallDelta DeltaPayload {contentIndex = i, delta = j}],
+      ass & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i j
     )
 
-handleBlockStop
-  :: Int -> Assembler -> ([AssistantMessageEvent], Assembler)
+handleBlockStop ::
+  Int -> Assembler -> ([AssistantMessageEvent], Assembler)
 handleBlockStop i ass
   | Just body <- IntMap.lookup i (ass ^. #textBuf) =
       let block = Content.AssistantText (Content.TextContent body)
-       in ( [TextEnd {contentIndex = i, content = body}]
-          , ass
+       in ( [TextEnd BlockEndPayload {contentIndex = i, content = body}],
+            ass
               & #closed %~ IntMap.insert i block
               & #textBuf %~ IntMap.delete i
           )
@@ -383,12 +392,12 @@ handleBlockStop i ass
           block =
             Content.AssistantThinking
               Content.ThinkingContent
-                { Content.thinking = body
-                , Content.signature = if maybe True Text.null sig then Nothing else sig
-                , Content.redacted = False
+                { Content.thinking = body,
+                  Content.signature = if maybe True Text.null sig then Nothing else sig,
+                  Content.redacted = False
                 }
-       in ( [ThinkingEnd {contentIndex = i, content = body}]
-          , ass
+       in ( [ThinkingEnd BlockEndPayload {contentIndex = i, content = body}],
+            ass
               & #closed %~ IntMap.insert i block
               & #thinkBuf %~ IntMap.delete i
               & #thinkSig %~ IntMap.delete i
@@ -406,13 +415,13 @@ handleBlockStop i ass
               Aeson.Object mempty
           tc =
             Content.ToolCall
-              { Content.id_ = tid
-              , Content.name = tn
-              , Content.arguments = decoded
+              { Content.id_ = tid,
+                Content.name = tn,
+                Content.arguments = decoded
               }
           block = Content.AssistantToolCall tc
-       in ( [ToolCallEnd {contentIndex = i, toolCall = tc}]
-          , ass
+       in ( [ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc}],
+            ass
               & #closed %~ IntMap.insert i block
               & #toolArgsBuf %~ IntMap.delete i
               & #toolMeta %~ IntMap.delete i
@@ -424,12 +433,13 @@ handleBlockStop i ass
 skeletonMessage :: Assembler -> UTCTime -> Msg.Message
 skeletonMessage ass _now =
   Msg.AssistantMessage
-    { Msg.assistantContent = Vector.empty
-    , Msg.usage = ass ^. #usage
-    , Msg.stopReason = Stop.Stop
-    , Msg.errorMessage = Nothing
-    , Msg.timestamp = ass ^. #start
-    }
+    Msg.AssistantPayload
+      { Msg.content = Vector.empty,
+        Msg.usage = ass ^. #usage,
+        Msg.stopReason = Stop.Stop,
+        Msg.errorMessage = Nothing,
+        Msg.timestamp = ass ^. #start
+      }
 
 finalMessage :: Assembler -> UTCTime -> Msg.Message
 finalMessage ass now =
@@ -439,12 +449,13 @@ finalMessage ass now =
       computed = Pricing.computeCost m usageBare
       usage' = usageBare & #cost .~ computed
    in Msg.AssistantMessage
-        { Msg.assistantContent = blocks
-        , Msg.usage = usage'
-        , Msg.stopReason = ass ^. #stopReason
-        , Msg.errorMessage = Nothing
-        , Msg.timestamp = now
-        }
+        Msg.AssistantPayload
+          { Msg.content = blocks,
+            Msg.usage = usage',
+            Msg.stopReason = ass ^. #stopReason,
+            Msg.errorMessage = Nothing,
+            Msg.timestamp = now
+          }
 
 finalMessageOnError :: Assembler -> UTCTime -> Text -> Msg.Message
 finalMessageOnError ass now reason =
@@ -454,12 +465,13 @@ finalMessageOnError ass now reason =
       computed = Pricing.computeCost m usageBare
       usage' = usageBare & #cost .~ computed
    in Msg.AssistantMessage
-        { Msg.assistantContent = blocks
-        , Msg.usage = usage'
-        , Msg.stopReason = Stop.ErrorReason
-        , Msg.errorMessage = Just reason
-        , Msg.timestamp = now
-        }
+        Msg.AssistantPayload
+          { Msg.content = blocks,
+            Msg.usage = usage',
+            Msg.stopReason = Stop.ErrorReason,
+            Msg.errorMessage = Just reason,
+            Msg.timestamp = now
+          }
 
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
 blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
@@ -472,13 +484,14 @@ immediateError errText = do
   now <- getCurrentTime
   let msg =
         Msg.AssistantMessage
-          { Msg.assistantContent = Vector.empty
-          , Msg.usage = Usage._Usage
-          , Msg.stopReason = Stop.ErrorReason
-          , Msg.errorMessage = Just errText
-          , Msg.timestamp = now
-          }
-  pure EventError {reason = Stop.ErrorReason, errorPartial = msg}
+          Msg.AssistantPayload
+            { Msg.content = Vector.empty,
+              Msg.usage = Usage._Usage,
+              Msg.stopReason = Stop.ErrorReason,
+              Msg.errorMessage = Just errText,
+              Msg.timestamp = now
+            }
+  pure (EventError TerminalPayload {reason = Stop.ErrorReason, message = msg})
 
 renderAnthropicError :: Value -> Text
 renderAnthropicError v = case v of
@@ -496,13 +509,13 @@ anthroUsageToBaikai u =
       cr = fromMaybe 0 (u ^. #cache_read_input_tokens)
       cw = fromMaybe 0 (u ^. #cache_creation_input_tokens)
    in Usage.Usage
-        { Usage.inputTokens = i
-        , Usage.outputTokens = o
-        , Usage.cacheReadTokens = cr
-        , Usage.cacheWriteTokens = cw
-        , Usage.reasoningTokens = Nothing
-        , Usage.totalTokens = i + o + cr + cw
-        , Usage.cost = _Cost
+        { Usage.inputTokens = i,
+          Usage.outputTokens = o,
+          Usage.cacheReadTokens = cr,
+          Usage.cacheWriteTokens = cw,
+          Usage.reasoningTokens = Nothing,
+          Usage.totalTokens = i + o + cr + cw,
+          Usage.cost = _Cost
         }
 
 -- ============================================================
@@ -542,15 +555,15 @@ mapRequest m ctx opts = do
         Nothing -> Nothing
   pure
     Messages._CreateMessage
-      { Messages.model = m ^. #modelId
-      , Messages.messages = Vector.fromList msgs
-      , Messages.max_tokens = maxTokensField_
-      , Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt)
-      , Messages.temperature = opts ^. #temperature
-      , Messages.tools = toolsField
-      , Messages.tool_choice = toolChoiceField
-      , Messages.cache_control = cacheControlField
-      , Messages.thinking = thinkingField
+      { Messages.model = m ^. #modelId,
+        Messages.messages = Vector.fromList msgs,
+        Messages.max_tokens = maxTokensField_,
+        Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
+        Messages.temperature = opts ^. #temperature,
+        Messages.tools = toolsField,
+        Messages.tool_choice = toolChoiceField,
+        Messages.cache_control = cacheControlField,
+        Messages.thinking = thinkingField
       }
 
 -- | Translate the call-time 'Baikai.CacheRetention' preference into
@@ -561,10 +574,10 @@ mapRequest m ctx opts = do
 -- provider default). 'CacheRetentionLong' asks for the @"1h"@ TTL
 -- when the host advertises 'supportsLongCacheRetention'; otherwise it
 -- transparently downgrades to short retention.
-computeCacheControl
-  :: AnthropicMessagesCompat
-  -> Maybe CacheRetention
-  -> Maybe Messages.CacheControl
+computeCacheControl ::
+  AnthropicMessagesCompat ->
+  Maybe CacheRetention ->
+  Maybe Messages.CacheControl
 computeCacheControl _ Nothing = Nothing
 computeCacheControl _ (Just CacheRetentionNone) = Nothing
 computeCacheControl _ (Just CacheRetentionShort) =
@@ -573,8 +586,8 @@ computeCacheControl compat (Just CacheRetentionLong)
   | supportsLongCacheRetention compat =
       Just
         Messages.CacheControl
-          { Messages.type_ = "ephemeral"
-          , Messages.ttl = Just (Messages.CacheTTLDuration "1h")
+          { Messages.type_ = "ephemeral",
+            Messages.ttl = Just (Messages.CacheTTLDuration "1h")
           }
   | otherwise =
       Just Messages.CacheControl {Messages.type_ = "ephemeral", Messages.ttl = Nothing}
@@ -644,36 +657,37 @@ normalizeToolCallId =
 
 mapMessage :: Msg.Message -> Either Text Messages.Message
 mapMessage = \case
-  Msg.UserMessage {Msg.userContent = uc} ->
+  Msg.UserMessage Msg.UserPayload {Msg.content = uc} ->
     Right
       Messages.Message
-        { Messages.role = Messages.User
-        , Messages.content = Vector.mapMaybe userContentToBlock uc
-        , Messages.cache_control = Nothing
+        { Messages.role = Messages.User,
+          Messages.content = Vector.mapMaybe userContentToBlock uc,
+          Messages.cache_control = Nothing
         }
-  Msg.AssistantMessage {Msg.assistantContent = ac} ->
+  Msg.AssistantMessage Msg.AssistantPayload {Msg.content = ac} ->
     Right
       Messages.Message
-        { Messages.role = Messages.Assistant
-        , Messages.content = Vector.mapMaybe assistantContentToBlock ac
-        , Messages.cache_control = Nothing
+        { Messages.role = Messages.Assistant,
+          Messages.content = Vector.mapMaybe assistantContentToBlock ac,
+          Messages.cache_control = Nothing
         }
   Msg.ToolResultMessage
-    { Msg.toolCallId = tid
-    , Msg.toolResultContent = trc
-    , Msg.isError = err
-    } ->
+    Msg.ToolResultPayload
+      { Msg.toolCallId = tid,
+        Msg.content = trc,
+        Msg.isError = err
+      } ->
       Right
         Messages.Message
-          { Messages.role = Messages.User
-          , Messages.content =
+          { Messages.role = Messages.User,
+            Messages.content =
               Vector.singleton
                 Messages.Content_Tool_Result
-                  { Messages.tool_use_id = normalizeToolCallId tid
-                  , Messages.content = nonEmpty (concatToolResultText trc)
-                  , Messages.is_error = Just err
-                  }
-          , Messages.cache_control = Nothing
+                  { Messages.tool_use_id = normalizeToolCallId tid,
+                    Messages.content = nonEmpty (concatToolResultText trc),
+                    Messages.is_error = Just err
+                  },
+            Messages.cache_control = Nothing
           }
 
 userContentToBlock :: Content.UserContent -> Maybe Messages.Content
@@ -685,11 +699,11 @@ userContentToBlock = \case
       Messages.Content_Image
         { Messages.source =
             Messages.ImageSource
-              { Messages.type_ = "base64"
-              , Messages.media_type = Content.mimeType img
-              , Messages.data_ = Text.decodeUtf8 (Base64.encode (Content.imageData img))
-              }
-        , Messages.cache_control = Nothing
+              { Messages.type_ = "base64",
+                Messages.media_type = Content.mimeType img,
+                Messages.data_ = Text.decodeUtf8 (Base64.encode (Content.imageData img))
+              },
+          Messages.cache_control = Nothing
         }
 
 assistantContentToBlock :: Content.AssistantContent -> Maybe Messages.Content
@@ -699,16 +713,16 @@ assistantContentToBlock = \case
   Content.AssistantThinking th ->
     Just
       Messages.Content_Thinking
-        { Messages.thinking = Content.thinking th
-        , Messages.signature = fromMaybe "" (Content.signature th)
+        { Messages.thinking = Content.thinking th,
+          Messages.signature = fromMaybe "" (Content.signature th)
         }
   Content.AssistantToolCall tc ->
     Just
       Messages.Content_Tool_Use
-        { Messages.id = normalizeToolCallId (Content.id_ tc)
-        , Messages.name = Content.name tc
-        , Messages.input = Content.arguments tc
-        , Messages.caller = Nothing
+        { Messages.id = normalizeToolCallId (Content.id_ tc),
+          Messages.name = Content.name tc,
+          Messages.input = Content.arguments tc,
+          Messages.caller = Nothing
         }
 
 concatToolResultText :: Vector Content.ToolResultContent -> Text
@@ -735,4 +749,3 @@ mapStopReason = \case
   Just Messages.Refusal -> Stop.ErrorReason
   Just Messages.Model_Context_Window_Exceeded -> Stop.Length
   Nothing -> Stop.Stop
-

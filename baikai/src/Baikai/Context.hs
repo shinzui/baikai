@@ -14,13 +14,14 @@
 -- referenced by the @tools@ field, so 'Baikai.Tool' cannot itself
 -- depend on 'Context').
 module Baikai.Context
-  ( Context (..)
-  , _Context
-  , appendToolResult
-  ) where
+  ( Context (..),
+    _Context,
+    appendToolResult,
+  )
+where
 
 import Baikai.Content (AssistantContent (..), ToolCall (..))
-import Baikai.Message (Message (..), toolResult)
+import Baikai.Message (AssistantPayload (..), Message (..), toolResult)
 import Baikai.Response (Response (..))
 import Baikai.Tool (Tool)
 import Control.Lens ((&), (.~), (^.))
@@ -32,9 +33,9 @@ import Data.Vector qualified as V
 import GHC.Generics (Generic)
 
 data Context = Context
-  { systemPrompt :: !(Maybe Text)
-  , messages :: !(Vector Message)
-  , tools :: !(Vector Tool)
+  { systemPrompt :: !(Maybe Text),
+    messages :: !(Vector Message),
+    tools :: !(Vector Tool)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -42,9 +43,9 @@ data Context = Context
 _Context :: Context
 _Context =
   Context
-    { systemPrompt = Nothing
-    , messages = V.empty
-    , tools = V.empty
+    { systemPrompt = Nothing,
+      messages = V.empty,
+      tools = V.empty
     }
 
 -- | Execute every 'AssistantToolCall' in @resp@'s message via the
@@ -56,15 +57,15 @@ _Context =
 -- The dispatcher receives one 'ToolCall' at a time and must return
 -- the textual result. Any error handling (timeouts, sandboxing,
 -- multi-call concurrency) lives in the dispatcher.
-appendToolResult
-  :: Context
-  -> Response
-  -> (ToolCall -> IO Text)
-  -> IO Context
+appendToolResult ::
+  Context ->
+  Response ->
+  (ToolCall -> IO Text) ->
+  IO Context
 appendToolResult ctx resp dispatcher = do
   let respMsg = resp ^. #message
       toolCalls = case respMsg of
-        AssistantMessage {assistantContent = blocks} ->
+        AssistantMessage AssistantPayload {content = blocks} ->
           [tc | AssistantToolCall tc <- V.toList blocks]
         _ -> []
   results <-
@@ -78,6 +79,6 @@ appendToolResult ctx resp dispatcher = do
     ctx
       & #messages
         .~ ( (ctx ^. #messages)
-              <> V.singleton respMsg
-              <> V.fromList results
+               <> V.singleton respMsg
+               <> V.fromList results
            )

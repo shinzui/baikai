@@ -4,7 +4,7 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
 import Baikai.Error (BaikaiError (..))
-import Baikai.Message (Message (..), user)
+import Baikai.Message (AssistantPayload (..), Message (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
 import Baikai.Prelude
@@ -28,9 +28,9 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Trace"
-    [ silentTest
-    , memoryFinishTest
-    , memoryFailTest
+    [ silentTest,
+      memoryFinishTest,
+      memoryFailTest
     ]
 
 -- | Each test uses its own private 'Api' tag so tasty's parallel
@@ -39,10 +39,14 @@ tests =
 stubModel :: Api -> Model
 stubModel a =
   _Model
-    & #modelId .~ "stub-1"
-    & #api .~ a
-    & #provider .~ "stub.trace"
-    & #maxOutputTokens .~ 16
+    & #modelId
+    .~ "stub-1"
+    & #api
+    .~ a
+    & #provider
+    .~ "stub.trace"
+    & #maxOutputTokens
+    .~ 16
 
 stubContext :: Context
 stubContext = _Context & #messages .~ V.fromList [user "hello"]
@@ -55,17 +59,18 @@ stubResponse a =
   Response
     { message =
         AssistantMessage
-          { assistantContent = V.singleton (AssistantText (TextContent "hi"))
-          , usage = _Usage
-          , stopReason = Stop
-          , errorMessage = Nothing
-          , timestamp = read "2026-05-14 00:00:00 UTC"
-          }
-    , model = stubModel a
-    , api = a
-    , provider = "stub.trace"
-    , responseId = Nothing
-    , latencyMs = 0
+          AssistantPayload
+            { content = V.singleton (AssistantText (TextContent "hi")),
+              usage = _Usage,
+              stopReason = Stop,
+              errorMessage = Nothing,
+              timestamp = read "2026-05-14 00:00:00 UTC"
+            },
+      model = stubModel a,
+      api = a,
+      provider = "stub.trace",
+      responseId = Nothing,
+      latencyMs = 0
     }
 
 registerOk :: Api -> IO ()
@@ -73,9 +78,9 @@ registerOk a =
   let handler _m _ctx _opts = pure (stubResponse a)
    in registerApiProvider
         ApiProvider
-          { apiTag = a
-          , stream = liftCompleteToStream handler
-          , complete = handler
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler
           }
 
 registerFail :: Api -> BaikaiError -> IO ()
@@ -83,9 +88,9 @@ registerFail a e =
   let handler _m _ctx _opts = throwIO e
    in registerApiProvider
         ApiProvider
-          { apiTag = a
-          , stream = liftCompleteToStream handler
-          , complete = handler
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler
           }
 
 memorySink :: IO (TVar [TraceEvent], TraceSink)
@@ -103,13 +108,13 @@ silentTest =
         let a = Custom "baikai-trace-silent-ok"
         registerOk a
         _ <- withTrace silent (stubModel a) stubContext stubOptions
-        pure ()
-    , testCase "encodes failure as ErrorReason in the response" $ do
+        pure (),
+      testCase "encodes failure as ErrorReason in the response" $ do
         let a = Custom "baikai-trace-silent-fail"
         registerFail a (ProviderError "boom")
         resp <- withTrace silent (stubModel a) stubContext stubOptions
         case resp ^. #message of
-          AssistantMessage {stopReason = sr, errorMessage = em} -> do
+          AssistantMessage AssistantPayload {stopReason = sr, errorMessage = em} -> do
             sr @?= ErrorReason
             assertBool
               ("expected errorMessage to mention boom, got: " <> show em)
@@ -146,7 +151,7 @@ memoryFailTest =
     -- The producer-side failure surfaces as an ErrorReason on the
     -- response (no throw) and as CallFailed on the trace sink.
     case resp ^. #message of
-      AssistantMessage {stopReason = sr} -> sr @?= ErrorReason
+      AssistantMessage AssistantPayload {stopReason = sr} -> sr @?= ErrorReason
       _ -> assertFailure "expected AssistantMessage on the response"
     rev <- readTVarIO ref
     let events = reverse rev
