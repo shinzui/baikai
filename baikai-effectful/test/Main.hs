@@ -3,6 +3,7 @@
 module Main (main) where
 
 import CompleteSpec qualified
+import StreamSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
@@ -10,5 +11,6 @@ main =
   defaultMain $
     testGroup
       "baikai-effectful"
-      [ CompleteSpec.tests
+      [ CompleteSpec.tests,
+        StreamSpec.tests
       ]

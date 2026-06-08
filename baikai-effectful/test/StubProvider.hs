@@ -2,9 +2,12 @@
 --
 -- It builds an isolated 'ProviderRegistry' (never the global one) whose single
 -- 'ApiProvider' serves a known 'Api' tag. The provider's @complete@ returns a
--- fixed 'Response' carrying caller-chosen text; its @stream@ is synthesized from
--- that same @complete@ via 'liftCompleteToStream', so the event sequence is a
--- valid @EventStart … TextDelta … EventDone@ run carrying the same text.
+-- fixed 'Response' carrying caller-chosen text; its @stream@ emits a fixed,
+-- deterministic @EventStart … TextDelta … EventDone@ sequence carrying the same
+-- text. The stream is hand-rolled (rather than synthesized from @complete@ via
+-- 'liftCompleteToStream') so it carries no wall-clock timestamp — two separate
+-- stream runs produce byte-identical event lists, which the streamEach/streamCollect
+-- agreement test depends on.
 module StubProvider
   ( stubRegistry,
     stubModel,
@@ -18,6 +21,8 @@ import Baikai
 import Baikai.Prelude
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Streamly.Data.Stream (Stream)
+import Streamly.Data.Stream qualified as Stream
 
 -- | Concatenate the text of every 'AssistantText' block, ignoring thinking and
 -- tool-call blocks. baikai has no library equivalent — its own smoke tests define
@@ -53,13 +58,23 @@ stubContext = _Context & #messages .~ V.singleton (user "ping")
 stubOptions :: Options
 stubOptions = _Options
 
+-- | A blank assistant payload with a fixed (epoch) timestamp, reused as the base
+-- for both the streaming skeleton and the terminal message so nothing varies run
+-- to run. Borrowed from baikai's '_Response' fixture base.
+stubPayload :: AssistantPayload
+stubPayload = _Response ^. #message
+
+-- | An assistant payload carrying the given text as its single text block.
+stubPayloadWith :: Text -> AssistantPayload
+stubPayloadWith t =
+  stubPayload & #content .~ V.singleton (AssistantText (_TextContent & #text .~ t))
+
 -- | A fixed assistant response carrying the given text as its single text block.
 stubResponse :: Text -> Response
 stubResponse t =
   _Response
     & #message
-    . #content
-    .~ V.singleton (AssistantText (_TextContent & #text .~ t))
+    .~ stubPayloadWith t
     & #model
     .~ stubModel
     & #api
@@ -71,7 +86,22 @@ stubResponse t =
 stubComplete :: Text -> Model -> Context -> Options -> IO Response
 stubComplete t _ _ _ = pure (stubResponse t)
 
--- | Build an isolated registry whose stub provider's @complete@ returns @t@.
+-- | A deterministic, valid event sequence for the given text: exactly one
+-- 'EventStart' first, one text block, and one 'EventDone' last.
+stubEvents :: Text -> [AssistantMessageEvent]
+stubEvents t =
+  [ EventStart StartPayload {partial = AssistantMessage stubPayload},
+    TextStart IndexPayload {contentIndex = 0},
+    TextDelta DeltaPayload {contentIndex = 0, delta = t},
+    TextEnd BlockEndPayload {contentIndex = 0, content = t},
+    EventDone TerminalPayload {reason = Stop, message = AssistantMessage (stubPayloadWith t)}
+  ]
+
+-- | The provider's streaming completion: ignore the request, emit fixed events.
+stubStream :: Text -> Model -> Context -> Options -> Stream IO AssistantMessageEvent
+stubStream t _ _ _ = Stream.fromList (stubEvents t)
+
+-- | Build an isolated registry whose stub provider returns/streams @t@.
 stubRegistry :: Text -> IO ProviderRegistry
 stubRegistry t = do
   reg <- newProviderRegistry
@@ -80,6 +110,6 @@ stubRegistry t = do
     ApiProvider
       { apiTag = stubApi,
         complete = stubComplete t,
-        stream = liftCompleteToStream (stubComplete t)
+        stream = stubStream t
       }
   pure reg

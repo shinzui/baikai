@@ -50,6 +50,7 @@ test-suite baikai-effectful-test
   ghc-options:    -threaded -with-rtsopts=-N
   other-modules:
     CompleteSpec
+    StreamSpec
     StubProvider
 
   build-depends:

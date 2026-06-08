@@ -91,10 +91,13 @@ This section must always reflect the actual current state of the work.
       now" option — the effect declares and `runBaikaiWith` handles all of `Complete`/
       `StreamCollect`/`StreamEach` already (no `error "M3"` placeholders, so `env` is used and
       no `-Wunused-matches`). M3 adds only the streaming *tests*.
-- [ ] M3: Streaming operations — `streamCollect` (materialize the event list) and the
-      higher-order `streamEach` (per-event callback run inside `Eff`). Interpreter cases are
-      already implemented in M2; M3 adds `StreamSpec` asserting the collected events and that
-      the callback observes each event in order.
+- [x] M3 (2026-06-08): Streaming operations — `streamCollect` (materialize the event list)
+      and the higher-order `streamEach` (per-event callback run inside `Eff`). Interpreter
+      cases were already implemented in M2; M3 added `StreamSpec`: (1) `streamCollect` returns
+      a sequence whose first event is `EventStart`, last is `EventDone`, with `TextDelta`s
+      concatenating to the stub text; (2) `streamEach` accumulates into an `IORef` exactly the
+      ordered list `streamCollect` returns. Both pass. Required making the stub stream
+      deterministic (hand-rolled fixed events) — see Surprises (EventStart timestamp).
 - [ ] M4: Docs + a `SHIKUMI_LIVE`-style gated live demo (here `BAIKAI_EFFECTFUL_LIVE=1`)
       and a `docs/user` usage note; confirm `mori show --full` lists the new package.
 
@@ -153,12 +156,25 @@ implementation. Provide concise evidence.
   `Baikai`. The library `Baikai.Effectful` re-exports it from neither — text extraction is a
   caller concern, consistent with baikai itself.
 
-- During M2 (2026-06-08): the stub provider's `stream` field is synthesized from its
-  `complete` via the exported `Baikai.liftCompleteToStream` rather than hand-listing events.
-  This yields a guaranteed-valid `EventStart … TextDelta … EventDone` sequence carrying the
-  same text the blocking path returns, which M3's `StreamSpec` then asserts against. Evidence:
-  `liftCompleteToStream :: (Model -> Context -> Options -> IO Response) -> Model -> Context ->
-  Options -> Stream IO AssistantMessageEvent` (`baikai/src/Baikai/Stream.hs`).
+- During M2→M3 (2026-06-08): the stub provider's `stream` was **first** synthesized from its
+  `complete` via the exported `Baikai.liftCompleteToStream`, but M3 revealed this is
+  **nondeterministic**: `liftCompleteToStream` calls `getCurrentTime` per invocation and
+  stamps it into the `EventStart` payload's skeleton message (`StartPayload.partial`). The
+  streamEach/streamCollect agreement test drives the stream *twice* (once per operation), so
+  the two `EventStart` timestamps differed by microseconds and exact-equality failed —
+  everything else in the event lists was byte-identical. Evidence (test output):
+
+  ```text
+  expected: …EventStart …timestamp = 2026-06-08 23:38:40.339959 UTC…
+   but got: …EventStart …timestamp = 2026-06-08 23:38:40.339255 UTC…
+  ```
+
+  Resolution: the stub now emits a **fixed, hand-rolled** event list (`EventStart`, one
+  text block, `EventDone`) whose skeleton/terminal messages reuse baikai's `_Response`
+  fixture base (`_Response ^. #message`, a payload stamped at the `2000-01-01` epoch). Two
+  runs are now byte-identical, so the agreement test passes and genuinely bites — it caught
+  this very nondeterminism before the fix. Takeaway for consumers: baikai's real streams
+  carry a live wall-clock `EventStart` timestamp; don't assume cross-run event equality.
 
 
 ## Decision Log
