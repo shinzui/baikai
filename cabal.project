@@ -4,6 +4,7 @@ packages:
   baikai-openai
   baikai-smoke
   baikai-trace-otel
+  baikai-effectful
 
 -- GHC is provided by the Nix devShell from `nix-haskell-flake` (currently
 -- pinned to ghc912). Add a `with-compiler:` line here if you want

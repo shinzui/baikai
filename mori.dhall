@@ -31,8 +31,7 @@ in  Schema.Project::{
         , path = Some "baikai-claude"
         , description = Some
             "Anthropic Claude providers (API and claude -p CLI) for the Baikai abstraction"
-        , dependencies =
-          [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
         }
       , Schema.Package::{
         , name = "baikai-openai"
@@ -41,8 +40,7 @@ in  Schema.Project::{
         , path = Some "baikai-openai"
         , description = Some
             "OpenAI providers (Chat Completions API and codex CLI) for the Baikai abstraction"
-        , dependencies =
-          [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
         }
       , Schema.Package::{
         , name = "baikai-smoke"
@@ -57,6 +55,15 @@ in  Schema.Project::{
           , Schema.Dependency.ByName "shinzui/baikai:baikai-claude"
           , Schema.Dependency.ByName "shinzui/baikai:baikai-openai"
           ]
+        }
+      , Schema.Package::{
+        , name = "baikai-effectful"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "baikai-effectful"
+        , description = Some
+            "effectful binding for the baikai transport: the Baikai effect and interpreters"
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
         }
       ]
     , dependencies =
@@ -99,7 +106,8 @@ in  Schema.Project::{
         , audience = Schema.DocAudience.User
         , description = Some
             "The generated catalog, hand-rolled Model records, the registry, and multi-host OpenAI-compat targets."
-        , location = Schema.DocLocation.LocalFile "docs/user/models-and-providers.md"
+        , location =
+            Schema.DocLocation.LocalFile "docs/user/models-and-providers.md"
         }
       , Schema.DocRef::{
         , key = "cli-providers"
