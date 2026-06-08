@@ -41,3 +41,25 @@ library
     , streamly-core   >=0.3    && <0.5
     , text            ^>=2.1
     , vector
+
+test-suite baikai-effectful-test
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Main.hs
+  ghc-options:    -threaded -with-rtsopts=-N
+  other-modules:
+    CompleteSpec
+    StubProvider
+
+  build-depends:
+    , baikai
+    , baikai-effectful
+    , base              >=4.20 && <5
+    , effectful-core
+    , streamly
+    , streamly-core
+    , tasty
+    , tasty-hunit
+    , text
+    , vector

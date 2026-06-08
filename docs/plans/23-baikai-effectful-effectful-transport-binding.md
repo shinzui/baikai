@@ -84,12 +84,17 @@ This section must always reflect the actual current state of the work.
       `baikai-effectful-0.1.0.0`); `dhall lint mori.dhall` exits 0. NOTE: the `test-suite`
       stanza is deferred to M2 (its modules don't exist yet, and `tests: True` would force
       it to build) — see Decision Log.
-- [ ] M2: The `Baikai` effect + blocking `complete` + interpreters `runBaikai` /
-      `runBaikaiWith`. Hermetic test drives `complete` against a stub provider in an isolated
-      registry and asserts the returned text.
+- [x] M2 (2026-06-08): The `Baikai` effect + blocking `complete` + interpreters `runBaikai` /
+      `runBaikaiWith`. Hermetic `CompleteSpec` drives `complete` against a stub provider in an
+      isolated registry and asserts the returned text (`"hello from stub"`); proven to bite
+      (changed stub text → FAIL, restored → OK). NOTE: chose the plan's "implement all three
+      now" option — the effect declares and `runBaikaiWith` handles all of `Complete`/
+      `StreamCollect`/`StreamEach` already (no `error "M3"` placeholders, so `env` is used and
+      no `-Wunused-matches`). M3 adds only the streaming *tests*.
 - [ ] M3: Streaming operations — `streamCollect` (materialize the event list) and the
-      higher-order `streamEach` (per-event callback run inside `Eff`). Hermetic test asserts
-      the collected events and that the callback observes each event in order.
+      higher-order `streamEach` (per-event callback run inside `Eff`). Interpreter cases are
+      already implemented in M2; M3 adds `StreamSpec` asserting the collected events and that
+      the callback observes each event in order.
 - [ ] M4: Docs + a `SHIKUMI_LIVE`-style gated live demo (here `BAIKAI_EFFECTFUL_LIVE=1`)
       and a `docs/user` usage note; confirm `mori show --full` lists the new package.
 
@@ -128,6 +133,32 @@ implementation. Provide concise evidence.
   `Api` tag yields a one-event error stream (see `streamRequestWith`'s `noProviderEvent`
   branch). The thin binding does not catch or remap either; it lifts baikai's behavior
   verbatim so a faithful consumer (e.g. shikumi) decides the policy.
+
+- During M2 (2026-06-08): **`flattenAssistantText` is NOT a baikai library export** — the
+  pre-implementation validation pass assumed it was. baikai exports only
+  `flattenAssistantBlocks :: Response -> Vector AssistantContent` (from `Baikai.Response`).
+  The `Vector AssistantContent -> Text` reduction is a *local* helper each consumer defines;
+  baikai's own smoke tests define it (`baikai-smoke/test/Smoke.hs:319` as
+  `flattenAssistantText`, `baikai-smoke/test/MultiHostSmoke.hs:169` as `flattenText`), both
+  matching `AssistantText (TextContent t)`. Evidence:
+
+  ```text
+  test/CompleteSpec.hs:5: Module 'Baikai' does not export 'flattenAssistantText'.
+  ```
+
+  Resolution: this package's `StubProvider` test module defines and exports its own
+  `flattenAssistantText :: Vector AssistantContent -> Text` (concatenating `AssistantText`
+  block bodies, ignoring thinking/tool-call blocks). All plan call-sites that read
+  `flattenAssistantText (flattenAssistantBlocks r)` now source it from `StubProvider`, not
+  `Baikai`. The library `Baikai.Effectful` re-exports it from neither — text extraction is a
+  caller concern, consistent with baikai itself.
+
+- During M2 (2026-06-08): the stub provider's `stream` field is synthesized from its
+  `complete` via the exported `Baikai.liftCompleteToStream` rather than hand-listing events.
+  This yields a guaranteed-valid `EventStart … TextDelta … EventDone` sequence carrying the
+  same text the blocking path returns, which M3's `StreamSpec` then asserts against. Evidence:
+  `liftCompleteToStream :: (Model -> Context -> Options -> IO Response) -> Model -> Context ->
+  Options -> Stream IO AssistantMessageEvent` (`baikai/src/Baikai/Stream.hs`).
 
 
 ## Decision Log
