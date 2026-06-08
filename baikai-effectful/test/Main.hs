@@ -3,6 +3,7 @@
 module Main (main) where
 
 import CompleteSpec qualified
+import LiveSpec qualified
 import StreamSpec qualified
 import Test.Tasty (defaultMain, testGroup)
 
@@ -12,5 +13,6 @@ main =
     testGroup
       "baikai-effectful"
       [ CompleteSpec.tests,
-        StreamSpec.tests
+        StreamSpec.tests,
+        LiveSpec.tests
       ]

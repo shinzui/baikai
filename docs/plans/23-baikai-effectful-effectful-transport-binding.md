@@ -98,8 +98,14 @@ This section must always reflect the actual current state of the work.
       concatenating to the stub text; (2) `streamEach` accumulates into an `IORef` exactly the
       ordered list `streamCollect` returns. Both pass. Required making the stub stream
       deterministic (hand-rolled fixed events) — see Surprises (EventStart timestamp).
-- [ ] M4: Docs + a `SHIKUMI_LIVE`-style gated live demo (here `BAIKAI_EFFECTFUL_LIVE=1`)
-      and a `docs/user` usage note; confirm `mori show --full` lists the new package.
+- [x] M4 (2026-06-08): Docs + a gated live demo. `LiveSpec` is gated on
+      `BAIKAI_EFFECTFUL_LIVE`; with it unset the suite prints the skip line and all 4 cases
+      stay green (hermetic). A package `README.md` documents the three operations, the two
+      interpreters, and the policy-free contract. `mori show --full` lists `baikai-effectful`
+      (path `baikai-effectful`, dep `shinzui/baikai:baikai`). REMAINING: capture an actual
+      `LIVE:` transcript — a key (`OPENAI_API_KEY`) is present in the environment, but the
+      live call is a real paid request, deferred to explicit user go-ahead. (Chose a package
+      `README.md` over a `docs/user/effectful.md` + mori `docs` registration; see Decision Log.)
 
 
 ## Surprises & Discoveries
@@ -236,13 +242,55 @@ Record every decision made while working on the plan.
   (the repo-root BSD-3-Clause file), matching `baikai-claude/LICENSE` exactly, rather than a
   copied file. Rationale: consistency with the existing sibling packages; one source of truth.
 
+- Decision (2026-06-08, during M4): the usage doc is a package-local `baikai-effectful/README.md`
+  (referenced via `extra-doc-files`), not a `docs/user/effectful.md` registered in `mori.dhall`'s
+  `docs` list. Rationale: the binding is a developer-facing library artifact, so its docs live
+  with the package and travel with it on Hackage; the `docs/user/` set is baikai's end-user
+  guide corpus and pulling the effectful binding into it would conflate audiences. The plan
+  explicitly allowed either; README was chosen for locality.
+
+- Decision (2026-06-08, during M4): the live `LiveSpec` exercises the **OpenAI** provider
+  (`Baikai.Provider.OpenAI.Api.register`, model `openai_gpt_4o_mini`) via `runBaikai` (global
+  registry), with the key sourced from `OPENAI_API_KEY`. Rationale: `register` targets the
+  global registry that `runBaikai` binds, and OpenAI's key was the one likely to be present;
+  the choice is cosmetic (any registered provider works) and confined to the test suite, which
+  is the only component that depends on `baikai-openai`.
+
 
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+**At M1–M4 completion (2026-06-08).** The package `baikai-effectful-0.1.0.0` exists, builds,
+and ships exactly what the Purpose described: a thin, policy-free `effectful` binding over
+baikai's transport — the dynamic `Baikai` effect (`Complete`/`StreamCollect`/`StreamEach`),
+the operations `complete`/`streamCollect`/`streamEach`, and the interpreters
+`runBaikai`/`runBaikaiWith`. It adds no retries, caching, budgets, or error remapping; the
+blocking path propagates `BaikaiError` and the streaming paths surface a terminal `EventError`
+in-band, verbatim from baikai.
+
+Observable result against the original purpose:
+
+- `cabal build baikai-effectful` → builds `baikai-effectful-0.1.0.0`. ✓
+- `cabal test baikai-effectful-test` → 4/4 green with no network: `CompleteSpec` returns
+  `"hello from stub"`; `StreamSpec` proves `streamEach` delivers the same ordered events as
+  `streamCollect`; `LiveSpec` prints its skip line. ✓
+- `mori show --full` lists `baikai-effectful` (dep `shinzui/baikai:baikai`). ✓
+- Live demo wired and gated on `BAIKAI_EFFECTFUL_LIVE`. ✓ (transcript pending a user-approved run)
+
+Gaps / lessons:
+
+- The pre-implementation validation missed that `flattenAssistantText` is **not** a baikai
+  export (only `flattenAssistantBlocks` is); the `Vector AssistantContent -> Text` reduction
+  is a per-consumer helper. Caught at first compile, resolved in `StubProvider`. Lesson:
+  "grep the one module" under-validates a name that *looks* like a library helper but isn't.
+- baikai's real streams carry a **live wall-clock `EventStart` timestamp**; naive cross-run
+  event equality is therefore unstable. The stub was made deterministic (fixed events) so the
+  `streamEach`/`streamCollect` agreement test is exact. This is also useful guidance for any
+  downstream consumer asserting on streamed events.
+- The interpreter signatures and operation shapes match what shikumi's substrate plan expects
+  to build its `LLM` effect on top of; nothing here changed that contract.
 
 
 ## Context and Orientation
@@ -957,3 +1005,22 @@ however, has no dependency on shikumi and ships independently.
     which trips `-Wunused-matches` under `-Wall` (a warning, not an error, since `-Werror`
     is not set). Either bind it as `\_env -> \case` in that interim state or implement all
     three operations in M2 (the plan already offers the latter as an option).
+
+- 2026-06-08 — Implemented M1–M4. Highlights and deviations from the as-written plan (all
+  recorded in Progress / Surprises / Decision Log above):
+  - **Test-suite stanza deferred from M1 to M2.** With `tests: True` in `cabal.project`,
+    `cabal build baikai-effectful` builds enabled test suites; declaring one whose modules
+    don't yet exist would have broken M1's green build. The M1 cabal ships the `library`
+    stanza only.
+  - **`flattenAssistantText` is not a baikai export.** `StubProvider` now defines and exports
+    the `Vector AssistantContent -> Text` reduction locally (baikai's own smoke tests do the
+    same); all call-sites source it from there, not `Baikai`.
+  - **All three operations implemented in M2** (not just `Complete`), so `runBaikaiWith`
+    handles `Complete`/`StreamCollect`/`StreamEach` with no placeholders and `env` is used.
+    M3 added only `StreamSpec`.
+  - **Stub stream made deterministic** (hand-rolled fixed events) after `liftCompleteToStream`
+    proved nondeterministic via its live `EventStart` timestamp, which broke the
+    `streamEach`/`streamCollect` exact-equality test.
+  - **Live demo uses OpenAI** and is gated on `BAIKAI_EFFECTFUL_LIVE`; usage doc shipped as a
+    package `README.md` (via `extra-doc-files`) rather than a `mori`-registered `docs/user`
+    entry.
