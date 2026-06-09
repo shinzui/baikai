@@ -104,8 +104,10 @@ This section must always reflect the actual current state of the work.
       interpreters, and the policy-free contract. `mori show --full` lists `baikai-effectful`
       (path `baikai-effectful`, dep `shinzui/baikai:baikai`). REMAINING: capture an actual
       `LIVE:` transcript — a key (`OPENAI_API_KEY`) is present in the environment, but the
-      live call is a real paid request, deferred to explicit user go-ahead. (Chose a package
-      `README.md` over a `docs/user/effectful.md` + mori `docs` registration; see Decision Log.)
+      live call is a real paid request, run with explicit user go-ahead. First run captured:
+      `LIVE: Sure!` (`openai_gpt_4o_mini`), suite green in 1.59s — see Concrete Steps. (Chose a
+      package `README.md` over a `docs/user/effectful.md` + mori `docs` registration; see
+      Decision Log.)
 
 
 ## Surprises & Discoveries
@@ -277,7 +279,8 @@ Observable result against the original purpose:
   `"hello from stub"`; `StreamSpec` proves `streamEach` delivers the same ordered events as
   `streamCollect`; `LiveSpec` prints its skip line. ✓
 - `mori show --full` lists `baikai-effectful` (dep `shinzui/baikai:baikai`). ✓
-- Live demo wired and gated on `BAIKAI_EFFECTFUL_LIVE`. ✓ (transcript pending a user-approved run)
+- Live demo wired and gated on `BAIKAI_EFFECTFUL_LIVE`. ✓ — first run captured:
+  `LIVE: Sure!` from `openai_gpt_4o_mini`, suite green in 1.59s (transcript in Concrete Steps).
 
 Gaps / lessons:
 
@@ -880,6 +883,20 @@ Expected:
 LIVE: Hi.
   live provider call returns text: OK
 ```
+
+First actual run (2026-06-08, `openai_gpt_4o_mini`, real `OPENAI_API_KEY`):
+
+```text
+  LiveSpec
+    live provider call returns text:         LIVE: Sure!
+OK (1.59s)
+
+All 4 tests passed (1.59s)
+```
+
+This is the binding's purpose demonstrated end-to-end against a real provider: the reply
+text flowed `complete → send → runBaikai → Baikai.completeRequestWith (OpenAI) → Response →
+Eff → caller`, with no `liftIO` at the call site and no policy in the binding.
 
 Without the env var:
 
