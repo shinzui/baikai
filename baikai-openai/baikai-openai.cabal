@@ -61,12 +61,14 @@ test-suite baikai-openai-test
   hs-source-dirs: test
   main-is:        Main.hs
   build-depends:
+    , aeson
     , baikai         ^>=0.1.0
     , baikai-openai
     , base           >=4.20   && <5
     , bytestring
     , generic-lens
     , lens           ^>=5.3
+    , openai
     , streamly-core  >=0.3    && <0.5
     , tasty
     , tasty-hunit

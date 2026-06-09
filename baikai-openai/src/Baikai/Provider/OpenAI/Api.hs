@@ -30,6 +30,7 @@ module Baikai.Provider.OpenAI.Api
   ( register,
     registerWithRegistry,
     openaiChatStream,
+    mapRequest,
   )
 where
 
@@ -52,6 +53,7 @@ import Baikai.Provider.Registry
     globalProviderRegistry,
     registerApiProviderWith,
   )
+import Baikai.ResponseFormat (ResponseFormat (..))
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event
@@ -95,6 +97,7 @@ import Numeric.Natural (Natural)
 import OpenAI.V1 qualified as OpenAI
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.Models qualified as OpenAIModels
+import OpenAI.V1.ResponseFormat qualified as RF
 import OpenAI.V1.Tool qualified as OpenAITool
 import OpenAI.V1.ToolCall qualified as ToolCall
 import Streamly.Data.Stream (Stream)
@@ -726,6 +729,8 @@ mapRequest m ctx opts = do
       toolChoiceField = fmap mkOpenAIToolChoice (opts ^. #toolChoice)
       reasoningEffortField =
         applyThinkingFormat compat (opts ^. #thinking)
+      responseFormatField =
+        fmap mkOpenAIResponseFormat (opts ^. #responseFormat)
   pure
     Chat._CreateChatCompletion
       { Chat.messages = Vector.fromList (prefix <> body),
@@ -734,7 +739,26 @@ mapRequest m ctx opts = do
         Chat.temperature = opts ^. #temperature,
         Chat.tools = toolsField,
         Chat.tool_choice = toolChoiceField,
-        Chat.reasoning_effort = reasoningEffortField
+        Chat.reasoning_effort = reasoningEffortField,
+        Chat.response_format = responseFormatField
+      }
+
+-- | Map a baikai 'ResponseFormat' onto the upstream OpenAI
+-- 'RF.ResponseFormat'. 'JsonObject' becomes plain-JSON mode;
+-- 'JsonSchema' becomes a named, optionally-strict schema. The
+-- schema 'Value' is forwarded verbatim.
+mkOpenAIResponseFormat :: ResponseFormat -> RF.ResponseFormat
+mkOpenAIResponseFormat = \case
+  JsonObject -> RF.JSON_Object
+  JsonSchema {name = n, schema = s, strict = st} ->
+    RF.JSON_Schema
+      { RF.json_schema =
+          RF.JSONSchema
+            { RF.description = Nothing,
+              RF.name = n,
+              RF.schema = Just s,
+              RF.strict = Just st
+            }
       }
 
 -- | Map a 'Baikai.ThinkingLevel.ThinkingLevel' onto the OpenAI SDK's
