@@ -22,6 +22,7 @@ module Baikai.Provider.Claude.Api
   ( register,
     registerWithRegistry,
     claudeMessagesStream,
+    mapRequest,
   )
 where
 
@@ -42,6 +43,7 @@ import Baikai.Provider.Registry
     globalProviderRegistry,
     registerApiProviderWith,
   )
+import Baikai.ResponseFormat (ResponseFormat (..))
 import Baikai.StopReason qualified as Stop
 import Baikai.Stream (streamingComplete)
 import Baikai.Stream.Event
@@ -63,7 +65,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (SomeException, displayException, try)
 import Control.Lens ((%~), (&), (.~), (^.))
-import Data.Aeson (Value)
+import Data.Aeson (Value, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as BSL
@@ -564,6 +566,7 @@ mapRequest m ctx opts = do
         Just Tool.ToolChoiceNone -> Nothing
         Just tc -> Just (mkAnthropicToolChoice tc)
         Nothing -> Nothing
+      outputConfigField = fmap mkAnthropicOutputConfig (opts ^. #responseFormat)
   pure
     Messages._CreateMessage
       { Messages.model = m ^. #modelId,
@@ -574,8 +577,24 @@ mapRequest m ctx opts = do
         Messages.tools = toolsField,
         Messages.tool_choice = toolChoiceField,
         Messages.cache_control = cacheControlField,
-        Messages.thinking = thinkingField
+        Messages.thinking = thinkingField,
+        Messages.output_config = outputConfigField
       }
+
+-- | Map a baikai 'ResponseFormat' onto the upstream Anthropic
+-- 'Messages.OutputConfig'. 'JsonSchema' forwards the schema
+-- verbatim via 'Messages.jsonSchemaConfig'. Anthropic's structured
+-- outputs are always schema-enforcing, so the baikai 'strict' flag
+-- has no wire analog and is dropped. 'JsonObject' (plain-JSON mode)
+-- has no native Anthropic equivalent — 'output_config' requires a
+-- schema — so it downgrades to a permissive @{"type":"object"}@
+-- schema, which still forces the model to emit a JSON object.
+mkAnthropicOutputConfig :: ResponseFormat -> Messages.OutputConfig
+mkAnthropicOutputConfig = \case
+  JsonSchema {schema = s} -> Messages.jsonSchemaConfig s
+  JsonObject ->
+    Messages.jsonSchemaConfig
+      (Aeson.object ["type" .= ("object" :: Text)])
 
 -- | Translate the call-time 'Baikai.CacheRetention' preference into
 -- the Anthropic SDK's @cache_control@ shape.

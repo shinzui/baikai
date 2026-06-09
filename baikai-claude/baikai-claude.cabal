@@ -65,10 +65,12 @@ test-suite baikai-claude-test
   -- cradle (used by Baikai.Provider.Claude.Interactive) requires the threaded RTS.
   ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
+    , aeson
     , baikai         ^>=0.1.0
     , baikai-claude
     , base           >=4.20   && <5
     , bytestring
+    , claude
     , generic-lens
     , lens           ^>=5.3
     , streamly-core  >=0.3    && <0.5

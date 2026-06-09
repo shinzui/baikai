@@ -3,24 +3,61 @@ module Main (main) where
 import Baikai
 import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Interactive
+import Claude.V1.Messages qualified as Messages
 import Control.Lens ((&), (.~), (^.))
+import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 main :: IO ()
 main =
   defaultMain $
     testGroup
-      "Baikai.Provider.Claude.Interactive"
+      "Baikai.Provider.Claude"
       [ commandRenderingTest,
         compatDetectionTest,
-        rejectsImageToolResultsTest
+        rejectsImageToolResultsTest,
+        responseFormatMappingTest
       ]
+
+-- | A 'JsonSchema' on 'Options.responseFormat' maps onto Anthropic's
+-- native @output_config@, forwarding the schema 'Value' verbatim via
+-- 'Messages.jsonSchemaConfig'. Pure: 'mapRequest' is
+-- 'Either Text Messages.CreateMessage'.
+responseFormatMappingTest :: TestTree
+responseFormatMappingTest =
+  testCase "responseFormat JsonSchema maps onto Anthropic output_config" $ do
+    let model =
+          _Model
+            & #modelId .~ "claude-haiku-4-5-20251001"
+            & #api .~ AnthropicMessages
+            & #provider .~ "anthropic"
+        personSchema =
+          Aeson.object
+            [ "type" Aeson..= ("object" :: Text.Text),
+              "properties"
+                Aeson..= Aeson.object
+                  [ "name" Aeson..= Aeson.object ["type" Aeson..= ("string" :: Text.Text)],
+                    "age" Aeson..= Aeson.object ["type" Aeson..= ("integer" :: Text.Text)]
+                  ],
+              "required" Aeson..= (["name", "age"] :: [Text.Text]),
+              "additionalProperties" Aeson..= False
+            ]
+        ctx = _Context
+        opts =
+          _Options
+            & #responseFormat
+              .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
+    case mapRequest model ctx opts of
+      Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
+      Right req ->
+        Messages.output_config req
+          @?= Just (Messages.jsonSchemaConfig personSchema)
 
 commandRenderingTest :: TestTree
 commandRenderingTest =
