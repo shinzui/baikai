@@ -19,6 +19,7 @@ import Data.Vector qualified as Vector
 import InteractiveSmoke qualified
 import MultiHostSmoke qualified
 import Streamly.Data.Stream qualified as Stream
+import StructuredSmoke qualified
 import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -37,6 +38,7 @@ main = do
   hadInteractiveCliHelp <- InteractiveSmoke.runInteractiveHelpCases
   hadImage <- runImageCase
   hadTools <- mapM runToolCase apiCases
+  hadStructured <- mapM runStructuredCase apiCases
   hadMultiHost <- MultiHostSmoke.runMultiHostCase
   unless
     ( or hadApi
@@ -45,6 +47,7 @@ main = do
         || hadInteractiveCliHelp
         || hadImage
         || or hadTools
+        || or hadStructured
         || hadMultiHost
     )
     $ hPutStrLn
@@ -58,6 +61,15 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} =
       { ToolsSmoke.caseLabel = caseLabel,
         ToolsSmoke.caseEnvVars = caseEnvVars,
         ToolsSmoke.caseModel = caseModel
+      }
+
+runStructuredCase :: ApiCase -> IO Bool
+runStructuredCase ApiCase {caseLabel, caseEnvVars, caseModel} =
+  StructuredSmoke.runStructuredCase
+    StructuredSmoke.ApiCase
+      { StructuredSmoke.caseLabel = caseLabel,
+        StructuredSmoke.caseEnvVars = caseEnvVars,
+        StructuredSmoke.caseModel = caseModel
       }
 
 -- | An API smoke case: matching env-var candidates for the key, the

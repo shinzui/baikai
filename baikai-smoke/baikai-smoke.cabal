@@ -36,6 +36,7 @@ test-suite baikai-smoke
   other-modules:
     InteractiveSmoke
     MultiHostSmoke
+    StructuredSmoke
     ToolsSmoke
 
   -- cradle (used by Baikai.Provider.Claude.Cli) requires the threaded RTS.
