@@ -58,6 +58,7 @@ library
     Baikai.Provider.Cli.Internal
     Baikai.Provider.Registry
     Baikai.Response
+    Baikai.ResponseFormat
     Baikai.StopReason
     Baikai.Stream
     Baikai.Stream.Event

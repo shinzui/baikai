@@ -90,7 +90,18 @@ tests =
       testCase "_Options defaults are zero-y" $ do
         _Options ^. #maxTokens @?= Nothing
         _Options ^. #temperature @?= Nothing
-        _Options ^. #apiKey @?= Nothing,
+        _Options ^. #apiKey @?= Nothing
+        _Options ^. #responseFormat @?= Nothing,
+      testCase "responseFormat round-trips through Options" $ do
+        responseFormat (_Options & #responseFormat .~ Just JsonObject)
+          @?= Just JsonObject
+        let person =
+              Aeson.object
+                [ "type" Aeson..= ("object" :: Text)
+                ]
+            schemaFmt = JsonSchema {name = "person", schema = person, strict = True}
+        responseFormat (_Options & #responseFormat .~ Just schemaFmt)
+          @?= Just schemaFmt,
       testCase "Options Show redacts literal API keys" $ do
         let secret = "sk-baikai-secret-never-print"
             opts = _Options & #apiKey .~ Just (ApiKeyLiteral secret)

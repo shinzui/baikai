@@ -10,7 +10,9 @@
 -- EP-4 added @toolChoice@. EP-5 adds @cacheRetention@ and @thinking@
 -- (provider-agnostic preferences that each provider maps to its own
 -- primitive — see 'Baikai.CacheRetention' and 'Baikai.ThinkingLevel'
--- for the mappings).
+-- for the mappings). EP-2 (shikumi) adds @responseFormat@, the
+-- provider-agnostic structured-output preference — see
+-- 'Baikai.ResponseFormat'.
 module Baikai.Options
   ( Options (..),
     _Options,
@@ -19,6 +21,7 @@ where
 
 import Baikai.Auth (ApiKeySource)
 import Baikai.CacheRetention (CacheRetention)
+import Baikai.ResponseFormat (ResponseFormat)
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
 import Data.Aeson (ToJSON, Value)
@@ -37,7 +40,8 @@ data Options = Options
     metadata :: !(Map Text Value),
     toolChoice :: !(Maybe ToolChoice),
     cacheRetention :: !(Maybe CacheRetention),
-    thinking :: !(Maybe ThinkingLevel)
+    thinking :: !(Maybe ThinkingLevel),
+    responseFormat :: !(Maybe ResponseFormat)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -53,5 +57,6 @@ _Options =
       metadata = Map.empty,
       toolChoice = Nothing,
       cacheRetention = Nothing,
-      thinking = Nothing
+      thinking = Nothing,
+      responseFormat = Nothing
     }
