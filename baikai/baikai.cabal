@@ -47,6 +47,7 @@ library
     Baikai.Cost
     Baikai.Cost.Log
     Baikai.Cost.Pricing
+    Baikai.Embedding
     Baikai.Error
     Baikai.Interactive
     Baikai.Message
@@ -77,6 +78,7 @@ library
     , containers
     , generic-lens
     , lens               ^>=5.3
+    , openai
     , scientific
     , streamly           >=0.11 && <0.13
     , streamly-core      >=0.3  && <0.5
@@ -109,6 +111,7 @@ test-suite baikai-test
     AgentAssetsSpec
     CatalogSpec
     CostSpec
+    EmbeddingSpec
     InteractiveSpec
     TraceSpec
 
@@ -120,6 +123,7 @@ test-suite baikai-test
     , bytestring
     , directory
     , filepath
+    , openai
     , process
     , stm
     , streamly-core  >=0.3 && <0.5
