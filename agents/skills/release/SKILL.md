@@ -81,9 +81,13 @@ Publish in this order — a dependency must be on Hackage before its dependents:
    `baikai`.
 4. **`baikai-trace-otel`** — `baikai-trace-otel/` — OpenTelemetry `TraceSink`
    adapter. Depends on `baikai`.
+5. **`baikai-effectful`** — `baikai-effectful/` — `effectful` binding over
+   baikai's transport (the `Baikai` dynamic effect). Its *library* depends only
+   on `baikai`; its `baikai-openai` dependency is **test-only** and does not
+   affect publish order.
 
-Packages 2–4 depend only on `baikai`, so once `baikai` is up they can be
-published in any order among themselves.
+Packages 2–5 depend only on `baikai` (for their library component), so once
+`baikai` is up they can be published in any order among themselves.
 
 ### Not released (internal)
 
@@ -93,21 +97,24 @@ published in any order among themselves.
 
 ## Internal dependency bounds
 
-Today the inter-package `build-depends` are **unbounded** — e.g.
-`baikai-claude` lists `baikai` with no version constraint. Before publishing,
-every dependent's bound on a publishable internal package should be an explicit
-PVP-caret bound, e.g.:
+Each dependent already pins its internal dependency with an explicit PVP-caret
+bound — every one of `baikai-claude`, `baikai-openai`, `baikai-trace-otel`, and
+`baikai-effectful` lists `baikai` as:
 
 ```
 build-depends:
   , baikai ^>=0.1.0
 ```
 
+Before publishing, confirm those bounds are present and correct. Any new
+dependent must carry the same explicit caret bound (not an unbounded
+`build-depends`).
+
 When you bump `baikai` in a way that changes the bound dependents resolve
 against:
 
-- Update the `baikai ^>=…` bound in `baikai-claude`, `baikai-openai`, and
-  `baikai-trace-otel`.
+- Update the `baikai ^>=…` bound in `baikai-claude`, `baikai-openai`,
+  `baikai-trace-otel`, and `baikai-effectful`.
 - A dependent that changed **only** because of that bound bump still needs a new
   version (a `patch` bump is the minimum) and its own release + tag, because its
   `.cabal` content changed.
@@ -138,7 +145,7 @@ git log --oneline <last-tag>..HEAD -- baikai/
 ```
 
 (Repeat with the package's directory and tag prefix: `baikai-claude-*`,
-`baikai-openai-*`, `baikai-trace-otel-*`.)
+`baikai-openai-*`, `baikai-trace-otel-*`, `baikai-effectful-*`.)
 
 Classify the change per package and compute the new PVP version:
 
@@ -262,7 +269,7 @@ gh release create baikai-0.1.0.1 \
 - **Honor the pre-flight blocker.** If the pinned `streamly` / `streamly-core`
   versions are not on Hackage, the release is blocked — stop and report it.
 - **Always publish in dependency order:** `baikai` before `baikai-claude`,
-  `baikai-openai`, `baikai-trace-otel`.
+  `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`.
 - **Never skip the gates** (`nix fmt` clean, `cabal build all`, `cabal test
   all`, `nix flake check`). Stop on any failure.
 - **Never continue publishing dependents after an upstream upload fails.**
