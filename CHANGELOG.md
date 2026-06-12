@@ -7,6 +7,39 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.1.1.0] - 2026-06-12
+
+### Added
+
+- Added provider-agnostic `ResponseFormat` support on `Options`, including
+  plain JSON-object mode and named JSON-schema mode.
+- Added `Baikai.Embedding`, an OpenAI `/v1/embeddings` client for text
+  embeddings.
+
+## [baikai-claude 0.1.1.0] - 2026-06-12
+
+### Added
+
+- Mapped baikai `ResponseFormat` options onto Anthropic `output_config` for
+  Claude API requests.
+- Exported `mapRequest` for request-mapping tests and downstream inspection.
+
+## [baikai-openai 0.1.1.0] - 2026-06-12
+
+### Added
+
+- Mapped baikai `ResponseFormat` options onto OpenAI Chat Completions
+  `response_format`.
+- Exported `mapRequest` for request-mapping tests and downstream inspection.
+
+## [baikai-effectful 0.1.0.0] - 2026-06-12
+
+### Added
+
+- Initial release: effectful binding for baikai with the `Baikai` dynamic
+  effect, `complete`, `streamCollect`, `streamEach`, and registry-backed
+  interpreters.
+
 ## [baikai 0.1.0.0] - 2026-06-04
 
 ### Added
