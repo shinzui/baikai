@@ -23,6 +23,28 @@ import Baikai.Model
 import Data.Map.Strict qualified as Map
 import Data.Ratio ((%))
 
+anthropic_claude_fable_5 :: Model
+anthropic_claude_fable_5 =
+  Model
+    { modelId = "claude-fable-5"
+    , name = "Claude Fable 5"
+    , api = AnthropicMessages
+    , provider = "anthropic"
+    , baseUrl = "https://api.anthropic.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 10 % 1
+        , outputCost = 50 % 1
+        , cacheReadCost = 1 % 1
+        , cacheWriteCost = 25 % 2
+        }
+    , contextWindow = 1000000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
 anthropic_claude_haiku_4_5 :: Model
 anthropic_claude_haiku_4_5 =
   Model
@@ -31,38 +53,60 @@ anthropic_claude_haiku_4_5 =
     , api = AnthropicMessages
     , provider = "anthropic"
     , baseUrl = "https://api.anthropic.com"
-    , reasoning = False
+    , reasoning = True
     , input = [InputText, InputImage]
     , cost = ModelCost
-        { inputCost = 4 % 5
-        , outputCost = 4 % 1
-        , cacheReadCost = 2 % 25
-        , cacheWriteCost = 1 % 1
+        { inputCost = 1 % 1
+        , outputCost = 5 % 1
+        , cacheReadCost = 1 % 10
+        , cacheWriteCost = 5 % 4
         }
     , contextWindow = 200000
-    , maxOutputTokens = 8192
+    , maxOutputTokens = 64000
     , headers = Map.empty
     , compat = CompatNone
     }
 
-anthropic_claude_haiku_4_5_20251001 :: Model
-anthropic_claude_haiku_4_5_20251001 =
+anthropic_claude_opus_4_5 :: Model
+anthropic_claude_opus_4_5 =
   Model
-    { modelId = "claude-haiku-4-5-20251001"
-    , name = "Claude Haiku 4.5 (2025-10-01)"
+    { modelId = "claude-opus-4-5"
+    , name = "Claude Opus 4.5"
     , api = AnthropicMessages
     , provider = "anthropic"
     , baseUrl = "https://api.anthropic.com"
-    , reasoning = False
+    , reasoning = True
     , input = [InputText, InputImage]
     , cost = ModelCost
-        { inputCost = 4 % 5
-        , outputCost = 4 % 1
-        , cacheReadCost = 2 % 25
-        , cacheWriteCost = 1 % 1
+        { inputCost = 5 % 1
+        , outputCost = 25 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 25 % 4
         }
     , contextWindow = 200000
-    , maxOutputTokens = 8192
+    , maxOutputTokens = 64000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+anthropic_claude_opus_4_6 :: Model
+anthropic_claude_opus_4_6 =
+  Model
+    { modelId = "claude-opus-4-6"
+    , name = "Claude Opus 4.6"
+    , api = AnthropicMessages
+    , provider = "anthropic"
+    , baseUrl = "https://api.anthropic.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 5 % 1
+        , outputCost = 25 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 25 % 4
+        }
+    , contextWindow = 1000000
+    , maxOutputTokens = 128000
     , headers = Map.empty
     , compat = CompatNone
     }
@@ -78,13 +122,57 @@ anthropic_claude_opus_4_7 =
     , reasoning = True
     , input = [InputText, InputImage]
     , cost = ModelCost
-        { inputCost = 15 % 1
-        , outputCost = 75 % 1
-        , cacheReadCost = 3 % 2
-        , cacheWriteCost = 75 % 4
+        { inputCost = 5 % 1
+        , outputCost = 25 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 25 % 4
+        }
+    , contextWindow = 1000000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+anthropic_claude_opus_4_8 :: Model
+anthropic_claude_opus_4_8 =
+  Model
+    { modelId = "claude-opus-4-8"
+    , name = "Claude Opus 4.8"
+    , api = AnthropicMessages
+    , provider = "anthropic"
+    , baseUrl = "https://api.anthropic.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 5 % 1
+        , outputCost = 25 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 25 % 4
+        }
+    , contextWindow = 1000000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+anthropic_claude_sonnet_4_5 :: Model
+anthropic_claude_sonnet_4_5 =
+  Model
+    { modelId = "claude-sonnet-4-5"
+    , name = "Claude Sonnet 4.5"
+    , api = AnthropicMessages
+    , provider = "anthropic"
+    , baseUrl = "https://api.anthropic.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 3 % 1
+        , outputCost = 15 % 1
+        , cacheReadCost = 3 % 10
+        , cacheWriteCost = 15 % 4
         }
     , contextWindow = 200000
-    , maxOutputTokens = 8192
+    , maxOutputTokens = 64000
     , headers = Map.empty
     , compat = CompatNone
     }
@@ -97,7 +185,7 @@ anthropic_claude_sonnet_4_6 =
     , api = AnthropicMessages
     , provider = "anthropic"
     , baseUrl = "https://api.anthropic.com"
-    , reasoning = False
+    , reasoning = True
     , input = [InputText, InputImage]
     , cost = ModelCost
         { inputCost = 3 % 1
@@ -105,8 +193,8 @@ anthropic_claude_sonnet_4_6 =
         , cacheReadCost = 3 % 10
         , cacheWriteCost = 15 % 4
         }
-    , contextWindow = 200000
-    , maxOutputTokens = 8192
+    , contextWindow = 1000000
+    , maxOutputTokens = 64000
     , headers = Map.empty
     , compat = CompatNone
     }
@@ -155,6 +243,72 @@ deepseek_deepseek_reasoner =
     , compat = CompatNone
     }
 
+openai_gpt_4_1 :: Model
+openai_gpt_4_1 =
+  Model
+    { modelId = "gpt-4.1"
+    , name = "GPT-4.1"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = False
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 2 % 1
+        , outputCost = 8 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 1047576
+    , maxOutputTokens = 32768
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_4_1_mini :: Model
+openai_gpt_4_1_mini =
+  Model
+    { modelId = "gpt-4.1-mini"
+    , name = "GPT-4.1 mini"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = False
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 2 % 5
+        , outputCost = 8 % 5
+        , cacheReadCost = 1 % 10
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 1047576
+    , maxOutputTokens = 32768
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_4_1_nano :: Model
+openai_gpt_4_1_nano =
+  Model
+    { modelId = "gpt-4.1-nano"
+    , name = "GPT-4.1 nano"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = False
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 1 % 10
+        , outputCost = 2 % 5
+        , cacheReadCost = 1 % 40
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 1047576
+    , maxOutputTokens = 32768
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
 openai_gpt_4o :: Model
 openai_gpt_4o =
   Model
@@ -199,11 +353,209 @@ openai_gpt_4o_mini =
     , compat = CompatNone
     }
 
+openai_gpt_5 :: Model
+openai_gpt_5 =
+  Model
+    { modelId = "gpt-5"
+    , name = "GPT-5"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 5 % 4
+        , outputCost = 10 % 1
+        , cacheReadCost = 1 % 8
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_1 :: Model
+openai_gpt_5_1 =
+  Model
+    { modelId = "gpt-5.1"
+    , name = "GPT-5.1"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 5 % 4
+        , outputCost = 10 % 1
+        , cacheReadCost = 1 % 8
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_2 :: Model
+openai_gpt_5_2 =
+  Model
+    { modelId = "gpt-5.2"
+    , name = "GPT-5.2"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 7 % 4
+        , outputCost = 14 % 1
+        , cacheReadCost = 7 % 40
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_4 :: Model
+openai_gpt_5_4 =
+  Model
+    { modelId = "gpt-5.4"
+    , name = "GPT-5.4"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 5 % 2
+        , outputCost = 15 % 1
+        , cacheReadCost = 1 % 4
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 1050000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_4_mini :: Model
+openai_gpt_5_4_mini =
+  Model
+    { modelId = "gpt-5.4-mini"
+    , name = "GPT-5.4 mini"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 3 % 4
+        , outputCost = 9 % 2
+        , cacheReadCost = 3 % 40
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_4_nano :: Model
+openai_gpt_5_4_nano =
+  Model
+    { modelId = "gpt-5.4-nano"
+    , name = "GPT-5.4 nano"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 1 % 5
+        , outputCost = 5 % 4
+        , cacheReadCost = 1 % 50
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_5 :: Model
+openai_gpt_5_5 =
+  Model
+    { modelId = "gpt-5.5"
+    , name = "GPT-5.5"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 5 % 1
+        , outputCost = 30 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 1050000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_mini :: Model
+openai_gpt_5_mini =
+  Model
+    { modelId = "gpt-5-mini"
+    , name = "GPT-5 Mini"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 1 % 4
+        , outputCost = 2 % 1
+        , cacheReadCost = 1 % 40
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_gpt_5_nano :: Model
+openai_gpt_5_nano =
+  Model
+    { modelId = "gpt-5-nano"
+    , name = "GPT-5 Nano"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 1 % 20
+        , outputCost = 2 % 5
+        , cacheReadCost = 1 % 200
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 400000
+    , maxOutputTokens = 128000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
 openai_o1 :: Model
 openai_o1 =
   Model
     { modelId = "o1"
-    , name = "OpenAI o1"
+    , name = "o1"
     , api = OpenAIChatCompletions
     , provider = "openai"
     , baseUrl = "https://api.openai.com"
@@ -221,24 +573,68 @@ openai_o1 =
     , compat = CompatNone
     }
 
-openai_o1_mini :: Model
-openai_o1_mini =
+openai_o3 :: Model
+openai_o3 =
   Model
-    { modelId = "o1-mini"
-    , name = "OpenAI o1-mini"
+    { modelId = "o3"
+    , name = "o3"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 2 % 1
+        , outputCost = 8 % 1
+        , cacheReadCost = 1 % 2
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 200000
+    , maxOutputTokens = 100000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_o3_mini :: Model
+openai_o3_mini =
+  Model
+    { modelId = "o3-mini"
+    , name = "o3-mini"
     , api = OpenAIChatCompletions
     , provider = "openai"
     , baseUrl = "https://api.openai.com"
     , reasoning = True
     , input = [InputText]
     , cost = ModelCost
-        { inputCost = 3 % 1
-        , outputCost = 12 % 1
-        , cacheReadCost = 3 % 2
+        { inputCost = 11 % 10
+        , outputCost = 22 % 5
+        , cacheReadCost = 11 % 20
         , cacheWriteCost = 0 % 1
         }
-    , contextWindow = 128000
-    , maxOutputTokens = 65536
+    , contextWindow = 200000
+    , maxOutputTokens = 100000
+    , headers = Map.empty
+    , compat = CompatNone
+    }
+
+openai_o4_mini :: Model
+openai_o4_mini =
+  Model
+    { modelId = "o4-mini"
+    , name = "o4-mini"
+    , api = OpenAIChatCompletions
+    , provider = "openai"
+    , baseUrl = "https://api.openai.com"
+    , reasoning = True
+    , input = [InputText, InputImage]
+    , cost = ModelCost
+        { inputCost = 11 % 10
+        , outputCost = 22 % 5
+        , cacheReadCost = 11 % 40
+        , cacheWriteCost = 0 % 1
+        }
+    , contextWindow = 200000
+    , maxOutputTokens = 100000
     , headers = Map.empty
     , compat = CompatNone
     }
