@@ -11,6 +11,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 import EmbeddingSpec qualified
+import FetchModelsSpec qualified
 import InteractiveSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -78,6 +79,7 @@ main = do
         CatalogSpec.tests,
         CostSpec.tests,
         EmbeddingSpec.tests,
+        FetchModelsSpec.tests,
         InteractiveSpec.tests,
         TraceSpec.tests
       ]

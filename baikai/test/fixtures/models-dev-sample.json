@@ -1,0 +1,59 @@
+{
+  "openai": {
+    "id": "openai",
+    "name": "OpenAI",
+    "models": {
+      "gpt-5.4": {
+        "id": "gpt-5.4",
+        "name": "GPT-5.4",
+        "tool_call": true,
+        "reasoning": true,
+        "limit": { "context": 1050000, "output": 128000 },
+        "cost": { "input": 2.5, "output": 15, "cache_read": 0.25, "cache_write": 0 },
+        "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+      },
+      "gpt-5-nano": {
+        "id": "gpt-5-nano",
+        "name": "GPT-5 Nano",
+        "tool_call": true,
+        "reasoning": true,
+        "limit": { "context": 400000, "output": 128000 },
+        "cost": { "input": 0.05, "output": 0.4 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      },
+      "gpt-legacy-nontool": {
+        "id": "gpt-legacy-nontool",
+        "name": "Legacy non-tool model",
+        "tool_call": false,
+        "reasoning": false,
+        "limit": { "context": 8192, "output": 4096 },
+        "cost": { "input": 1, "output": 2 },
+        "modalities": { "input": ["text"], "output": ["text"] }
+      },
+      "gpt-5-pro": {
+        "id": "gpt-5-pro",
+        "name": "GPT-5 Pro",
+        "tool_call": true,
+        "reasoning": true,
+        "limit": { "context": 400000, "output": 128000 },
+        "cost": { "input": 15, "output": 120 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      }
+    }
+  },
+  "anthropic": {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "models": {
+      "claude-opus-4-5": {
+        "id": "claude-opus-4-5",
+        "name": "Claude Opus 4.5 (latest)",
+        "tool_call": true,
+        "reasoning": true,
+        "limit": { "context": 200000, "output": 64000 },
+        "cost": { "input": 5, "output": 25, "cache_read": 1.5, "cache_write": 6.25 },
+        "modalities": { "input": ["text", "image"], "output": ["text"] }
+      }
+    }
+  }
+}

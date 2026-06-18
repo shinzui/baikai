@@ -102,16 +102,40 @@ executable baikai-gen-models
     , scientific
     , text        ^>=2.1
 
+executable baikai-fetch-models
+  import:         common-options
+  hs-source-dirs: fetch
+  main-is:        FetchModels.hs
+  other-modules:  FetchModelsCore
+
+  -- The main module is named @FetchModels@ (not @Main@) so the pure
+  -- core can be compiled into the test suite alongside its own
+  -- @Main.hs@ without a module-name clash.
+  ghc-options:    -main-is FetchModels
+  build-depends:
+    , aeson
+    , baikai
+    , base        >=4.20 && <5
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , scientific
+    , text        ^>=2.1
+    , vector
+
 test-suite baikai-test
   import:             common-options
   type:               exitcode-stdio-1.0
-  hs-source-dirs:     test
+  hs-source-dirs:     test fetch
   main-is:            Main.hs
   other-modules:
     AgentAssetsSpec
     CatalogSpec
     CostSpec
     EmbeddingSpec
+    FetchModelsCore
+    FetchModelsSpec
     InteractiveSpec
     TraceSpec
 
@@ -121,10 +145,12 @@ test-suite baikai-test
     , baikai
     , base
     , bytestring
+    , containers
     , directory
     , filepath
     , openai
     , process
+    , scientific
     , stm
     , streamly-core  >=0.3 && <0.5
     , tasty

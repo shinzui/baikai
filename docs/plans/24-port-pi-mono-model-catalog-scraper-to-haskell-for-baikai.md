@@ -65,19 +65,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-Milestone 1 — Offline normalizer (no network):
+Milestone 1 — Offline normalizer (no network): **DONE 2026-06-17**
 
-- [ ] Add a `baikai-fetch-models` executable stanza to `baikai/baikai.cabal` with deps
-      `aeson`, `bytestring`, `containers`, `text`, `scientific`, `vector`, `filepath`,
-      `directory`, `optparse-applicative` (or hand-rolled arg parsing to match
-      `GenModels.hs`).
-- [ ] Create `baikai/fetch/FetchModels.hs` with a pure `normalize` step that turns a parsed
-      models.dev payload (read from a local file via `--from-file`) into baikai catalog JSON
-      for the `anthropic` and `openai` providers.
-- [ ] Add a unit test `baikai/test/FetchModelsSpec.hs` that feeds a small fixture JSON and
-      asserts the normalized output for a couple of known models.
-- [ ] Verify: `cabal run baikai-fetch-models -- --from-file <fixture> --provider openai`
-      prints catalog JSON matching the fixture's expectation.
+- [x] (2026-06-17) Added a `baikai-fetch-models` executable stanza to `baikai/baikai.cabal`
+      with hand-rolled `getArgs` parsing (deps `aeson`, `baikai`, `base`, `bytestring`,
+      `containers`, `directory`, `filepath`, `scientific`, `text`, `vector`).
+- [x] (2026-06-17) Created the pure core `baikai/fetch/FetchModelsCore.hs`
+      (`normalizeProvider`, `renderCatalog`, `parseUpstream`, provider specs + curation sets)
+      and the thin `baikai/fetch/FetchModels.hs` (`module FetchModels`, `--from-file` →
+      stdout). Split into two modules so the pure core compiles into the test suite without a
+      `Main` clash (see Decision Log).
+- [x] (2026-06-17) Added `baikai/test/FetchModelsSpec.hs` (test group `Baikai.FetchModels`)
+      and the fixture `baikai/test/fixtures/models-dev-sample.json`. Covers: `tool_call:false`
+      filtered, Responses-only id curated out, `pdf` dropped, missing cache → `0.0`,
+      whole-number cost → trailing `.0`, full normalized OpenAI `Catalog` equality.
+- [x] (2026-06-17) Verified: `cabal run baikai-fetch-models -- --from-file
+      baikai/test/fixtures/models-dev-sample.json --provider openai` prints the two curated,
+      tool-capable OpenAI entries in the existing file's exact formatting; `cabal test baikai`
+      → `All 50 tests passed` including the 7 `Baikai.FetchModels` cases.
 
 Milestone 2 — Live fetch:
 
@@ -185,6 +190,35 @@ Record every decision made while working on the plan.
   Milestones 1–4 to the two first-party providers keeps this plan deliverable and testable.
   The executable should be structured so adding a third provider is a localized change.
   Date: 2026-06-15
+
+- Decision: Hand-rolled `getArgs` parsing (no `optparse-applicative`) and a hand-written JSON
+  renderer (no `aeson-pretty`), matching `GenModels.hs`'s style and keeping the dependency
+  footprint minimal. The renderer reproduces the existing files' formatting exactly: 2-space
+  indent, inline `"input"` array, costs via `formatScientific Fixed Nothing` (whole values get
+  a trailing `.0`, e.g. `15` → `15.0`; fractions keep their natural form, e.g. `0.075`), and a
+  trailing newline. Verified by running the tool on the fixture and against the committed
+  `openai.json` style.
+  Date: 2026-06-17
+
+- Decision: Split the implementation into two modules — `baikai/fetch/FetchModelsCore.hs`
+  (`module FetchModelsCore`, all pure logic + types) and `baikai/fetch/FetchModels.hs`
+  (`module FetchModels`, the executable `main`, arg parsing, and later the network/file IO).
+  The executable stanza uses `ghc-options: -main-is FetchModels`. This deviates from the
+  plan's single-`FetchModels.hs` sketch.
+  Rationale: the test suite needs to import the pure functions directly. If the executable's
+  module were named `Main`, compiling it into `baikai-test` (which already has its own
+  `test/Main.hs`) would clash on the module name. Putting the pure core in a non-`Main` module
+  the test compiles via `hs-source-dirs: test fetch` lets the unit tests call the functions
+  with no `build-tool-depends` and keeps the network deps out of the test component (network
+  IO lives only in `FetchModels.hs`, which the test never compiles).
+  Date: 2026-06-17
+
+- Decision: The per-provider curation include sets (`openaiInclude`, `anthropicInclude`) live
+  as `Data.Set` data in `FetchModelsCore` from Milestone 1 (the `psInclude` predicate is built
+  from them), rather than waiting until Milestone 3. Milestone 3 adds the price/flag/name
+  override layer on top; the include sets are already the auditable, single-place curation
+  policy the plan calls for.
+  Date: 2026-06-17
 
 - Decision: Curation policy for `enabled`/inclusion is "current generations only," matching
   the existing curated style of the hand-maintained files (the pre-plan `anthropic.json` held
