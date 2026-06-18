@@ -115,13 +115,15 @@ executable baikai-fetch-models
   build-depends:
     , aeson
     , baikai
-    , base        >=4.20 && <5
+    , base             >=4.20 && <5
     , bytestring
     , containers
     , directory
     , filepath
+    , http-client
+    , http-client-tls
     , scientific
-    , text        ^>=2.1
+    , text             ^>=2.1
     , vector
 
 test-suite baikai-test

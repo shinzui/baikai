@@ -84,14 +84,25 @@ Milestone 1 — Offline normalizer (no network): **DONE 2026-06-17**
       tool-capable OpenAI entries in the existing file's exact formatting; `cabal test baikai`
       → `All 50 tests passed` including the 7 `Baikai.FetchModels` cases.
 
-Milestone 2 — Live fetch:
+Milestone 2 — Live fetch: **DONE 2026-06-17**
 
-- [ ] Add `http-client` + `http-client-tls` deps and an `IO` fetch of
-      `https://models.dev/api.json` behind a `--from-url` default.
-- [ ] Wire `--out-dir baikai/data/models` to write `anthropic.json` and `openai.json`.
-- [ ] Verify: `cabal run baikai-fetch-models` rewrites the two files; `git diff` shows only
-      data changes; `cabal run baikai-gen-models` then succeeds and `cabal test baikai`
-      (CatalogSpec) passes.
+- [x] (2026-06-17) Added `http-client` + `http-client-tls` deps and `fetchUpstream :: String
+      -> IO ByteString` (TLS manager via `newTlsManager`, `parseUrlThrow` so non-2xx raises an
+      `HttpException`).
+- [x] (2026-06-17) Added flags `--from-url` (default `https://models.dev/api.json`),
+      `--from-file`, `--out-dir` (default `<pkg>/data/models`, resolved by walking up to
+      `baikai.cabal` like `GenModels.hs`), `--provider`, and `--stdout`. File mode writes each
+      catalog in one `BS.writeFile` and prints `Wrote <path> (N models)`.
+- [x] (2026-06-17) Verified live: `cabal run baikai-fetch-models` rewrote both files
+      (`anthropic.json` 8 models, `openai.json` 18 models); `git diff` was data-only;
+      `cabal run baikai-gen-models` wrote `Generated.hs (30 enabled models)`; `cabal test
+      baikai` → `All 50 tests passed` including the `CatalogSpec` round-trip. Negative checks:
+      an unreachable host triggers the `HttpException` path and a bad models.dev path (which
+      returns 200 HTML, not a 404 — see Surprises) fails at JSON parse; both exit non-zero and
+      write nothing (`git status baikai/data/models` clean).
+- [x] (2026-06-17) Decision: committed M2 as a **code-only** capability change; the actual
+      catalog data refresh is committed in M3 once the override layer strips upstream's
+      `" (latest)"` name suffixes, to avoid committing those warts and re-diffing them away.
 
 Milestone 3 — Override layer:
 
@@ -138,6 +149,21 @@ implementation. Provide concise evidence.
   same trap, so Milestone 4 must either (a) fix the pre-commit hook to honor the treefmt
   exclude, or (b) teach the generator to emit fourmolu's trailing-comma layout so the two
   stop fighting. Capturing here so the next contributor does not rediscover it.
+
+- Discovery (2026-06-17, M2): `https://models.dev/<unknown-path>` returns HTTP **200** with
+  the site's SPA `index.html`, not a 404. So `--from-url https://models.dev/does-not-exist`
+  does not trip `parseUrlThrow`'s non-2xx check; instead the HTML body fails JSON parsing.
+  The net behavior the plan wants still holds — non-zero exit, a clear error message, and no
+  file writes — but via the parse-error branch rather than the `HttpException` branch. The
+  `HttpException` branch was verified separately against an unreachable host
+  (`*.invalid`). Both branches write nothing because the fetch fully completes (or fails) in
+  memory before any catalog is rendered.
+
+- Discovery (2026-06-17, M2): upstream models.dev tags the "latest" Anthropic aliases with a
+  `" (latest)"` display-name suffix (e.g. `claude-opus-4-5` → "Claude Opus 4.5 (latest)",
+  also `claude-haiku-4-5`, `claude-sonnet-4-5`). The current first-party `name` values in the
+  catalog carry no such suffix, so a raw refresh dirties those names. This is exactly the kind
+  of upstream wart the Milestone 3 name-override layer exists to clean; handled there.
 
 
 ## Decision Log
