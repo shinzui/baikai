@@ -34,6 +34,7 @@ library
   exposed-modules:
     Baikai.Provider.Claude.Api
     Baikai.Provider.Claude.Cli
+    Baikai.Provider.Claude.ErrorClass
     Baikai.Provider.Claude.Interactive
 
   build-depends:
@@ -42,12 +43,14 @@ library
     , base               >=4.20   && <5
     , base64-bytestring
     , bytestring
+    , case-insensitive
     , claude
     , containers
     , cradle
     , generic-lens
     , http-client
     , http-client-tls
+    , http-types
     , lens               ^>=5.3
     , servant-client
     , streamly           >=0.11   && <0.13
@@ -61,20 +64,25 @@ test-suite baikai-claude-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Main.hs
+  other-modules:  ErrorClassSpec
 
   -- cradle (used by Baikai.Provider.Claude.Interactive) requires the threaded RTS.
   ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
     , aeson
-    , baikai         ^>=0.1.1
+    , baikai            ^>=0.1.1
     , baikai-claude
-    , base           >=4.20   && <5
+    , base              >=4.20   && <5
     , bytestring
+    , case-insensitive
     , claude
+    , containers
     , generic-lens
-    , lens           ^>=5.3
-    , streamly-core  >=0.3    && <0.5
+    , http-types
+    , lens              ^>=5.3
+    , servant-client
+    , streamly-core     >=0.3    && <0.5
     , tasty
     , tasty-hunit
-    , text           ^>=2.1
+    , text              ^>=2.1
     , vector

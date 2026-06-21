@@ -9,6 +9,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import ErrorClassSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import Streamly.Data.Stream qualified as Stream
@@ -24,7 +25,8 @@ main =
         promptRenderingTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
-        responseFormatMappingTest
+        responseFormatMappingTest,
+        ErrorClassSpec.tests
       ]
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto the

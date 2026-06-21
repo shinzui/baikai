@@ -11,6 +11,7 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 import EmbeddingSpec qualified
+import ErrorInfoSpec qualified
 import ErrorSpec qualified
 import FetchModelsSpec qualified
 import InteractiveSpec qualified
@@ -81,6 +82,7 @@ main = do
         CatalogSpec.tests,
         CostSpec.tests,
         EmbeddingSpec.tests,
+        ErrorInfoSpec.tests,
         ErrorSpec.tests,
         FetchModelsSpec.tests,
         InteractiveSpec.tests,

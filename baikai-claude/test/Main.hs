@@ -10,6 +10,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import ErrorClassSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -22,7 +23,8 @@ main =
       [ commandRenderingTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
-        responseFormatMappingTest
+        responseFormatMappingTest,
+        ErrorClassSpec.tests
       ]
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto Anthropic's

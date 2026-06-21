@@ -14,8 +14,10 @@ module Baikai.Error
     -- * Accessors
     isRetryable,
 
-    -- * Pure classification helper for provider packages
+    -- * Pure classification helpers for provider packages
     classifyHttpStatus,
+    classifyHttpStatusWithBody,
+    bodyIndicatesOverflow,
   )
 where
 
@@ -165,3 +167,32 @@ classifyHttpStatus status _retryAfter
   | status == 400 || status == 404 || status == 422 = InvalidRequest
   | status >= 500 = TransientError
   | otherwise = OtherError
+
+-- | Like 'classifyHttpStatus', but also inspects the response body so a
+-- 400/422 whose body signals a context-window overflow is categorised
+-- as 'ContextOverflow' rather than the plain 'InvalidRequest' the status
+-- alone would give. All other statuses defer to 'classifyHttpStatus'.
+classifyHttpStatusWithBody :: Int -> Maybe Int -> Text -> ErrorCategory
+classifyHttpStatusWithBody status retryAfter body
+  | (status == 400 || status == 422) && bodyIndicatesOverflow body =
+      ContextOverflow
+  | otherwise = classifyHttpStatus status retryAfter
+
+-- | Whether an error body's text contains a known context-window
+-- overflow marker (case-insensitive). Covers the phrasings used by the
+-- Anthropic and OpenAI APIs.
+bodyIndicatesOverflow :: Text -> Bool
+bodyIndicatesOverflow body =
+  any (`Text.isInfixOf` lower) markers
+  where
+    lower = Text.toLower body
+    markers =
+      [ "context length",
+        "context_length_exceeded",
+        "maximum context",
+        "context window",
+        "prompt is too long",
+        "too many tokens",
+        "request_too_large",
+        "too many total text bytes"
+      ]

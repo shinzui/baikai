@@ -44,9 +44,11 @@ import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
+import Baikai.Error (BaikaiError, invalidRequest)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
+import Baikai.Provider.OpenAI.ErrorClass (classifyErrorText, classifyException)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -73,7 +75,7 @@ import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Exception (SomeException, displayException, try)
+import Control.Exception (SomeException, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value (..), (.:?))
 import Data.Aeson qualified as Aeson
@@ -138,7 +140,8 @@ openaiChatStream m ctx opts =
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe RawChunk))
         tref <- newIORef False
-        _ <- forkIO (worker call ch)
+        eref <- newIORef Nothing
+        _ <- forkIO (worker call ch eref)
         startTime <- getCurrentTime
         let initialState =
               ProducerState
@@ -146,7 +149,8 @@ openaiChatStream m ctx opts =
                   pending = [EventStart StartPayload {partial = skeletonStart m startTime}],
                   assembler = emptyAssembler m startTime,
                   finished = False,
-                  terminalRef = tref
+                  terminalRef = tref,
+                  errInfoRef = eref
                 }
         pure (Stream.unfoldrM step initialState)
 
@@ -224,8 +228,8 @@ data RawUsage = RawUsage
   deriving stock (Show, Generic)
 
 worker ::
-  OpenAICall -> Chan (Maybe RawChunk) -> IO ()
-worker call ch = do
+  OpenAICall -> Chan (Maybe RawChunk) -> IORef (Maybe BaikaiError) -> IO ()
+worker call ch errInfoRef = do
   let OpenAI.Methods {OpenAI.createChatCompletionStream = stream'} = call ^. #methods
   r <-
     try @SomeException $
@@ -236,8 +240,10 @@ worker call ch = do
           Right chunk -> writeChan ch (Just chunk)
   case r of
     Right () -> pure ()
-    Left e ->
-      writeChan ch (Just (errorChunk (Text.pack (displayException e))))
+    -- An HTTP-level exception carries an HTTP status; classify it and
+    -- stash the structured error for the end-of-stream recovery path
+    -- (see 'step' / 'closeOpenStream'). No terminal chunk is written.
+    Left e -> writeIORef errInfoRef (Just (classifyException e))
   writeChan ch Nothing
 
 errorChunk :: Text -> RawChunk
@@ -364,7 +370,10 @@ data ProducerState = ProducerState
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
-    terminalRef :: !(IORef Bool)
+    terminalRef :: !(IORef Bool),
+    -- | Set by the worker when an HTTP-level exception is caught, so the
+    -- end-of-stream recovery path can surface a categorised error.
+    errInfoRef :: !(IORef (Maybe BaikaiError))
   }
   deriving stock (Generic)
 
@@ -390,7 +399,8 @@ step s
             then pure Nothing
             else do
               now <- getCurrentTime
-              let (events, ass') = closeOpenStream now (s ^. #assembler)
+              mErr <- readIORef (s ^. #errInfoRef)
+              let (events, ass') = closeOpenStream now mErr (s ^. #assembler)
               case events of
                 [] -> pure Nothing
                 (e : rest) -> do
@@ -492,7 +502,7 @@ translate ::
 translate chunk ass now
   | Just errMsg <- chunk ^. #error =
       let msg = finalMessage ass now (Just errMsg) Stop.ErrorReason
-       in ( [EventError (errorTerminal Stop.ErrorReason msg Nothing)],
+       in ( [EventError (errorTerminal Stop.ErrorReason msg (classifyErrorText errMsg))],
             ass & #errorMsg .~ Just errMsg
           )
   | otherwise =
@@ -645,8 +655,8 @@ closeOpenTools ass =
           )
 
 closeOpenStream ::
-  UTCTime -> Assembler -> ([AssistantMessageEvent], Assembler)
-closeOpenStream now ass
+  UTCTime -> Maybe BaikaiError -> Assembler -> ([AssistantMessageEvent], Assembler)
+closeOpenStream now mErr ass
   | ass ^. #finishSeen =
       -- Channel closed cleanly after finish_reason. Emit
       -- EventDone with the accumulated content + usage.
@@ -655,18 +665,17 @@ closeOpenStream now ass
        in ([EventDone (doneTerminal reason msg)], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
-      -- still-open blocks and emit EventError with the accumulated
-      -- content.
+      -- still-open blocks and emit EventError. When the worker stored a
+      -- classified HTTP error ('Just be'), surface it structurally;
+      -- otherwise report the unexpected end of stream.
       let (closeText, ass1) = closeOpenText ass
           (closeTools, ass2) = closeOpenTools ass1
           reason = Stop.ErrorReason
-          msg =
-            finalMessage
-              ass2
-              now
-              (Just "openai stream ended without finish_reason")
-              reason
-          errEv = EventError (errorTerminal reason msg Nothing)
+          errText = case mErr of
+            Just be -> be ^. #message
+            Nothing -> "openai stream ended without finish_reason"
+          msg = finalMessage ass2 now (Just errText) reason
+          errEv = EventError (errorTerminal reason msg mErr)
        in (closeText <> closeTools <> [errEv], ass2)
 
 finalMessage ::
@@ -703,7 +712,7 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Stop.ErrorReason msg Nothing))
+  pure (EventError (errorTerminal Stop.ErrorReason msg (Just (invalidRequest errText))))
 
 -- ============================================================
 -- Request mapping (preserved from EP-2 with minor refactoring)

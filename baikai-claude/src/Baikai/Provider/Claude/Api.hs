@@ -34,9 +34,11 @@ import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
+import Baikai.Error (BaikaiError, invalidRequest)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
+import Baikai.Provider.Claude.ErrorClass (classifyErrorValue, classifyException)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -64,7 +66,7 @@ import Claude.V1.Messages qualified as Messages
 import Claude.V1.Tool qualified as ClaudeTool
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Exception (SomeException, displayException, try)
+import Control.Exception (SomeException, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value, (.=))
 import Data.Aeson qualified as Aeson
@@ -127,7 +129,8 @@ claudeMessagesStream m ctx opts =
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe Messages.MessageStreamEvent))
         tref <- newIORef False
-        _ <- forkIO (worker call ch tref)
+        eref <- newIORef Nothing
+        _ <- forkIO (worker call ch eref)
         startTime <- getCurrentTime
         let initialState =
               ProducerState
@@ -135,7 +138,8 @@ claudeMessagesStream m ctx opts =
                   pending = [],
                   assembler = emptyAssembler m startTime,
                   finished = False,
-                  terminalRef = tref
+                  terminalRef = tref,
+                  errInfoRef = eref
                 }
         pure (Stream.unfoldrM step initialState)
 
@@ -174,9 +178,9 @@ resolveKey opts = case opts ^. #apiKey of
 worker ::
   ClaudeCall ->
   Chan (Maybe Messages.MessageStreamEvent) ->
-  IORef Bool ->
+  IORef (Maybe BaikaiError) ->
   IO ()
-worker call ch _terminalRef = do
+worker call ch errInfoRef = do
   let Claude.Methods {Claude.createMessageStreamTyped = stream'} = call ^. #methods
   r <-
     try @SomeException $
@@ -185,7 +189,11 @@ worker call ch _terminalRef = do
         Right ev -> writeChan ch (Just ev)
   case r of
     Right () -> pure ()
-    Left e -> writeChan ch (Just (errorEvent (Text.pack (displayException e))))
+    -- An HTTP-level exception carries an HTTP status; classify it and
+    -- stash the structured error. The worker writes no terminal event,
+    -- so the consumer reaches its end-of-stream recovery path, which
+    -- reads this ref. (See 'step' / 'unexpectedEoS'.)
+    Left e -> writeIORef errInfoRef (Just (classifyException e))
   writeChan ch Nothing
   where
     errorEvent :: Text -> Messages.MessageStreamEvent
@@ -197,7 +205,10 @@ data ProducerState = ProducerState
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
-    terminalRef :: !(IORef Bool)
+    terminalRef :: !(IORef Bool),
+    -- | Set by the worker when an HTTP-level exception is caught, so the
+    -- end-of-stream recovery path can surface a categorised error.
+    errInfoRef :: !(IORef (Maybe BaikaiError))
   }
   deriving stock (Generic)
 
@@ -223,7 +234,8 @@ step s
             then pure Nothing
             else do
               now <- getCurrentTime
-              let (ev, ass') = unexpectedEoS now (s ^. #assembler)
+              mErr <- readIORef (s ^. #errInfoRef)
+              let (ev, ass') = unexpectedEoS now mErr (s ^. #assembler)
               writeTerminal s ev
               pure
                 ( Just
@@ -259,15 +271,17 @@ terminal = \case
   EventError {} -> True
   _ -> False
 
--- | The recovery path: channel closed before any terminal event.
-unexpectedEoS :: UTCTime -> Assembler -> (AssistantMessageEvent, Assembler)
-unexpectedEoS now ass =
-  let msg =
-        finalMessageOnError
-          ass
-          now
-          "claude stream ended without message_stop"
-   in (EventError (errorTerminal Stop.ErrorReason msg Nothing), ass)
+-- | The recovery path: channel closed before any terminal event. When
+-- the worker stored a classified HTTP error ('Just be'), surface it as a
+-- structured 'EventError'; otherwise report the unexpected end of stream.
+unexpectedEoS ::
+  UTCTime -> Maybe BaikaiError -> Assembler -> (AssistantMessageEvent, Assembler)
+unexpectedEoS now mErr ass =
+  let errText = case mErr of
+        Just be -> be ^. #message
+        Nothing -> "claude stream ended without message_stop"
+      msg = finalMessageOnError ass now errText
+   in (EventError (errorTerminal Stop.ErrorReason msg mErr), ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
@@ -334,8 +348,9 @@ translate raw ass now = case raw of
      in ([EventDone (doneTerminal (ass ^. #stopReason) msg)], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
+        mErr = classifyErrorValue errVal
         msg = finalMessageOnError ass now errText
-     in ([EventError (errorTerminal Stop.ErrorReason msg Nothing)], ass)
+     in ([EventError (errorTerminal Stop.ErrorReason msg mErr)], ass)
 
 handleBlockStart ::
   Int ->
@@ -505,7 +520,7 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Stop.ErrorReason msg Nothing))
+  pure (EventError (errorTerminal Stop.ErrorReason msg (Just (invalidRequest errText))))
 
 renderAnthropicError :: Value -> Text
 renderAnthropicError v = case v of

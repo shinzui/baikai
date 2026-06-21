@@ -33,6 +33,7 @@ library
   exposed-modules:
     Baikai.Provider.OpenAI.Api
     Baikai.Provider.OpenAI.Cli
+    Baikai.Provider.OpenAI.ErrorClass
     Baikai.Provider.OpenAI.Interactive
 
   build-depends:
@@ -41,10 +42,12 @@ library
     , base               >=4.20   && <5
     , base64-bytestring
     , bytestring
+    , case-insensitive
     , containers
     , generic-lens
     , http-client
     , http-client-tls
+    , http-types
     , lens               ^>=5.3
     , openai
     , process
@@ -60,17 +63,22 @@ test-suite baikai-openai-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Main.hs
+  other-modules:  ErrorClassSpec
   build-depends:
     , aeson
-    , baikai         ^>=0.1.1
+    , baikai            ^>=0.1.1
     , baikai-openai
-    , base           >=4.20   && <5
+    , base              >=4.20   && <5
     , bytestring
+    , case-insensitive
+    , containers
     , generic-lens
-    , lens           ^>=5.3
+    , http-types
+    , lens              ^>=5.3
     , openai
-    , streamly-core  >=0.3    && <0.5
+    , servant-client
+    , streamly-core     >=0.3    && <0.5
     , tasty
     , tasty-hunit
-    , text           ^>=2.1
+    , text              ^>=2.1
     , vector

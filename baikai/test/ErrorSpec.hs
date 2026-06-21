@@ -4,6 +4,7 @@ import Baikai.Error
   ( BaikaiError (..),
     ErrorCategory (..),
     classifyHttpStatus,
+    classifyHttpStatusWithBody,
     decodeError,
     invalidRequest,
     isRetryable,
@@ -18,8 +19,29 @@ tests =
   testGroup
     "Baikai.Error"
     [ classifyTests,
+      bodyClassifyTests,
       retryTests,
       constructorTests
+    ]
+
+bodyClassifyTests :: TestTree
+bodyClassifyTests =
+  testGroup
+    "classifyHttpStatusWithBody"
+    [ testCase "400 + overflow body -> ContextOverflow" $
+        classifyHttpStatusWithBody 400 Nothing "This model's maximum context length is 8192 tokens"
+          @?= ContextOverflow,
+      testCase "400 + prompt-too-long body -> ContextOverflow" $
+        classifyHttpStatusWithBody 400 Nothing "prompt is too long: 9000 tokens > 8000"
+          @?= ContextOverflow,
+      testCase "400 + ordinary body -> InvalidRequest" $
+        classifyHttpStatusWithBody 400 Nothing "missing required field 'model'"
+          @?= InvalidRequest,
+      testCase "429 + overflow-looking body still RateLimited (status wins)" $
+        classifyHttpStatusWithBody 429 Nothing "context length whatever"
+          @?= RateLimited,
+      testCase "500 defers to status -> TransientError" $
+        classifyHttpStatusWithBody 500 Nothing "context length" @?= TransientError
     ]
 
 classifyTests :: TestTree
