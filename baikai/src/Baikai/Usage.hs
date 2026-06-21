@@ -6,7 +6,7 @@
 -- billing dimensions. 'cost' is always populated — providers without
 -- pricing data fill it with '_Cost' (zero across all rates) rather than
 -- a 'Nothing' that every cost-reading caller would have to handle.
-module Baikai.Usage (Usage (..), _Usage) where
+module Baikai.Usage (Usage (..), _Usage, sumUsage) where
 
 import Baikai.Cost (Cost, _Cost)
 import Data.Aeson
@@ -16,6 +16,8 @@ import Data.Aeson
     defaultOptions,
     genericToJSON,
   )
+import Data.Foldable (foldl')
+import Data.Maybe (fromMaybe)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -46,3 +48,30 @@ _Usage =
       totalTokens = 0,
       cost = _Cost
     }
+
+-- | Combine two optional reasoning-token counts. Presence wins: an
+-- absent side counts as zero, but the result is only 'Nothing' when
+-- both sides are 'Nothing', so a non-reasoning call summed with a
+-- reasoning call keeps the reasoning total.
+combineReasoning :: Maybe Natural -> Maybe Natural -> Maybe Natural
+combineReasoning Nothing Nothing = Nothing
+combineReasoning a b = Just (fromMaybe 0 a + fromMaybe 0 b)
+
+instance Semigroup Usage where
+  a <> b =
+    Usage
+      { inputTokens = inputTokens a + inputTokens b,
+        outputTokens = outputTokens a + outputTokens b,
+        cacheReadTokens = cacheReadTokens a + cacheReadTokens b,
+        cacheWriteTokens = cacheWriteTokens a + cacheWriteTokens b,
+        reasoningTokens = combineReasoning (reasoningTokens a) (reasoningTokens b),
+        totalTokens = totalTokens a + totalTokens b,
+        cost = cost a <> cost b
+      }
+
+instance Monoid Usage where
+  mempty = _Usage
+
+-- | Total a collection of per-call usages into one.
+sumUsage :: (Foldable f) => f Usage -> Usage
+sumUsage = foldl' (<>) mempty

@@ -37,6 +37,28 @@ _CostBreakdown =
 _Cost :: Cost
 _Cost = Cost {usd = 0, breakdown = _CostBreakdown}
 
+-- Field-wise combination so callers can total per-call costs with
+-- '(<>)'/'mconcat'. 'mempty' reuses the existing zero value, so the
+-- identity laws hold by construction (adding zero rationals).
+
+instance Semigroup CostBreakdown where
+  a <> b =
+    CostBreakdown
+      { inputUsd = inputUsd a + inputUsd b,
+        outputUsd = outputUsd a + outputUsd b,
+        cachedInputUsd = cachedInputUsd a + cachedInputUsd b,
+        cachedWriteUsd = cachedWriteUsd a + cachedWriteUsd b
+      }
+
+instance Monoid CostBreakdown where
+  mempty = _CostBreakdown
+
+instance Semigroup Cost where
+  a <> b = Cost {usd = usd a + usd b, breakdown = breakdown a <> breakdown b}
+
+instance Monoid Cost where
+  mempty = _Cost
+
 instance ToJSON CostBreakdown where
   toJSON cb =
     object

@@ -17,6 +17,7 @@ import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import TraceSpec qualified
+import UsageSpec qualified
 
 -- | Ground the test provider on a 'Custom' API tag so it does not
 -- clash with the real Anthropic/OpenAI handlers if a future test
@@ -81,7 +82,8 @@ main = do
         EmbeddingSpec.tests,
         FetchModelsSpec.tests,
         InteractiveSpec.tests,
-        TraceSpec.tests
+        TraceSpec.tests,
+        UsageSpec.tests
       ]
 
 tests :: TestTree
