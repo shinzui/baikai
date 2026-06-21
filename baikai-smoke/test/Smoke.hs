@@ -164,7 +164,7 @@ runStreamCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
             ]
           textOk = not (null textDeltas)
           terminalOk = case lastMay events of
-            Just (EventDone (TerminalPayload Stop msg)) -> usageNonZero msg
+            Just (EventDone (TerminalPayload Stop msg _)) -> usageNonZero msg
             _ -> False
       when (not textOk || not terminalOk) $ do
         hPutStrLn stderr $

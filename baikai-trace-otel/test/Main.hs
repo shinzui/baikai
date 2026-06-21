@@ -77,7 +77,8 @@ stubResponse a =
       api = a,
       provider = "stub.otel",
       responseId = Nothing,
-      latencyMs = 0
+      latencyMs = 0,
+      errorInfo = Nothing
     }
 
 registerOk :: Api -> IO ()

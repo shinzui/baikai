@@ -20,6 +20,13 @@ module Baikai.Error
 where
 
 import Control.Exception (Exception (displayException))
+import Data.Aeson
+  ( Options (constructorTagModifier, fieldLabelModifier),
+    ToJSON (toJSON),
+    camelTo2,
+    defaultOptions,
+    genericToJSON,
+  )
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Generics (Generic)
@@ -56,6 +63,12 @@ data ErrorCategory
     OtherError
   deriving stock (Eq, Show, Generic)
 
+-- | Categories serialize as snake_case strings (e.g. @"rate_limited"@).
+instance ToJSON ErrorCategory where
+  toJSON =
+    genericToJSON
+      defaultOptions {constructorTagModifier = camelTo2 '_'}
+
 -- | A failed baikai call. The 'category' drives caller policy; the
 -- remaining fields carry optional structured hints. No record-field
 -- prefixes (project convention): fields are plain names.
@@ -72,6 +85,12 @@ data BaikaiError = BaikaiError
     exitCode :: !(Maybe Int)
   }
   deriving stock (Eq, Show, Generic)
+
+-- | Fields serialize as snake_case (e.g. @http_status@, @retry_after_seconds@).
+instance ToJSON BaikaiError where
+  toJSON =
+    genericToJSON
+      defaultOptions {fieldLabelModifier = camelTo2 '_'}
 
 instance Exception BaikaiError where
   displayException e =

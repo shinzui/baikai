@@ -19,6 +19,7 @@ where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent)
+import Baikai.Error (BaikaiError)
 import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model, _Model)
 import Baikai.StopReason (StopReason (..))
@@ -36,7 +37,14 @@ data Response = Response
     api :: !Api,
     provider :: !Text,
     responseId :: !(Maybe Text),
-    latencyMs :: !Integer
+    latencyMs :: !Integer,
+    -- | Structured error detail when the call failed in-band
+    -- (@stopReason = ErrorReason@): the category, HTTP status, and any
+    -- retry-after hint. 'Nothing' on success or when the provider could
+    -- not classify the failure. Lets a caller branch on
+    -- 'Baikai.Error.category' / 'Baikai.Error.isRetryable' without
+    -- parsing 'errorMessage' text.
+    errorInfo :: !(Maybe BaikaiError)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -58,7 +66,8 @@ _Response =
       api = Custom "",
       provider = "",
       responseId = Nothing,
-      latencyMs = 0
+      latencyMs = 0,
+      errorInfo = Nothing
     }
 
 -- | Wrap the response payload as a conversation 'AssistantMessage'.

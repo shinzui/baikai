@@ -89,7 +89,8 @@ This section must always reflect the actual current state of the work.
 - [x] M1: `Usage`/`Cost`/`CostBreakdown` gain `Semigroup` + `Monoid` instances; `sumUsage` helper added; unit tests added to `baikai` test suite. (2026-06-21 — `UsageSpec` green, all 63 baikai tests pass.)
 - [x] M2: `Baikai.Error` redesigned into a record with an `ErrorCategory` sum type, smart constructors, and `isRetryable` / `retryAfterSeconds` accessors; pure `classifyHttpStatus` helper added; core construction sites (`Auth`, `Registry`) and existing tests updated; everything compiles and existing tests pass. (2026-06-21 — `ErrorSpec` added; `cabal test all` green: baikai 83, claude 4, openai 5, effectful 4, trace-otel 2, smoke pass.)
   - Note: the mechanical CLI-provider constructor renames originally slotted for M3 step 3 were folded into M2 so that every commit leaves the whole workspace compiling. M3 now only adds the substantive HTTP-exception classification.
-- [ ] M3: API providers (`baikai-claude`, `baikai-openai`) classify caught `servant-client` `ClientError`s into the new categories (status → category, Retry-After → seconds); CLI providers map their existing throws onto the new constructors; provider-level classification unit tests added.
+- [x] M3a (core threading): added `ToJSON` to `ErrorCategory`/`BaikaiError`; added `errorInfo :: Maybe BaikaiError` to `Baikai.Stream.Event.TerminalPayload` and `Baikai.Response.Response`; threaded it through `Baikai.Stream` reassembly/`finalizeState`; added `doneTerminal`/`errorTerminal` helper constructors and converted all `TerminalPayload` construction sites; updated `Response{}`/`TerminalPayload` sites in CLI providers and tests. Bonus: `liftCompleteToStream`'s `errorEvent`/`noProviderEvent` now populate `errorInfo` from a thrown `BaikaiError` / `providerUnavailable`, so the CLI/Auth/Registry throw paths surface structured errors on `Response` too. (2026-06-21 — `cabal test all` green: baikai 83, others unchanged. Behaviour-neutral for the API path until M3b.)
+- [ ] M3b (provider classification): add `Baikai.Provider.{Claude,OpenAI}.ErrorClass` with `classifyException` (HTTP `ClientError` → `BaikaiError`) and `classifyErrorValue` (native streamed-error JSON → `BaikaiError`); wire worker-caught exceptions via an `IORef (Maybe BaikaiError)` into the end-of-stream terminal, and classify mid-stream error events in `translate`; add `http-types`/`case-insensitive` deps; add `ErrorClassSpec` to each provider. A caller of `completeRequest` against Anthropic/OpenAI can read `errorInfo`/`category`/`retryAfterSeconds` off the returned `Response`.
 - [ ] M4: Version bumps and CHANGELOG entries for `baikai`, `baikai-claude`, `baikai-openai`; `nix flake check` / full `cabal test all` green.
 
 
@@ -156,6 +157,53 @@ Record every decision made while working on the plan.
   call (`Just 5`) with a non-reasoning call (`Nothing`) should yield `Just 5`,
   not lose the 5 and not fabricate a `Just 0` for a conversation that never used
   reasoning. This matches how the field is already produced by the providers.
+  Date: 2026-06-21
+
+- Decision: Deliver typed error categories on the API (`completeRequest`) path,
+  not only on the thrown CLI/Auth/Registry path (the "Full" M3 option). The user
+  chose this on 2026-06-21 after I surfaced that the API providers never throw on
+  HTTP errors — they fold the failure in-band into an error-`Response`
+  (`stopReason = ErrorReason`, `errorMessage :: Maybe Text`). Without this work a
+  caller hitting a 429/5xx from Anthropic/OpenAI could not branch on category.
+  Rationale: the user's core motivation is retry policy, which is most relevant
+  precisely to the API path's rate-limit/transient failures.
+  Date: 2026-06-21
+
+- Decision: Carry the structured error as `errorInfo :: Maybe BaikaiError` on
+  `TerminalPayload` and `Response`, rather than adding `errorCategory` /
+  `retryAfterSeconds` fields to `AssistantPayload`.
+  Rationale: `AssistantPayload` has ~20 full-record construction sites across the
+  core, both providers, and every test; adding required fields there risks
+  uninitialised-field landmines (a partial record literal compiles but the field
+  is bottom). `TerminalPayload` has ~14 construction sites and is the
+  semantically correct home for terminal/error metadata. A single
+  `Maybe BaikaiError` is more expressive than two scalar fields (it carries
+  category, message, httpStatus, and retryAfterSeconds together). To avoid the
+  partial-record landmine entirely, `Baikai.Stream.Event` gains `doneTerminal`
+  and `errorTerminal` helper constructors and all sites use them.
+  Date: 2026-06-21
+
+- Decision: Thread the worker-thread's caught `ClientError` to the stream via an
+  `IORef (Maybe BaikaiError)` in the provider's producer state, consumed by the
+  end-of-stream handler — rather than widening the producer `Chan`'s element type
+  or JSON-encoding the error back through the SDK event type.
+  Rationale: The API providers run the SDK call on a forked worker thread that
+  writes SDK events to a `Chan`; the caught HTTP exception cannot otherwise cross
+  back to the pure `translate` step. On exception the worker stores
+  `classifyException e` in the ref and closes the channel; the existing
+  "channel closed before a terminal event" recovery path reads the ref and emits
+  an `EventError` carrying the structured error. This keeps the `Chan` type and
+  all its uses unchanged and confines the change to each provider's producer.
+  Mid-stream streamed error events (Anthropic `rate_limit_error` etc., which
+  arrive as a normal SDK event with an error JSON `Value`) are classified purely
+  inside `translate` via `classifyErrorValue`.
+  Date: 2026-06-21
+
+- Decision: `ErrorCategory` and `BaikaiError` gain `ToJSON` instances (snake_case
+  fields) in `Baikai.Error`.
+  Rationale: `TerminalPayload` derives `ToJSON` (anyclass) and now contains a
+  `BaikaiError`; `Response` gains a serialized `errorInfo`. Both must serialize.
+  `aeson` is already a dependency of core `baikai`.
   Date: 2026-06-21
 
 - Decision: Fold M3's mechanical CLI-provider constructor renames into M2.
@@ -657,13 +705,39 @@ behavioural change to providers yet. Add a focused `baikai/test/ErrorSpec.hs`
 
 ### Milestone 3 — Providers classify real failures
 
-Scope: make the API providers turn caught `servant-client` `ClientError`s into
-categorised `BaikaiError`s, and point the CLI providers' existing throws at the
-new smart constructors. This is the milestone that delivers the user-visible
-behaviour: a 429 from Anthropic or OpenAI now surfaces as `RateLimited` with a
-`retryAfterSeconds`, a 401 as `AuthError`, a 400 as `InvalidRequest` (or
-`ContextOverflow` when the body says so), and a 5xx/connection failure as
-`TransientError`.
+IMPORTANT (revised 2026-06-21): the original draft of this milestone assumed the
+API providers throw a `BaikaiError` from `completeRequest`. They do not — they
+surface HTTP failures *in-band*, folding them into an error-`Response`
+(`stopReason = ErrorReason`, `errorMessage :: Maybe Text`) via
+`Baikai.Stream.streamingComplete`. The CLI/`Auth`/`Registry` paths (already
+handled in M2) are the only ones that throw. To deliver typed categories on the
+API path we therefore carry a structured `errorInfo :: Maybe BaikaiError` along
+the in-band channel. See the four 2026-06-21 entries in the Decision Log for the
+full design rationale. This milestone is split into M3a (core threading,
+behaviour-neutral) and M3b (provider classification); the Progress section lists
+both.
+
+Scope (M3a): in core `baikai`, add `ToJSON` to `ErrorCategory`/`BaikaiError`; add
+`errorInfo :: !(Maybe BaikaiError)` to `Baikai.Stream.Event.TerminalPayload` and
+`Baikai.Response.Response`; thread it through the `Baikai.Stream` reassembly
+(`ReassemblyState.terminal` and `finalizeState`); add `doneTerminal` /
+`errorTerminal` helper constructors to `Baikai.Stream.Event` and convert every
+`TerminalPayload` construction site (≈14, across `Baikai.Stream`, both providers'
+`Api.hs`, and the effectful stub test) to use them so no partial-record literal
+can leave `errorInfo` uninitialised; update tests that pattern-match or build
+these. After M3a, `errorInfo` is always `Nothing` and all tests pass — a pure
+plumbing change.
+
+Scope (M3b): make the API providers populate `errorInfo`. A 429 from Anthropic or
+OpenAI now surfaces (on the returned `Response` and on the streamed `EventError`)
+as `category = RateLimited` with `retryAfterSeconds`, a 401 as `AuthError`, a 400
+as `InvalidRequest` (or `ContextOverflow` when the body says so), and a
+5xx/connection failure as `TransientError`. Two classification entry points per
+provider: `classifyException` for the worker-thread's caught `ClientError` (HTTP
+status based), carried to the end-of-stream handler through an
+`IORef (Maybe BaikaiError)`; and `classifyErrorValue` for mid-stream streamed
+error events (the provider's native error JSON `Value`), applied inside
+`translate`.
 
 First, confirm the exact exception type by reading the SDKs on disk (located via
 `mori`):
@@ -729,30 +803,31 @@ prefix and the package's existing imports):
      same way via its `responseStatus`. If that also fails, return
      `providerError (Text.pack (displayException ex))`.
 
-2. Wire it into the API handlers. In
-   `baikai-claude/src/Baikai/Provider/Claude/Api.hs` around line 187, the current
-   `Left e -> writeChan ch (Just (errorEvent (Text.pack (displayException e))))`
-   becomes: compute `let be = classifyException e` and feed `message be` (and,
-   if the streaming terminal payload is later widened to carry a category, the
-   category too) into `errorEvent`. At minimum, replace `displayException e`
-   with `Text.unpack`-free `message be` so the surfaced text is the categorised
-   message. Where the **complete** (non-streaming) path catches the same
-   exception, `throwIO be` so a caller of `completeRequest` receives a typed
-   `BaikaiError` they can pattern-match. Do the symmetric edit in
-   `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`.
-
-   Important nuance: the streaming path currently surfaces errors *in-band* as an
-   `EventError` terminal event, not by throwing. Keep that contract — do not
-   start throwing from the stream. The value of M3 for streaming is that the
-   `message` carried in the `EventError` is now the categorised message. For the
-   blocking `completeRequest` path, if it currently rethrows or wraps, make it
-   throw the categorised `BaikaiError`. If the blocking path is implemented on
-   top of the stream (collecting events) and never throws, then add: when the
-   collected terminal is an `EventError`, the blocking wrapper should throw the
-   classified `BaikaiError`. Decide based on what the code actually does (read
-   `baikai/src/Baikai/Stream.hs` `streamingComplete`/`liftCompleteToStream` and
-   the provider's `complete` definition) and record the decision in the Decision
-   Log.
+2. Wire it into the API handlers (in-band, do NOT throw — see the Decision Log).
+   In `baikai-claude/src/Baikai/Provider/Claude/Api.hs`:
+   - Add an `IORef (Maybe BaikaiError)` to the producer state (`ProducerState`)
+     and create it alongside the channel.
+   - In the forked `worker`, change the exception arm from
+     `Left e -> writeChan ch (Just (errorEvent (Text.pack (displayException e))))`
+     to `Left e -> writeIORef errInfoRef (Just (classifyException e))` (still
+     followed by the existing `writeChan ch Nothing` that closes the channel).
+     Because the worker now writes no terminal event on exception, control reaches
+     `step`'s "channel closed before a terminal event" arm.
+   - Make that recovery arm (currently `unexpectedEoS`) read `errInfoRef`: when it
+     holds `Just be`, emit `EventError (errorTerminal Stop.ErrorReason
+     (finalMessageOnError ass now (message be)) (Just be))`; when `Nothing`, keep
+     the existing "stream ended without message_stop" error (via `errorTerminal
+     ... Nothing`).
+   - In `translate`, classify mid-stream streamed errors: the
+     `Messages.Error {error = errVal}` arm computes
+     `let be = classifyErrorValue errVal` and emits
+     `EventError (errorTerminal Stop.ErrorReason (finalMessageOnError ass now
+     (renderAnthropicError errVal)) be)`.
+   Do the symmetric edits in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`
+   (same producer/worker/translate shape; its streamed-error arm is around line
+   494). The blocking `completeRequest` path needs no special handling: it is
+   `streamingComplete stream`, so the `errorInfo` set on the terminal flows
+   through reassembly onto `Response.errorInfo` automatically (M3a wired that).
 
 3. Point the **CLI** providers at the new constructors (pure renames, no new
    classification needed):
@@ -1083,4 +1158,30 @@ Function/instance signatures that must exist at the end of each milestone:
 - End of M3: `classifyException :: SomeException -> BaikaiError` in each provider
   package, wired into both `Api.hs` handlers and exercised by `ErrorClassSpec` in
   each provider's test suite; CLI providers using the smart constructors.
+- End of M3a: `ToJSON ErrorCategory`/`ToJSON BaikaiError`; `errorInfo ::
+  !(Maybe BaikaiError)` on `Baikai.Stream.Event.TerminalPayload` and
+  `Baikai.Response.Response`; `doneTerminal :: StopReason -> Message ->
+  TerminalPayload` and `errorTerminal :: StopReason -> Message -> Maybe
+  BaikaiError -> TerminalPayload` exported from `Baikai.Stream.Event`; reassembly
+  threads `errorInfo` onto `Response`. Behaviour-neutral; all tests green.
+- End of M3b: `classifyException :: SomeException -> BaikaiError` and
+  `classifyErrorValue :: Aeson.Value -> Maybe BaikaiError` in each provider's
+  `ErrorClass` module, wired into the producers so `Response.errorInfo` and the
+  streamed `EventError`'s `errorInfo` are populated; `ErrorClassSpec` in each
+  provider's test suite. CLI providers already use the smart constructors (M2).
 - End of M4: bumped versions, CHANGELOG entries, fully green `nix flake check`.
+
+
+## Revision Notes
+
+- 2026-06-21 — Expanded Milestone 3 from "providers throw typed errors" to the
+  in-band design after discovering (during implementation) that the API providers
+  never throw on HTTP failures; they fold them into an error-`Response` via
+  `streamingComplete`. The user chose the "Full" option: deliver typed categories
+  on the `completeRequest`/streaming path by carrying `errorInfo :: Maybe
+  BaikaiError` on `TerminalPayload` and `Response`. M3 is now split into M3a
+  (core threading, behaviour-neutral) and M3b (provider classification). The
+  mechanical CLI-provider constructor renames that the old Milestone 3 step 3
+  described were already completed under M2 (to keep every commit compiling);
+  that step is retained above only as historical context. See the 2026-06-21
+  Decision Log entries for the design and its rationale.

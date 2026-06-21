@@ -52,8 +52,9 @@ import Baikai.Stream.Event
     DeltaPayload (..),
     IndexPayload (..),
     StartPayload (..),
-    TerminalPayload (..),
     ToolCallEndPayload (..),
+    doneTerminal,
+    errorTerminal,
   )
 import Baikai.ThinkingLevel (ThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
@@ -266,7 +267,7 @@ unexpectedEoS now ass =
           ass
           now
           "claude stream ended without message_stop"
-   in (EventError TerminalPayload {reason = Stop.ErrorReason, message = msg}, ass)
+   in (EventError (errorTerminal Stop.ErrorReason msg Nothing), ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
@@ -330,11 +331,11 @@ translate raw ass now = case raw of
      in ([], ass & #stopReason .~ stopR & #usage .~ u')
   Messages.Message_Stop ->
     let msg = finalMessage ass now
-     in ([EventDone TerminalPayload {reason = ass ^. #stopReason, message = msg}], ass)
+     in ([EventDone (doneTerminal (ass ^. #stopReason) msg)], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
         msg = finalMessageOnError ass now errText
-     in ([EventError TerminalPayload {reason = Stop.ErrorReason, message = msg}], ass)
+     in ([EventError (errorTerminal Stop.ErrorReason msg Nothing)], ass)
 
 handleBlockStart ::
   Int ->
@@ -504,7 +505,7 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError TerminalPayload {reason = Stop.ErrorReason, message = msg})
+  pure (EventError (errorTerminal Stop.ErrorReason msg Nothing))
 
 renderAnthropicError :: Value -> Text
 renderAnthropicError v = case v of

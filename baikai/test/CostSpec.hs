@@ -138,7 +138,8 @@ attachCostTests =
           api = Custom "test",
           provider = "claude-api",
           responseId = Nothing,
-          latencyMs = 100
+          latencyMs = 100,
+          errorInfo = Nothing
         }
 
 -- Register a handler under a private API tag that returns a canned
@@ -162,7 +163,8 @@ cannedHaiku =
           api = cannedApi,
           provider = "canned",
           responseId = Nothing,
-          latencyMs = 7
+          latencyMs = 7,
+          errorInfo = Nothing
         }
 
 registerCanned :: Response -> IO ()

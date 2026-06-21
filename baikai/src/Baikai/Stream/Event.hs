@@ -31,11 +31,14 @@ module Baikai.Stream.Event
     BlockEndPayload (..),
     ToolCallEndPayload (..),
     TerminalPayload (..),
+    doneTerminal,
+    errorTerminal,
     isTerminal,
   )
 where
 
 import Baikai.Content (ToolCall)
+import Baikai.Error (BaikaiError)
 import Baikai.Message (Message)
 import Baikai.StopReason (StopReason)
 import Data.Aeson (ToJSON)
@@ -148,10 +151,26 @@ data ToolCallEndPayload = ToolCallEndPayload
 -- resolved 'StopReason' and the assembled 'message'.
 data TerminalPayload = TerminalPayload
   { reason :: !StopReason,
-    message :: !Message
+    message :: !Message,
+    -- | Structured error detail for an 'EventError' terminal: the
+    -- category, HTTP status, and any retry-after hint a caller needs to
+    -- decide retry policy. 'Nothing' for a successful 'EventDone'
+    -- terminal and for error terminals a provider could not classify.
+    errorInfo :: !(Maybe BaikaiError)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
+
+-- | Build a success terminal payload ('errorInfo' is always 'Nothing').
+-- Prefer this over the raw 'TerminalPayload' constructor so a new field
+-- can never be left uninitialised at a construction site.
+doneTerminal :: StopReason -> Message -> TerminalPayload
+doneTerminal r m = TerminalPayload {reason = r, message = m, errorInfo = Nothing}
+
+-- | Build an error terminal payload carrying optional structured error
+-- detail. Prefer this over the raw 'TerminalPayload' constructor.
+errorTerminal :: StopReason -> Message -> Maybe BaikaiError -> TerminalPayload
+errorTerminal r m e = TerminalPayload {reason = r, message = m, errorInfo = e}
 
 -- | 'True' when the event terminates the stream — exactly one
 -- 'EventDone' or 'EventError' is emitted per call.

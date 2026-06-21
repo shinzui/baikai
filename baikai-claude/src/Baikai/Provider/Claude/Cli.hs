@@ -201,7 +201,8 @@ mkResponse m start end body =
       Resp.api = AnthropicMessagesCli,
       Resp.provider = m ^. #provider,
       Resp.responseId = Nothing,
-      Resp.latencyMs = millisBetween start end
+      Resp.latencyMs = millisBetween start end,
+      Resp.errorInfo = Nothing
     }
 
 millisBetween :: UTCTime -> UTCTime -> Integer

@@ -62,8 +62,9 @@ import Baikai.Stream.Event
     DeltaPayload (..),
     IndexPayload (..),
     StartPayload (..),
-    TerminalPayload (..),
     ToolCallEndPayload (..),
+    doneTerminal,
+    errorTerminal,
   )
 import Baikai.ThinkingLevel
   ( ThinkingLevel (..),
@@ -491,7 +492,7 @@ translate ::
 translate chunk ass now
   | Just errMsg <- chunk ^. #error =
       let msg = finalMessage ass now (Just errMsg) Stop.ErrorReason
-       in ( [EventError TerminalPayload {reason = Stop.ErrorReason, message = msg}],
+       in ( [EventError (errorTerminal Stop.ErrorReason msg Nothing)],
             ass & #errorMsg .~ Just errMsg
           )
   | otherwise =
@@ -651,7 +652,7 @@ closeOpenStream now ass
       -- EventDone with the accumulated content + usage.
       let reason = ass ^. #stopReason
           msg = finalMessage ass now Nothing reason
-       in ([EventDone TerminalPayload {reason = reason, message = msg}], ass)
+       in ([EventDone (doneTerminal reason msg)], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
       -- still-open blocks and emit EventError with the accumulated
@@ -665,7 +666,7 @@ closeOpenStream now ass
               now
               (Just "openai stream ended without finish_reason")
               reason
-          errEv = EventError TerminalPayload {reason = reason, message = msg}
+          errEv = EventError (errorTerminal reason msg Nothing)
        in (closeText <> closeTools <> [errEv], ass2)
 
 finalMessage ::
@@ -702,7 +703,7 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError TerminalPayload {reason = Stop.ErrorReason, message = msg})
+  pure (EventError (errorTerminal Stop.ErrorReason msg Nothing))
 
 -- ============================================================
 -- Request mapping (preserved from EP-2 with minor refactoring)

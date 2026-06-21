@@ -176,7 +176,8 @@ consume start m (_, mOut, mErr, ph) = do
             Resp.api = OpenAICompletionsCli,
             Resp.provider = m ^. #provider,
             Resp.responseId = Nothing,
-            Resp.latencyMs = millisBetween start end
+            Resp.latencyMs = millisBetween start end,
+            Resp.errorInfo = Nothing
           }
 
 millisBetween :: UTCTime -> UTCTime -> Integer

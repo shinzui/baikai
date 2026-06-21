@@ -31,6 +31,7 @@ import Baikai.Content
   )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context)
+import Baikai.Error (BaikaiError, providerUnavailable)
 import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
@@ -51,8 +52,11 @@ import Baikai.Stream.Event
     StartPayload (..),
     TerminalPayload (..),
     ToolCallEndPayload (..),
+    doneTerminal,
+    errorTerminal,
   )
 import Baikai.Usage (_Usage)
+import Control.Exception (fromException)
 import Control.Exception qualified
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -126,8 +130,10 @@ data ReassemblyState = ReassemblyState
     textBuf :: !(IntMap Text),
     thinkBuf :: !(IntMap Text),
     toolArgsBuf :: !(IntMap Text),
-    -- | 'Just (reason, msg)' once 'EventDone' or 'EventError' fires.
-    terminal :: !(Maybe (StopReason, Message))
+    -- | 'Just (reason, msg, errorInfo)' once 'EventDone' or 'EventError'
+    -- fires. @errorInfo@ is the structured error from an 'EventError'
+    -- terminal (if the provider classified it), 'Nothing' otherwise.
+    terminal :: !(Maybe (StopReason, Message, Maybe BaikaiError))
   }
   deriving stock (Show, Generic)
 
@@ -181,18 +187,18 @@ step s = \case
       & #blocks %~ IntMap.insert i (AssistantToolCall tc)
       & #toolArgsBuf %~ IntMap.delete i
   EventDone TerminalPayload {reason = r, message = msg} ->
-    s & #terminal .~ Just (r, msg)
-  EventError TerminalPayload {reason = r, message = msg} ->
-    s & #terminal .~ Just (r, msg)
+    s & #terminal .~ Just (r, msg, Nothing)
+  EventError TerminalPayload {reason = r, message = msg, errorInfo = ei} ->
+    s & #terminal .~ Just (r, msg, ei)
 
 finalizeState :: ReassemblyState -> IO Response
 finalizeState s = do
   now <- getCurrentTime
   let m = s ^. #model
       assembled = assembleBlocks s
-      (terminalMsg, terminalReason) = case s ^. #terminal of
-        Just (r, msg) -> (msg, r)
-        Nothing -> (synthesizeTerminal now assembled, Stop)
+      (terminalMsg, terminalReason, terminalError) = case s ^. #terminal of
+        Just (r, msg, ei) -> (msg, r, ei)
+        Nothing -> (synthesizeTerminal now assembled, Stop, Nothing)
       message' = overrideBlocksAndReason terminalReason terminalMsg assembled now
       endTs = message' ^. #timestamp
       latency = case s ^. #startTime of
@@ -206,7 +212,8 @@ finalizeState s = do
         api = m ^. #api,
         provider = m ^. #provider,
         responseId = Nothing,
-        latencyMs = latency
+        latencyMs = latency,
+        errorInfo = terminalError
       }
 
 -- | Project the closed content blocks in 'contentIndex' order, plus
@@ -325,7 +332,7 @@ eventsFor startTs resp =
       reason = payload ^. #stopReason
    in [EventStart StartPayload {partial = skeleton}]
         <> blockEvents
-        <> [EventDone TerminalPayload {reason = reason, message = msg}]
+        <> [EventDone (doneTerminal reason msg)]
 
 blockEvent :: Int -> AssistantContent -> [AssistantMessageEvent]
 blockEvent i = \case
@@ -350,30 +357,39 @@ blockEvent i = \case
 errorEvent :: Control.Exception.SomeException -> IO AssistantMessageEvent
 errorEvent e = do
   now <- getCurrentTime
-  let msg =
+  -- When a @complete@ handler threw a typed 'BaikaiError' (the CLI,
+  -- 'Baikai.Auth', and registry paths do), preserve it structurally so a
+  -- caller draining this lifted stream still gets the category and any
+  -- retry hint. Otherwise fall back to the displayed exception text.
+  let mErr = fromException e :: Maybe BaikaiError
+      errText = case mErr of
+        Just be -> be ^. #message
+        Nothing -> Text.pack (Control.Exception.displayException e)
+      msg =
         AssistantMessage
           AssistantPayload
             { Msg.content = Vector.empty,
               Msg.usage = _Usage,
               Msg.stopReason = ErrorReason,
-              Msg.errorMessage = Just (Text.pack (Control.Exception.displayException e)),
+              Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError TerminalPayload {reason = ErrorReason, message = msg})
+  pure (EventError (errorTerminal ErrorReason msg mErr))
 
 -- | The single 'EventError' value used when no provider is
 -- registered for the model's API tag.
 noProviderEvent :: Model -> IO AssistantMessageEvent
 noProviderEvent m = do
   now <- getCurrentTime
-  let msg =
+  let detail = "No provider registered for API: " <> renderApi (m ^. #api)
+      be = providerUnavailable detail
+      msg =
         AssistantMessage
           AssistantPayload
             { Msg.content = Vector.empty,
               Msg.usage = _Usage,
               Msg.stopReason = ErrorReason,
-              Msg.errorMessage =
-                Just ("No provider registered for API: " <> renderApi (m ^. #api)),
+              Msg.errorMessage = Just detail,
               Msg.timestamp = now
             }
-  pure (EventError TerminalPayload {reason = ErrorReason, message = msg})
+  pure (EventError (errorTerminal ErrorReason msg (Just be)))
