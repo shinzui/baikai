@@ -101,8 +101,8 @@ maybeApply Nothing _ b = b
 maybeApply (Just a) f b = f a b
 
 -- | Decode UTF-8 bytes leniently, replacing invalid sequences with
--- U+FFFD. Used for surfacing CLI stderr in
--- 'Baikai.Error.ProcessError'.
+-- U+FFFD. Used for surfacing CLI stderr in a
+-- 'Baikai.Error.ProcessFailure' error.
 decodeUtf8Lenient :: ByteString -> Text
 decodeUtf8Lenient = Text.decodeUtf8With Text.lenientDecode
 

@@ -86,7 +86,7 @@ apiCases =
       { caseLabel = "claude-haiku-4-5-20251001",
         caseEnvVars = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"],
         caseModel =
-          Models.anthropic_claude_haiku_4_5_20251001
+          Models.anthropic_claude_haiku_4_5
             & #maxOutputTokens .~ 1024
       },
     ApiCase
@@ -292,7 +292,7 @@ runImageCase = do
                 mimeType = "image/png"
               }
           model =
-            Models.anthropic_claude_haiku_4_5_20251001
+            Models.anthropic_claude_haiku_4_5
               & #maxOutputTokens .~ 64
           ctx =
             _Context

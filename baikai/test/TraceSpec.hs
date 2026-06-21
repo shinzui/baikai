@@ -3,7 +3,7 @@ module TraceSpec (tests) where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
-import Baikai.Error (BaikaiError (..))
+import Baikai.Error (BaikaiError, providerError)
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
@@ -110,7 +110,7 @@ silentTest =
         pure (),
       testCase "encodes failure as ErrorReason in the response" $ do
         let a = Custom "baikai-trace-silent-fail"
-        registerFail a (ProviderError "boom")
+        registerFail a (providerError "boom")
         resp <- withTrace silent (stubModel a) stubContext stubOptions
         let AssistantPayload {stopReason = sr, errorMessage = em} = resp ^. #message
         sr @?= ErrorReason
@@ -142,7 +142,7 @@ memoryFailTest :: TestTree
 memoryFailTest =
   testCase "memory sink records CallStarted then CallFailed on stream error" $ do
     let a = Custom "baikai-trace-memory-fail"
-    registerFail a (ProviderError "stub-failure")
+    registerFail a (providerError "stub-failure")
     (ref, sink) <- memorySink
     resp <- withTrace sink (stubModel a) stubContext stubOptions
     -- The producer-side failure surfaces as an ErrorReason on the

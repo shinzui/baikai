@@ -9,8 +9,9 @@
 -- sets, or use the global convenience registry for simple scripts.
 --
 -- 'completeRequest' looks the handler up by the 'Model'\'s 'Api'
--- tag and dispatches; it throws 'Baikai.Error.ProviderError' when
--- no handler is registered for that tag.
+-- tag and dispatches; it throws a 'Baikai.Error.BaikaiError' in the
+-- 'Baikai.Error.ProviderUnavailable' category when no handler is
+-- registered for that tag.
 module Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -27,7 +28,7 @@ where
 
 import Baikai.Api (Api, renderApi)
 import Baikai.Context (Context)
-import Baikai.Error (BaikaiError (..))
+import Baikai.Error (providerUnavailable)
 import Baikai.Model (Model (..))
 import Baikai.Options (Options)
 import Baikai.Response (Response)
@@ -87,7 +88,7 @@ lookupApiProvider :: Api -> IO (Maybe ApiProvider)
 lookupApiProvider = lookupApiProviderWith globalProviderRegistry
 
 -- | Dispatch a synchronous request through the registered handler
--- for the model's 'Api' tag. Throws 'ProviderError' when no handler
+-- for the model's 'Api' tag. Throws a 'ProviderUnavailable' error when no handler
 -- is registered for that tag.
 completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response
 completeRequestWith reg m ctx opts = do
@@ -96,7 +97,7 @@ completeRequestWith reg m ctx opts = do
     Just p -> complete p m ctx opts
     Nothing ->
       throwIO $
-        ProviderError ("No provider registered for API: " <> renderApi (api m))
+        providerUnavailable ("No provider registered for API: " <> renderApi (api m))
 
 -- | Dispatch a synchronous request through the process-global registry.
 completeRequest :: Model -> Context -> Options -> IO Response

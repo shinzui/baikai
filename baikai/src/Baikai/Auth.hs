@@ -13,7 +13,7 @@ module Baikai.Auth
   )
 where
 
-import Baikai.Error (BaikaiError (..))
+import Baikai.Error (authError)
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (ToJSON (toJSON), object, (.=))
@@ -47,8 +47,8 @@ renderApiKeySourceForDebug (ApiKeyLiteral _) = "ApiKeyLiteral <redacted>"
 renderApiKeySourceForDebug (ApiKeyEnv name) =
   "ApiKeyEnv " <> Text.pack (show name)
 
--- | Resolve a key source to a plain 'Text'. Throws 'ProviderError' (a
--- constructor of 'BaikaiError') if 'ApiKeyEnv' is used and the named variable
+-- | Resolve a key source to a plain 'Text'. Throws a 'BaikaiError' in the
+-- 'Baikai.Error.AuthError' category if 'ApiKeyEnv' is used and the named variable
 -- is unset.
 resolveApiKey :: (MonadIO m) => ApiKeySource -> m Text
 resolveApiKey (ApiKeyLiteral t) = pure t
@@ -56,4 +56,4 @@ resolveApiKey (ApiKeyEnv name) =
   liftIO $
     Environment.lookupEnv name >>= \case
       Just v -> pure (Text.pack v)
-      Nothing -> throwIO (ProviderError ("env var " <> Text.pack name <> " is not set"))
+      Nothing -> throwIO (authError ("env var " <> Text.pack name <> " is not set"))

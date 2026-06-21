@@ -17,7 +17,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
-import Baikai.Error (BaikaiError (..))
+import Baikai.Error (processError, providerError)
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -152,14 +152,14 @@ consume ::
   (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle) ->
   IO Resp.Response
 consume start m (_, mOut, mErr, ph) = do
-  hOut <- maybe (throwIO (ProviderError "codex: stdout handle missing")) pure mOut
-  hErr <- maybe (throwIO (ProviderError "codex: stderr handle missing")) pure mErr
+  hOut <- maybe (throwIO (providerError "codex: stdout handle missing")) pure mOut
+  hErr <- maybe (throwIO (providerError "codex: stderr handle missing")) pure mErr
   body <- Internal.parseCodexJsonlStream (handleStream hOut)
   errBytes <- BS.hGetContents hErr
   exitCode <- P.waitForProcess ph
   end <- getCurrentTime
   case exitCode of
-    ExitFailure n -> throwIO (ProcessError n (Internal.decodeUtf8Lenient errBytes))
+    ExitFailure n -> throwIO (processError n (Internal.decodeUtf8Lenient errBytes))
     ExitSuccess ->
       pure
         Resp.Response

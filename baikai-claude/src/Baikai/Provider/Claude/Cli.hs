@@ -25,7 +25,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..))
-import Baikai.Error (BaikaiError (..))
+import Baikai.Error (decodeError, processError, providerError)
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -141,16 +141,16 @@ modelArgs m = case Text.strip (m ^. #modelId) of
 
 decodeResult :: ByteString -> IO ClaudeCliResult
 decodeResult bs = case eitherDecodeStrict bs of
-  Left err -> throwIO (DecodeError (Text.pack err))
+  Left err -> throwIO (decodeError (Text.pack err))
   Right (Aeson.Array events) -> case findResultEvent events of
-    Nothing -> throwIO (DecodeError "claude -p: no result event in stdout array")
+    Nothing -> throwIO (decodeError "claude -p: no result event in stdout array")
     Just ev -> case parseEither parseJSON ev of
-      Left err -> throwIO (DecodeError (Text.pack err))
+      Left err -> throwIO (decodeError (Text.pack err))
       Right r -> pure r
   Right v@(Aeson.Object _) -> case parseEither parseJSON v of
-    Left err -> throwIO (DecodeError (Text.pack err))
+    Left err -> throwIO (decodeError (Text.pack err))
     Right r -> pure r
-  Right _ -> throwIO (DecodeError "claude -p: expected JSON object or array")
+  Right _ -> throwIO (decodeError "claude -p: expected JSON object or array")
 
 findResultEvent :: Vector Value -> Maybe Value
 findResultEvent = Vector.find isResult
@@ -179,11 +179,11 @@ runClaudeCli cfg m ctx _opts = do
         & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
   end <- getCurrentTime
   case exitCode of
-    ExitFailure n -> throwIO (ProcessError n (Internal.decodeUtf8Lenient err))
+    ExitFailure n -> throwIO (processError n (Internal.decodeUtf8Lenient err))
     ExitSuccess -> do
       r <- decodeResult out
       if is_error r
-        then throwIO (ProviderError (result r))
+        then throwIO (providerError (result r))
         else pure (mkResponse m start end (result r))
 
 mkResponse :: Model -> UTCTime -> UTCTime -> Text -> Resp.Response

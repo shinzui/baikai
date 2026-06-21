@@ -87,7 +87,8 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 This section must always reflect the actual current state of the work.
 
 - [x] M1: `Usage`/`Cost`/`CostBreakdown` gain `Semigroup` + `Monoid` instances; `sumUsage` helper added; unit tests added to `baikai` test suite. (2026-06-21 — `UsageSpec` green, all 63 baikai tests pass.)
-- [ ] M2: `Baikai.Error` redesigned into a record with an `ErrorCategory` sum type, smart constructors, and `isRetryable` / `retryAfterSeconds` accessors; pure `classifyHttpStatus` helper added; core construction sites (`Auth`, `Registry`) and existing tests updated; everything compiles and existing tests pass.
+- [x] M2: `Baikai.Error` redesigned into a record with an `ErrorCategory` sum type, smart constructors, and `isRetryable` / `retryAfterSeconds` accessors; pure `classifyHttpStatus` helper added; core construction sites (`Auth`, `Registry`) and existing tests updated; everything compiles and existing tests pass. (2026-06-21 — `ErrorSpec` added; `cabal test all` green: baikai 83, claude 4, openai 5, effectful 4, trace-otel 2, smoke pass.)
+  - Note: the mechanical CLI-provider constructor renames originally slotted for M3 step 3 were folded into M2 so that every commit leaves the whole workspace compiling. M3 now only adds the substantive HTTP-exception classification.
 - [ ] M3: API providers (`baikai-claude`, `baikai-openai`) classify caught `servant-client` `ClientError`s into the new categories (status → category, Retry-After → seconds); CLI providers map their existing throws onto the new constructors; provider-level classification unit tests added.
 - [ ] M4: Version bumps and CHANGELOG entries for `baikai`, `baikai-claude`, `baikai-openai`; `nix flake check` / full `cabal test all` green.
 
@@ -97,7 +98,25 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Pre-existing breakage in `baikai-smoke` (2026-06-21, during M2). The live smoke
+  test `baikai-smoke/test/Smoke.hs` referenced `Models.anthropic_claude_haiku_4_5_20251001`
+  at lines 89 and 295, but the generated catalog no longer exports that name —
+  the model-catalog refresh in commit `a7edb18` renamed it to
+  `anthropic_claude_haiku_4_5`. This is unrelated to the error/usage work (the
+  old name is present in `git show HEAD:baikai-smoke/test/Smoke.hs`, and I had
+  not touched `baikai-smoke`), but it blocked a clean `cabal build all` /
+  `cabal test all`. Evidence:
+
+  ```text
+  test/Smoke.hs:89:11: error: [GHC-76037]
+      Not in scope: 'Models.anthropic_claude_haiku_4_5_20251001'
+      Note: The module 'Baikai.Models.Generated' does not export ...
+      Suggested fix: Perhaps use 'Models.anthropic_claude_haiku_4_5'
+  ```
+
+  Resolved by the obvious rename to `Models.anthropic_claude_haiku_4_5` (the
+  compiler's own suggested fix), keeping the workspace green. No behaviour
+  change; the smoke test still skips when API keys are absent.
 
 
 ## Decision Log
@@ -137,6 +156,15 @@ Record every decision made while working on the plan.
   call (`Just 5`) with a non-reasoning call (`Nothing`) should yield `Just 5`,
   not lose the 5 and not fabricate a `Just 0` for a conversation that never used
   reasoning. This matches how the field is already produced by the providers.
+  Date: 2026-06-21
+
+- Decision: Fold M3's mechanical CLI-provider constructor renames into M2.
+  Rationale: M2's stated acceptance is "the entire workspace compiles." Because
+  the CLI providers (`baikai-claude`/`baikai-openai` `Cli.hs`) construct the old
+  bare constructors, leaving their rename to M3 would make the M2 commit fail to
+  build those packages. Doing the renames in M2 keeps every commit green; M3 is
+  left with only the substantive HTTP-exception classification, which is the part
+  that carries real behaviour.
   Date: 2026-06-21
 
 - Decision: This is a pre-1.0 (0.1.x) library, so the breaking change to

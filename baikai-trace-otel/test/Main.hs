@@ -5,7 +5,7 @@ module Main (main) where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), _Context)
-import Baikai.Error (BaikaiError (..))
+import Baikai.Error (BaikaiError, providerError)
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), _Model)
 import Baikai.Options (Options, _Options)
@@ -152,7 +152,7 @@ failureSpanTest :: TestTree
 failureSpanTest =
   testCase "failure path emits one Error span with error message" $ do
     let a = Custom "baikai-otel-failure"
-    registerFail a (ProviderError "stub-otel-boom")
+    registerFail a (providerError "stub-otel-boom")
     (tracer, getSpans) <- newTracerWithInMemory
     let sink = otelSink tracer
     -- withTrace no longer re-throws producer failures; the error
