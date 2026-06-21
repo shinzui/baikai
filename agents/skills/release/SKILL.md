@@ -17,37 +17,39 @@ changes and carries its own per-package git tag. Treat each publishable package
 as a separate release decision; you may release one, several, or all of them in
 a single run.
 
-## ⚠️ Pre-flight blocker — read first
+## Pre-flight dependency check — read first
 
-`baikai` depends on `streamly ^>=0.12` and `streamly-core ^>=0.4`, which are
-**pinned to a GitHub checkout** in `cabal.project` (the project needs the
-unreleased 0.12 / 0.4 pair):
+This repository must publish packages that resolve from Hackage only. Do not
+ship a release while any publishable package depends on a GitHub
+`source-repository-package` pin or on dependency versions that are not available
+from Hackage.
 
+Historically, this project briefly pinned the unreleased `streamly 0.12` /
+`streamly-core 0.4` pair from GitHub. That pin was removed before the first
+Hackage release. The publishable package metadata should use released
+Hackage-compatible bounds:
+
+```cabal
+streamly      >=0.11 && <0.13
+streamly-core >=0.3  && <0.5
 ```
-source-repository-package
-  type: git
-  location: https://github.com/composewell/streamly
-  ...
-```
 
-**Hackage rejects any package whose dependencies are not themselves on
-Hackage.** Until `streamly-0.12.*` and `streamly-core-0.4.*` are published to
-Hackage, `cabal upload` of `baikai` (and therefore every dependent) will fail
-constraint resolution for downstream users even if `sdist` succeeds locally.
-
-Before doing anything else, verify the pin is resolvable from Hackage:
+Before doing anything else, verify that `cabal.project` has no GitHub package
+pins and that Hackage has versions satisfying the streamly bounds:
 
 ```bash
 cabal info streamly streamly-core 2>/dev/null
-# or check the index:
-cabal list --simple streamly | grep -E '^streamly 0\.12'
-cabal list --simple streamly-core | grep -E '^streamly-core 0\.4'
+if grep -n 'source-repository-package' cabal.project; then
+  echo "non-Hackage package pin found in cabal.project"
+  exit 1
+fi
+cabal list --simple streamly | grep -E '^streamly 0\.(11|12)(\.|$)'
+cabal list --simple streamly-core | grep -E '^streamly-core 0\.(3|4)(\.|$)'
 ```
 
-If those versions are **not** on Hackage yet, **stop** and tell the operator the
-release is blocked on an upstream streamly release. Do not proceed; do not
-remove the git pin to work around it (that would ship a package nobody else can
-build).
+If the `source-repository-package` check finds a package pin, stop and resolve
+that first. If Hackage does not list versions satisfying the `.cabal` bounds,
+stop and tell the operator which dependency is not resolvable from Hackage.
 
 ## Versioning strategy (PVP)
 
@@ -128,7 +130,7 @@ versioning still forces a coordinated bump.
 
 ### 1. Pick the packages to release
 
-Decide which of the four publishable packages this run covers. If the operator
+Decide which of the five publishable packages this run covers. If the operator
 named packages, use those. Otherwise, look at `git log` since each package's last
 tag and propose the set with changes. If it is ambiguous, confirm with
 `AskUserQuestion`. Always release a changed dependency (`baikai`) before its
@@ -266,8 +268,9 @@ gh release create baikai-0.1.0.1 \
 
 - **Confirm the version bumps and changelog edits with the operator before
   committing.** Publishing to Hackage is irreversible.
-- **Honor the pre-flight blocker.** If the pinned `streamly` / `streamly-core`
-  versions are not on Hackage, the release is blocked — stop and report it.
+- **Honor the pre-flight dependency check.** If any publishable dependency is
+  pinned to a non-Hackage source or cannot resolve from Hackage, the release is
+  blocked — stop and report it.
 - **Always publish in dependency order:** `baikai` before `baikai-claude`,
   `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`.
 - **Never skip the gates** (`nix fmt` clean, `cabal build all`, `cabal test
