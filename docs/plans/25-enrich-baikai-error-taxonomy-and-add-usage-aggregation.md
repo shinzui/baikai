@@ -91,7 +91,7 @@ This section must always reflect the actual current state of the work.
   - Note: the mechanical CLI-provider constructor renames originally slotted for M3 step 3 were folded into M2 so that every commit leaves the whole workspace compiling. M3 now only adds the substantive HTTP-exception classification.
 - [x] M3a (core threading): added `ToJSON` to `ErrorCategory`/`BaikaiError`; added `errorInfo :: Maybe BaikaiError` to `Baikai.Stream.Event.TerminalPayload` and `Baikai.Response.Response`; threaded it through `Baikai.Stream` reassembly/`finalizeState`; added `doneTerminal`/`errorTerminal` helper constructors and converted all `TerminalPayload` construction sites; updated `Response{}`/`TerminalPayload` sites in CLI providers and tests. Bonus: `liftCompleteToStream`'s `errorEvent`/`noProviderEvent` now populate `errorInfo` from a thrown `BaikaiError` / `providerUnavailable`, so the CLI/Auth/Registry throw paths surface structured errors on `Response` too. (2026-06-21 — `cabal test all` green: baikai 83, others unchanged. Behaviour-neutral for the API path until M3b.)
 - [x] M3b (provider classification): added `Baikai.Provider.{Claude,OpenAI}.ErrorClass` with `classifyException` (HTTP `ClientError` → `BaikaiError`, via the exposed-for-testing `responseToError`), Claude's `classifyErrorValue` (Anthropic streamed-error JSON) and OpenAI's `classifyErrorText` (OpenAI streamed-error text); wired worker-caught exceptions via an `IORef (Maybe BaikaiError)` into the end-of-stream terminal (`unexpectedEoS`/`closeOpenStream`), classified mid-stream error events in `translate`, and mapped request-prep failures to `invalidRequest`; added `http-types`/`case-insensitive` deps; added `ErrorClassSpec` to each provider (Claude 18, OpenAI 16 total) plus a core `ErrorInfoSpec` proving `completeRequest` surfaces `errorInfo` end-to-end. (2026-06-21 — `cabal test all` green: baikai 89, claude 18, openai 16, trace-otel 2, effectful 4, smoke pass.)
-- [ ] M4: Version bumps and CHANGELOG entries for `baikai`, `baikai-claude`, `baikai-openai`; `nix flake check` / full `cabal test all` green.
+- [x] M4: Bumped `baikai`/`baikai-claude`/`baikai-openai` to 0.1.2.0 (and the providers' `baikai` lower bound to `^>=0.1.2`); added CHANGELOG entries for all three; removed a redundant `foldl'` import (GHC2024 Prelude). `nix flake check` green (treefmt + pre-commit), `cabal build all` warning-free, `cabal test all` green. (2026-06-21)
 
 
 ## Surprises & Discoveries
@@ -227,10 +227,51 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose.
+Both original goals are delivered and a third (in-band typed errors on the API
+path) was added at the user's request.
 
-(To be filled during and after implementation.)
+What works now, against the original purpose:
+
+- **Usage aggregation.** `Usage`/`Cost`/`CostBreakdown` are `Monoid`s and
+  `sumUsage` totals a collection; `reasoningTokens` follows the presence-wins
+  rule. Proven by `UsageSpec` (in the baikai suite).
+- **Typed, retry-aware errors.** `BaikaiError` is a category-bearing record with
+  `httpStatus`, `retryAfterSeconds`, `exitCode`, `isRetryable`, and pure
+  `classifyHttpStatus` / `classifyHttpStatusWithBody` helpers. The thrown paths
+  (CLI, `Auth`, `Registry`) carry categories directly.
+- **In-band typed errors on the API path (the expanded M3).** Anthropic and
+  OpenAI HTTP/stream failures are classified and surfaced on
+  `Response.errorInfo` (and the streamed `EventError`), so a `completeRequest`
+  caller can branch on `category` / `isRetryable` / `retryAfterSeconds` without
+  parsing text. Proven end-to-end by `ErrorInfoSpec` and per-provider
+  `ErrorClassSpec`.
+
+Final state: `cabal build all` is warning-free, `cabal test all` is green
+(baikai 89, baikai-claude 18, baikai-openai 16, baikai-trace-otel 2,
+baikai-effectful 4, baikai-smoke passes/skips), and `nix flake check` passes.
+Versions: `baikai`, `baikai-claude`, `baikai-openai` at 0.1.2.0;
+`baikai-trace-otel` and `baikai-effectful` unchanged (their libraries were not
+touched — only their tests, for the constructor rename / `doneTerminal`).
+
+Lessons / notes for the next contributor:
+
+- The biggest surprise reshaped M3: the API providers never throw on HTTP
+  failures — they fold them into an error-`Response` via `streamingComplete`.
+  The structured-error work therefore had to ride the in-band channel
+  (`TerminalPayload`/`Response.errorInfo`) rather than become a thrown exception.
+- The worker thread can't hand a structured value back through the SDK-typed
+  `Chan`, so each provider stashes the classified HTTP error in an
+  `IORef (Maybe BaikaiError)` that the end-of-stream recovery path reads.
+- Adding a field to a record with many full-literal construction sites is a
+  landmine in Haskell (a partial literal compiles but the field is bottom); the
+  `doneTerminal`/`errorTerminal` helper constructors plus `_Response`-style
+  bases keep that safe.
+- Pre-existing breakage fixed in passing: a stale model name in `baikai-smoke`
+  (`anthropic_claude_haiku_4_5_20251001`).
+
+Possible follow-ups (out of scope here): surface `errorInfo` through the OTel
+trace sink's attributes; add an OpenAI Responses-API provider (the other Tier-1
+idea from the original review); thread `Retry-After` HTTP-date parsing.
 
 
 ## Context and Orientation

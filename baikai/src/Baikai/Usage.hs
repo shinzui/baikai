@@ -16,7 +16,6 @@ import Data.Aeson
     defaultOptions,
     genericToJSON,
   )
-import Data.Foldable (foldl')
 import Data.Maybe (fromMaybe)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)

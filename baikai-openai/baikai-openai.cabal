@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          baikai-openai
-version:       0.1.1.0
+version:       0.1.2.0
 synopsis:      OpenAI providers for the baikai abstraction
 description:
   Wraps the openai Haskell package as a Baikai Provider for OpenAI's Chat Completions API.
@@ -38,7 +38,7 @@ library
 
   build-depends:
     , aeson
-    , baikai             ^>=0.1.1
+    , baikai             ^>=0.1.2
     , base               >=4.20   && <5
     , base64-bytestring
     , bytestring
@@ -66,7 +66,7 @@ test-suite baikai-openai-test
   other-modules:  ErrorClassSpec
   build-depends:
     , aeson
-    , baikai            ^>=0.1.1
+    , baikai            ^>=0.1.2
     , baikai-openai
     , base              >=4.20   && <5
     , bytestring

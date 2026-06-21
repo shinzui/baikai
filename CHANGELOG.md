@@ -7,6 +7,65 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.1.2.0] - 2026-06-21
+
+### Added
+
+- `Usage`, `Cost`, and `CostBreakdown` now have `Semigroup`/`Monoid`
+  instances that add field-by-field, plus `sumUsage :: Foldable f => f
+  Usage -> Usage`, so callers can total per-call usage and cost.
+  `reasoningTokens` combines as presence-wins (`Nothing` only when both
+  operands are `Nothing`).
+- A categorised error model: `BaikaiError` is now a record carrying an
+  `ErrorCategory` (`AuthError`, `RateLimited`, `ContextOverflow`,
+  `InvalidRequest`, `TransientError`, `DecodeFailure`, `ProcessFailure`,
+  `ProviderUnavailable`, `OtherError`), an optional HTTP `httpStatus`, a
+  `retryAfterSeconds` hint, and a subprocess `exitCode`. New smart
+  constructors (`providerError`, `invalidRequest`, `decodeError`,
+  `processError`, `rateLimited`, `authError`, `providerUnavailable`),
+  the `isRetryable` predicate, and the pure `classifyHttpStatus` /
+  `classifyHttpStatusWithBody` helpers let callers implement retry
+  policy without parsing error text. `ErrorCategory` and `BaikaiError`
+  serialize to JSON.
+- `Response` and the streaming `EventError`'s `TerminalPayload` now
+  carry `errorInfo :: Maybe BaikaiError`, so a failed `completeRequest`
+  (or a drained stream) exposes the structured category/retry hint
+  in-band. `Baikai.Stream.Event` gains `doneTerminal` / `errorTerminal`
+  constructors.
+
+### Changed
+
+- **Breaking:** `BaikaiError`'s four flat constructors
+  (`ProviderError`, `RequestInvalid`, `DecodeError`, `ProcessError`)
+  were replaced by the record above. Migrate by lowercasing to the
+  smart constructors — `ProviderError "x"` becomes `providerError "x"`,
+  `ProcessError n "x"` becomes `processError n "x"`, etc.
+- **Breaking:** `Baikai.Stream.Event.TerminalPayload` and
+  `Baikai.Response.Response` gained an `errorInfo` field; build
+  `TerminalPayload` via `doneTerminal` / `errorTerminal`.
+
+## [baikai-claude 0.1.2.0] - 2026-06-21
+
+### Added
+
+- The Anthropic API and `claude -p` CLI providers now classify failures
+  into the typed `BaikaiError` categories: HTTP errors (via the caught
+  `servant-client` `ClientError`) map status/`Retry-After`/body onto
+  `AuthError` / `RateLimited` / `ContextOverflow` / `InvalidRequest` /
+  `TransientError`, and mid-stream Anthropic `error` events are
+  classified by their error type. The result is surfaced on
+  `Response.errorInfo`.
+
+## [baikai-openai 0.1.2.0] - 2026-06-21
+
+### Added
+
+- The OpenAI/OpenAI-compatible API and `codex exec` CLI providers now
+  classify failures into the typed `BaikaiError` categories the same way
+  as `baikai-claude` (HTTP `ClientError` for status-based errors,
+  streamed error text for mid-stream errors), surfaced on
+  `Response.errorInfo`.
+
 ## [baikai 0.1.1.0] - 2026-06-12
 
 ### Added
