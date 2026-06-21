@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          baikai-claude
-version:       0.1.2.0
+version:       0.2.0.0
 synopsis:      Anthropic Claude providers for the baikai abstraction
 description:
   Wraps the claude Haskell package as a Baikai Provider for both the Anthropic API and the
@@ -39,7 +39,7 @@ library
 
   build-depends:
     , aeson
-    , baikai             ^>=0.1.2
+    , baikai             ^>=0.2.0
     , base               >=4.20   && <5
     , base64-bytestring
     , bytestring
@@ -70,7 +70,7 @@ test-suite baikai-claude-test
   ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
     , aeson
-    , baikai            ^>=0.1.2
+    , baikai            ^>=0.2.0
     , baikai-claude
     , base              >=4.20   && <5
     , bytestring

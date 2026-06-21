@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            baikai
-version:         0.1.2.0
+version:         0.2.0.0
 synopsis:        Unified Haskell interface for multiple AI providers
 description:
   baikai provides a unified, provider-agnostic Haskell interface for working

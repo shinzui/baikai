@@ -7,7 +7,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-## [baikai 0.1.2.0] - 2026-06-21
+## [baikai 0.2.0.0] - 2026-06-21
 
 ### Added
 
@@ -44,7 +44,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Baikai.Response.Response` gained an `errorInfo` field; build
   `TerminalPayload` via `doneTerminal` / `errorTerminal`.
 
-## [baikai-claude 0.1.2.0] - 2026-06-21
+### Fixed
+
+- Restored JSON decoding for `BaikaiError` values with omitted optional
+  metadata fields.
+
+## [baikai-claude 0.2.0.0] - 2026-06-21
 
 ### Added
 
@@ -56,7 +61,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   classified by their error type. The result is surfaced on
   `Response.errorInfo`.
 
-## [baikai-openai 0.1.2.0] - 2026-06-21
+## [baikai-openai 0.2.0.0] - 2026-06-21
 
 ### Added
 
@@ -65,6 +70,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   as `baikai-claude` (HTTP `ClientError` for status-based errors,
   streamed error text for mid-stream errors), surfaced on
   `Response.errorInfo`.
+
+## [baikai-trace-otel 0.2.0.0] - 2026-06-21
+
+### Changed
+
+- Updated the `baikai` dependency bound to `^>=0.2.0` for compatibility with
+  the `baikai 0.2.0.0` breaking API release.
+
+## [baikai-effectful 0.2.0.0] - 2026-06-21
+
+### Changed
+
+- Updated the `baikai` dependency bound to `^>=0.2.0` for compatibility with
+  the `baikai 0.2.0.0` breaking API release.
 
 ## [baikai 0.1.1.0] - 2026-06-12
 
