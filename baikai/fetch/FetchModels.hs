@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Executable @baikai-fetch-models@: refresh baikai's catalog JSON
 -- from upstream sources (primarily @https:\/\/models.dev\/api.json@).
 --
@@ -33,12 +30,13 @@
 -- writing).
 module FetchModels (main, fetchUpstream) where
 
+import Baikai.Prelude
 import Control.Exception (catch)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
+import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Text (Text)
 import Data.Text qualified as Text
 import FetchModelsCore
 import Network.HTTP.Client (HttpException, httpLbs, parseUrlThrow, responseBody)
@@ -54,21 +52,22 @@ data ProviderSel = SelOpenAI | SelAnthropic | SelAll
 
 -- | Parsed command-line options.
 data Options = Options
-  { optFromUrl :: !String,
-    optFromFile :: !(Maybe FilePath),
-    optOutDir :: !(Maybe FilePath),
-    optProvider :: !ProviderSel,
-    optStdout :: !Bool
+  { fromUrl :: !String,
+    fromFile :: !(Maybe FilePath),
+    outDir :: !(Maybe FilePath),
+    provider :: !ProviderSel,
+    stdout :: !Bool
   }
+  deriving stock (Generic)
 
 defaultOptions :: Options
 defaultOptions =
   Options
-    { optFromUrl = "https://models.dev/api.json",
-      optFromFile = Nothing,
-      optOutDir = Nothing,
-      optProvider = SelAll,
-      optStdout = False
+    { fromUrl = "https://models.dev/api.json",
+      fromFile = Nothing,
+      outDir = Nothing,
+      provider = SelAll,
+      stdout = False
     }
 
 main :: IO ()
@@ -79,26 +78,26 @@ main = do
   upstream <- case parseUpstream raw of
     Left err -> die $ "baikai-fetch-models: failed to parse upstream JSON: " <> err
     Right u -> pure u
-  let catalogs = map (catalogFor upstream) (selectedSpecs (optProvider opts))
-  if optStdout opts
+  let catalogs = map (catalogFor upstream) (selectedSpecs (opts ^. #provider))
+  if opts ^. #stdout
     then mapM_ (BS.putStr . renderCatalog) catalogs
     else do
-      outDir <- resolveOutDir (optOutDir opts)
-      mapM_ (writeCatalog outDir) catalogs
+      dir <- resolveOutDir (opts ^. #outDir)
+      mapM_ (writeCatalog dir) catalogs
 
 -- | Obtain the raw upstream bytes: a local file when @--from-file@ is
 -- set, otherwise a live GET. A network/HTTP failure ('HttpException',
 -- which 'parseUrlThrow' raises for non-2xx responses) is turned into a
 -- clean non-zero exit with nothing written.
 loadUpstreamBytes :: Options -> IO BSL.ByteString
-loadUpstreamBytes opts = case optFromFile opts of
+loadUpstreamBytes opts = case opts ^. #fromFile of
   Just path -> BSL.readFile path
   Nothing ->
-    fetchUpstream (optFromUrl opts)
+    fetchUpstream (opts ^. #fromUrl)
       `catch` \e ->
         die $
           "baikai-fetch-models: failed to fetch "
-            <> optFromUrl opts
+            <> opts ^. #fromUrl
             <> ": "
             <> show (e :: HttpException)
 
@@ -115,17 +114,17 @@ fetchUpstream url = do
 -- defaulting to an empty model map if the provider is absent.
 catalogFor :: Map Text (Map Text UpstreamModel) -> ProviderSpec -> Catalog
 catalogFor upstream spec =
-  normalizeProvider spec (Map.findWithDefault Map.empty (psProvider spec) upstream)
+  normalizeProvider spec (Map.findWithDefault Map.empty (spec ^. #provider) upstream)
 
 -- | Write one catalog to @\<dir\>\/\<provider\>.json@ in a single
 -- 'BS.writeFile' (so a crash mid-run cannot leave a truncated file)
 -- and report what was written.
 writeCatalog :: FilePath -> Catalog -> IO ()
 writeCatalog dir cat = do
-  let path = dir </> (Text.unpack (cProvider cat) <> ".json")
+  let path = dir </> (Text.unpack (cat ^. #provider) <> ".json")
   BS.writeFile path (renderCatalog cat)
   putStrLn $
-    "Wrote " <> path <> " (" <> show (length (cModels cat)) <> " models)"
+    "Wrote " <> path <> " (" <> show (length (cat ^. #models)) <> " models)"
 
 -- | The provider specs selected by @--provider@.
 selectedSpecs :: ProviderSel -> [ProviderSpec]
@@ -172,13 +171,13 @@ parseArgs :: [String] -> IO Options
 parseArgs = go defaultOptions
   where
     go o [] = pure o
-    go o ("--from-url" : v : rest) = go o {optFromUrl = v} rest
-    go o ("--from-file" : v : rest) = go o {optFromFile = Just v} rest
-    go o ("--out-dir" : v : rest) = go o {optOutDir = Just v} rest
+    go o ("--from-url" : v : rest) = go (o & #fromUrl .~ v) rest
+    go o ("--from-file" : v : rest) = go (o & #fromFile ?~ v) rest
+    go o ("--out-dir" : v : rest) = go (o & #outDir ?~ v) rest
     go o ("--provider" : v : rest) = do
       sel <- parseProvider v
-      go o {optProvider = sel} rest
-    go o ("--stdout" : rest) = go o {optStdout = True} rest
+      go (o & #provider .~ sel) rest
+    go o ("--stdout" : rest) = go (o & #stdout .~ True) rest
     go _ (a : _) = die $ "baikai-fetch-models: unknown argument " <> show a
 
 parseProvider :: String -> IO ProviderSel

@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Pure core of the @baikai-fetch-models@ tool: parse a
 -- models.dev-shaped payload, normalize it into baikai's catalog JSON
 -- shape, and render that JSON with formatting matched to the
@@ -20,6 +17,10 @@
 -- @openai@ this excludes Responses-API-only ids (@*-pro@, @*-codex@,
 -- @*-deep-research@) because @baikai/data/models/openai.json@ speaks
 -- @openai-chat-completions@ and 'Baikai.Api' has no Responses tag.
+--
+-- Records follow the project convention: no field prefixes; field
+-- access and updates go through generic-lens @#label@ optics rather
+-- than bare selectors or record-update syntax.
 module FetchModelsCore
   ( -- * Upstream shape (subset of models.dev fields we consume)
     UpstreamModel (..),
@@ -44,10 +45,12 @@ module FetchModelsCore
 where
 
 import Baikai.Model (InputModality (..))
-import Data.Aeson (FromJSON (..), (.!=), (.:), (.:?))
-import Data.Aeson qualified as Aeson
+import Baikai.Prelude
+import Data.Aeson (eitherDecode, withObject, (.!=), (.:), (.:?))
+import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BSL
+import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -55,7 +58,6 @@ import Data.Maybe (fromMaybe)
 import Data.Scientific (FPFormat (Fixed), Scientific, formatScientific)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (encodeUtf8)
 
@@ -65,64 +67,66 @@ import Data.Text.Encoding (encodeUtf8)
 -- optional field defaults the way pi-mono's scraper does: missing
 -- numbers become 0 at normalization time, missing arrays become empty.
 data UpstreamModel = UpstreamModel
-  { uId :: !Text,
-    uName :: !(Maybe Text),
-    uToolCall :: !Bool,
-    uReasoning :: !Bool,
-    uCtx :: !(Maybe Integer),
-    uMaxOut :: !(Maybe Integer),
-    uCostIn :: !(Maybe Scientific),
-    uCostOut :: !(Maybe Scientific),
-    uCacheRead :: !(Maybe Scientific),
-    uCacheWrite :: !(Maybe Scientific),
-    uInputMods :: ![Text]
+  { modelId :: !Text,
+    name :: !(Maybe Text),
+    toolCall :: !Bool,
+    reasoning :: !Bool,
+    contextWindow :: !(Maybe Integer),
+    maxOutputTokens :: !(Maybe Integer),
+    inputCost :: !(Maybe Scientific),
+    outputCost :: !(Maybe Scientific),
+    cacheReadCost :: !(Maybe Scientific),
+    cacheWriteCost :: !(Maybe Scientific),
+    inputModalities :: ![Text]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
 
 instance FromJSON UpstreamModel where
-  parseJSON = Aeson.withObject "UpstreamModel" $ \o -> do
-    uId <- o .: "id"
-    uName <- o .:? "name"
-    uToolCall <- o .:? "tool_call" .!= False
-    uReasoning <- o .:? "reasoning" .!= False
-    mLimit <- o .:? "limit"
-    mCost <- o .:? "cost"
-    mMods <- o .:? "modalities"
+  parseJSON = withObject "UpstreamModel" $ \o -> do
+    mid <- o .: "id"
+    nm <- o .:? "name"
+    tc <- o .:? "tool_call" .!= False
+    rs <- o .:? "reasoning" .!= False
+    lim <- o .:? "limit" :: Parser (Maybe Limit)
+    cst <- o .:? "cost" :: Parser (Maybe Cost)
+    mods <- o .:? "modalities" :: Parser (Maybe Modalities)
     pure
       UpstreamModel
-        { uId = uId,
-          uName = uName,
-          uToolCall = uToolCall,
-          uReasoning = uReasoning,
-          uCtx = mLimit >>= limitContext,
-          uMaxOut = mLimit >>= limitOutput,
-          uCostIn = mCost >>= costIn,
-          uCostOut = mCost >>= costOut,
-          uCacheRead = mCost >>= costCacheRead,
-          uCacheWrite = mCost >>= costCacheWrite,
-          uInputMods = maybe [] modalitiesInput mMods
+        { modelId = mid,
+          name = nm,
+          toolCall = tc,
+          reasoning = rs,
+          contextWindow = lim >>= (^. #context),
+          maxOutputTokens = lim >>= (^. #output),
+          inputCost = cst >>= (^. #input),
+          outputCost = cst >>= (^. #output),
+          cacheReadCost = cst >>= (^. #cacheRead),
+          cacheWriteCost = cst >>= (^. #cacheWrite),
+          inputModalities = maybe [] (^. #input) mods
         }
 
 -- | @limit@ sub-object.
 data Limit = Limit
-  { limitContext :: !(Maybe Integer),
-    limitOutput :: !(Maybe Integer)
+  { context :: !(Maybe Integer),
+    output :: !(Maybe Integer)
   }
+  deriving stock (Show, Generic)
 
 instance FromJSON Limit where
-  parseJSON = Aeson.withObject "limit" $ \o ->
+  parseJSON = withObject "limit" $ \o ->
     Limit <$> o .:? "context" <*> o .:? "output"
 
 -- | @cost@ sub-object (US dollars per million tokens).
 data Cost = Cost
-  { costIn :: !(Maybe Scientific),
-    costOut :: !(Maybe Scientific),
-    costCacheRead :: !(Maybe Scientific),
-    costCacheWrite :: !(Maybe Scientific)
+  { input :: !(Maybe Scientific),
+    output :: !(Maybe Scientific),
+    cacheRead :: !(Maybe Scientific),
+    cacheWrite :: !(Maybe Scientific)
   }
+  deriving stock (Show, Generic)
 
 instance FromJSON Cost where
-  parseJSON = Aeson.withObject "cost" $ \o ->
+  parseJSON = withObject "cost" $ \o ->
     Cost
       <$> o .:? "input"
       <*> o .:? "output"
@@ -130,58 +134,62 @@ instance FromJSON Cost where
       <*> o .:? "cache_write"
 
 -- | @modalities@ sub-object; we only read @input@.
-newtype Modalities = Modalities {modalitiesInput :: [Text]}
+newtype Modalities = Modalities {input :: [Text]}
+  deriving stock (Show, Generic)
 
 instance FromJSON Modalities where
-  parseJSON = Aeson.withObject "modalities" $ \o ->
+  parseJSON = withObject "modalities" $ \o ->
     Modalities <$> o .:? "input" .!= []
 
 -- | One provider object in the models.dev document. We only read the
 -- @models@ map; every other provider field is ignored.
-newtype UpstreamProvider = UpstreamProvider {upModels :: Map Text UpstreamModel}
+newtype UpstreamProvider = UpstreamProvider {models :: Map Text UpstreamModel}
+  deriving stock (Generic)
 
 instance FromJSON UpstreamProvider where
-  parseJSON = Aeson.withObject "UpstreamProvider" $ \o ->
+  parseJSON = withObject "UpstreamProvider" $ \o ->
     UpstreamProvider <$> o .:? "models" .!= Map.empty
 
 -- | Parse a full models.dev document into @provider -> (modelId ->
 -- model)@. The top-level document is a JSON object keyed by provider
 -- id; each provider object carries a @models@ map keyed by model id.
 parseUpstream :: BSL.ByteString -> Either String (Map Text (Map Text UpstreamModel))
-parseUpstream bs = Map.map upModels <$> Aeson.eitherDecode bs
+parseUpstream bs =
+  Map.map (^. #models) <$> (eitherDecode bs :: Either String (Map Text UpstreamProvider))
 
 -- * Output catalog shape ---------------------------------------------
 
--- | Per-million-token cost rates, in the catalog's field names.
+-- | Per-million-token cost rates, named to mirror
+-- 'Baikai.Model.ModelCost'.
 data CatalogCost = CatalogCost
-  { ccInput :: !Scientific,
-    ccOutput :: !Scientific,
-    ccCacheRead :: !Scientific,
-    ccCacheWrite :: !Scientific
+  { inputCost :: !Scientific,
+    outputCost :: !Scientific,
+    cacheReadCost :: !Scientific,
+    cacheWriteCost :: !Scientific
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
 
 -- | One emitted catalog model. @enabled@ is always @true@ for emitted
 -- models, so it is not stored here; the renderer writes it literally.
 data CatalogModel = CatalogModel
-  { cmId :: !Text,
-    cmName :: !Text,
-    cmReasoning :: !Bool,
-    cmInput :: ![InputModality],
-    cmCost :: !CatalogCost,
-    cmContextWindow :: !Integer,
-    cmMaxOutputTokens :: !Integer
+  { modelId :: !Text,
+    name :: !Text,
+    reasoning :: !Bool,
+    input :: ![InputModality],
+    cost :: !CatalogCost,
+    contextWindow :: !Integer,
+    maxOutputTokens :: !Integer
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
 
 -- | A whole catalog file: one provider and its curated models.
 data Catalog = Catalog
-  { cProvider :: !Text,
-    cBaseUrl :: !Text,
-    cApi :: !Text,
-    cModels :: ![CatalogModel]
+  { provider :: !Text,
+    baseUrl :: !Text,
+    api :: !Text,
+    models :: ![CatalogModel]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Show, Generic)
 
 -- * Provider specs and normalization ---------------------------------
 
@@ -189,11 +197,12 @@ data Catalog = Catalog
 -- catalog and the curation predicate selecting which upstream model
 -- ids to keep.
 data ProviderSpec = ProviderSpec
-  { psProvider :: !Text,
-    psBaseUrl :: !Text,
-    psApi :: !Text,
-    psInclude :: !(Text -> Bool)
+  { provider :: !Text,
+    baseUrl :: !Text,
+    api :: !Text,
+    include :: !(Text -> Bool)
   }
+  deriving stock (Generic)
 
 -- | Curation include set for OpenAI: the chat-completions-compatible
 -- current line. Responses-API-only ids (@*-pro@, @*-codex@,
@@ -239,20 +248,20 @@ anthropicInclude =
 openaiSpec :: ProviderSpec
 openaiSpec =
   ProviderSpec
-    { psProvider = "openai",
-      psBaseUrl = "https://api.openai.com",
-      psApi = "openai-chat-completions",
-      psInclude = (`Set.member` openaiInclude)
+    { provider = "openai",
+      baseUrl = "https://api.openai.com",
+      api = "openai-chat-completions",
+      include = (`Set.member` openaiInclude)
     }
 
 -- | Provider spec for Anthropic's first-party messages endpoint.
 anthropicSpec :: ProviderSpec
 anthropicSpec =
   ProviderSpec
-    { psProvider = "anthropic",
-      psBaseUrl = "https://api.anthropic.com",
-      psApi = "anthropic-messages",
-      psInclude = (`Set.member` anthropicInclude)
+    { provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      api = "anthropic-messages",
+      include = (`Set.member` anthropicInclude)
     }
 
 -- | Normalize one provider's upstream models into a 'Catalog'. Keeps
@@ -263,36 +272,36 @@ anthropicSpec =
 normalizeProvider :: ProviderSpec -> Map Text UpstreamModel -> Catalog
 normalizeProvider spec upstream =
   Catalog
-    { cProvider = psProvider spec,
-      cBaseUrl = psBaseUrl spec,
-      cApi = psApi spec,
-      cModels = sortOn cmId (map toCatalogModel kept)
+    { provider = spec ^. #provider,
+      baseUrl = spec ^. #baseUrl,
+      api = spec ^. #api,
+      models = sortOn (^. #modelId) (map toCatalogModel kept)
     }
   where
     kept =
       [ m
       | m <- Map.elems upstream,
-        uToolCall m,
-        psInclude spec (uId m)
+        m ^. #toolCall,
+        (spec ^. #include) (m ^. #modelId)
       ]
     toCatalogModel m =
       CatalogModel
-        { cmId = uId m,
-          cmName = fromMaybe (uId m) (uName m),
-          cmReasoning = uReasoning m,
-          cmInput =
-            if "image" `elem` uInputMods m
+        { modelId = m ^. #modelId,
+          name = fromMaybe (m ^. #modelId) (m ^. #name),
+          reasoning = m ^. #reasoning,
+          input =
+            if "image" `elem` (m ^. #inputModalities)
               then [InputText, InputImage]
               else [InputText],
-          cmCost =
+          cost =
             CatalogCost
-              { ccInput = fromMaybe 0 (uCostIn m),
-                ccOutput = fromMaybe 0 (uCostOut m),
-                ccCacheRead = fromMaybe 0 (uCacheRead m),
-                ccCacheWrite = fromMaybe 0 (uCacheWrite m)
+              { inputCost = fromMaybe 0 (m ^. #inputCost),
+                outputCost = fromMaybe 0 (m ^. #outputCost),
+                cacheReadCost = fromMaybe 0 (m ^. #cacheReadCost),
+                cacheWriteCost = fromMaybe 0 (m ^. #cacheWriteCost)
               },
-          cmContextWindow = fromMaybe 0 (uCtx m),
-          cmMaxOutputTokens = fromMaybe 0 (uMaxOut m)
+          contextWindow = fromMaybe 0 (m ^. #contextWindow),
+          maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens)
         }
 
 -- * Rendering ---------------------------------------------------------
@@ -307,12 +316,12 @@ renderCatalog cat = encodeUtf8 (Text.unlines (renderLines cat))
 renderLines :: Catalog -> [Text]
 renderLines cat =
   ["{"]
-    ++ [ "  \"provider\": " <> jsonString (cProvider cat) <> ",",
-         "  \"baseUrl\": " <> jsonString (cBaseUrl cat) <> ",",
-         "  \"api\": " <> jsonString (cApi cat) <> ",",
+    ++ [ "  \"provider\": " <> jsonString (cat ^. #provider) <> ",",
+         "  \"baseUrl\": " <> jsonString (cat ^. #baseUrl) <> ",",
+         "  \"api\": " <> jsonString (cat ^. #api) <> ",",
          "  \"compat\": \"auto\","
        ]
-    ++ modelsSection (cModels cat)
+    ++ modelsSection (cat ^. #models)
     ++ ["}"]
 
 modelsSection :: [CatalogModel] -> [Text]
@@ -336,23 +345,23 @@ addBlockCommas (b : rest) = appendCommaToLast b : addBlockCommas rest
 renderModel :: CatalogModel -> [Text]
 renderModel m =
   [ "    {",
-    "      \"id\": " <> jsonString (cmId m) <> ",",
-    "      \"name\": " <> jsonString (cmName m) <> ",",
-    "      \"reasoning\": " <> jsonBool (cmReasoning m) <> ",",
-    "      \"input\": " <> renderInput (cmInput m) <> ",",
+    "      \"id\": " <> jsonString (m ^. #modelId) <> ",",
+    "      \"name\": " <> jsonString (m ^. #name) <> ",",
+    "      \"reasoning\": " <> jsonBool (m ^. #reasoning) <> ",",
+    "      \"input\": " <> renderInput (m ^. #input) <> ",",
     "      \"cost\": {",
-    "        \"input\": " <> renderNum (ccInput c) <> ",",
-    "        \"output\": " <> renderNum (ccOutput c) <> ",",
-    "        \"cacheRead\": " <> renderNum (ccCacheRead c) <> ",",
-    "        \"cacheWrite\": " <> renderNum (ccCacheWrite c),
+    "        \"input\": " <> renderNum (c ^. #inputCost) <> ",",
+    "        \"output\": " <> renderNum (c ^. #outputCost) <> ",",
+    "        \"cacheRead\": " <> renderNum (c ^. #cacheReadCost) <> ",",
+    "        \"cacheWrite\": " <> renderNum (c ^. #cacheWriteCost),
     "      },",
-    "      \"contextWindow\": " <> Text.pack (show (cmContextWindow m)) <> ",",
-    "      \"maxOutputTokens\": " <> Text.pack (show (cmMaxOutputTokens m)) <> ",",
+    "      \"contextWindow\": " <> Text.pack (show (m ^. #contextWindow)) <> ",",
+    "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ",",
     "      \"enabled\": true",
     "    }"
   ]
   where
-    c = cmCost m
+    c = m ^. #cost
 
 renderInput :: [InputModality] -> Text
 renderInput ms = "[" <> Text.intercalate ", " (map one ms) <> "]"
