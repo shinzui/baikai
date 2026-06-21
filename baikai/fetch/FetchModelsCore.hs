@@ -18,6 +18,17 @@
 -- @*-deep-research@) because @baikai/data/models/openai.json@ speaks
 -- @openai-chat-completions@ and 'Baikai.Api' has no Responses tag.
 --
+-- == Override philosophy
+--
+-- models.dev is not fully trustworthy, so a small, explicit override
+-- layer ('overrides') is applied after normalization. Each entry is a
+-- per-@(provider, modelId)@ correction that overwrites only the fields
+-- it sets, and each MUST carry a dated comment justifying why upstream
+-- is wrong (mirroring pi-mono's @generate-models.ts@). Keep the table
+-- minimal: prefer fixing upstream or curating ids out over piling on
+-- overrides. Overrides that match no fetched model are warned about
+-- ('staleOverrides') rather than silently kept.
+--
 -- Records follow the project convention: no field prefixes; field
 -- access and updates go through generic-lens @#label@ optics rather
 -- than bare selectors or record-update syntax.

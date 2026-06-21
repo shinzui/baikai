@@ -185,11 +185,28 @@ nix fmt              # fourmolu + cabal-fmt + nixpkgs-fmt
 nix flake check
 ```
 
-The generated model catalog is regenerated with:
+### Refreshing the model catalog
+
+The catalog has two representations: hand-reviewable JSON under
+`baikai/data/models/` and the generated Haskell module
+`baikai/src/Baikai/Models/Generated.hs`. Refreshing is two steps —
+fetch (network → JSON), then generate (JSON → Haskell) — and you review
+the `git diff` before committing:
 
 ```bash
-cabal run baikai-gen-models
+cabal run baikai-fetch-models   # fetch models.dev, rewrite anthropic.json + openai.json
+cabal run baikai-gen-models     # regenerate Generated.hs from the JSON
+git --no-pager diff baikai/data/models baikai/src/Baikai/Models/Generated.hs
+cabal test baikai               # CatalogSpec proves JSON and Generated.hs agree
 ```
+
+`baikai-fetch-models` pulls `https://models.dev/api.json`, keeps the
+curated, tool-capable Anthropic and OpenAI models, normalizes them to
+the catalog shape, and applies a small hand-maintained override layer
+(see the header of `baikai/fetch/FetchModelsCore.hs`). Useful flags:
+`--from-file PATH` (offline, e.g. a saved `api.json`), `--stdout` (print
+instead of writing), and `--provider {openai|anthropic|all}`. To edit a
+single price by hand, change the JSON and run only `baikai-gen-models`.
 
 ## License
 

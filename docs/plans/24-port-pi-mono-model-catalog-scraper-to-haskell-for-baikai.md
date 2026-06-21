@@ -127,13 +127,16 @@ Milestone 3 — Override layer: **DONE 2026-06-21**
       `Generated.hs` is unchanged (the generator sorts by identifier independently of JSON
       order), so `CatalogSpec` stays green.
 
-Milestone 4 — Documentation & guardrails:
+Milestone 4 — Documentation & guardrails: **DONE 2026-06-21**
 
-- [ ] Update `baikai/README.md` "Develop" section with the new refresh workflow.
-- [ ] Decide and document the curation policy (which models are `enabled`) in the plan and
-      in a header comment in `FetchModels.hs`.
-- [ ] Note the known pre-commit/treefmt interaction (see Surprises) so future regenerations
-      do not trip on it.
+- [x] (2026-06-21) Updated the root `README.md` "Develop" section (there is no
+      `baikai/README.md`) with the two-step `baikai-fetch-models` → `baikai-gen-models` refresh
+      workflow, the review-the-diff step, and the useful flags.
+- [x] (2026-06-21) Documented the curation policy and override philosophy in the header of
+      `baikai/fetch/FetchModelsCore.hs` (the pure core; `FetchModels.hs` is the thin shell).
+- [x] (2026-06-21) Fixed the pre-commit/treefmt trap at the hook level (the preferred fix): see
+      Decision Log and Surprises. Reproduced it, applied the fix, regenerated the hook config,
+      and verified a regenerated `Generated.hs` commits without `--no-verify`.
 
 
 ## Surprises & Discoveries
@@ -172,6 +175,18 @@ implementation. Provide concise evidence.
   `HttpException` branch was verified separately against an unreachable host
   (`*.invalid`). Both branches write nothing because the fetch fully completes (or fails) in
   memory before any catalog is rendered.
+
+- Discovery (2026-06-21, M4): the pre-commit/treefmt trap's root cause is that **treefmt
+  applies `settings.global.excludes` only when it traverses the tree, not when files are passed
+  explicitly on the command line**. Reproduced by running the wrapper directly:
+  `treefmt --fail-on-change --no-cache baikai/src/Baikai/Models/Generated.hs` reformatted the
+  file (17322 → 18290 bytes, leading- → trailing-comma) and exited non-zero, despite the file
+  being in `global.excludes`. The generated `.pre-commit-config.yaml` had `"exclude": "^$"`
+  (nothing) and `pass_filenames: true`, so the hook handed the staged `Generated.hs` straight
+  to treefmt. Fix: set the treefmt hook's `excludes` in `nix/pre-commit.nix` so pre-commit
+  filters the file out before invoking treefmt (regenerated config:
+  `"exclude": "(^baikai/src/Baikai/Models/Generated\\.hs$)"`). `nix fmt` / `nix flake check`
+  were never affected because those traverse.
 
 - Discovery (2026-06-17, M2): upstream models.dev tags the "latest" Anthropic aliases with a
   `" (latest)"` display-name suffix (e.g. `claude-opus-4-5` → "Claude Opus 4.5 (latest)",
@@ -253,6 +268,19 @@ Record every decision made while working on the plan.
   IO lives only in `FetchModels.hs`, which the test never compiles).
   Date: 2026-06-17
 
+- Decision: Fixed the pre-commit/treefmt conflict at the **pre-commit hook level** (the plan's
+  preferred option), not by changing the generator's layout. Added
+  `excludes = [ "^baikai/src/Baikai/Models/Generated\\.hs$" ]` to the `treefmt` hook in
+  `nix/pre-commit.nix` so pre-commit never passes the generated file to treefmt.
+  Rationale: it is the smaller, more local change and keeps `baikai-gen-models`'s output
+  stable (no churn to `Generated.hs`, no risk of fourmolu and the generator still disagreeing
+  on edge cases). The root cause is that treefmt ignores `global.excludes` for
+  explicitly-passed files (see Surprises); excluding at the hook level addresses exactly that
+  path while `treefmt.nix`'s `global.excludes` continues to cover traverse-mode (`nix fmt`).
+  Verified end-to-end: with a regenerated `Generated.hs` staged, a plain `git commit` (no
+  `--no-verify`) succeeds and the committed file keeps its leading-comma layout.
+  Date: 2026-06-21
+
 - Decision: Record fields carry **no Hungarian-style prefixes**; field access and updates go
   through generic-lens `#label` optics (`^.`, `& … .~`, `?~`), via `Baikai.Prelude` plus a
   per-module `import Data.Generics.Labels ()`. This supersedes the prefixed field names sketched
@@ -290,7 +318,39 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Completed 2026-06-21. Against the original purpose — "refreshing the catalog goes from
+manually transcribing prices to running two commands and reviewing a diff" — the result
+delivers exactly that: `cabal run baikai-fetch-models` (network → curated JSON, overrides
+applied) then `cabal run baikai-gen-models` (JSON → `Generated.hs`), reviewed via `git diff`.
+
+What landed:
+
+- A pure, fully unit-tested core (`baikai/fetch/FetchModelsCore.hs`) — parse → filter to
+  tool-capable curated models → map fields (drop `pdf`, default missing) → override → render
+  byte-matched catalog JSON. 9 deterministic `Baikai.FetchModels` cases; all 91 baikai tests
+  green.
+- A thin impure shell (`baikai/fetch/FetchModels.hs`) with TLS fetch, `--from-url/--from-file/
+  --out-dir/--provider/--stdout`, atomic single-`writeFile` output, and clean non-zero-exit /
+  write-nothing failure behavior.
+- An explicit override layer with a stale-override warning; the one initial entry pins
+  Anthropic `claude-opus-4-5` `cacheRead` to 0.5 against the models.dev 3x wart.
+- The pre-commit/treefmt trap fixed at the hook level so regenerations commit cleanly.
+
+Notable validation result: against the real upstream, the scraper reproduces the
+hand-curated catalog with **zero value changes** — the only data diff was the deterministic
+id-sort reordering, now committed as the canonical order. This is strong evidence the port is
+faithful: it would have caught the staleness the plan was written to fix, without introducing
+drift.
+
+Lessons / gaps:
+
+- generic-lens `#label` is ambiguous when several records share a field name and the source
+  record type is otherwise unconstrained; the `FromJSON` sub-objects and `parseUpstream` need
+  explicit type annotations to resolve. Worth knowing for future no-prefix record code.
+- treefmt's `global.excludes` only applies in traverse mode, not when files are passed
+  explicitly — the root cause of the pre-commit trap (see Decision Log / Surprises).
+- Deferred as planned: `deepseek.json` / `openrouter.json` refresh, and migrating
+  `baikai-gen-models`'s still-prefixed records to the no-prefix convention.
 
 
 ## Context and Orientation
