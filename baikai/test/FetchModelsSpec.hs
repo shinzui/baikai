@@ -10,6 +10,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Scientific (Scientific)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
 import FetchModelsCore
@@ -106,7 +107,29 @@ tests =
       testCase "Anthropic curation keeps exactly the one fixture model" $ do
         upstream <- loadUpstream
         let ids = map (^. #modelId) (catalogFor upstream anthropicSpec ^. #models)
-        ids @?= ["claude-opus-4-5"]
+        ids @?= ["claude-opus-4-5"],
+      testCase "\" (latest)\" suffix is stripped from display names" $ do
+        upstream <- loadUpstream
+        let cat = catalogFor upstream anthropicSpec
+        map (^. #name) (cat ^. #models) @?= ["Claude Opus 4.5"],
+      testCase "override corrects a deliberately-wrong upstream cache price" $ do
+        upstream <- loadUpstream
+        -- Fixture upstream reports cache_read 1.5 for claude-opus-4-5
+        -- (the 3x wart); normalization alone preserves it, the override
+        -- pins it to the published 0.5.
+        let normalized = catalogFor upstream anthropicSpec
+            corrected = applyOverrides overrides normalized
+        opusCacheRead normalized @?= 1.5
+        opusCacheRead corrected @?= 0.5
+    ]
+
+-- | The @claude-opus-4-5@ cacheRead cost in an Anthropic catalog.
+opusCacheRead :: Catalog -> Scientific
+opusCacheRead cat =
+  head
+    [ m ^. #cost . #cacheReadCost
+    | m <- cat ^. #models,
+      m ^. #modelId == "claude-opus-4-5"
     ]
 
 renderText :: Catalog -> Text

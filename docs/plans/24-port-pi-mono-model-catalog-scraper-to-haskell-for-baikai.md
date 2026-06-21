@@ -104,14 +104,28 @@ Milestone 2 — Live fetch: **DONE 2026-06-17**
       catalog data refresh is committed in M3 once the override layer strips upstream's
       `" (latest)"` name suffixes, to avoid committing those warts and re-diffing them away.
 
-Milestone 3 — Override layer:
+Milestone 3 — Override layer: **DONE 2026-06-21**
 
-- [ ] Add a hand-maintained `overrides` table (price/capability corrections, model
-      include/exclude sets) applied after normalization, mirroring pi-mono's correction
-      pattern.
-- [ ] Document each override with a dated comment explaining why upstream is wrong.
-- [ ] Verify: a deliberately-wrong fixture value is corrected by the override and covered by
-      a test.
+- [x] (2026-06-21) Added the `Override` record + `emptyOverride`/`overrides`/`applyOverrides`
+      to `FetchModelsCore`, applied after `normalizeProvider`. The curation include sets
+      (`openaiInclude`/`anthropicInclude`) were already data since M1; name cleanup is a
+      systematic `" (latest)"` strip in `normalizeName` (not a per-model entry); price/flag
+      corrections are the `overrides` table keyed by `(provider, modelId)`.
+- [x] (2026-06-21) The one initial override (Anthropic `claude-opus-4-5` `cacheRead` pinned to
+      0.5) carries a dated comment citing the models.dev 3x-cache_read wart that pi-mono also
+      hard-corrects. `staleOverrides` + a stderr `warnStale` in `main` flag overrides that
+      match no fetched model (restricted to fetched providers) without failing.
+- [x] (2026-06-21) Verified with two new tests: `" (latest)"` is stripped from display names;
+      and the fixture's deliberately-wrong `claude-opus-4-5` `cacheRead` (1.5, the 3x wart) is
+      preserved by normalization alone (asserted `1.5`) but corrected to `0.5` after
+      `applyOverrides` (asserted `0.5`) — the before/after the plan asks for. `cabal test
+      baikai` → all 91 tests pass (9 in `Baikai.FetchModels`).
+- [x] (2026-06-21) Ran the live refresh with overrides; a value-level compare (ignoring the
+      new id-sort order) showed **zero** value changes vs. the hand-curated files — the
+      scraper reproduces the curated catalog exactly. The only data diff is the deterministic
+      id-sort reordering, committed here so future refreshes are minimal-diff (idempotent).
+      `Generated.hs` is unchanged (the generator sorts by identifier independently of JSON
+      order), so `CatalogSpec` stays green.
 
 Milestone 4 — Documentation & guardrails:
 
@@ -238,6 +252,21 @@ Record every decision made while working on the plan.
   with no `build-tool-depends` and keeps the network deps out of the test component (network
   IO lives only in `FetchModels.hs`, which the test never compiles).
   Date: 2026-06-17
+
+- Decision: Record fields carry **no Hungarian-style prefixes**; field access and updates go
+  through generic-lens `#label` optics (`^.`, `& … .~`, `?~`), via `Baikai.Prelude` plus a
+  per-module `import Data.Generics.Labels ()`. This supersedes the prefixed field names sketched
+  in this plan's Interfaces section (`uId`, `psProvider`, `cmId`, `ovProvider`, …) and the
+  prefixed-field code committed in the first M1/M2 passes.
+  Rationale: the user confirmed the project-wide convention
+  (`/Users/shinzui/Keikaku/bokuno/haskell-jitsurei/core/record-patterns.md`, "No Field
+  Prefixes"; also captured in session memory) applies here, including to internal records.
+  `DuplicateRecordFields` lets the records share bare field names; generic-lens `#label`
+  disambiguates per use site. Where the source record type is otherwise unconstrained (the
+  `FromJSON` sub-objects and the `parseUpstream` decode), an explicit type annotation pins it
+  so `#label` resolves. `baikai-gen-models`'s still-prefixed records are pre-existing and left
+  for a separate migration.
+  Date: 2026-06-21
 
 - Decision: The per-provider curation include sets (`openaiInclude`, `anthropicInclude`) live
   as `Data.Set` data in `FetchModelsCore` from Milestone 1 (the `psInclude` predicate is built

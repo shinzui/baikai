@@ -5,8 +5,53 @@
   "compat": "auto",
   "models": [
     {
-      "id": "claude-opus-4-8",
-      "name": "Claude Opus 4.8",
+      "id": "claude-fable-5",
+      "name": "Claude Fable 5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 10.0,
+        "output": 50.0,
+        "cacheRead": 1.0,
+        "cacheWrite": 12.5
+      },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 1.0,
+        "output": 5.0,
+        "cacheRead": 0.1,
+        "cacheWrite": 1.25
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 64000,
+      "enabled": true
+    },
+    {
+      "id": "claude-opus-4-5",
+      "name": "Claude Opus 4.5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 64000,
+      "enabled": true
+    },
+    {
+      "id": "claude-opus-4-6",
+      "name": "Claude Opus 4.6",
       "reasoning": true,
       "input": ["text", "image"],
       "cost": {
@@ -35,8 +80,8 @@
       "enabled": true
     },
     {
-      "id": "claude-opus-4-6",
-      "name": "Claude Opus 4.6",
+      "id": "claude-opus-4-8",
+      "name": "Claude Opus 4.8",
       "reasoning": true,
       "input": ["text", "image"],
       "cost": {
@@ -47,36 +92,6 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "claude-opus-4-5",
-      "name": "Claude Opus 4.5",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 5.0,
-        "output": 25.0,
-        "cacheRead": 0.5,
-        "cacheWrite": 6.25
-      },
-      "contextWindow": 200000,
-      "maxOutputTokens": 64000,
-      "enabled": true
-    },
-    {
-      "id": "claude-sonnet-4-6",
-      "name": "Claude Sonnet 4.6",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 3.0,
-        "output": 15.0,
-        "cacheRead": 0.3,
-        "cacheWrite": 3.75
-      },
-      "contextWindow": 1000000,
-      "maxOutputTokens": 64000,
       "enabled": true
     },
     {
@@ -95,33 +110,18 @@
       "enabled": true
     },
     {
-      "id": "claude-haiku-4-5",
-      "name": "Claude Haiku 4.5",
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
       "reasoning": true,
       "input": ["text", "image"],
       "cost": {
-        "input": 1.0,
-        "output": 5.0,
-        "cacheRead": 0.1,
-        "cacheWrite": 1.25
-      },
-      "contextWindow": 200000,
-      "maxOutputTokens": 64000,
-      "enabled": true
-    },
-    {
-      "id": "claude-fable-5",
-      "name": "Claude Fable 5",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 10.0,
-        "output": 50.0,
-        "cacheRead": 1.0,
-        "cacheWrite": 12.5
+        "input": 3.0,
+        "output": 15.0,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.75
       },
       "contextWindow": 1000000,
-      "maxOutputTokens": 128000,
+      "maxOutputTokens": 64000,
       "enabled": true
     }
   ]

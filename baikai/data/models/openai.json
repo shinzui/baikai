@@ -5,141 +5,6 @@
   "compat": "auto",
   "models": [
     {
-      "id": "gpt-5.5",
-      "name": "GPT-5.5",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 5.0,
-        "output": 30.0,
-        "cacheRead": 0.5,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 1050000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5.4",
-      "name": "GPT-5.4",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 2.5,
-        "output": 15.0,
-        "cacheRead": 0.25,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 1050000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5.4-mini",
-      "name": "GPT-5.4 mini",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 0.75,
-        "output": 4.5,
-        "cacheRead": 0.075,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5.4-nano",
-      "name": "GPT-5.4 nano",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 0.2,
-        "output": 1.25,
-        "cacheRead": 0.02,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5.2",
-      "name": "GPT-5.2",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 1.75,
-        "output": 14.0,
-        "cacheRead": 0.175,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5.1",
-      "name": "GPT-5.1",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 1.25,
-        "output": 10.0,
-        "cacheRead": 0.125,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5",
-      "name": "GPT-5",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 1.25,
-        "output": 10.0,
-        "cacheRead": 0.125,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5-mini",
-      "name": "GPT-5 Mini",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 0.25,
-        "output": 2.0,
-        "cacheRead": 0.025,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
-      "id": "gpt-5-nano",
-      "name": "GPT-5 Nano",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 0.05,
-        "output": 0.4,
-        "cacheRead": 0.005,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 400000,
-      "maxOutputTokens": 128000,
-      "enabled": true
-    },
-    {
       "id": "gpt-4.1",
       "name": "GPT-4.1",
       "reasoning": false,
@@ -215,6 +80,156 @@
       "enabled": true
     },
     {
+      "id": "gpt-5",
+      "name": "GPT-5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 1.25,
+        "output": 10.0,
+        "cacheRead": 0.125,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5-mini",
+      "name": "GPT-5 Mini",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.25,
+        "output": 2.0,
+        "cacheRead": 0.025,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5-nano",
+      "name": "GPT-5 Nano",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.05,
+        "output": 0.4,
+        "cacheRead": 0.005,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5.1",
+      "name": "GPT-5.1",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 1.25,
+        "output": 10.0,
+        "cacheRead": 0.125,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5.2",
+      "name": "GPT-5.2",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 1.75,
+        "output": 14.0,
+        "cacheRead": 0.175,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5.4",
+      "name": "GPT-5.4",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 2.5,
+        "output": 15.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "name": "GPT-5.4 mini",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.75,
+        "output": 4.5,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5.4-nano",
+      "name": "GPT-5.4 nano",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 0.2,
+        "output": 1.25,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 400000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "gpt-5.5",
+      "name": "GPT-5.5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 5.0,
+        "output": 30.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "o1",
+      "name": "o1",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 15.0,
+        "output": 60.0,
+        "cacheRead": 7.5,
+        "cacheWrite": 0.0
+      },
+      "contextWindow": 200000,
+      "maxOutputTokens": 100000,
+      "enabled": true
+    },
+    {
       "id": "o3",
       "name": "o3",
       "reasoning": true,
@@ -253,21 +268,6 @@
         "input": 1.1,
         "output": 4.4,
         "cacheRead": 0.275,
-        "cacheWrite": 0.0
-      },
-      "contextWindow": 200000,
-      "maxOutputTokens": 100000,
-      "enabled": true
-    },
-    {
-      "id": "o1",
-      "name": "o1",
-      "reasoning": true,
-      "input": ["text", "image"],
-      "cost": {
-        "input": 15.0,
-        "output": 60.0,
-        "cacheRead": 7.5,
         "cacheWrite": 0.0
       },
       "contextWindow": 200000,

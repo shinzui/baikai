@@ -45,6 +45,7 @@ import System.Directory (doesFileExist, getCurrentDirectory)
 import System.Environment (getArgs)
 import System.Exit (die)
 import System.FilePath (takeDirectory, (</>))
+import System.IO (hPutStrLn, stderr)
 
 -- | Which provider(s) to emit.
 data ProviderSel = SelOpenAI | SelAnthropic | SelAll
@@ -78,7 +79,9 @@ main = do
   upstream <- case parseUpstream raw of
     Left err -> die $ "baikai-fetch-models: failed to parse upstream JSON: " <> err
     Right u -> pure u
-  let catalogs = map (catalogFor upstream) (selectedSpecs (opts ^. #provider))
+  let catalogs =
+        map (applyOverrides overrides . catalogFor upstream) (selectedSpecs (opts ^. #provider))
+  mapM_ warnStale (staleOverrides overrides catalogs)
   if opts ^. #stdout
     then mapM_ (BS.putStr . renderCatalog) catalogs
     else do
@@ -109,6 +112,17 @@ fetchUpstream url = do
   manager <- newTlsManager
   req <- parseUrlThrow url
   responseBody <$> httpLbs req manager
+
+-- | Warn (to stderr, without failing) about an override that matched
+-- no fetched model, so stale corrections get noticed.
+warnStale :: (Text, Text) -> IO ()
+warnStale (prov, mid) =
+  hPutStrLn stderr $
+    "baikai-fetch-models: warning: override for ("
+      <> Text.unpack prov
+      <> ", "
+      <> Text.unpack mid
+      <> ") matched no fetched model (stale?)"
 
 -- | Build a provider's catalog from the parsed upstream document,
 -- defaulting to an empty model map if the provider is absent.

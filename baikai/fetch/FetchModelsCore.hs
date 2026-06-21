@@ -39,6 +39,13 @@ module FetchModelsCore
     anthropicInclude,
     normalizeProvider,
 
+    -- * Override layer
+    Override (..),
+    emptyOverride,
+    overrides,
+    applyOverrides,
+    staleOverrides,
+
     -- * Rendering
     renderCatalog,
   )
@@ -287,7 +294,7 @@ normalizeProvider spec upstream =
     toCatalogModel m =
       CatalogModel
         { modelId = m ^. #modelId,
-          name = fromMaybe (m ^. #modelId) (m ^. #name),
+          name = normalizeName (fromMaybe (m ^. #modelId) (m ^. #name)),
           reasoning = m ^. #reasoning,
           input =
             if "image" `elem` (m ^. #inputModalities)
@@ -303,6 +310,126 @@ normalizeProvider spec upstream =
           contextWindow = fromMaybe 0 (m ^. #contextWindow),
           maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens)
         }
+
+-- | Strip a trailing @" (latest)"@ display-name suffix that models.dev
+-- attaches to the "latest" aliases (e.g. @"Claude Opus 4.5 (latest)"@).
+-- This is a systematic upstream wart, so it is normalized for every
+-- provider rather than via a per-model override.
+normalizeName :: Text -> Text
+normalizeName n = fromMaybe n (Text.stripSuffix " (latest)" n)
+
+-- * Override layer ----------------------------------------------------
+
+-- | A hand-maintained correction for one @(provider, modelId)@ pair.
+-- Every field except the key is a @Maybe@: 'Nothing' leaves the
+-- normalized value untouched, 'Just' overwrites it. Build entries from
+-- 'emptyOverride' and set only the fields that need correcting.
+data Override = Override
+  { provider :: !Text,
+    modelId :: !Text,
+    name :: !(Maybe Text),
+    reasoning :: !(Maybe Bool),
+    inputCost :: !(Maybe Scientific),
+    outputCost :: !(Maybe Scientific),
+    cacheReadCost :: !(Maybe Scientific),
+    cacheWriteCost :: !(Maybe Scientific),
+    contextWindow :: !(Maybe Integer),
+    maxOutputTokens :: !(Maybe Integer)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | An override that changes nothing, keyed by provider and model id.
+emptyOverride :: Text -> Text -> Override
+emptyOverride prov mid =
+  Override
+    { provider = prov,
+      modelId = mid,
+      name = Nothing,
+      reasoning = Nothing,
+      inputCost = Nothing,
+      outputCost = Nothing,
+      cacheReadCost = Nothing,
+      cacheWriteCost = Nothing,
+      contextWindow = Nothing,
+      maxOutputTokens = Nothing
+    }
+
+-- | The hand-maintained correction table, applied after normalization.
+-- Each entry MUST carry a dated comment explaining why upstream is
+-- wrong, exactly as pi-mono's @generate-models.ts@ documents its
+-- corrections. Order does not matter; entries are keyed by
+-- @(provider, modelId)@.
+overrides :: [Override]
+overrides =
+  [ -- 2026-06-21: models.dev has periodically reported Claude Opus
+    -- cache_read at 3x the published rate (1.5 instead of 0.5 /Mtok) —
+    -- the same wart pi-mono hard-corrects in generate-models.ts
+    -- ("models.dev has 3x the correct pricing"). Pin cache_read to
+    -- Anthropic's published 0.5 so an upstream regression cannot
+    -- silently inflate cached-input cost.
+    emptyOverride "anthropic" "claude-opus-4-5" & #cacheReadCost ?~ 0.5
+  ]
+
+-- | Apply all overrides matching this catalog's provider to its
+-- models. A model with no matching override is returned unchanged.
+applyOverrides :: [Override] -> Catalog -> Catalog
+applyOverrides ovs cat = cat & #models %~ map applyMatching
+  where
+    prov = cat ^. #provider
+    byKey =
+      Map.fromList
+        [((o ^. #provider, o ^. #modelId), o) | o <- ovs]
+    applyMatching m =
+      maybe m (`applyOne` m) (Map.lookup (prov, m ^. #modelId) byKey)
+
+-- | Overwrite each 'CatalogModel' field for which the override carries
+-- a 'Just'. 'Nothing' fields are left as normalized.
+applyOne :: Override -> CatalogModel -> CatalogModel
+applyOne o m =
+  m
+    & #name
+    %~ overwrite (o ^. #name)
+    & #reasoning
+    %~ overwrite (o ^. #reasoning)
+    & #cost
+    . #inputCost
+    %~ overwrite (o ^. #inputCost)
+    & #cost
+    . #outputCost
+    %~ overwrite (o ^. #outputCost)
+    & #cost
+    . #cacheReadCost
+    %~ overwrite (o ^. #cacheReadCost)
+    & #cost
+    . #cacheWriteCost
+    %~ overwrite (o ^. #cacheWriteCost)
+    & #contextWindow
+    %~ overwrite (o ^. #contextWindow)
+    & #maxOutputTokens
+    %~ overwrite (o ^. #maxOutputTokens)
+  where
+    overwrite :: Maybe a -> a -> a
+    overwrite = maybe id const
+
+-- | Override keys @(provider, modelId)@ that match no model in any of
+-- the given catalogs (restricted to providers actually present, so an
+-- override for an unfetched provider is not falsely flagged). The tool
+-- warns on these so stale overrides get noticed without failing.
+staleOverrides :: [Override] -> [Catalog] -> [(Text, Text)]
+staleOverrides ovs cats =
+  [ (o ^. #provider, o ^. #modelId)
+  | o <- ovs,
+    (o ^. #provider) `Set.member` provs,
+    (o ^. #provider, o ^. #modelId) `Set.notMember` present
+  ]
+  where
+    provs = Set.fromList (map (^. #provider) cats)
+    present =
+      Set.fromList
+        [ (cat ^. #provider, m ^. #modelId)
+        | cat <- cats,
+          m <- cat ^. #models
+        ]
 
 -- * Rendering ---------------------------------------------------------
 
