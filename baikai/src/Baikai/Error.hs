@@ -23,10 +23,12 @@ where
 
 import Control.Exception (Exception (displayException))
 import Data.Aeson
-  ( Options (constructorTagModifier, fieldLabelModifier),
+  ( FromJSON (parseJSON),
+    Options (constructorTagModifier, fieldLabelModifier),
     ToJSON (toJSON),
     camelTo2,
     defaultOptions,
+    genericParseJSON,
     genericToJSON,
   )
 import Data.Text (Text)
@@ -71,6 +73,11 @@ instance ToJSON ErrorCategory where
     genericToJSON
       defaultOptions {constructorTagModifier = camelTo2 '_'}
 
+instance FromJSON ErrorCategory where
+  parseJSON =
+    genericParseJSON
+      defaultOptions {constructorTagModifier = camelTo2 '_'}
+
 -- | A failed baikai call. The 'category' drives caller policy; the
 -- remaining fields carry optional structured hints. No record-field
 -- prefixes (project convention): fields are plain names.
@@ -92,6 +99,11 @@ data BaikaiError = BaikaiError
 instance ToJSON BaikaiError where
   toJSON =
     genericToJSON
+      defaultOptions {fieldLabelModifier = camelTo2 '_'}
+
+instance FromJSON BaikaiError where
+  parseJSON =
+    genericParseJSON
       defaultOptions {fieldLabelModifier = camelTo2 '_'}
 
 instance Exception BaikaiError where
