@@ -85,6 +85,12 @@ implementation. Provide concise evidence.
   package directory, so manifest fixture paths are relative to `baikai-kit/` (`test/fixtures/...`)
   rather than the repository root. The final test suite uses that layout and passed all 13 tests.
 
+- Discovery (2026-06-23, during EP-2 mori validation): the mori build plan selected
+  `memory-0.18.0`, which made the original `convertToBase Base16 digest` rendering fail because
+  `Digest SHA256` no longer had the required `ByteArrayAccess` instance. `computeKitHash` now
+  uses crypton's `Show (Digest SHA256)` hex rendering and the package drops the `memory`
+  dependency. The public hash string still has the same `sha256:<hex>` shape covered by tests.
+
 
 ## Decision Log
 
@@ -237,9 +243,8 @@ Create the directory `baikai-kit/` with `baikai-kit/src/` and `baikai-kit/test/`
 baikai-kit`, `version: 0.1.0.0`, a `library` stanza listing the seven exposed modules
 (below) with `build-depends` on `baikai ^>=0.2.0`, `base >=4.20 && <5`, `aeson`,
 `bytestring`, `text ^>=2.1`, `time`, `directory`, `filepath`, `process`, `binary`,
-`optparse-applicative`, and a SHA-256 provider. For hashing, mirror `mori`'s dependencies:
-`crypton` (module `Crypto.Hash`) and `memory` (module `Data.ByteArray.Encoding`); confirm
-the exact package names `mori`'s cabal uses by reading
+`optparse-applicative`, and a SHA-256 provider. For hashing, use `crypton` (module
+`Crypto.Hash`); confirm the exact package name `mori`'s cabal uses by reading
 `/Users/shinzui/Keikaku/bokuno/mori-project/mori/mori-cli/*.cabal` and matching them.
 
 Add a `test-suite baikai-kit-test` stanza (type `exitcode-stdio-1.0`, `main-is: Main.hs`,
@@ -487,10 +492,8 @@ building or testing the package (the tests use temporary directories, never the 
 
 New package `baikai-kit` depends on: `baikai ^>=0.2.0` (for `Baikai.AgentAssets`,
 `Baikai.Interactive`, `Baikai.Prelude`), `base`, `aeson`, `bytestring`, `text ^>=2.1`, `time`,
-`directory`, `filepath`, `process`, `binary`, `optparse-applicative`, and a SHA-256 stack
-(`crypton` + `memory`, matching `mori`'s cabal — verify exact names in
-`/Users/shinzui/Keikaku/bokuno/mori-project/mori/mori-cli/*.cabal`). Test suite additionally
-depends on `tasty`, `tasty-hunit`, `temporary`.
+`directory`, `filepath`, `process`, `binary`, `optparse-applicative`, and `crypton` for SHA-256.
+Test suite additionally depends on `tasty`, `tasty-hunit`, `temporary`.
 
 The public API that the migration plans (`docs/plans/27`, `28`, `29`) depend on — this is a
 contract; keep these names and shapes:
@@ -564,3 +567,7 @@ providers = [InteractiveClaude] }`.
 
 Revision note (2026-06-23): Implemented EP-1 completely, updated progress, decisions,
 discoveries, outcomes, and recorded `baikai-kit-0.1.0.0` for the dependent migration plans.
+
+Revision note (2026-06-23): Removed the `memory` dependency from `baikai-kit` after EP-2 mori
+validation exposed an incompatibility with `memory-0.18.0`; hash rendering now uses crypton's
+digest `Show` instance while preserving the `sha256:<hex>` contract.

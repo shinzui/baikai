@@ -140,8 +140,8 @@ self-containment rule). The intended public surface is:
 
 ```haskell
 -- Package: baikai-kit  (depends on: baikai, aeson, process, directory, filepath,
---                        bytestring, binary, crypton (SHA-256), bytestring-encoding/
---                        memory, time, text, optparse-applicative)
+--                        bytestring, binary, crypton (SHA-256), time, text,
+--                        optparse-applicative)
 
 -- Baikai.Kit.Manifest
 data KitManifest = KitManifest
@@ -331,6 +331,12 @@ interactions between child plans. Provide concise evidence.
   install/uninstall round-trip across Claude and Codex), and `cabal build all` completed
   successfully. EP-2, EP-3, and EP-4 should pin `baikai-kit ^>=0.1.0`.
 
+- Discovery (2026-06-23, during EP-2 mori build): mori's dependency set selected
+  `memory-0.18.0`, where the original `Data.ByteArray.Encoding.convertToBase Base16 digest`
+  hash-rendering approach no longer supplied the needed `ByteArrayAccess (Digest SHA256)`
+  instance. `baikai-kit` now renders `Digest SHA256` through crypton's hex `Show` instance and
+  no longer depends on `memory`; the `sha256:<hex>` output contract remains unchanged.
+
 
 ## Decision Log
 
@@ -385,3 +391,7 @@ the remaining outcomes depend on migrating `mori`, `rei`, and `seihou` in EP-2 t
 
 Revision note (2026-06-23): Marked EP-1 complete after implementing and validating
 `baikai-kit-0.1.0.0`; recorded validation evidence and the package version for EP-2 through EP-4.
+
+Revision note (2026-06-23): Updated the `baikai-kit` dependency contract after EP-2 exposed a
+`memory-0.18.0` compatibility issue in hash rendering; `crypton` alone now provides the digest
+hex rendering path.

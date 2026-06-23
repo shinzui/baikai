@@ -52,7 +52,6 @@ library
     , crypton
     , directory
     , filepath
-    , memory
     , optparse-applicative
     , process
     , text                  ^>=2.1

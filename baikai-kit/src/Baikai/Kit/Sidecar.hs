@@ -15,7 +15,6 @@ import Crypto.Hash (Digest, SHA256)
 import Crypto.Hash qualified as Hash
 import Data.Aeson (eitherDecodeFileStrict', encode)
 import Data.Binary.Put (putWord64be, runPut)
-import Data.ByteArray.Encoding (Base (Base16), convertToBase)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (sort)
@@ -41,7 +40,7 @@ computeKitHash :: FilePath -> [Text] -> IO Text
 computeKitHash baseDir relFiles = do
   chunks <- mapM (readOne baseDir) (sort relFiles)
   let digest = Hash.hash (BS.concat chunks) :: Digest SHA256
-      hex = Text.Encoding.decodeUtf8 (convertToBase Base16 digest :: BS.ByteString)
+      hex = Text.pack (show digest)
   pure ("sha256:" <> hex)
   where
     readOne :: FilePath -> Text -> IO BS.ByteString
