@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "name": "seihou-scaffold-kit-skill",
+      "description": "Scaffold new Claude Code skills and agents for Seihou, following established conventions.",
+      "path": "skills/seihou-scaffold-kit-skill",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "seihou-module-readme",
+      "description": "Generate or refresh a human-readable README.md for a Seihou module, documenting its version, variables, prompts, dependencies, exports, generated files, and usage.",
+      "path": "skills/seihou-module-readme",
+      "files": ["SKILL.md"]
+    }
+  ],
+  "agents": []
+}

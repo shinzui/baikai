@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "name": "rei-bootstrap",
+      "description": "Interactively bootstrap intentions, habits, and reflections for Rei personal coaching",
+      "path": "skills/rei-bootstrap",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-bootstrap-habit",
+      "description": "Interactively bootstrap a new habit for Rei personal coaching",
+      "path": "skills/rei-bootstrap-habit",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-summarize-links",
+      "description": "Extract markdown links from a document, summarize each URL, create Rei notes with summaries, and connect them to links via edges",
+      "path": "skills/rei-summarize-links",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-scaffold-kit-skill",
+      "description": "Scaffold new Claude Code skills and agents for Rei, following established conventions from the rei codebase",
+      "path": "skills/rei-scaffold-kit-skill",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-ingest-url",
+      "description": "Ingest a single URL into Rei — reuse or create a link, summarize the content into a note, connect them with a summarizes edge, and classify the link with author-type, content-type, media, platform, and reused/new topical tags",
+      "path": "skills/rei-ingest-url",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-collection-epub",
+      "description": "Export a Rei collection to EPUB format using pandoc, with automatic chapter ordering inferred from titles, edges, content analysis, and timestamps",
+      "path": "skills/rei-collection-epub",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-ingest-url-collection",
+      "description": "Read a markdown file of links, run the full rei-ingest-url workflow for each URL, and gather every resulting summary note into a single Rei collection",
+      "path": "skills/rei-ingest-url-collection",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-complete-from-commits",
+      "description": "Backlog cleanup — for a given Rei intention and git repository, find commits whose Intention: trailer matches the intention's children and bulk-complete each with --at set to the latest matching commit timestamp; optionally infer dates for children with no trailer matches from pre-trailer commit subjects",
+      "path": "skills/rei-complete-from-commits",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "rei-ingest-markdown",
+      "description": "Ingest a pre-converted markdown file (with frontmatter) into Rei — reuse or create a link from the source URL, save the full markdown as an archive note, summarize it into a separate summary note, wire them with `archives` and `summarizes` edges, and classify the link with author-type, content-type, media, platform, and reused/new topical tags",
+      "path": "skills/rei-ingest-markdown",
+      "files": ["SKILL.md"]
+    }
+  ],
+  "agents": [
+    {
+      "name": "rei-custom-property-guide",
+      "description": "Guide users through creating and managing custom properties in Rei. Helps design property schemas, choose value types, configure category scopes, and create state machine workflows.",
+      "path": "agents",
+      "files": ["rei-custom-property-guide.md"]
+    }
+  ]
+}

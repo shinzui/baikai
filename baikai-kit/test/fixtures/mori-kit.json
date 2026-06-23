@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "skills": [
+    {
+      "name": "automation-config",
+      "version": "0.1.0",
+      "description": "Author, validate, and debug mori automation configurations",
+      "path": "skills/automation-config",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "mori-config",
+      "version": "0.1.0",
+      "description": "Author, validate, and edit mori.dhall project configurations",
+      "path": "skills/mori-config",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "cookbook-config",
+      "version": "0.1.0",
+      "description": "Author, validate, and edit mori/cookbook.dhall cookbook catalogs",
+      "path": "skills/cookbook-config",
+      "files": ["SKILL.md"]
+    },
+    {
+      "name": "mori-bootstrap-corpus",
+      "version": "0.1.0",
+      "description": "Bootstrap a complete corpus project from a repo name",
+      "path": "skills/mori-bootstrap-corpus",
+      "files": ["SKILL.md"]
+    }
+  ],
+  "agents": []
+}
