@@ -10,7 +10,7 @@ where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
 import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
-import Baikai.Kit.Config (KitConfig, KitScope (..), resolveAgentsBase, sidecarFileName)
+import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, sidecarFileName)
 import Baikai.Kit.Install (loadManifestMaybe, lookupItem)
 import Baikai.Kit.Manifest (AgentEntry, KitItem (..), agentSources, itemVersion)
 import Baikai.Kit.Repo (ensureKitRepo)
@@ -66,17 +66,15 @@ classify (Just sm) (Just it) mUpstreamHash =
 kitStatus :: KitConfig -> IO ()
 kitStatus config = do
   cacheDir <- resolveCacheOrEmpty config
-  userDir <- resolveAgentsBase config UserScope
-  projectDir <- resolveAgentsBase config ProjectScope
-  rows <- collectStatus config cacheDir [(userDir, "user"), (projectDir, "project")]
+  rows <- collectStatus config cacheDir [(UserScope, "user"), (ProjectScope, "project")]
   renderStatusTable rows
 
-collectStatus :: KitConfig -> FilePath -> [(FilePath, Text)] -> IO [StatusRow]
+collectStatus :: KitConfig -> FilePath -> [(KitScope, Text)] -> IO [StatusRow]
 collectStatus config cacheDir scopes = do
   mManifest <- loadManifestMaybe cacheDir
-  fmap concat . forM scopes $ \(baseDir, scopeText) -> do
-    items <- scanInstalled config baseDir
-    forM items $ \(provider, itemName', _itemKind) -> do
+  fmap concat . forM scopes $ \(scope, scopeText) -> do
+    items <- scanInstalled config scope
+    forM items $ \(provider, baseDir, itemName', _itemKind) -> do
       let mItem = lookupItem itemName' =<< mManifest
       mSidecar <- case mItem of
         Just item -> readSidecar (sidecarPath provider item baseDir (sidecarFileName config))
@@ -117,12 +115,13 @@ tryHash base files = do
     Right h -> pure (Just h)
     Left _ -> pure Nothing
 
-scanInstalled :: KitConfig -> FilePath -> IO [(AgentAssetProvider, Text, Text)]
-scanInstalled config baseDir = fmap concat $
+scanInstalled :: KitConfig -> KitScope -> IO [(AgentAssetProvider, FilePath, Text, Text)]
+scanInstalled config scope = fmap concat $
   forM (config ^. #providers) $ \provider -> do
+    baseDir <- providerAgentsBase config provider scope
     skillItems <- scanSkills provider (takeDirectory (baseDir </> skillTargetPath provider InteractiveProjectScope "__scan__"))
     agentItems <- scanAgents provider (takeDirectory (baseDir </> agentTargetPath provider InteractiveProjectScope "__scan__"))
-    pure (skillItems ++ agentItems)
+    pure [(provider', baseDir, itemName', kind) | (provider', itemName', kind) <- skillItems ++ agentItems]
 
 scanSkills :: AgentAssetProvider -> FilePath -> IO [(AgentAssetProvider, Text, Text)]
 scanSkills provider dir = do

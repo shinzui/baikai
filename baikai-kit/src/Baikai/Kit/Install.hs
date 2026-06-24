@@ -16,7 +16,7 @@ import Baikai.AgentAssets
     skillTargetPath,
   )
 import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (InteractiveProjectScope))
-import Baikai.Kit.Config (KitConfig, KitScope (..), kitCacheDir, resolveAgentsBase, scopeLabel, sidecarFileName)
+import Baikai.Kit.Config (KitConfig, KitScope (..), kitCacheDir, providerAgentsBase, scopeLabel, sidecarFileName)
 import Baikai.Kit.Manifest
   ( AgentEntry,
     KitItem (..),
@@ -92,18 +92,17 @@ installItem config itemN scope = do
       exitFailure
     Just item -> do
       doInstall config repoDir item scope
-      targetBase <- resolveAgentsBase config scope
       Text.IO.putStrLn $
-        "Installed " <> itemKind item <> " '" <> itemN <> "' to " <> Text.pack targetBase
+        "Installed " <> itemKind item <> " '" <> itemN <> "' to " <> scopeLabel scope <> " scope."
 
 uninstallItem :: KitConfig -> Text -> KitScope -> IO ()
 uninstallItem config n scope = do
-  targetBase <- resolveAgentsBase config scope
   removals <- fmap catMaybes $
     forM (config ^. #providers) $ \provider -> do
-      skillRemoved <- removeIfDirectory (skillTarget config provider targetBase n)
-      agentRemoved <- removeIfFile (agentTarget config provider targetBase n)
-      sidecarRemoved <- removeIfFile (agentSidecarTarget config provider targetBase n)
+      providerBase <- providerAgentsBase config provider scope
+      skillRemoved <- removeIfDirectory (skillTarget config provider providerBase n)
+      agentRemoved <- removeIfFile (agentTarget config provider providerBase n)
+      sidecarRemoved <- removeIfFile (agentSidecarTarget config provider providerBase n)
       pure $
         if skillRemoved
           then Just "skill"
@@ -163,7 +162,7 @@ doInstall config repoDir item@(KitSkillItem entry) scope = do
   let sourceDir = repoDir </> Text.unpack (entry ^. #path)
   hashStr <- computeKitHash sourceDir (entry ^. #files)
   forM_ (config ^. #providers) $ \provider -> do
-    targetBase <- resolveAgentsBase config scope
+    targetBase <- providerAgentsBase config provider scope
     let targetDir = skillTarget config provider targetBase (entry ^. #name)
     createDirectoryIfMissing True targetDir
     mapM_ (copySkillFile repoDir entry targetDir) (entry ^. #files)
@@ -179,7 +178,7 @@ doInstall config repoDir item@(KitAgentItem entry) scope = do
       hPutStrLn stderr $ "Error: agent '" <> Text.unpack (entry ^. #name) <> "' has no source files."
       exitFailure
   forM_ (config ^. #providers) $ \provider -> do
-    targetBase <- resolveAgentsBase config scope
+    targetBase <- providerAgentsBase config provider scope
     let dstFile = agentTarget config provider targetBase (entry ^. #name)
     createDirectoryIfMissing True (takeDirectory dstFile)
     case provider of
@@ -230,10 +229,10 @@ reinstallAllPresent config manifest = do
 
 isInstalled :: KitConfig -> Text -> KitScope -> IO Bool
 isInstalled config n scope = do
-  targetBase <- resolveAgentsBase config scope
   results <- forM (config ^. #providers) $ \provider -> do
-    skillExists <- doesDirectoryExist (skillTarget config provider targetBase n)
-    agentExists <- doesFileExist (agentTarget config provider targetBase n)
+    providerBase <- providerAgentsBase config provider scope
+    skillExists <- doesDirectoryExist (skillTarget config provider providerBase n)
+    agentExists <- doesFileExist (agentTarget config provider providerBase n)
     pure (skillExists || agentExists)
   pure (or results)
 

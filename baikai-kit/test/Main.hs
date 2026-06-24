@@ -131,13 +131,14 @@ installRoundTripTests =
     [ testCase "skill and agent round-trip through Claude and Codex layouts with sidecars" $
         withPreparedKitHome $ \home _cache -> do
           let config = testConfig
-              base = home </> ".config" </> "testkit" </> "agents"
-              claudeSkill = base </> ".claude" </> "skills" </> "demo"
-              codexSkill = base </> ".agents" </> "skills" </> "demo"
-              claudeAgent = base </> ".claude" </> "agents" </> "reviewer.md"
-              codexAgent = base </> ".codex" </> "agents" </> "reviewer.toml"
-              claudeAgentSidecar = base </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
-              codexAgentSidecar = base </> ".codex" </> "agents" </> "reviewer.testkit-kit.json"
+              claudeBase = home </> ".config" </> "testkit" </> "agents"
+              codexBase = home
+              claudeSkill = claudeBase </> ".claude" </> "skills" </> "demo"
+              codexSkill = codexBase </> ".agents" </> "skills" </> "demo"
+              claudeAgent = claudeBase </> ".claude" </> "agents" </> "reviewer.md"
+              codexAgent = codexBase </> ".codex" </> "agents" </> "reviewer.toml"
+              claudeAgentSidecar = claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
+              codexAgentSidecar = codexBase </> ".codex" </> "agents" </> "reviewer.testkit-kit.json"
           installItem config "demo" UserScope
           assertFileExists (claudeSkill </> "SKILL.md")
           assertFileExists (codexSkill </> "SKILL.md")

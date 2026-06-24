@@ -5,12 +5,14 @@ module Baikai.Kit.Config
     userAgentsDir,
     projectAgentsDir,
     resolveAgentsBase,
+    providerAgentsBase,
     sidecarFileName,
     scopeLabel,
   )
 where
 
 import Baikai.AgentAssets (AgentAssetProvider)
+import Baikai.Interactive (InteractiveProvider (..))
 import Baikai.Prelude
 import Data.Text qualified as Text
 import System.Directory (getCurrentDirectory, getHomeDirectory)
@@ -46,6 +48,11 @@ projectAgentsDir config = do
 resolveAgentsBase :: KitConfig -> KitScope -> IO FilePath
 resolveAgentsBase config UserScope = userAgentsDir config
 resolveAgentsBase config ProjectScope = projectAgentsDir config
+
+providerAgentsBase :: KitConfig -> AgentAssetProvider -> KitScope -> IO FilePath
+providerAgentsBase config InteractiveClaude scope = resolveAgentsBase config scope
+providerAgentsBase _config InteractiveCodex UserScope = getHomeDirectory
+providerAgentsBase _config InteractiveCodex ProjectScope = getCurrentDirectory
 
 sidecarFileName :: KitConfig -> Text
 sidecarFileName config = "." <> (config ^. #toolName) <> "-kit.json"
