@@ -53,16 +53,16 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `baikai-kit` to `rei`'s build inputs (cabal.project subdir + rei-cli `.cabal`
+- [x] M1: Add `baikai-kit` to `rei`'s build inputs (cabal.project subdir + rei-cli `.cabal`
   build-depends); `cabal build all` green with the dependency resolvable but not yet used.
-- [ ] M2: Replace `Rei.Cli.Commands.Kit.{Types,Handler,Paths}` with a thin adapter
+- [x] M2: Replace `Rei.Cli.Commands.Kit.{Types,Handler,Paths}` with a thin adapter
   (`reiKitConfig`, keep `Parser`, wire install → picker + `installItem`, others → `runKit`);
   delete the old logic; build green.
-- [ ] M3: Replace rei's local `agentDirsForSession` with
+- [x] M3: Replace rei's local `agentDirsForSession` with
   `Baikai.Kit.Session.agentDirsForSession reiKitConfig` at all call sites; remove the
   rei-core helper and its re-export.
-- [ ] M4: Port/trim the Kit test suite; run `rei`'s test suites green.
-- [ ] M5: Manual verification against the real `rei-kit`, including the FZF picker path and
+- [x] M4: Port/trim the Kit test suite; run `rei`'s test suites green.
+- [x] M5: Manual verification against the real `rei-kit`, including the FZF picker path and
   the Codex output layout.
 
 
@@ -94,6 +94,24 @@ implementation. Provide concise evidence.
   general-purpose `Rei.Cli.Fzf` module. The picker logic (building `Candidate` values from
   skills+agents, the `[skill]`/`[agent]` type tags, the prompt/header/height options) must
   be carried into the new adapter verbatim; only the surrounding install plumbing changes.
+
+- Discovery (2026-06-23, during implementation): the first `baikai-kit` implementation
+  installed Codex assets under the tool agent base (for example `.rei/agents/.agents/...`),
+  but rei's documented and current behavior installs Codex assets in Codex-native roots
+  (`.agents/skills/...` and `.codex/agents/...` for project scope, under `$HOME` for user
+  scope). EP-3 fixed this in the shared package by adding provider-specific base resolution:
+  Claude still installs under `~/.config/<tool>/agents` / `.<tool>/agents`, while Codex
+  installs under `$HOME` / the current project root. The final rei pin includes this fix.
+
+- Discovery (2026-06-23, during manual smoke): once rei used both Claude and Codex providers,
+  the package's status renderer initially printed duplicate rows for the same item/scope.
+  `baikai-kit` now aggregates matching status rows and prints a `PROVIDERS` column such as
+  `claude,codex`, preserving rei's previous status shape while keeping version/hash state.
+
+- Discovery (2026-06-23, during build): bumping rei from its old baikai pin to the commit
+  containing `baikai-kit` also picked up the newer structured `BaikaiError` API. Rei's batch
+  backend renderer now switches on `ErrorCategory` and uses the record fields instead of old
+  error constructors (`ProviderError`, `RequestInvalid`, `DecodeError`, `ProcessError`).
 
 
 ## Decision Log
@@ -140,7 +158,45 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-3 is complete as of 2026-06-24T00:22:01Z. The `rei` repository now depends on
+`baikai-kit` from baikai commit `a219ace81af9fd8202e1805a16e9ed21356ad214`, with the
+`baikai-kit` subdir added to `cabal.project` and `baikai-kit` added to `rei-cli.cabal`.
+The rei kit command surface remains local, including the optional-NAME parser and FZF
+picker, but the old git/manifest/install/update/uninstall/status/path logic is gone:
+`Handler.hs` is a small adapter over `Baikai.Kit.Command`, `Baikai.Kit.Install`, and
+`Baikai.Kit.Repo`; `Paths.hs` and `PathsSpec.hs` were deleted; `Types.hs` now contains
+only command option records.
+
+Session discovery moved out of `rei-core` as intended. `rei-cli` imports
+`Rei.Cli.Commands.Kit.Config.reiKitConfig` and calls
+`Baikai.Kit.Session.agentDirsForSession reiKitConfig` at the existing interactive-agent
+call sites. `rei-core` no longer defines or re-exports `agentDirsForSession` and did not
+gain a `baikai-kit` dependency.
+
+Validation completed:
+
+- `cabal build all` passed in `rei`.
+- `cabal test all` passed in `rei`: `rei-cli-test` 2 tests and `rei-core-test` 935 tests.
+- `nix fmt` ran successfully.
+- Manual smoke in `/tmp/rei-kit-smoke` with isolated `HOME` verified `rei kit list` against
+  the real `rei-kit`, project-scope install of skill `rei-bootstrap`, project-scope install
+  of agent `rei-custom-property-guide`, on-disk Claude and Codex layouts
+  (`.rei/agents/.claude/...`, `.agents/skills/...`, `.codex/agents/...`), aggregated
+  `rei kit status` with `PROVIDERS = claude,codex`, clean serial `rei kit update`,
+  project-scope uninstall for both items, and final `No kit items installed`.
+- The no-NAME install path was exercised in the noninteractive environment; because FZF was
+  unavailable there, rei printed the preserved fallback message:
+  `Error: no NAME given and fzf is not available. Please run 'rei kit install <name>'.`
+- Direct evaluation of `Baikai.Kit.Session.agentDirsForSession reiKitConfig` from a Rei
+  component REPL returned the expected smoke add-dir roots:
+  `/tmp/rei-kit-smoke/home/.config/rei/agents` and
+  `/private/tmp/rei-kit-smoke/work/.rei/agents`.
+
+Implementation commits:
+
+- `baikai` `0552fa3` — `fix(kit): install codex assets in native roots`
+- `baikai` `a219ace` — `fix(kit): aggregate status by provider`
+- `rei` `c089e6d9` — `refactor(kit): migrate rei to baikai-kit`
 
 
 ## Context and Orientation

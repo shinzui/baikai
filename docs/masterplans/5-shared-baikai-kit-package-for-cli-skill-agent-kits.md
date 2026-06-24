@@ -98,7 +98,7 @@ pure abstraction core; a sibling package matches the existing layout
 |---|-------|------|-----------|-----------|--------|
 | 1 | Build the baikai-kit package | docs/plans/26-build-the-baikai-kit-package.md | None | None | Complete |
 | 2 | Migrate mori onto baikai-kit | docs/plans/27-migrate-mori-onto-baikai-kit.md | EP-1 | None | Complete |
-| 3 | Migrate rei onto baikai-kit | docs/plans/28-migrate-rei-onto-baikai-kit.md | EP-1 | EP-2 | Not Started |
+| 3 | Migrate rei onto baikai-kit | docs/plans/28-migrate-rei-onto-baikai-kit.md | EP-1 | EP-2 | Complete |
 | 4 | Migrate seihou onto baikai-kit | docs/plans/29-migrate-seihou-onto-baikai-kit.md | EP-1 | EP-2 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -182,6 +182,8 @@ data KitConfig = KitConfig
 kitCacheDir     :: KitConfig -> IO FilePath        -- ~/.cache/<tool>/kit
 userAgentsDir   :: KitConfig -> IO FilePath        -- ~/.config/<tool>/agents
 projectAgentsDir:: KitConfig -> IO FilePath        -- <cwd>/.<tool>/agents
+providerAgentsBase :: KitConfig -> AgentAssetProvider -> KitScope -> IO FilePath
+                                                    -- Claude: tool agent base; Codex: native roots
 sidecarFileName :: KitConfig -> Text               -- ".<tool>-kit.json"
 
 -- Baikai.Kit.Repo
@@ -209,7 +211,7 @@ computeKitHash  :: FilePath -> [Text] -> IO Text      -- deterministic "sha256:<
 data KitState = KitUpToDate | KitOutdated | KitDirty | KitUnknown
 data StatusRow = StatusRow { ... }
 classify        :: Maybe SidecarMeta -> Maybe KitItem -> Maybe Text -> KitState
-collectStatus   :: KitConfig -> FilePath -> [(FilePath, Text)] -> IO [StatusRow]
+collectStatus   :: KitConfig -> FilePath -> [(KitScope, Text)] -> IO [StatusRow]
 kitStatus       :: KitConfig -> IO ()
 
 -- Baikai.Kit.Session
@@ -286,8 +288,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-1: Tag/record the published `baikai-kit` version for consumers
 - [x] EP-2: Add `baikai-kit` dependency to `mori`, replace `Mori.Command.Kit` with adapter, build green
 - [x] EP-2: Verify `mori kit list/install/update/uninstall/status` against real `mori-kit`; verify interactive `--add-dir` discovery
-- [ ] EP-3: Add `baikai-kit` dependency to `rei`, replace `Rei.Cli.Commands.Kit.*` with adapter (preserve FZF picker), build green
-- [ ] EP-3: Verify `rei kit ...` against real `rei-kit`; verify interactive discovery
+- [x] EP-3: Add `baikai-kit` dependency to `rei`, replace `Rei.Cli.Commands.Kit.*` with adapter (preserve FZF picker), build green
+- [x] EP-3: Verify `rei kit ...` against real `rei-kit`; verify interactive discovery
 - [ ] EP-4: Add `baikai-kit` dependency to `seihou`, replace `Seihou.CLI.Kit`/`KitPaths` with adapter, build green
 - [ ] EP-4: Verify `seihou kit ...` against real `seihou-kit`; verify interactive discovery
 
@@ -346,6 +348,20 @@ interactions between child plans. Provide concise evidence.
   evaluation of `Baikai.Kit.Session.agentDirsForSession moriKitConfig` from the throwaway project
   returned the expected existing add-dir roots, including `/private/tmp/mori-kit-verify/.mori/agents`.
 
+- Discovery (2026-06-23, during EP-3 implementation): rei forced two shared-package
+  corrections before the migration could preserve behavior. First, Codex assets must install
+  into Codex-native roots (`$HOME` / project root) rather than under `.<tool>/agents`; Claude
+  assets still use the tool agent base for `--add-dir` discovery. Second, multi-provider status
+  output must aggregate matching rows and show `PROVIDERS = claude,codex` rather than duplicate
+  rows. These fixes landed in `baikai` commits `0552fa3` and `a219ace`; rei pins the latter.
+
+- Discovery (2026-06-23, EP-3 completion): rei pins `baikai`/`baikai-kit` at
+  `a219ace81af9fd8202e1805a16e9ed21356ad214`. `cabal test all` passed (`rei-cli-test` 2 tests,
+  `rei-core-test` 935 tests), and manual verification covered `rei kit list`, project-scope skill
+  and agent installs, status, update, uninstall, the no-NAME noninteractive FZF fallback, and
+  session add-dir discovery against the real `rei-kit` manifest. The installed paths were
+  `.rei/agents/.claude/...` for Claude and `.agents/...` / `.codex/...` for Codex.
+
 
 ## Decision Log
 
@@ -402,6 +418,12 @@ EP-2 is complete as of 2026-06-23. The mori repository now consumes `baikai-kit`
 Cabal and Nix source-pin mechanisms, has a thin kit adapter, delegates cwd-based session discovery
 to `Baikai.Kit.Session`, and passes its focused test suite and manual kit-command verification.
 
+EP-3 is complete as of 2026-06-24T00:22:01Z. The rei repository now consumes `baikai-kit`
+through its existing `cabal.project` baikai source-repository pin, has a thin kit adapter that
+preserves rei's optional-NAME FZF install flow, delegates session directory discovery from
+rei-cli, and passes `cabal build all`, `cabal test all`, and manual real-`rei-kit` lifecycle
+verification.
+
 Revision note (2026-06-23): Marked EP-1 complete after implementing and validating
 `baikai-kit-0.1.0.0`; recorded validation evidence and the package version for EP-2 through EP-4.
 
@@ -411,3 +433,6 @@ hex rendering path.
 
 Revision note (2026-06-23): Marked EP-2 complete after migrating mori to `baikai-kit`, recording
 the final baikai pin and mori validation evidence.
+
+Revision note (2026-06-24): Marked EP-3 complete after migrating rei to `baikai-kit`, recording
+the final baikai pin, the two shared-package behavior fixes, and rei validation evidence.
