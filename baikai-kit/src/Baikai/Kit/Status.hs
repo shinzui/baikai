@@ -9,7 +9,7 @@ module Baikai.Kit.Status
 where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
-import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
+import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (InteractiveProjectScope))
 import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, sidecarFileName)
 import Baikai.Kit.Install (loadManifestMaybe, lookupItem)
 import Baikai.Kit.Manifest (AgentEntry, KitItem (..), agentSources, itemVersion)
@@ -18,7 +18,7 @@ import Baikai.Kit.Sidecar (SidecarMeta, computeKitHash, readSidecar, sidecarPath
 import Baikai.Prelude
 import Control.Exception (IOException, try)
 import Control.Monad (forM)
-import Data.List (isPrefixOf, isSuffixOf)
+import Data.List (groupBy, isPrefixOf, isSuffixOf, nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -30,12 +30,13 @@ data KitState
   | KitOutdated
   | KitDirty
   | KitUnknown
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Ord, Show)
 
 data StatusRow = StatusRow
   { name :: !Text,
     kind :: !Text,
     scope :: !Text,
+    providers :: !Text,
     installedVersion :: !(Maybe Text),
     latestVersion :: !(Maybe Text),
     state :: !KitState
@@ -86,6 +87,7 @@ collectStatus config cacheDir scopes = do
           { name = itemName',
             kind = maybe _itemKind itemKindOf mItem,
             scope = scopeText,
+            providers = providerLabel provider,
             installedVersion = mSidecar >>= (^. #version),
             latestVersion = mItem >>= itemVersion,
             state = state'
@@ -145,34 +147,56 @@ scanAgents provider dir = do
 renderStatusTable :: [StatusRow] -> IO ()
 renderStatusTable [] = Text.IO.putStrLn "No kit items installed."
 renderStatusTable rows = do
-  let nameW = colWidth "NAME" (^. #name)
-      kindW = colWidth "TYPE" (^. #kind)
-      scopeW = colWidth "SCOPE" (^. #scope)
-      instW = colWidth "INSTALLED" (renderMVer . view #installedVersion)
-      latW = colWidth "LATEST" (renderMVer . view #latestVersion)
+  let displayRows = aggregateStatusRows rows
+      nameW = colWidth displayRows "NAME" (^. #name)
+      kindW = colWidth displayRows "TYPE" (^. #kind)
+      scopeW = colWidth displayRows "SCOPE" (^. #scope)
+      providersW = colWidth displayRows "PROVIDERS" (^. #providers)
+      instW = colWidth displayRows "INSTALLED" (renderMVer . view #installedVersion)
+      latW = colWidth displayRows "LATEST" (renderMVer . view #latestVersion)
       hdr =
         Text.justifyLeft (nameW + 2) ' ' "NAME"
           <> Text.justifyLeft (kindW + 2) ' ' "TYPE"
           <> Text.justifyLeft (scopeW + 2) ' ' "SCOPE"
+          <> Text.justifyLeft (providersW + 2) ' ' "PROVIDERS"
           <> Text.justifyLeft (instW + 2) ' ' "INSTALLED"
           <> Text.justifyLeft (latW + 2) ' ' "LATEST"
           <> "STATE"
   Text.IO.putStrLn hdr
-  mapM_ (printRow nameW kindW scopeW instW latW) rows
+  mapM_ (printRow nameW kindW scopeW providersW instW latW) displayRows
   where
-    colWidth colTitle f =
-      maximum (Text.length colTitle : map (Text.length . f) rows)
+    colWidth displayRows colTitle f =
+      maximum (Text.length colTitle : map (Text.length . f) displayRows)
 
     renderMVer = fromMaybe "-"
 
-    printRow nameW kindW scopeW instW latW row =
+    printRow nameW kindW scopeW providersW instW latW row =
       Text.IO.putStrLn $
         Text.justifyLeft (nameW + 2) ' ' (row ^. #name)
           <> Text.justifyLeft (kindW + 2) ' ' (row ^. #kind)
           <> Text.justifyLeft (scopeW + 2) ' ' (row ^. #scope)
+          <> Text.justifyLeft (providersW + 2) ' ' (row ^. #providers)
           <> Text.justifyLeft (instW + 2) ' ' (renderMVer (row ^. #installedVersion))
           <> Text.justifyLeft (latW + 2) ' ' (renderMVer (row ^. #latestVersion))
           <> renderState (row ^. #state)
+
+aggregateStatusRows :: [StatusRow] -> [StatusRow]
+aggregateStatusRows rows =
+  map summarize grouped
+  where
+    grouped = groupBy sameKey $ sortOn rowKey rows
+    rowKey row =
+      ( row ^. #name,
+        row ^. #kind,
+        row ^. #scope,
+        row ^. #installedVersion,
+        row ^. #latestVersion,
+        row ^. #state
+      )
+    sameKey a b = rowKey a == rowKey b
+    summarize groupRows@(firstRow : _) =
+      firstRow & #providers .~ Text.intercalate "," (sort (nub (map (^. #providers) groupRows)))
+    summarize [] = error "aggregateStatusRows: empty group"
 
 itemKindOf :: KitItem -> Text
 itemKindOf KitSkillItem {} = "skill"
@@ -196,6 +220,10 @@ dropAgentExtension :: AgentAssetProvider -> FilePath -> FilePath
 dropAgentExtension provider file =
   let ext = agentExtension provider
    in take (length file - length ext) file
+
+providerLabel :: AgentAssetProvider -> Text
+providerLabel InteractiveClaude = "claude"
+providerLabel InteractiveCodex = "codex"
 
 visible :: FilePath -> Bool
 visible = not . ("." `isPrefixOf`)
