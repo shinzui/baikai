@@ -48,19 +48,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `baikai` and `baikai-kit` to mori's build (flake input + `nix/haskell-overlay.nix`
+- [x] M1: Add `baikai` and `baikai-kit` to mori's build (flake input + `nix/haskell-overlay.nix`
   + `cabal.project` source-repository-package + `mori-cli.cabal` `build-depends`). `cabal build
   mori-cli` succeeds with the new dependency resolvable.
-- [ ] M2: Replace `Mori.Command.Kit` with a thin adapter that defines `moriKitConfig` and
+  Completed: 2026-06-23T23:58:46Z.
+- [x] M2: Replace `Mori.Command.Kit` with a thin adapter that defines `moriKitConfig` and
   re-exposes `kitCommandParser` plus a `runKit`-calling wrapper; delete the old logic; update the
   `Mori.Cli` dispatch site.
-- [ ] M3: Replace the interactive-session `agentDirsForSession` body with
+  Completed: 2026-06-23T23:58:46Z.
+- [x] M3: Replace the interactive-session `agentDirsForSession` body with
   `Baikai.Kit.Session.agentDirsForSession moriKitConfig`; reconcile the one non-cwd caller
   (`agentDirsForRoot projectRootFp` at `Agent.hs:2572`).
-- [ ] M4: Port/trim `Mori.Command.KitSpec` (the pure logic now lives in `baikai-kit`); keep only
+  Completed: 2026-06-23T23:58:46Z.
+- [x] M4: Port/trim `Mori.Command.KitSpec` (the pure logic now lives in `baikai-kit`); keep only
   mori-specific wiring tests; run mori's test suite green.
-- [ ] M5: Manual verification against the real `mori-kit` repo (all five subcommands, path
+  Completed: 2026-06-23T23:58:46Z.
+- [x] M5: Manual verification against the real `mori-kit` repo (all five subcommands, path
   equivalence, interactive discovery).
+  Completed: 2026-06-23T23:58:46Z.
 
 
 ## Surprises & Discoveries
@@ -89,6 +94,17 @@ implementation. Provide concise evidence.
   `Baikai.Kit.Session` before swapping, so an interactive launch never passes a nonexistent
   `--add-dir`.
 
+- Discovery (2026-06-23, during M1 validation): the first mori build against
+  `baikai-kit-0.1.0.0` selected `memory-0.18.0`, which broke the old `convertToBase Base16`
+  digest rendering copied from mori. EP-26 was amended and republished at
+  `d0ac866907239189d8f30efc42ddb6cd14ba0e4d`; mori pins that SHA. `baikai-kit` now uses crypton's
+  digest `Show` instance and no longer depends on `memory`.
+
+- Discovery (2026-06-23, during M5 validation): `mori kit status` in the developer environment
+  showed unrelated pre-existing user-scope kit installs in addition to the throwaway project-scope
+  row. The project-scope `mori-config` row was the validation target and reported
+  `0.1.0 / 0.1.0 / up-to-date`.
+
 
 ## Decision Log
 
@@ -113,6 +129,26 @@ Summarize outcomes, gaps, and lessons learned at major milestones or at completi
 Compare the result against the original purpose.
 
 (To be filled during and after implementation.)
+
+Completed on 2026-06-23. The mori repository now pins `baikai`/`baikai-kit` at
+`d0ac866907239189d8f30efc42ddb6cd14ba0e4d` through both `cabal.project` and `flake.nix` /
+`flake.lock`, exposes those packages through `nix/haskell-overlay.nix`, and adds `baikai` plus
+`baikai-kit` to `mori-cli`'s library build-depends. `Mori.Command.Kit` is now a thin adapter with
+`moriKitConfig`, `kitCommandParser`, and `runKit`; the old copied implementation and
+`Mori.Command.KitSpec` are removed; the test driver no longer imports `KitSpec`; and
+`Mori.Command.Agent.agentDirsForSession` delegates to `Baikai.Kit.Session.agentDirsForSession
+moriKitConfig` while `agentDirsForRoot` remains local for the registered-project-root caller.
+
+Validation evidence: `cabal build mori-cli` succeeded, `cabal test mori-cli` passed all 310 tests,
+`mori kit list` listed the four real `mori-kit` skills, `mori kit install mori-config --project`
+installed to `.mori/agents/.claude/skills/mori-config/` with `SKILL.md` and `.mori-kit.json`, the
+installed `SKILL.md` matched the source fixture by `diff -q`, no `.agents` or `.codex` layout was
+created, `mori kit status` reported the project row as up-to-date, `mori kit update mori-config`
+reinstalled the project item using a seeded isolated cache, and `mori kit uninstall mori-config
+--project` removed the project-scope directory. Direct helper verification with
+`Baikai.Kit.Session.agentDirsForSession moriKitConfig` after setting cwd to `/tmp/mori-kit-verify`
+returned the existing user agents directory plus `/private/tmp/mori-kit-verify/.mori/agents`,
+matching the old `agentDirsForRoot` semantics for cwd-based launches.
 
 
 ## Context and Orientation
@@ -517,6 +553,10 @@ Install/verification tests must prefer `--project` scope in a throwaway director
 at `$HOME/.cache/mori/kit` and is a read-only `--depth 1` clone of `mori-kit`; verification reads it
 but should not modify it. If the cache is corrupted, delete `$HOME/.cache/mori/kit` and rerun any
 `mori kit` command to re-clone.
+
+Revision note (2026-06-23): Implemented the mori migration, recorded the final baikai pin
+`d0ac866907239189d8f30efc42ddb6cd14ba0e4d`, captured the memory-0.18 hash-rendering discovery, and
+documented build, test, and manual kit-command validation.
 
 
 ## Interfaces and Dependencies

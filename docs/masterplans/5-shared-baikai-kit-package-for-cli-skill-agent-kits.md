@@ -97,7 +97,7 @@ pure abstraction core; a sibling package matches the existing layout
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Build the baikai-kit package | docs/plans/26-build-the-baikai-kit-package.md | None | None | Complete |
-| 2 | Migrate mori onto baikai-kit | docs/plans/27-migrate-mori-onto-baikai-kit.md | EP-1 | None | Not Started |
+| 2 | Migrate mori onto baikai-kit | docs/plans/27-migrate-mori-onto-baikai-kit.md | EP-1 | None | Complete |
 | 3 | Migrate rei onto baikai-kit | docs/plans/28-migrate-rei-onto-baikai-kit.md | EP-1 | EP-2 | Not Started |
 | 4 | Migrate seihou onto baikai-kit | docs/plans/29-migrate-seihou-onto-baikai-kit.md | EP-1 | EP-2 | Not Started |
 
@@ -284,8 +284,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-1: Port manifest + config + repo + install + sidecar + status + session modules
 - [x] EP-1: Port and extend the test suite (manifest backward-compat fixtures, hash determinism, classify, install round-trip)
 - [x] EP-1: Tag/record the published `baikai-kit` version for consumers
-- [ ] EP-2: Add `baikai-kit` dependency to `mori`, replace `Mori.Command.Kit` with adapter, build green
-- [ ] EP-2: Verify `mori kit list/install/update/uninstall/status` against real `mori-kit`; verify interactive `--add-dir` discovery
+- [x] EP-2: Add `baikai-kit` dependency to `mori`, replace `Mori.Command.Kit` with adapter, build green
+- [x] EP-2: Verify `mori kit list/install/update/uninstall/status` against real `mori-kit`; verify interactive `--add-dir` discovery
 - [ ] EP-3: Add `baikai-kit` dependency to `rei`, replace `Rei.Cli.Commands.Kit.*` with adapter (preserve FZF picker), build green
 - [ ] EP-3: Verify `rei kit ...` against real `rei-kit`; verify interactive discovery
 - [ ] EP-4: Add `baikai-kit` dependency to `seihou`, replace `Seihou.CLI.Kit`/`KitPaths` with adapter, build green
@@ -336,6 +336,15 @@ interactions between child plans. Provide concise evidence.
   hash-rendering approach no longer supplied the needed `ByteArrayAccess (Digest SHA256)`
   instance. `baikai-kit` now renders `Digest SHA256` through crypton's hex `Show` instance and
   no longer depends on `memory`; the `sha256:<hex>` output contract remains unchanged.
+
+- Discovery (2026-06-23, EP-2 completion): mori pins `baikai`/`baikai-kit` at
+  `d0ac866907239189d8f30efc42ddb6cd14ba0e4d`. `cabal test mori-cli` passed all 310 tests, and
+  manual verification covered `mori kit list`, project-scope install, status, update, and
+  uninstall against the real `mori-kit` manifest. The installed path remained
+  `.mori/agents/.claude/skills/mori-config/`, the installed `SKILL.md` matched the source, and no
+  Codex layout was created because `moriKitConfig.providers = [InteractiveClaude]`. Direct
+  evaluation of `Baikai.Kit.Session.agentDirsForSession moriKitConfig` from the throwaway project
+  returned the expected existing add-dir roots, including `/private/tmp/mori-kit-verify/.mori/agents`.
 
 
 ## Decision Log
@@ -389,9 +398,16 @@ package at version `0.1.0.0`; the package is wired into `cabal.project`, builds 
 of the repository, and has a passing focused test suite. The initiative is not complete yet:
 the remaining outcomes depend on migrating `mori`, `rei`, and `seihou` in EP-2 through EP-4.
 
+EP-2 is complete as of 2026-06-23. The mori repository now consumes `baikai-kit` through its
+Cabal and Nix source-pin mechanisms, has a thin kit adapter, delegates cwd-based session discovery
+to `Baikai.Kit.Session`, and passes its focused test suite and manual kit-command verification.
+
 Revision note (2026-06-23): Marked EP-1 complete after implementing and validating
 `baikai-kit-0.1.0.0`; recorded validation evidence and the package version for EP-2 through EP-4.
 
 Revision note (2026-06-23): Updated the `baikai-kit` dependency contract after EP-2 exposed a
 `memory-0.18.0` compatibility issue in hash rendering; `crypton` alone now provides the digest
 hex rendering path.
+
+Revision note (2026-06-23): Marked EP-2 complete after migrating mori to `baikai-kit`, recording
+the final baikai pin and mori validation evidence.
