@@ -13,6 +13,7 @@ record you pass.
 | `baikai`        | The core surface: `Model`, `Context`, `Options`, `Tool`, the event stream, the registry, the generated model catalog. |
 | `baikai-claude` | Anthropic Messages API + `claude -p` CLI providers. Exposes `register :: IO ()` per provider. |
 | `baikai-openai` | OpenAI Chat Completions API + `codex exec` CLI providers. Same `register` shape. |
+| `baikai-kit`    | Shared kit installer for tools that install local AI-agent skills and subagents from a git repository. |
 | `baikai-smoke`  | Internal live test suite — useful as worked examples.                         |
 
 You depend on `baikai` plus whichever vendor packages you need. The
@@ -40,6 +41,10 @@ build-depends:
   , baikai-claude
   , baikai-openai
 ```
+
+If your application also exposes a `kit` command, add the `baikai-kit`
+subdirectory to the same git pin and add `baikai-kit` to
+`build-depends`; see [Kit Packages](kit.md).
 
 ## Register providers
 
@@ -184,3 +189,5 @@ cover — see [Models & Providers](models-and-providers.md).
 - [CLI Providers](cli-providers.md) — driving `claude -p` and
   `codex exec` as subprocess providers (use your existing Claude
   Max / ChatGPT Plus subscription instead of an API key).
+- [Kit Packages](kit.md) — installing provider-native skills and
+  subagents from a git-hosted kit repository.

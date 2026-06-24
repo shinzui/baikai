@@ -6,10 +6,11 @@ it computes layout metadata and paths, but it does not clone kit
 repositories, copy files, scan installations, repair updates, or remove
 content.
 
-A kit installer should use Baikai for provider discovery rules, then own
-the rest of its lifecycle. That application still decides which manifest
-format to read, which items to install, how to copy directories or files,
-how to report status, how to handle updates, and how to uninstall.
+Use this module when your application already owns asset lifecycle and
+only needs provider path rules. Use [Kit Packages](kit.md) when you want
+the shared `kit` command implementation: repository clone/update,
+manifest parsing, install/update/uninstall, status, sidecars, and
+session directory discovery.
 
 ## Layout Helpers
 
