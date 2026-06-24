@@ -99,7 +99,7 @@ pure abstraction core; a sibling package matches the existing layout
 | 1 | Build the baikai-kit package | docs/plans/26-build-the-baikai-kit-package.md | None | None | Complete |
 | 2 | Migrate mori onto baikai-kit | docs/plans/27-migrate-mori-onto-baikai-kit.md | EP-1 | None | Complete |
 | 3 | Migrate rei onto baikai-kit | docs/plans/28-migrate-rei-onto-baikai-kit.md | EP-1 | EP-2 | Complete |
-| 4 | Migrate seihou onto baikai-kit | docs/plans/29-migrate-seihou-onto-baikai-kit.md | EP-1 | EP-2 | Not Started |
+| 4 | Migrate seihou onto baikai-kit | docs/plans/29-migrate-seihou-onto-baikai-kit.md | EP-1 | EP-2 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -263,11 +263,11 @@ differently — this was confirmed during EP-2/3/4 research and is the main cros
   `cabal.project` (pinned to a baikai git tag), with no flake input and no overlay entry;
   EP-3 adds `baikai-kit` by extending that same `cabal.project` subdir list plus the
   `rei-cli.cabal` build-depends — no flake/overlay change.
-- `seihou` pins **no** baikai source in `cabal.project`; `baikai`/`baikai-claude`/
-  `baikai-openai` arrive through a shared `haskell-nix` registry overlay
-  (`flake.module.nix`). EP-4 adds `baikai-kit` as a plain build-depends resolved by that
-  overlay, with a documented temporary `source-repository-package` fallback if the registry
-  has not yet surfaced `baikai-kit`.
+- `seihou` had consumed `baikai`/`baikai-claude`/`baikai-openai` from the shared
+  `haskell-nix` registry overlay, but that registry entry was stale and did not surface
+  `baikai-kit`. EP-4 therefore pins the same Baikai commit in both `cabal.project`
+  (`source-repository-package` entries for all four subpackages) and `flake.nix`
+  (`baikai-src`, consumed by `nix/haskell-overlay.nix`).
 
 The implication for EP-1: for `seihou` (and `mori`'s overlay) to resolve `baikai-kit`
 without a manual source pin, the new package should be surfaced through the same shared
@@ -290,8 +290,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-2: Verify `mori kit list/install/update/uninstall/status` against real `mori-kit`; verify interactive `--add-dir` discovery
 - [x] EP-3: Add `baikai-kit` dependency to `rei`, replace `Rei.Cli.Commands.Kit.*` with adapter (preserve FZF picker), build green
 - [x] EP-3: Verify `rei kit ...` against real `rei-kit`; verify interactive discovery
-- [ ] EP-4: Add `baikai-kit` dependency to `seihou`, replace `Seihou.CLI.Kit`/`KitPaths` with adapter, build green
-- [ ] EP-4: Verify `seihou kit ...` against real `seihou-kit`; verify interactive discovery
+- [x] EP-4: Add `baikai-kit` dependency to `seihou`, replace `Seihou.CLI.Kit`/`KitPaths` with adapter, build green
+- [x] EP-4: Verify `seihou kit ...` against real `seihou-kit`; verify interactive discovery
 
 
 ## Surprises & Discoveries
@@ -309,9 +309,9 @@ interactions between child plans. Provide concise evidence.
 - Discovery (2026-06-23, during EP-2/3/4 drafting): the three tools resolve baikai by three
   different build mechanisms (mori: none today / full Nix wiring; rei: `cabal.project`
   source-repo subdir pin; seihou: shared `haskell-nix` registry overlay). Captured in the
-  Integration Points "Cross-repository release mechanics" entry above. EP-1 should surface
-  `baikai-kit` through the shared registry overlay so seihou/mori resolve it without manual
-  pins.
+  Integration Points "Cross-repository release mechanics" entry above. EP-4 later refined the
+  seihou case: the registry entry was stale, so seihou now uses explicit Cabal and Nix Baikai
+  pins until the shared package set is refreshed.
 
 - Discovery (2026-06-23, during EP-2 drafting): `mori`'s session-discovery helper
   `agentDirsForRoot` takes a `projectRoot` argument and has one caller (the `mori agent ask`
@@ -362,6 +362,19 @@ interactions between child plans. Provide concise evidence.
   session add-dir discovery against the real `rei-kit` manifest. The installed paths were
   `.rei/agents/.claude/...` for Claude and `.agents/...` / `.codex/...` for Codex.
 
+- Discovery (2026-06-24, EP-4 implementation): seihou also pins `baikai`/`baikai-kit` at
+  `a219ace81af9fd8202e1805a16e9ed21356ad214`, but unlike rei it needs both Cabal and Nix pins.
+  Cabal uses four `source-repository-package` subdir entries; Nix uses a new non-flake
+  `baikai-src` input and overlay packages for `baikai`, `baikai-claude`, `baikai-openai`, and
+  `baikai-kit`. The overlay must replace dangling staged `LICENSE`/`CHANGELOG.md` symlinks with
+  files copied from the Baikai repo root before `callCabal2nix` builds the subpackages.
+
+- Discovery (2026-06-24, EP-4 manual smoke): the shared status implementation reports `STATE`
+  but did not detect a local edit to an installed target file; after appending to an installed
+  Codex `SKILL.md`, status still showed `up-to-date`. The current sidecar hash comparison
+  detects cached-upstream hash drift, not provider-installed file drift. This does not block the
+  seihou migration, but it is a shared-package follow-up if local dirty detection is required.
+
 
 ## Decision Log
 
@@ -403,6 +416,13 @@ plan.
   install/status primitives. The migration plans can now consume it without stubbing.
   Date: 2026-06-23
 
+- Decision: Allow consumers to keep local command wrappers when their surrounding parser types
+  require instances the shared `KitCommand` does not expose.
+  Rationale: seihou's top-level `Command` derives `Eq`, while the shared `KitCommand` derives
+  only `Show` at the pinned Baikai commit. A tiny local wrapper still removes the duplicated kit
+  engine while avoiding an API change solely for seihou's deriving needs.
+  Date: 2026-06-24
+
 
 ## Outcomes & Retrospective
 
@@ -424,6 +444,13 @@ preserves rei's optional-NAME FZF install flow, delegates session directory disc
 rei-cli, and passes `cabal build all`, `cabal test all`, and manual real-`rei-kit` lifecycle
 verification.
 
+EP-4 is complete as of 2026-06-24. The seihou repository now consumes `baikai-kit` through
+matching Cabal and Nix pins, has a thin executable adapter, deletes `Seihou.CLI.KitPaths` and
+its test, delegates session directory discovery to `Baikai.Kit.Session`, and passes
+`cabal build all`, `cabal test all`, `nix fmt`, `nix build .#seihou`, and manual real-`seihou-kit`
+lifecycle verification through a local URL rewrite. This completes all four child plans in the
+initiative.
+
 Revision note (2026-06-23): Marked EP-1 complete after implementing and validating
 `baikai-kit-0.1.0.0`; recorded validation evidence and the package version for EP-2 through EP-4.
 
@@ -436,3 +463,7 @@ the final baikai pin and mori validation evidence.
 
 Revision note (2026-06-24): Marked EP-3 complete after migrating rei to `baikai-kit`, recording
 the final baikai pin, the two shared-package behavior fixes, and rei validation evidence.
+
+Revision note (2026-06-24): Marked EP-4 complete after migrating seihou to `baikai-kit`,
+recording the Cabal/Nix pinning details, validation evidence, and the shared status
+dirty-detection caveat.

@@ -50,19 +50,22 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: Add `baikai-kit` to seihou's build inputs (flake registry overlay + `cabal.project`
-  if a local path is needed + all three `seihou-cli` components in `seihou-cli.cabal`);
-  `cabal build all` is green.
-- [ ] M2: Replace `Seihou.CLI.Kit` and `Seihou.CLI.KitPaths` with a thin adapter module that
+- [x] M1: Add `baikai-kit` to seihou's build inputs (`cabal.project`, `flake.nix`,
+  `nix/haskell-overlay.nix`, and the `seihou` executable component in `seihou-cli.cabal`);
+  `cabal build all` is green. Completed in seihou commit `a9ca1e4` on 2026-06-24.
+- [x] M2: Replace `Seihou.CLI.Kit` and `Seihou.CLI.KitPaths` with a thin adapter module that
   defines `seihouKitConfig` and re-exports the package's `KitCommand`, `kitCommandParser`, and
   a `runKit` wrapper; delete the old hand-written logic; keep `Commands.Command`'s `Kit
-  KitCommand` variant wired through the adapter.
-- [ ] M3: Replace `Seihou.CLI.AgentLaunch.agentDirsForSession` with a call to
+  KitCommand` variant wired through the adapter. Completed with a local `Eq`-deriving wrapper
+  over `Baikai.Kit.Command.KitCommand`.
+- [x] M3: Replace `Seihou.CLI.AgentLaunch.agentDirsForSession` with a call to
   `Baikai.Kit.Session.agentDirsForSession seihouKitConfig`.
-- [ ] M4: Port/trim `KitPathsSpec` (path logic now lives in `baikai-kit` / `Baikai.AgentAssets`),
-  run the seihou test suite green.
-- [ ] M5: Manual verification against the real `seihou-kit`, confirming both Claude and Codex
-  layouts and the new `STATE` column.
+- [x] M4: Port/trim `KitPathsSpec` (path logic now lives in `baikai-kit` / `Baikai.AgentAssets`),
+  run the seihou test suite green. The test was removed rather than ported because the local
+  path module was deleted and coverage lives in `baikai-kit`.
+- [x] M5: Manual verification against the real `seihou-kit`, confirming both Claude and Codex
+  layouts and the new `STATE` column. Verified through a local URL rewrite to the checked-out
+  `seihou-kit` repository because the isolated smoke `HOME` could not access GitHub credentials.
 
 
 ## Surprises & Discoveries
@@ -70,15 +73,22 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-- Discovery: seihou consumes `baikai`, `baikai-claude`, and `baikai-openai` through the
-  shared haskell-nix **registry overlay**, not through a `source-repository-package` or a
-  local path in `cabal.project`. Evidence: `seihou/cabal.project` lists only `seihou-core`,
-  `seihou-cli`, `seihou-okf-extension`, the streamly pair, and `okf-core`; it has no `baikai`
-  entry. `seihou-cli/seihou-cli.cabal` depends on `baikai ^>=0.1.0.0`, and
-  `flake.module.nix` composes `inputs.haskell-nix.lib.haskellExtension` (the registry overlay)
-  with `./nix/haskell-overlay.nix`. The registry overlay is where the baikai package set is
-  provided. Therefore `baikai-kit` is added the same way: a `baikai-kit ^>=0.1.0.0`
-  build-depends line, resolved by the registry overlay.
+- Discovery: the local Mori registry entry for `shinzui/baikai` was stale and did not list
+  `baikai-kit`, and Cabal could not resolve the unreleased package from the prior package set.
+  seihou now pins the Baikai repo at `a219ace81af9fd8202e1805a16e9ed21356ad214` in
+  `cabal.project` for `baikai`, `baikai-claude`, `baikai-openai`, and `baikai-kit`, and bumps
+  the existing Baikai bounds to `^>=0.2.0.0`.
+
+- Discovery: Nix also needed explicit Baikai source wiring. Adding only `baikai-kit` to
+  `seihou-cli.cabal` caused `nix build .#seihou` to fail with a missing `baikai-kit`
+  argument in the cabal2nix-generated expression. The fix added a non-flake `baikai-src`
+  input pinned to the same commit as `cabal.project` and overlay entries for all four Baikai
+  packages.
+
+- Discovery: `callCabal2nix` stages Baikai package subdirectories without the repo-root
+  `LICENSE` and `CHANGELOG.md`; the subpackages contain root-relative symlinks that become
+  dangling in the Nix build sandbox. The seihou overlay now replaces those symlinks and copies
+  the root files into each staged Baikai package before build.
 
 - Discovery: the kit code spans two cabal components. `Seihou.CLI.Kit` (parser, `runKit`,
   manifest types, git ops) lives under `seihou-cli/src-exe/` and is an `other-modules` entry
@@ -95,28 +105,37 @@ implementation. Provide concise evidence.
   optional `version`/`files` agent fields matter for forward compatibility, not for the
   current manifest.
 
+- Discovery: the pinned `baikai-kit` status implementation reports the new `STATE` column,
+  but its sidecar hash comparison does not detect a manual edit to an installed skill file in
+  the local smoke test; after appending to the installed Codex `SKILL.md`, status still showed
+  `up-to-date`. The current implementation compares sidecar metadata with the cached upstream
+  item hash, not with a hash of provider-installed target files. This is a shared-package
+  follow-up if local dirty detection is required.
+
 
 ## Decision Log
 
 Record every decision made while working on the plan.
 
-- Decision: Adopt the package's `Baikai.Kit.Command.KitCommand` directly for seihou's
-  `Commands.Command`'s `Kit` variant, rather than keeping seihou's own `KitCommand` plus a
-  translation layer.
-  Rationale: seihou's hand-written `KitCommand` is structurally identical to the package's
-  (`KitList | KitInstall | KitUpdate | KitUninstall | KitStatus`). The only differences are
-  cosmetic: seihou wraps install/uninstall arguments in `KitInstallOpts`/`KitUninstallOpts`
-  records and represents scope as a `Bool` (`--project`), whereas the package carries `Text`
-  plus `KitScope` inline. Both parsers expose the same `--project` flag and the same
-  subcommand names, so adopting the package type and `kitCommandParser` is a clean drop-in.
-  Date: 2026-06-23
+- Decision: Keep a tiny local `Seihou.CLI.Kit.KitCommand` wrapper instead of adopting
+  `Baikai.Kit.Command.KitCommand` directly.
+  Rationale: `Seihou.CLI.Commands.Command` derives `Eq`, while the shared `KitCommand` at the
+  pinned Baikai commit derives only `Show`. A local wrapper with the same command shape derives
+  `Eq` and maps to/from the shared type at the adapter boundary, avoiding a Baikai API change
+  solely for seihou's parser derivations.
+  Date: 2026-06-24
 
-- Decision: Wire `baikai-kit` through the haskell-nix registry overlay (the same mechanism as
-  `baikai`), not through a new `source-repository-package` stanza.
-  Rationale: consistency with how `baikai` is already consumed; the registry overlay is the
-  single source of truth for the baikai package set on this machine, and `baikai-kit` is a
-  package inside the `baikai` repo's `cabal.project`.
-  Date: 2026-06-23
+- Decision: Pin Baikai in both Cabal and Nix rather than relying on the stale registry overlay.
+  Rationale: `baikai-kit` is not yet visible through seihou's existing dependency mechanism.
+  Pinning the same Baikai commit in `cabal.project` and `flake.nix` makes Cabal and Nix builds
+  reproducible until the registry/package set is refreshed.
+  Date: 2026-06-24
+
+- Decision: Delete `KitPathsSpec` instead of porting it into seihou.
+  Rationale: the tested behavior moved into `baikai-kit` and `Baikai.AgentAssets`; retaining a
+  seihou-side path spec would require testing shared implementation details from the consumer
+  repo.
+  Date: 2026-06-24
 
 
 ## Outcomes & Retrospective
@@ -124,7 +143,29 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Completed in seihou commit `a9ca1e4` (`refactor(kit): migrate seihou to baikai-kit`).
+`Seihou.CLI.Kit` is now a 51-line adapter with `seihouKitConfig`, the old
+`Seihou.CLI.KitPaths` module and `KitPathsSpec` are deleted, and agent launch uses
+`Baikai.Kit.Session.agentDirsForSession seihouKitConfig`.
+
+Validation completed:
+
+- `cabal build all`
+- `cabal test all` (all three suites passed: seihou-okf-extension 16 tests, seihou-core 939
+  tests, seihou-cli 251 tests)
+- `nix fmt`
+- `nix build .#seihou`
+- manual smoke with isolated `HOME` and a temp worktree using a Git URL rewrite to the local
+  `seihou-kit`: `kit list`, project install of `seihou-module-readme`, provider file
+  inspection, `kit status` with `claude,codex` and `STATE`, targeted `kit update`, project
+  uninstall, empty final status.
+- executable-component REPL check that `Baikai.Kit.Session.agentDirsForSession
+  seihouKitConfig` returns the existing temp user and project agent directories.
+
+The only gap found is in the shared package's current interpretation of `dirty`: a manual
+edit to an installed target file did not change status away from `up-to-date`. seihou is
+migrated successfully, but local installed-file dirty detection should be handled in a future
+`baikai-kit` change if that behavior is required.
 
 
 ## Context and Orientation
@@ -204,14 +245,12 @@ Key seihou files relevant to this plan, by full path:
   both Claude Code and Codex". It mentions `kit status` "Show installed items with scope and
   providers"; this line may want a trivial update to mention the new STATE column (optional).
 
-- Build wiring: `seihou/cabal.project` (packages: `seihou-core`, `seihou-cli`,
-  `seihou-okf-extension`; plus streamly and `okf-core` source-repository-packages — NO
-  baikai), `seihou/flake.nix`, `seihou/flake.module.nix` (defines `haskellPackages =
-  pkgs.haskell.packages.ghc9124.override` composing
-  `inputs.haskell-nix.lib.haskellExtension` — the registry overlay that supplies the baikai
-  package set — with `./nix/haskell-overlay.nix`), and `seihou/nix/haskell-overlay.nix` (only
-  `okf-core`, `seihou-core`, `seihou-cli`, `seihou-okf-extension` via `callCabal2nix`; baikai
-  is NOT listed here — it comes from the registry overlay).
+- Build wiring after migration: `seihou/cabal.project` pins the Baikai repo at
+  `a219ace81af9fd8202e1805a16e9ed21356ad214` for `baikai`, `baikai-claude`,
+  `baikai-openai`, and `baikai-kit`; `seihou/flake.nix` adds a matching non-flake
+  `baikai-src` input; `seihou/flake.module.nix` passes that source to
+  `seihou/nix/haskell-overlay.nix`; and the overlay defines all four Baikai packages via
+  `callCabal2nix`, staging Baikai's root `LICENSE` and `CHANGELOG.md` for each subpackage.
 
 Term definitions:
 
@@ -241,23 +280,17 @@ import so the dependency is genuinely used).
 
 Edits:
 
-1. `seihou-cli/seihou-cli.cabal`: add `baikai-kit ^>=0.1.0.0` to the `build-depends` of
-   `library seihou-cli-internal`, `executable seihou`, and `test-suite seihou-cli-test`,
-   alongside the existing `baikai ^>=0.1.0.0` lines. Pin the same major/minor as the other
-   baikai packages (use the exact version EP-26 records when it publishes; `^>=0.1.0.0`
-   matches the current baikai package set).
+1. `seihou-cli/seihou-cli.cabal`: bump existing Baikai package bounds to `^>=0.2.0.0` and add
+   `baikai-kit ^>=0.1.0.0` to the executable component that imports the adapter and session
+   helper.
 
-2. `seihou/flake.module.nix` / registry overlay: confirm `baikai-kit` is provided by
-   `inputs.haskell-nix.lib.haskellExtension` (the registry overlay) once EP-26 adds it to the
-   baikai repo's package set and the registry is refreshed. No edit to `nix/haskell-overlay.nix`
-   is needed (that file only defines seihou's own packages plus `okf-core`; baikai packages
-   come from the registry overlay). If — and only if — the registry overlay does not yet
-   surface `baikai-kit`, add a temporary `source-repository-package` (or local path) for it to
-   `seihou/cabal.project` pinning the same baikai revision; remove it once the registry is
-   refreshed.
+2. `seihou/cabal.project`: add `source-repository-package` entries for `baikai`,
+   `baikai-claude`, `baikai-openai`, and `baikai-kit`, all pinned to
+   `a219ace81af9fd8202e1805a16e9ed21356ad214`.
 
-3. `seihou/cabal.project`: normally no change (baikai is resolved by the package set, not
-   pinned here). Only touch it for the temporary fallback in step 2.
+3. `seihou/flake.nix`, `seihou/flake.module.nix`, and `seihou/nix/haskell-overlay.nix`: add a
+   matching `baikai-src` input, pass it to the overlay, and expose all four Baikai subpackages
+   with `callCabal2nix`.
 
 Commands: from `/Users/shinzui/Keikaku/bokuno/seihou-project/seihou`, `cabal build all`.
 Acceptance: build is green and `cabal build seihou-cli` shows `baikai-kit` among the resolved
@@ -402,11 +435,10 @@ Build after M1 + M2:
 cabal build all
 ```
 
-Expected: all components compile; `baikai-kit` appears in the dependency graph. If the
-registry overlay has not yet surfaced `baikai-kit`, the build fails resolving
-`baikai-kit ^>=0.1.0.0` — apply the temporary `cabal.project` fallback from M1 step 2.
+Expected: all components compile; `baikai-kit` appears in the dependency graph from the
+Baikai source-repository-package pin in `cabal.project`.
 
-Nix build (confirms the registry overlay path):
+Nix build (confirms the `baikai-src` flake input and overlay path):
 
 ```bash
 nix build .#seihou
@@ -572,15 +604,16 @@ Acceptance is phrased as observable behavior:
   (e.g. `/tmp/seihou-kit-smoke`) so you never pollute `~/.config/seihou`. If you do install at
   user scope to test discovery, uninstall immediately afterward.
 
-- The M1 temporary `cabal.project` fallback (if used) is removable the moment the registry
-  overlay surfaces `baikai-kit`; deleting the stanza and rebuilding is safe.
+- The Cabal and Nix Baikai pins can be simplified later if the shared registry overlay surfaces
+  `baikai-kit` and the Baikai 0.2 package set. Until then, keep the `cabal.project` pin and
+  `baikai-src` flake input in sync.
 
 
 ## Interfaces and Dependencies
 
 seihou depends on the `baikai-kit` library (built by `docs/plans/26-build-the-baikai-kit-package.md`),
-resolved through the shared haskell-nix registry overlay exactly like `baikai`. The public API
-seihou consumes, embedded verbatim from the package contract:
+resolved from the pinned Baikai source in Cabal and Nix. The public API seihou consumes,
+embedded verbatim from the package contract:
 
 ```haskell
 -- Baikai.Kit.Manifest
