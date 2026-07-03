@@ -26,6 +26,7 @@ import System.Environment qualified as Environment
 data ApiKeySource
   = ApiKeyLiteral !Text
   | ApiKeyEnv !String
+  | ApiKeyEnvChain ![String]
   deriving stock (Eq)
 
 instance Show ApiKeySource where
@@ -40,6 +41,11 @@ instance ToJSON ApiKeySource where
     object
       [ "source" .= ("env" :: Text),
         "name" .= name
+      ]
+  toJSON (ApiKeyEnvChain names) =
+    object
+      [ "source" .= ("env-chain" :: Text),
+        "names" .= names
       ]
 
 -- | Conventional API-key environment variable for a known provider
@@ -71,6 +77,8 @@ renderApiKeySourceForDebug :: ApiKeySource -> Text
 renderApiKeySourceForDebug (ApiKeyLiteral _) = "ApiKeyLiteral <redacted>"
 renderApiKeySourceForDebug (ApiKeyEnv name) =
   "ApiKeyEnv " <> Text.pack (show name)
+renderApiKeySourceForDebug (ApiKeyEnvChain names) =
+  "ApiKeyEnvChain " <> Text.pack (show names)
 
 -- | Resolve a key source to a plain 'Text'. Throws a 'BaikaiError' in the
 -- 'Baikai.Error.AuthError' category if 'ApiKeyEnv' is used and the named variable
@@ -82,3 +90,16 @@ resolveApiKey (ApiKeyEnv name) =
     Environment.lookupEnv name >>= \case
       Just v -> pure (Text.pack v)
       Nothing -> throwIO (authError ("env var " <> Text.pack name <> " is not set"))
+resolveApiKey (ApiKeyEnvChain names) =
+  liftIO (go names)
+  where
+    go [] =
+      throwIO
+        (authError ("none of the env vars " <> renderedNames <> " are set"))
+    go (name : rest) =
+      Environment.lookupEnv name >>= \case
+        Just v -> pure (Text.pack v)
+        Nothing -> go rest
+    renderedNames = case names of
+      [] -> "<empty>"
+      _ -> Text.intercalate ", " (Text.pack <$> names)

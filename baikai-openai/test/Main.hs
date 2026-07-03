@@ -55,6 +55,7 @@ main =
         codexMissingBinaryTest,
         finishReasonTests,
         responseFormatMappingTest,
+        optionsMappingTest,
         ErrorClassSpec.tests,
         ReasoningSpec.tests,
         ShapeSpec.tests,
@@ -99,6 +100,30 @@ responseFormatMappingTest =
           RF.strict js @?= Just True
           RF.description js @?= Nothing
         other -> assertFailure ("expected JSON_Schema, got: " <> show other)
+
+optionsMappingTest :: TestTree
+optionsMappingTest =
+  testCase "sampling Options map onto OpenAI request fields" $ do
+    let model =
+          _Model
+            & #modelId .~ "gpt-4o-mini"
+            & #api .~ OpenAIChatCompletions
+            & #provider .~ "openai"
+        opts =
+          _Options
+            & #topP .~ Just 0.9
+            & #stopSequences .~ Just (Vector.fromList ["END", "STOP"])
+            & #seed .~ Just 7
+            & #frequencyPenalty .~ Just 0.2
+            & #presencePenalty .~ Just 0.3
+    case mapRequest model _Context opts of
+      Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
+      Right req -> do
+        Chat.top_p req @?= Just 0.9
+        Chat.stop req @?= Just (Vector.fromList ["END", "STOP"])
+        Chat.seed req @?= Just 7
+        Chat.frequency_penalty req @?= Just 0.2
+        Chat.presence_penalty req @?= Just 0.3
 
 usageMappingTests :: TestTree
 usageMappingTests =
@@ -282,7 +307,7 @@ stderrFloodTest =
     perms <- getPermissions script
     setPermissions script (setOwnerExecutable True perms)
     reg <- newProviderRegistry
-    CodexCli.registerWithRegistryAndConfig reg CodexCli.defaultCodexCliConfig {CodexCli.executable = script}
+    registerApiProviderWith reg (CodexCli.codexCliProvider CodexCli.defaultCodexCliConfig {CodexCli.executable = script})
     let model =
           _Model
             & #modelId .~ ""
@@ -364,9 +389,9 @@ codexMissingBinaryTest :: TestTree
 codexMissingBinaryTest =
   testCase "codex CLI missing binary returns an error-shaped Response" $ do
     reg <- newProviderRegistry
-    CodexCli.registerWithRegistryAndConfig
+    registerApiProviderWith
       reg
-      CodexCli.defaultCodexCliConfig {CodexCli.executable = "/nonexistent/codex-binary"}
+      (CodexCli.codexCliProvider CodexCli.defaultCodexCliConfig {CodexCli.executable = "/nonexistent/codex-binary"})
     let model =
           _Model
             & #modelId .~ ""

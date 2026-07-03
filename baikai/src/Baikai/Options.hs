@@ -8,6 +8,12 @@
 -- credential.
 -- 'maxTokens' defaults to 'Nothing'; the handler falls back to the
 -- chosen model's 'Baikai.Model.maxOutputTokens'.
+-- 'topP' and 'stopSequences' are honored by the Anthropic and
+-- OpenAI-compatible API providers. 'seed', 'frequencyPenalty', and
+-- 'presencePenalty' are honored by the OpenAI-compatible API
+-- provider. Providers with no corresponding upstream parameter
+-- silently omit the field, matching the existing drop policy for
+-- unsupported per-call knobs on CLI providers.
 --
 -- 'timeoutMs' is a wall-clock bound on the entire API streaming call
 -- in the OpenAI and Claude providers: connection setup, response
@@ -41,6 +47,7 @@ import Data.Aeson (ToJSON, Value)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Vector (Vector)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -54,7 +61,12 @@ data Options = Options
     toolChoice :: !(Maybe ToolChoice),
     cacheRetention :: !(Maybe CacheRetention),
     thinking :: !(Maybe ThinkingLevel),
-    responseFormat :: !(Maybe ResponseFormat)
+    responseFormat :: !(Maybe ResponseFormat),
+    topP :: !(Maybe Double),
+    stopSequences :: !(Maybe (Vector Text)),
+    seed :: !(Maybe Integer),
+    frequencyPenalty :: !(Maybe Double),
+    presencePenalty :: !(Maybe Double)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -71,5 +83,10 @@ _Options =
       toolChoice = Nothing,
       cacheRetention = Nothing,
       thinking = Nothing,
-      responseFormat = Nothing
+      responseFormat = Nothing,
+      topP = Nothing,
+      stopSequences = Nothing,
+      seed = Nothing,
+      frequencyPenalty = Nothing,
+      presencePenalty = Nothing
     }

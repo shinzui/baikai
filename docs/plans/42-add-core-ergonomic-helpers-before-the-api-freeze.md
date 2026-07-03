@@ -88,16 +88,16 @@ into "done" and "remaining" at every stopping point.
 - [x] M2: `baikai/test/HelpersSpec.hs` created with a scripted stub provider in an
       isolated `ProviderRegistry`; loop termination, budget-exhaustion, error-response,
       dispatcher-exception, `completeText`, and streaming-helper cases pass.
-- [ ] M3: `ApiKeyEnvChain` constructor added to `baikai/src/Baikai/Auth.hs` with
+- [x] M3: `ApiKeyEnvChain` constructor added to `baikai/src/Baikai/Auth.hs` with
       first-set-wins resolution and redacting instances.
-- [ ] M3: `mkModel` added to `baikai/src/Baikai/Model.hs`; `unModel` deleted.
-- [ ] M3: five new `Maybe` fields on `Options` in `baikai/src/Baikai/Options.hs`,
+- [x] M3: `mkModel` added to `baikai/src/Baikai/Model.hs`; `unModel` deleted.
+- [x] M3: five new `Maybe` fields on `Options` in `baikai/src/Baikai/Options.hs`,
       mapped in both API providers, documented drop policy.
-- [ ] M3: first-class provider values exported from all four provider modules;
+- [x] M3: first-class provider values exported from all four provider modules;
       `newProviderRegistryFrom` and `assertRegistered` added to
       `baikai/src/Baikai/Provider/Registry.hs`; register naming ladder collapsed
       with deprecated aliases.
-- [ ] M3: unit tests — auth chain, `mkModel`, `assertRegistered`,
+- [x] M3: unit tests — auth chain, `mkModel`, `assertRegistered`,
       `newProviderRegistryFrom` in `baikai/test/HelpersSpec.hs`; option-mapping
       assertions in `baikai-claude/test/Main.hs` and `baikai-openai/test/Main.hs`.
 - [ ] M4: `baikai-smoke/test/ToolsSmoke.hs` rewritten on `runToolLoop` +
@@ -329,6 +329,13 @@ completion, comparing the result against the Purpose section.
   defense, `completeText` success/error behavior, and stream wrapper behavior.
   Validation passed with `cabal build all --enable-tests` and `cabal test baikai
   baikai-claude baikai-openai baikai-effectful --test-show-details=direct`.
+- 2026-07-03 M3: `ApiKeyEnvChain`, `mkModel`, `newProviderRegistryFrom`,
+  `assertRegistered`, first-class provider values, and the five new `Options`
+  knobs are implemented. `unModel` is gone from Haskell sources. Claude maps
+  `topP`/`stopSequences`; OpenAI maps those plus `seed`, `frequencyPenalty`, and
+  `presencePenalty`. Validation passed with `cabal build all --enable-tests` and
+  `cabal test baikai baikai-claude baikai-openai baikai-effectful
+  --test-show-details=direct`.
 
 
 ## Context and Orientation

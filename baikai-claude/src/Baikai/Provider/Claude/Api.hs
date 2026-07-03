@@ -28,6 +28,7 @@
 module Baikai.Provider.Claude.Api
   ( register,
     registerWithRegistry,
+    claudeMessagesProvider,
     claudeMessagesStream,
     mapRequest,
     Assembler (..),
@@ -56,7 +57,7 @@ import Baikai.Provider.Claude.Transport qualified as Transport
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
-    globalProviderRegistry,
+    registerApiProvider,
     registerApiProviderWith,
   )
 import Baikai.ResponseFormat (ResponseFormat (..))
@@ -109,18 +110,26 @@ import Streamly.Data.Stream qualified as Stream
 -- Calling 'register' twice keeps only the second handler — the
 -- registry's insert-overwrites semantic.
 register :: IO ()
-register = registerWithRegistry globalProviderRegistry
+register = registerApiProvider claudeMessagesProvider
+
+-- | First-class Anthropic Messages provider value. Use with
+-- 'registerApiProviderWith' or 'newProviderRegistryFrom' for explicit
+-- registries.
+claudeMessagesProvider :: ApiProvider
+claudeMessagesProvider =
+  ApiProvider
+    { apiTag = AnthropicMessages,
+      stream = claudeMessagesStream,
+      complete = streamingComplete claudeMessagesStream
+    }
 
 -- | Install the Anthropic Messages handler into an explicit registry.
 registerWithRegistry :: ProviderRegistry -> IO ()
 registerWithRegistry reg =
   registerApiProviderWith
     reg
-    ApiProvider
-      { apiTag = AnthropicMessages,
-        stream = claudeMessagesStream,
-        complete = streamingComplete claudeMessagesStream
-      }
+    claudeMessagesProvider
+{-# DEPRECATED registerWithRegistry "use registerApiProviderWith reg claudeMessagesProvider" #-}
 
 -- | Streaming producer for the Anthropic Messages API.
 --
@@ -665,6 +674,8 @@ mapRequest m ctx opts = do
         Messages.max_tokens = maxTokensField_,
         Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
         Messages.temperature = opts ^. #temperature,
+        Messages.top_p = opts ^. #topP,
+        Messages.stop_sequences = opts ^. #stopSequences,
         Messages.tools = toolsField,
         Messages.tool_choice = toolChoiceField,
         Messages.cache_control = cacheControlField,

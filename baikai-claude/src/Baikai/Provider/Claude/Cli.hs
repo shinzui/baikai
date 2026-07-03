@@ -17,6 +17,7 @@ module Baikai.Provider.Claude.Cli
   ( ClaudeCliConfig (..),
     claudeCliCommand,
     defaultClaudeCliConfig,
+    claudeCliProvider,
     register,
     registerWith,
     registerWithRegistry,
@@ -35,7 +36,7 @@ import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
-    globalProviderRegistry,
+    registerApiProvider,
     registerApiProviderWith,
   )
 import Baikai.Response qualified as Resp
@@ -87,7 +88,16 @@ defaultClaudeCliConfig =
 
 -- | Install the CLI handler with 'defaultClaudeCliConfig'.
 register :: IO ()
-register = registerWith defaultClaudeCliConfig
+register = registerApiProvider (claudeCliProvider defaultClaudeCliConfig)
+
+-- | First-class Claude CLI provider value for a caller-supplied config.
+claudeCliProvider :: ClaudeCliConfig -> ApiProvider
+claudeCliProvider cfg =
+  ApiProvider
+    { apiTag = AnthropicMessagesCli,
+      stream = liftCompleteToStream (runClaudeCli cfg),
+      complete = runClaudeCli cfg
+    }
 
 -- | Install the CLI handler with a caller-supplied config.
 --
@@ -104,12 +114,14 @@ register = registerWith defaultClaudeCliConfig
 -- the deviation from the plan's "complete = streamingComplete .
 -- stream" default.
 registerWith :: ClaudeCliConfig -> IO ()
-registerWith = registerWithRegistryAndConfig globalProviderRegistry
+registerWith cfg = registerApiProvider (claudeCliProvider cfg)
+{-# DEPRECATED registerWith "use registerApiProvider (claudeCliProvider cfg)" #-}
 
 -- | Install the CLI handler with 'defaultClaudeCliConfig' into an explicit
 -- registry.
 registerWithRegistry :: ProviderRegistry -> IO ()
 registerWithRegistry reg = registerWithRegistryAndConfig reg defaultClaudeCliConfig
+{-# DEPRECATED registerWithRegistry "use registerApiProviderWith reg (claudeCliProvider defaultClaudeCliConfig)" #-}
 
 -- | Install the CLI handler with a caller-supplied config into an explicit
 -- registry.
@@ -117,11 +129,8 @@ registerWithRegistryAndConfig :: ProviderRegistry -> ClaudeCliConfig -> IO ()
 registerWithRegistryAndConfig reg cfg =
   registerApiProviderWith
     reg
-    ApiProvider
-      { apiTag = AnthropicMessagesCli,
-        stream = liftCompleteToStream (runClaudeCli cfg),
-        complete = runClaudeCli cfg
-      }
+    (claudeCliProvider cfg)
+{-# DEPRECATED registerWithRegistryAndConfig "use registerApiProviderWith reg (claudeCliProvider cfg)" #-}
 
 -- | Render the executable and arguments for a @claude -p@ batch call.
 -- The prompt is preceded by @--@ so dash-leading prompts and variadic

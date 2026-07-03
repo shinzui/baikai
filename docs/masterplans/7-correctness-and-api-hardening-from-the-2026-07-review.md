@@ -226,7 +226,7 @@ EP-10 relocate them if needed.
 - [x] EP-8 M5: truth pass and live evidence
 - [x] EP-9 M1: honest message timestamps and a lawful `Context`
 - [x] EP-9 M2: tool loop, one-shot completion, streamly-free streaming
-- [ ] EP-9 M3: registry, auth, model-construction, and Options ergonomics
+- [x] EP-9 M3: registry, auth, model-construction, and Options ergonomics
 - [ ] EP-9 M4: living proof — smoke and worked examples rewritten on the new helpers
 - [ ] EP-10 M1: constructor export policy, `_X` → `empty*`/`zero*` renames, consistency nits
 - [ ] EP-10 M2: internal namespacing, Prelude policy, umbrella statement

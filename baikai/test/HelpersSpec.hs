@@ -9,6 +9,7 @@ import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
+import System.Environment qualified as Environment
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -92,9 +93,8 @@ tests =
             (helpersModel & #api .~ Custom "baikai-helpers-text-ok")
             "prompt"
         ok @?= "plain text"
-        registerOneShot
-          (Custom "baikai-helpers-text-error")
-          (errorResponse helpersModel epoch 0 (providerError "text failed"))
+        registerApiProvider
+          (errorProvider (Custom "baikai-helpers-text-error") (providerError "text failed"))
         thrown <-
           Exception.try
             ( completeText
@@ -115,7 +115,55 @@ tests =
         listed <- streamRequestListWith (scriptRegistry scripted) helpersModel _Context _Options
         seen @?= events
         listed @?= events
-        resp @?= expected
+        resp @?= expected,
+      testCase "ApiKeyEnvChain resolves the first set environment variable" $ do
+        let first = "BAIKAI_HELPERS_CHAIN_FIRST"
+            second = "BAIKAI_HELPERS_CHAIN_SECOND"
+        withUnsetEnv first $
+          withUnsetEnv second $ do
+            Environment.setEnv second "second-key"
+            resolved <- resolveApiKey (ApiKeyEnvChain [first, second])
+            resolved @?= "second-key"
+            Environment.setEnv first "first-key"
+            resolvedFirst <- resolveApiKey (ApiKeyEnvChain [first, second])
+            resolvedFirst @?= "first-key",
+      testCase "ApiKeyEnvChain reports all probed names when unset" $ do
+        let first = "BAIKAI_HELPERS_CHAIN_MISSING_A"
+            second = "BAIKAI_HELPERS_CHAIN_MISSING_B"
+        withUnsetEnv first $
+          withUnsetEnv second $ do
+            thrown <- Exception.try (resolveApiKey (ApiKeyEnvChain [first, second])) :: IO (Either BaikaiError Text)
+            case thrown of
+              Left err -> do
+                err ^. #category @?= AuthError
+                assertBool "message should include first name" (Text.pack first `Text.isInfixOf` (err ^. #message))
+                assertBool "message should include second name" (Text.pack second `Text.isInfixOf` (err ^. #message))
+              Right key -> assertFailure ("expected auth error, got key: " <> Text.unpack key),
+      testCase "mkModel fills dispatch discriminators and defaults" $ do
+        let model = mkModel OpenAIChatCompletions "gpt-test" "https://example.test"
+        model ^. #api @?= OpenAIChatCompletions
+        model ^. #modelId @?= "gpt-test"
+        model ^. #baseUrl @?= "https://example.test"
+        model ^. #name @?= "gpt-test"
+        model ^. #provider @?= renderApi OpenAIChatCompletions,
+      testCase "newProviderRegistryFrom uses last provider for duplicate tags" $ do
+        reg <-
+          newProviderRegistryFrom
+            [oneShotProvider helpersApi "first", oneShotProvider helpersApi "second"]
+        resp <- completeRequestWith reg helpersModel _Context _Options
+        flattenAssistantText (flattenAssistantBlocks resp) @?= "second",
+      testCase "assertRegistered passes when all tags exist and throws for missing tags" $ do
+        reg <- newProviderRegistryFrom [oneShotProvider helpersApi "ok"]
+        assertRegistered reg [helpersApi]
+        thrown <-
+          Exception.try (assertRegistered reg [helpersApi, Custom "missing-one", Custom "missing-two"]) ::
+            IO (Either BaikaiError ())
+        case thrown of
+          Left err -> do
+            err ^. #category @?= ProviderUnavailable
+            assertBool "message should include first missing tag" ("missing-one" `Text.isInfixOf` (err ^. #message))
+            assertBool "message should include second missing tag" ("missing-two" `Text.isInfixOf` (err ^. #message))
+          Right () -> assertFailure "expected ProviderUnavailable"
     ]
 
 data Scripted = Scripted
@@ -160,6 +208,22 @@ registerOneShot apiTag resp =
         complete = \model _ctx _opts -> pure (stampModel model resp),
         stream = \_ _ _ -> Stream.fromList []
       }
+
+oneShotProvider :: Api -> Text -> ApiProvider
+oneShotProvider apiTag body =
+  ApiProvider
+    { apiTag,
+      complete = \model _ctx _opts -> pure (stampModel model (textResponse body)),
+      stream = \_ _ _ -> Stream.fromList []
+    }
+
+errorProvider :: Api -> BaikaiError -> ApiProvider
+errorProvider apiTag err =
+  ApiProvider
+    { apiTag,
+      complete = \model _ctx _opts -> pure (errorResponse model epoch 0 err),
+      stream = \_ _ _ -> Stream.fromList []
+    }
 
 stampModel :: Model -> Response -> Response
 stampModel model resp =
@@ -259,3 +323,17 @@ textEvents rid body =
         TextEnd BlockEndPayload {contentIndex = 0, content = body},
         EventDone (doneTerminal (Just rid) Stop msg)
       ]
+
+withUnsetEnv :: String -> IO a -> IO a
+withUnsetEnv name action =
+  Exception.bracket
+    ( do
+        old <- Environment.lookupEnv name
+        Environment.unsetEnv name
+        pure old
+    )
+    restore
+    (const action)
+  where
+    restore Nothing = Environment.unsetEnv name
+    restore (Just value) = Environment.setEnv name value

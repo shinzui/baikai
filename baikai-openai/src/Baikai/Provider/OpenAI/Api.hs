@@ -30,6 +30,7 @@
 module Baikai.Provider.OpenAI.Api
   ( register,
     registerWithRegistry,
+    openaiChatProvider,
     openaiChatStream,
     mapRequest,
     RawChunk (..),
@@ -72,7 +73,7 @@ import Baikai.Provider.OpenAI.Transport qualified as Transport
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
-    globalProviderRegistry,
+    registerApiProvider,
     registerApiProviderWith,
   )
 import Baikai.ResponseFormat (ResponseFormat (..))
@@ -133,18 +134,26 @@ import Streamly.Data.Stream qualified as Stream
 
 -- | Install the OpenAI Chat Completions handler into the registry.
 register :: IO ()
-register = registerWithRegistry globalProviderRegistry
+register = registerApiProvider openaiChatProvider
+
+-- | First-class OpenAI Chat Completions provider value. Use with
+-- 'registerApiProviderWith' or 'newProviderRegistryFrom' for explicit
+-- registries.
+openaiChatProvider :: ApiProvider
+openaiChatProvider =
+  ApiProvider
+    { apiTag = OpenAIChatCompletions,
+      stream = openaiChatStream,
+      complete = streamingComplete openaiChatStream
+    }
 
 -- | Install the OpenAI Chat Completions handler into an explicit registry.
 registerWithRegistry :: ProviderRegistry -> IO ()
 registerWithRegistry reg =
   registerApiProviderWith
     reg
-    ApiProvider
-      { apiTag = OpenAIChatCompletions,
-        stream = openaiChatStream,
-        complete = streamingComplete openaiChatStream
-      }
+    openaiChatProvider
+{-# DEPRECATED registerWithRegistry "use registerApiProviderWith reg openaiChatProvider" #-}
 
 -- | Streaming producer for the OpenAI Chat Completions API.
 --
@@ -1011,6 +1020,11 @@ mapRequest m ctx opts = do
         Chat.model = OpenAIModels.Model (m ^. #modelId),
         Chat.max_completion_tokens = maxTokensField,
         Chat.temperature = opts ^. #temperature,
+        Chat.top_p = opts ^. #topP,
+        Chat.stop = opts ^. #stopSequences,
+        Chat.seed = opts ^. #seed,
+        Chat.frequency_penalty = opts ^. #frequencyPenalty,
+        Chat.presence_penalty = opts ^. #presencePenalty,
         Chat.tools = toolsField,
         Chat.tool_choice = toolChoiceField,
         Chat.reasoning_effort = reasoningEffortField,

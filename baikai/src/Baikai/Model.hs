@@ -7,13 +7,13 @@
 -- placeholder until EP-5 populates the real shims).
 --
 -- The previous newtype @Model = Model Text@ — a thin tag for the
--- model id — is retired. The 'unModel' accessor is preserved as a
--- convenience until callers fully migrate to 'modelId'.
+-- model id — is retired. Use 'modelId' to read the selected upstream
+-- model identifier, or 'mkModel' to build a dispatchable record.
 module Baikai.Model
   ( -- * Model
     Model (..),
     _Model,
-    unModel,
+    mkModel,
 
     -- * Cost rates
     ModelCost (..),
@@ -29,7 +29,7 @@ module Baikai.Model
   )
 where
 
-import Baikai.Api (Api (..))
+import Baikai.Api (Api (..), renderApi)
 import Baikai.Compat
   ( AnthropicMessagesCompat (..),
     OpenAICompletionsCompat,
@@ -114,11 +114,6 @@ data Model = Model
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
--- | The model id as 'Text'. Kept for ergonomic access from call
--- sites that previously held a newtype-wrapped 'Text'.
-unModel :: Model -> Text
-unModel = modelId
-
 -- | A zero 'ModelCost' across all rates. Useful as a default for
 -- models without published pricing (CLI providers, custom hosts).
 _ModelCost :: ModelCost
@@ -147,4 +142,18 @@ _Model =
       maxOutputTokens = 0,
       headers = Map.empty,
       compat = CompatNone
+    }
+
+-- | Build a dispatchable 'Model' from its three discriminators: the
+-- 'Api' tag used for handler lookup, the upstream model id, and the
+-- base URL. 'name' defaults to the model id, 'provider' defaults to
+-- 'renderApi' of the tag, and all other fields come from '_Model'.
+mkModel :: Api -> Text -> Text -> Model
+mkModel apiTag modelId_ baseUrl_ =
+  _Model
+    { modelId = modelId_,
+      name = modelId_,
+      api = apiTag,
+      provider = renderApi apiTag,
+      baseUrl = baseUrl_
     }

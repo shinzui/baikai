@@ -16,9 +16,11 @@ module Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
     newProviderRegistry,
+    newProviderRegistryFrom,
     globalProviderRegistry,
     registerApiProviderWith,
     registerApiProvider,
+    assertRegistered,
     lookupApiProviderWith,
     lookupApiProvider,
     completeRequestWith,
@@ -41,6 +43,8 @@ import Baikai.Response (Response (..), errorResponse, flattenAssistantBlocks, fl
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event (AssistantMessageEvent)
 import Control.Exception qualified as Exception
+import Control.Monad (forM, unless)
+import Data.Foldable (traverse_)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -70,6 +74,14 @@ newtype ProviderRegistry = ProviderRegistry
 newProviderRegistry :: IO ProviderRegistry
 newProviderRegistry = ProviderRegistry <$> newIORef Map.empty
 
+-- | Construct a registry pre-populated with the given providers. Later entries
+-- win on tag collisions, matching 'registerApiProviderWith'.
+newProviderRegistryFrom :: [ApiProvider] -> IO ProviderRegistry
+newProviderRegistryFrom providers = do
+  reg <- newProviderRegistry
+  traverse_ (registerApiProviderWith reg) providers
+  pure reg
+
 -- | Process-global handler registry used by the legacy convenience functions.
 -- The 'unsafePerformIO' + 'NOINLINE' pattern mirrors 'Baikai.Trace'\'s
 -- @eventCounter@; this is a single shared handle for the lifetime of the
@@ -88,6 +100,25 @@ registerApiProviderWith reg p =
 -- | Install (or replace) a handler in the process-global registry.
 registerApiProvider :: ApiProvider -> IO ()
 registerApiProvider = registerApiProviderWith globalProviderRegistry
+
+-- | Startup preflight: throw 'Baikai.Error.ProviderUnavailable' listing every
+-- requested API tag that has no registered handler.
+assertRegistered :: ProviderRegistry -> [Api] -> IO ()
+assertRegistered reg tags = do
+  missing <-
+    fmap concat $
+      forM tags $ \tag -> do
+        found <- lookupApiProviderWith reg tag
+        pure $ case found of
+          Nothing -> [tag]
+          Just _ -> []
+  unless (null missing) $
+    Exception.throwIO
+      ( providerUnavailable
+          ( "no provider registered for: "
+              <> Text.intercalate ", " (renderApi <$> missing)
+          )
+      )
 
 -- | Look up the handler registered for an 'Api' tag.
 lookupApiProviderWith :: ProviderRegistry -> Api -> IO (Maybe ApiProvider)

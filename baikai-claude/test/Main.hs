@@ -38,6 +38,7 @@ main =
         noKeyStreamTest,
         cliMissingBinaryTest,
         responseFormatMappingTest,
+        optionsMappingTest,
         ErrorClassSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,
@@ -78,6 +79,27 @@ responseFormatMappingTest =
       Right req ->
         Messages.output_config req
           @?= Just (Messages.jsonSchemaConfig personSchema)
+
+optionsMappingTest :: TestTree
+optionsMappingTest =
+  testCase "sampling Options map onto Anthropic request fields" $ do
+    let model =
+          _Model
+            & #modelId .~ "claude-haiku-4-5-20251001"
+            & #api .~ AnthropicMessages
+            & #provider .~ "anthropic"
+        opts =
+          _Options
+            & #topP .~ Just 0.9
+            & #stopSequences .~ Just (Vector.fromList ["END", "STOP"])
+            & #seed .~ Just 7
+            & #frequencyPenalty .~ Just 0.2
+            & #presencePenalty .~ Just 0.3
+    case mapRequest model _Context opts of
+      Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
+      Right req -> do
+        Messages.top_p req @?= Just 0.9
+        Messages.stop_sequences req @?= Just (Vector.fromList ["END", "STOP"])
 
 commandRenderingTest :: TestTree
 commandRenderingTest =
@@ -163,7 +185,7 @@ stderrFloodTest =
     perms <- getPermissions script
     setPermissions script (setOwnerExecutable True perms)
     reg <- newProviderRegistry
-    ClaudeCli.registerWithRegistryAndConfig reg ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = script}
+    registerApiProviderWith reg (ClaudeCli.claudeCliProvider ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = script})
     let model =
           _Model
             & #modelId .~ ""
@@ -240,9 +262,9 @@ cliMissingBinaryTest :: TestTree
 cliMissingBinaryTest =
   testCase "claude CLI missing binary returns an error-shaped Response" $ do
     reg <- newProviderRegistry
-    ClaudeCli.registerWithRegistryAndConfig
+    registerApiProviderWith
       reg
-      ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = "/nonexistent/claude-binary"}
+      (ClaudeCli.claudeCliProvider ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = "/nonexistent/claude-binary"})
     let model =
           _Model
             & #modelId .~ ""

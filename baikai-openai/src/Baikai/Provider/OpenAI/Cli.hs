@@ -9,6 +9,7 @@ module Baikai.Provider.OpenAI.Cli
     codexCliCommand,
     codexCliPrompt,
     defaultCodexCliConfig,
+    codexCliProvider,
     register,
     registerWith,
     registerWithRegistry,
@@ -27,7 +28,7 @@ import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
-    globalProviderRegistry,
+    registerApiProvider,
     registerApiProviderWith,
   )
 import Baikai.Response qualified as Resp
@@ -75,7 +76,16 @@ defaultCodexCliConfig =
 
 -- | Install the Codex CLI handler with 'defaultCodexCliConfig'.
 register :: IO ()
-register = registerWith defaultCodexCliConfig
+register = registerApiProvider (codexCliProvider defaultCodexCliConfig)
+
+-- | First-class Codex CLI provider value for a caller-supplied config.
+codexCliProvider :: CodexCliConfig -> ApiProvider
+codexCliProvider cfg =
+  ApiProvider
+    { apiTag = OpenAICompletionsCli,
+      stream = liftCompleteToStream (runCodexCli cfg),
+      complete = runCodexCli cfg
+    }
 
 -- | Install the Codex CLI handler with a caller-supplied config.
 --
@@ -88,12 +98,14 @@ register = registerWith defaultCodexCliConfig
 -- Log records the deviation from "complete = streamingComplete .
 -- stream".
 registerWith :: CodexCliConfig -> IO ()
-registerWith = registerWithRegistryAndConfig globalProviderRegistry
+registerWith cfg = registerApiProvider (codexCliProvider cfg)
+{-# DEPRECATED registerWith "use registerApiProvider (codexCliProvider cfg)" #-}
 
 -- | Install the Codex CLI handler with 'defaultCodexCliConfig' into an explicit
 -- registry.
 registerWithRegistry :: ProviderRegistry -> IO ()
 registerWithRegistry reg = registerWithRegistryAndConfig reg defaultCodexCliConfig
+{-# DEPRECATED registerWithRegistry "use registerApiProviderWith reg (codexCliProvider defaultCodexCliConfig)" #-}
 
 -- | Install the Codex CLI handler with a caller-supplied config into an
 -- explicit registry.
@@ -101,11 +113,8 @@ registerWithRegistryAndConfig :: ProviderRegistry -> CodexCliConfig -> IO ()
 registerWithRegistryAndConfig reg cfg =
   registerApiProviderWith
     reg
-    ApiProvider
-      { apiTag = OpenAICompletionsCli,
-        stream = liftCompleteToStream (runCodexCli cfg),
-        complete = runCodexCli cfg
-      }
+    (codexCliProvider cfg)
+{-# DEPRECATED registerWithRegistryAndConfig "use registerApiProviderWith reg (codexCliProvider cfg)" #-}
 
 modelArgs :: Model -> [String]
 modelArgs m = case Text.strip (m ^. #modelId) of
