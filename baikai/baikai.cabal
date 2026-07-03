@@ -137,6 +137,7 @@ test-suite baikai-test
     AgentAssetsSpec
     CatalogSpec
     CliInternalSpec
+    ContextSpec
     CostSpec
     EmbeddingSpec
     ErrorInfoSpec

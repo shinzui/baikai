@@ -19,19 +19,9 @@ where
 
 import Baikai
 import Baikai.Prelude
-import Data.Text qualified as T
 import Data.Vector qualified as V
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
-
--- | Concatenate the text of every 'AssistantText' block, ignoring thinking and
--- tool-call blocks. baikai has no library equivalent — its own smoke tests define
--- this same helper locally (see @baikai-smoke/test/Smoke.hs@).
-flattenAssistantText :: V.Vector AssistantContent -> Text
-flattenAssistantText = T.concat . V.toList . V.mapMaybe textOf
-  where
-    textOf (AssistantText (TextContent t)) = Just t
-    textOf _ = Nothing
 
 -- | The 'Api' tag the stub provider serves. A 'Custom' tag needs no catalog entry.
 stubApi :: Api

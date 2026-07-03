@@ -3,17 +3,17 @@
 -- A 'Message' is one of three constructors:
 --
 -- * 'UserMessage' — caller input, carrying a 'UserPayload' (its
---   'content' is a vector of text and inline image blocks, plus a
---   creation timestamp).
+--   'content' is a vector of text and inline image blocks, plus an
+--   optional creation timestamp).
 -- * 'AssistantMessage' — model output, carrying an 'AssistantPayload'
 --   (its 'content' holds 'AssistantText', 'AssistantThinking', and
 --   'AssistantToolCall' blocks, alongside the call's 'Usage' (which now
 --   embeds 'Cost' in-place), the 'StopReason' the model reported, an
---   optional 'errorMessage', and a timestamp).
+--   optional 'errorMessage', and an optional timestamp).
 -- * 'ToolResultMessage' — caller-supplied output for a model-issued
 --   tool call, carrying a 'ToolResultPayload' (the tool-call id it
 --   answers, the tool's name, the result 'content' (text or image), an
---   'isError' flag, and a timestamp).
+--   'isError' flag, and an optional timestamp).
 --
 -- The 'system' constructor from prior versions is removed: system
 -- prompts live on 'Baikai.Request.Request.systemPrompt'. The 'Role'
@@ -85,11 +85,11 @@ data Message
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
--- | Caller input: a vector of text and inline image blocks plus a
--- creation timestamp.
+-- | Caller input: a vector of text and inline image blocks plus an
+-- optional creation timestamp.
 data UserPayload = UserPayload
   { content :: !(Vector UserContent),
-    timestamp :: !UTCTime
+    timestamp :: !(Maybe UTCTime)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -99,26 +99,26 @@ data UserPayload = UserPayload
 -- embeds 'Cost' in-place), the reported 'StopReason', an optional
 -- 'errorMessage' (failure text or a non-fatal provider diagnostic;
 -- use 'stopReason'/'Response.errorInfo' to detect failures), and a
--- creation timestamp.
+-- optional creation timestamp.
 data AssistantPayload = AssistantPayload
   { content :: !(Vector AssistantContent),
     usage :: !Usage,
     stopReason :: !StopReason,
     errorMessage :: !(Maybe Text),
-    timestamp :: !UTCTime
+    timestamp :: !(Maybe UTCTime)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
 -- | Caller-supplied output for a model-issued tool call: the tool-call
 -- id it answers, the tool's name, the result 'content' (text or
--- image), an 'isError' flag, and a creation timestamp.
+-- image), an 'isError' flag, and an optional creation timestamp.
 data ToolResultPayload = ToolResultPayload
   { toolCallId :: !Text,
     toolName :: !Text,
     content :: !(Vector ToolResultContent),
     isError :: !Bool,
-    timestamp :: !UTCTime
+    timestamp :: !(Maybe UTCTime)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -136,14 +136,16 @@ data ToolResult = ToolResult
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
-defaultTimestamp :: UTCTime
-defaultTimestamp = read "2000-01-01 00:00:00 UTC"
-
--- | Build a one-text-block user message with a deterministic fixture
--- timestamp. Prefer 'userAt' when the timestamp matters, or 'userNow'
--- when the timestamp should be sampled in 'IO'.
+-- | Build a one-text-block user message without recording a timestamp.
+-- Prefer 'userAt' when the timestamp matters, or 'userNow' when the
+-- timestamp should be sampled in 'IO'.
 user :: Text -> Message
-user = userAt defaultTimestamp
+user t =
+  UserMessage
+    UserPayload
+      { content = V.singleton (UserText (TextContent t)),
+        timestamp = Nothing
+      }
 
 -- | Build a one-text-block user message at an explicit timestamp.
 userAt :: UTCTime -> Text -> Message
@@ -151,7 +153,7 @@ userAt ts t =
   UserMessage
     UserPayload
       { content = V.singleton (UserText (TextContent t)),
-        timestamp = ts
+        timestamp = Just ts
       }
 
 -- | Build a one-text-block user message using the current time.
@@ -161,9 +163,17 @@ userNow t = do
   pure (userAt now t)
 
 -- | Build a user message carrying one inline image alongside optional
--- preceding text, using a deterministic fixture timestamp.
+-- preceding text, without recording a timestamp.
 userImage :: ImageContent -> Maybe Text -> Message
-userImage = userImageAt defaultTimestamp
+userImage img mPrefix =
+  let prefix = case mPrefix of
+        Nothing -> V.empty
+        Just t -> V.singleton (UserText (TextContent t))
+   in UserMessage
+        UserPayload
+          { content = prefix <> V.singleton (UserImage img),
+            timestamp = Nothing
+          }
 
 -- | Build a user image message at an explicit timestamp. Bytes are
 -- stored decoded; the JSON encoding base64-encodes them on the wire.
@@ -175,7 +185,7 @@ userImageAt ts img mPrefix =
    in UserMessage
         UserPayload
           { content = prefix <> V.singleton (UserImage img),
-            timestamp = ts
+            timestamp = Just ts
           }
 
 -- | Build a user image message using the current time.
@@ -184,10 +194,18 @@ userImageNow img mPrefix = do
   now <- getCurrentTime
   pure (userImageAt now img mPrefix)
 
--- | Build a one-text-block assistant message with zero usage and a
--- @stop@ stop reason, using a deterministic fixture timestamp.
+-- | Build a one-text-block assistant message with zero usage, a @stop@
+-- stop reason, and no recorded timestamp.
 assistant :: Text -> Message
-assistant = assistantAt defaultTimestamp
+assistant t =
+  AssistantMessage
+    AssistantPayload
+      { content = V.singleton (AssistantText (TextContent t)),
+        usage = _Usage,
+        stopReason = Stop,
+        errorMessage = Nothing,
+        timestamp = Nothing
+      }
 
 -- | Build a one-text-block assistant message at an explicit timestamp.
 assistantAt :: UTCTime -> Text -> Message
@@ -198,7 +216,7 @@ assistantAt ts t =
         usage = _Usage,
         stopReason = Stop,
         errorMessage = Nothing,
-        timestamp = ts
+        timestamp = Just ts
       }
 
 -- | Build a one-text-block assistant message using the current time.
@@ -208,10 +226,17 @@ assistantNow t = do
   pure (assistantAt now t)
 
 -- | Build a tool-result message answering a prior 'AssistantToolCall'
--- using rich content blocks and a deterministic fixture timestamp.
+-- using rich content blocks, without recording a timestamp.
 toolResultMessage :: Text -> Text -> ToolResult -> Message
-toolResultMessage callId name =
-  toolResultMessageAt defaultTimestamp callId name
+toolResultMessage callId name ToolResult {content = blocks, isError = err} =
+  ToolResultMessage
+    ToolResultPayload
+      { toolCallId = callId,
+        toolName = name,
+        content = blocks,
+        isError = err,
+        timestamp = Nothing
+      }
 
 -- | Build a tool-result message at an explicit timestamp.
 toolResultMessageAt :: UTCTime -> Text -> Text -> ToolResult -> Message
@@ -222,7 +247,7 @@ toolResultMessageAt ts callId name ToolResult {content = blocks, isError = err} 
         toolName = name,
         content = blocks,
         isError = err,
-        timestamp = ts
+        timestamp = Just ts
       }
 
 -- | Build a tool-result message using the current time.
@@ -253,7 +278,14 @@ toolResultFromCallNow ToolCall {id_ = callId, name = toolName} =
 -- when the result has multiple blocks or image content.
 toolResult :: Text -> Text -> Text -> Bool -> Message
 toolResult callId name body err =
-  toolResultAt defaultTimestamp callId name body err
+  toolResultMessage
+    callId
+    name
+    ( ToolResult
+        { content = V.singleton (ToolResultText (TextContent body)),
+          isError = err
+        }
+    )
 
 -- | Build a one-text-block tool-result message at an explicit timestamp.
 toolResultAt :: UTCTime -> Text -> Text -> Text -> Bool -> Message

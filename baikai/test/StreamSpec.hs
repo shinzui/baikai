@@ -40,7 +40,7 @@ assistantPayload blocks sr err ts =
       usage = _Usage,
       stopReason = sr,
       errorMessage = err,
-      timestamp = ts
+      timestamp = Just ts
     }
 
 assistantMessage :: [AssistantContent] -> Message
@@ -143,7 +143,7 @@ tests =
         let oldResponse =
               responseWith Nothing [AssistantText (TextContent "old")]
                 & #message
-                %~ (#timestamp .~ epoch)
+                %~ (#timestamp .~ Just epoch)
             handler _ _ _ = pure oldResponse
         resp <- streamingComplete (liftCompleteToStream handler) streamModel streamContext streamOptions
         assertBool "latencyMs should be non-negative" (resp ^. #latencyMs >= 0),

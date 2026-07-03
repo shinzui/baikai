@@ -130,18 +130,6 @@ validatesAgainstSchema = \case
       _ -> False
   _ -> False
 
--- | Collect the assistant's text blocks into a single 'Text' — the
--- structured payload arrives as ordinary assistant text.
-flattenAssistantText :: Vector.Vector AssistantContent -> Text
-flattenAssistantText =
-  Text.concat
-    . Vector.toList
-    . Vector.mapMaybe
-      ( \case
-          AssistantText (TextContent t) -> Just t
-          _ -> Nothing
-      )
-
 firstSetEnv :: [String] -> IO (Maybe (String, String))
 firstSetEnv vars = do
   results <- traverse (\v -> fmap (\m -> (v, m)) (lookupEnv v)) vars

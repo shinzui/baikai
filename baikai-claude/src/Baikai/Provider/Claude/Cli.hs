@@ -209,7 +209,7 @@ mkResponse m start end body =
             usage = _Usage,
             stopReason = Stop,
             errorMessage = Nothing,
-            timestamp = end
+            timestamp = Just end
           },
       Resp.model = m,
       Resp.api = AnthropicMessagesCli,

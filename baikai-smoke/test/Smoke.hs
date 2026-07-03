@@ -14,7 +14,6 @@ import Data.ByteString.Base64 qualified as Base64
 import Data.Foldable (find)
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import InteractiveSmoke qualified
@@ -333,13 +332,3 @@ dotPngBytes = case Base64.decode dotPngBase64 of
 dotPngBase64 :: BS.ByteString
 dotPngBase64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-
-flattenAssistantText :: Vector.Vector AssistantContent -> Text
-flattenAssistantText =
-  Text.concat
-    . Vector.toList
-    . Vector.mapMaybe
-      ( \b -> case b of
-          AssistantText (TextContent t) -> Just t
-          _ -> Nothing
-      )

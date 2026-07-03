@@ -5,22 +5,24 @@
 -- 'Baikai.Api'), the input 'Model' echoed back, the provider name,
 -- an optional 'responseId', and the measured 'latencyMs'. The
 -- 'message' carries only assistant content blocks, 'Usage' (with
--- 'Cost' embedded), 'StopReason', optional error text, and timestamp.
+-- 'Cost' embedded), 'StopReason', optional error text, and an optional
+-- timestamp.
 --
--- 'flattenAssistantBlocks' is a convenience accessor that flattens
--- the message's content blocks.
+-- 'flattenAssistantBlocks' and 'flattenAssistantText' are convenience
+-- accessors for the message's content blocks.
 module Baikai.Response
   ( Response (..),
     _Response,
     responseMessage,
     flattenAssistantBlocks,
+    flattenAssistantText,
     responseError,
     errorResponse,
   )
 where
 
 import Baikai.Api (Api (..))
-import Baikai.Content (AssistantContent)
+import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError, providerError)
 import Baikai.Error qualified as Error
 import Baikai.Message (AssistantPayload (..), Message (..))
@@ -29,6 +31,7 @@ import Baikai.Model qualified as Model
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (_Usage)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -64,7 +67,7 @@ _Response =
             usage = _Usage,
             stopReason = Stop,
             errorMessage = Nothing,
-            timestamp = read "2000-01-01 00:00:00 UTC" :: UTCTime
+            timestamp = Nothing
           },
       model = _Model,
       api = Custom "",
@@ -81,6 +84,15 @@ responseMessage r = AssistantMessage (message r)
 -- | Pull the response's assistant content blocks out.
 flattenAssistantBlocks :: Response -> Vector AssistantContent
 flattenAssistantBlocks Response {message = AssistantPayload {content = c}} = c
+
+-- | Concatenate all assistant text blocks, ignoring thinking and tool
+-- call blocks.
+flattenAssistantText :: Vector AssistantContent -> Text
+flattenAssistantText =
+  Text.concat . V.toList . V.mapMaybe textOf
+  where
+    textOf (AssistantText (TextContent t)) = Just t
+    textOf _ = Nothing
 
 -- | The single question callers ask about failure. Returns 'Just'
 -- exactly when the response is error-shaped (@stopReason =
@@ -104,7 +116,7 @@ errorResponse m ts latency err =
             usage = _Usage,
             stopReason = ErrorReason,
             errorMessage = Just (Error.message err),
-            timestamp = ts
+            timestamp = Just ts
           },
       model = m,
       api = Model.api m,

@@ -226,10 +226,9 @@ finalizeState s = do
         | terminalFailed = terminalContent <> Vector.fromList (IntMap.elems dangling)
         | otherwise = terminalContent
       message' = overrideBlocksAndReason terminalReason terminalMsg finalContent now
-      latency =
-        max
-          0
-          (round (realToFrac (Data.Time.Clock.diffUTCTime now (s ^. #wallStart)) * (1000 :: Double)))
+      latency = case (s ^. #skeleton >>= messageTimestamp, assistantPayloadTimestamp message') of
+        (Just startTs, Just endTs) -> millisBetween startTs endTs
+        _ -> 0
   pure
     Response
       { message = message',
@@ -293,6 +292,18 @@ messageErrorText = \case
   AssistantMessage AssistantPayload {Msg.errorMessage = Just em} -> em
   _ -> "call failed with no error detail"
 
+messageTimestamp :: Message -> Maybe UTCTime
+messageTimestamp = \case
+  AssistantMessage AssistantPayload {Msg.timestamp = ts} -> ts
+  _ -> Nothing
+
+assistantPayloadTimestamp :: AssistantPayload -> Maybe UTCTime
+assistantPayloadTimestamp AssistantPayload {Msg.timestamp = ts} = ts
+
+millisBetween :: UTCTime -> UTCTime -> Integer
+millisBetween start end =
+  max 0 (round (realToFrac (Data.Time.Clock.diffUTCTime end start) * (1000 :: Double)))
+
 -- | Replace the content vector and stop reason of an assistant
 -- message, preserving usage, errorMessage, and timestamp.
 overrideBlocksAndReason ::
@@ -312,7 +323,7 @@ overrideBlocksAndReason sr msg blocks fallbackTs = case msg of
         Msg.usage = _Usage,
         Msg.stopReason = sr,
         Msg.errorMessage = Just "stream terminated with a non-assistant message",
-        Msg.timestamp = fallbackTs
+        Msg.timestamp = Just fallbackTs
       }
 
 -- | Build a placeholder 'AssistantMessage' for streams that ended
@@ -325,7 +336,7 @@ synthesizeTerminal now blocks =
         Msg.usage = _Usage,
         Msg.stopReason = Stop,
         Msg.errorMessage = Just "stream ended without terminal event",
-        Msg.timestamp = now
+        Msg.timestamp = Just now
       }
 
 -- | Wrap a synchronous @complete@ handler in a one-shot event
@@ -394,7 +405,7 @@ eventsFor startTs resp =
               Msg.usage = payload ^. #usage,
               Msg.stopReason = payload ^. #stopReason,
               Msg.errorMessage = payload ^. #errorMessage,
-              Msg.timestamp = startTs
+              Msg.timestamp = Just startTs
             }
       blocks = Vector.toList (payload ^. #content)
       blockEvents =
@@ -449,7 +460,7 @@ errorEvents e = do
               Msg.usage = _Usage,
               Msg.stopReason = ErrorReason,
               Msg.errorMessage = Just errText,
-              Msg.timestamp = now
+              Msg.timestamp = Just now
             }
       err = maybe (providerError errText) id mErr
   pure
@@ -471,7 +482,7 @@ noProviderEvents m = do
               Msg.usage = _Usage,
               Msg.stopReason = ErrorReason,
               Msg.errorMessage = Just detail,
-              Msg.timestamp = now
+              Msg.timestamp = Just now
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},

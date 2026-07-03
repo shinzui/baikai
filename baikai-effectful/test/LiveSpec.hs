@@ -15,7 +15,6 @@ import Baikai.Provider.OpenAI.Api qualified as OpenAI
 import Data.Text qualified as T
 import Data.Vector qualified as V
 import Effectful (runEff)
-import StubProvider (flattenAssistantText)
 import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase)

@@ -135,7 +135,7 @@ attachCostTests =
                 usage = sampleUsage,
                 stopReason = Stop,
                 errorMessage = Nothing,
-                timestamp = read "2026-05-14 00:00:00 UTC"
+                timestamp = Just (read "2026-05-14 00:00:00 UTC")
               },
           model = m,
           api = Custom "test",
@@ -160,7 +160,7 @@ cannedHaiku =
                 usage = u,
                 stopReason = Stop,
                 errorMessage = Nothing,
-                timestamp = read "2026-05-14 00:00:00 UTC"
+                timestamp = Just (read "2026-05-14 00:00:00 UTC")
               },
           model = knownModel & #api .~ cannedApi,
           api = cannedApi,

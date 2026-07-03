@@ -16,7 +16,6 @@ import Control.Monad (when)
 import Data.Foldable (find)
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import System.Environment (lookupEnv)
@@ -171,16 +170,6 @@ assistantThinking =
     . Vector.mapMaybe
       ( \case
           AssistantThinking th -> Just th
-          _ -> Nothing
-      )
-
-flattenAssistantText :: Vector.Vector AssistantContent -> Text
-flattenAssistantText =
-  Text.concat
-    . Vector.toList
-    . Vector.mapMaybe
-      ( \case
-          AssistantText (TextContent t) -> Just t
           _ -> Nothing
       )
 

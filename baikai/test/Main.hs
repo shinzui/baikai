@@ -6,6 +6,7 @@ import Baikai.Models.Generated
 import Baikai.Prelude
 import CatalogSpec qualified
 import CliInternalSpec qualified
+import ContextSpec qualified
 import CostSpec qualified
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
@@ -62,7 +63,7 @@ testProvider providerName canned =
                 usage = _Usage,
                 stopReason = Stop,
                 errorMessage = Nothing,
-                timestamp = read "2026-06-05 00:00:00 UTC"
+                timestamp = Just (read "2026-06-05 00:00:00 UTC")
               }
             & #model
             .~ m
@@ -86,6 +87,7 @@ main = do
         AgentAssetsSpec.tests,
         CatalogSpec.tests,
         CliInternalSpec.tests,
+        ContextSpec.tests,
         CostSpec.tests,
         EmbeddingSpec.tests,
         ErrorInfoSpec.tests,
@@ -263,7 +265,7 @@ tests =
         case userAt ts "hello" of
           UserMessage UserPayload {content = uc, timestamp = actualTs} -> do
             uc @?= V.singleton (UserText (TextContent "hello"))
-            actualTs @?= ts
+            actualTs @?= Just ts
           _ -> error "expected UserMessage",
       testCase "assistant smart constructor produces an AssistantMessage" $ do
         let ts = read "2026-06-05 01:02:03 UTC"
@@ -271,7 +273,7 @@ tests =
           AssistantMessage AssistantPayload {content = ac, stopReason = sr, timestamp = actualTs} -> do
             ac @?= V.singleton (AssistantText (TextContent "world"))
             sr @?= Stop
-            actualTs @?= ts
+            actualTs @?= Just ts
           _ -> error "expected AssistantMessage",
       testCase "effectful user constructor produces a UserMessage in IO" $ do
         msg <- userNow "hello now"
@@ -310,7 +312,7 @@ tests =
                     usage = _Usage,
                     stopReason = ToolUse,
                     errorMessage = Nothing,
-                    timestamp = read "2026-06-05 00:00:00 UTC"
+                    timestamp = Just (read "2026-06-05 00:00:00 UTC")
                   }
             resp = _Response & #message .~ assistantPayload
             assistantPayload = case assistantTurn of

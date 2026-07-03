@@ -237,7 +237,7 @@ streamFidelityTests =
                     usage = _Usage,
                     stopReason = Stop,
                     errorMessage = Nothing,
-                    timestamp = testTime
+                    timestamp = Just testTime
                   }
             ctx = _Context & #messages .~ Vector.fromList [msg]
         req <- requestForContext anthropic_claude_haiku_4_5 ctx _Options

@@ -172,7 +172,7 @@ replayDropsThinkingTest =
                 usage = _Usage,
                 stopReason = Stop,
                 errorMessage = Nothing,
-                timestamp = testTime
+                timestamp = Just testTime
               }
         ctx = _Context & #messages .~ Vector.singleton msg
     case mapRequest deepseek_deepseek_reasoner ctx _Options of

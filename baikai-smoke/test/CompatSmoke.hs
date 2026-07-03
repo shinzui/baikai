@@ -151,16 +151,6 @@ assertNonEmptyText label envVar resp = do
       <> show (Text.length text)
       <> " chars"
 
-flattenAssistantText :: Vector.Vector AssistantContent -> Text
-flattenAssistantText =
-  Text.concat
-    . Vector.toList
-    . Vector.mapMaybe
-      ( \case
-          AssistantText (TextContent t) -> Just t
-          _ -> Nothing
-      )
-
 firstSetEnv :: [String] -> IO (Maybe (String, String))
 firstSetEnv vars = do
   results <- traverse (\v -> fmap (\m -> (v, m)) (lookupEnv v)) vars

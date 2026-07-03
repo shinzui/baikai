@@ -69,16 +69,16 @@ when rewritten on `runToolLoop`, and the whole workspace builds and passes
 Use this checklist to record granular progress. Split partially completed items
 into "done" and "remaining" at every stopping point.
 
-- [ ] M1: `timestamp` fields on `UserPayload`/`AssistantPayload`/`ToolResultPayload`
+- [x] M1: `timestamp` fields on `UserPayload`/`AssistantPayload`/`ToolResultPayload`
       changed to `Maybe UTCTime`; `defaultTimestamp` deleted; pure constructors
       produce `Nothing`; `*At`/`*Now` produce `Just`.
-- [ ] M1: compiler-driven sweep of timestamp use sites (`baikai/src/Baikai/Stream.hs`
+- [x] M1: compiler-driven sweep of timestamp use sites (`baikai/src/Baikai/Stream.hs`
       latency/skeleton handling, `baikai/src/Baikai/Response.hs` `_Response`,
       `baikai/src/Baikai/Cost/Pricing.hs`, both provider packages, all test suites).
-- [ ] M1: `Semigroup`/`Monoid` instances for `Context`; `contextOf`, `systemUser`,
+- [x] M1: `Semigroup`/`Monoid` instances for `Context`; `contextOf`, `systemUser`,
       `addUser`, `addMessage`, `addResponse` added to `baikai/src/Baikai/Context.hs`.
-- [ ] M1: `flattenAssistantText` added and exported from `baikai/src/Baikai/Response.hs`.
-- [ ] M1: `baikai/test/ContextSpec.hs` created (Monoid laws + constructor behavior)
+- [x] M1: `flattenAssistantText` added and exported from `baikai/src/Baikai/Response.hs`.
+- [x] M1: `baikai/test/ContextSpec.hs` created (Monoid laws + constructor behavior)
       and wired into `baikai/test/Main.hs` and `baikai/baikai.cabal`.
 - [ ] M2: `runToolLoop`/`runToolLoopWith` and `completeText` added to
       `baikai/src/Baikai/Provider/Registry.hs`, re-exported from
@@ -117,7 +117,10 @@ into "done" and "remaining" at every stopping point.
 Document unexpected behaviors, bugs, or insights discovered during implementation,
 with concise evidence.
 
-(None yet.)
+- 2026-07-03: Exporting `flattenAssistantText` immediately replaced four local
+  copies in smoke/effectful tests and exposed the intended downstream collision
+  shape; deleting those copies proved the helper is source-useful beyond the new
+  `ContextSpec`.
 
 
 ## Decision Log
@@ -310,7 +313,15 @@ with concise evidence.
 Summarize outcomes, gaps, and lessons learned at major milestones or at
 completion, comparing the result against the Purpose section.
 
-(To be filled during and after implementation.)
+- 2026-07-03 M1: Message payload timestamps are now honest (`Maybe UTCTime`),
+  pure constructors produce `Nothing`, provider/IO paths produce `Just`, and
+  stream reassembly computes latency only when both start and end timestamps are
+  present. `Context` now has lawful `Semigroup`/`Monoid` instances plus
+  `contextOf`, `systemUser`, `addUser`, `addMessage`, and `addResponse`.
+  `flattenAssistantText` is exported from `Baikai.Response`, replacing local
+  smoke/effectful copies. Validation passed with `cabal build all --enable-tests`
+  and `cabal test baikai baikai-claude baikai-openai baikai-effectful
+  --test-show-details=direct`.
 
 
 ## Context and Orientation

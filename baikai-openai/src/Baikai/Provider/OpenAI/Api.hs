@@ -186,7 +186,7 @@ skeletonStart _m start =
         Msg.usage = Usage._Usage,
         Msg.stopReason = Stop.Stop,
         Msg.errorMessage = Nothing,
-        Msg.timestamp = start
+        Msg.timestamp = Just start
       }
 
 -- | Per-call prepared values.
@@ -950,7 +950,7 @@ finalMessage ass now errMsg sr =
             Msg.usage = usage',
             Msg.stopReason = sr,
             Msg.errorMessage = errMsg <|> (ass ^. #finishNote),
-            Msg.timestamp = now
+            Msg.timestamp = Just now
           }
 
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
@@ -969,7 +969,7 @@ immediateError err = do
               Msg.usage = Usage._Usage,
               Msg.stopReason = Stop.ErrorReason,
               Msg.errorMessage = Just errText,
-              Msg.timestamp = now
+              Msg.timestamp = Just now
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},

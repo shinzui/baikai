@@ -206,7 +206,7 @@ rejectsImageToolResultsTest =
                         toolName = "render",
                         content = Vector.singleton (ToolResultImage image),
                         isError = False,
-                        timestamp = read "2026-06-05 00:00:00 UTC"
+                        timestamp = Just (read "2026-06-05 00:00:00 UTC")
                       }
                 )
     events <- Stream.toList (claudeMessagesStream model ctx _Options)

@@ -529,7 +529,7 @@ skeletonMessage ass _now =
         Msg.usage = ass ^. #usage,
         Msg.stopReason = Stop.Stop,
         Msg.errorMessage = Nothing,
-        Msg.timestamp = ass ^. #start
+        Msg.timestamp = Just (ass ^. #start)
       }
 
 finalMessage :: Assembler -> UTCTime -> Msg.Message
@@ -545,7 +545,7 @@ finalMessage ass now =
             Msg.usage = usage',
             Msg.stopReason = ass ^. #stopReason,
             Msg.errorMessage = Nothing,
-            Msg.timestamp = now
+            Msg.timestamp = Just now
           }
 
 finalMessageOnError :: Assembler -> UTCTime -> Text -> Msg.Message
@@ -561,7 +561,7 @@ finalMessageOnError ass now reason =
             Msg.usage = usage',
             Msg.stopReason = Stop.ErrorReason,
             Msg.errorMessage = Just reason,
-            Msg.timestamp = now
+            Msg.timestamp = Just now
           }
 
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
@@ -581,7 +581,7 @@ immediateError err = do
               Msg.usage = Usage._Usage,
               Msg.stopReason = Stop.ErrorReason,
               Msg.errorMessage = Just errText,
-              Msg.timestamp = now
+              Msg.timestamp = Just now
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},

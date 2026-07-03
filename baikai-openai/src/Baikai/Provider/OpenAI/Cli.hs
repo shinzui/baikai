@@ -196,7 +196,7 @@ consume start m _ mOut mErr ph = do
                       usage = _Usage,
                       stopReason = Stop,
                       errorMessage = Nothing,
-                      timestamp = end
+                      timestamp = Just end
                     },
                 Resp.model = m,
                 Resp.api = OpenAICompletionsCli,

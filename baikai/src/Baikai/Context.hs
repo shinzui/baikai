@@ -16,15 +16,21 @@
 module Baikai.Context
   ( Context (..),
     _Context,
+    contextOf,
+    systemUser,
+    addUser,
+    addMessage,
+    addResponse,
     appendToolResult,
     appendToolResultText,
   )
 where
 
 import Baikai.Content (AssistantContent (..), ToolCall (..))
-import Baikai.Message (Message (..), ToolResult, toolResultFromCallNow, toolResultText)
+import Baikai.Message (Message (..), ToolResult, toolResultFromCallNow, toolResultText, user)
 import Baikai.Response (Response (..), responseMessage)
 import Baikai.Tool (Tool)
+import Control.Applicative ((<|>))
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (ToJSON)
 import Data.Generics.Labels ()
@@ -48,6 +54,43 @@ _Context =
       messages = V.empty,
       tools = V.empty
     }
+
+instance Semigroup Context where
+  a <> b =
+    Context
+      { systemPrompt = systemPrompt a <|> systemPrompt b,
+        messages = messages a <> messages b,
+        tools = tools a <> tools b
+      }
+
+instance Monoid Context where
+  mempty = _Context
+
+-- | Build a context from an existing list of messages.
+contextOf :: [Message] -> Context
+contextOf msgs =
+  _Context {messages = V.fromList msgs}
+
+-- | Build a context with a system prompt and one user message.
+systemUser :: Text -> Text -> Context
+systemUser sys prompt =
+  _Context
+    { systemPrompt = Just sys,
+      messages = V.singleton (user prompt)
+    }
+
+-- | Append a one-text-block user message.
+addUser :: Text -> Context -> Context
+addUser t = addMessage (user t)
+
+-- | Append a message to the conversation.
+addMessage :: Message -> Context -> Context
+addMessage msg ctx =
+  ctx {messages = V.snoc (messages ctx) msg}
+
+-- | Append a provider response as an assistant message.
+addResponse :: Response -> Context -> Context
+addResponse resp = addMessage (responseMessage resp)
 
 -- | Execute every 'AssistantToolCall' in @resp@'s message via the
 -- caller-supplied dispatcher, then append the assistant message and
