@@ -101,7 +101,7 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | 2 | Harden baikai-kit install and status | docs/plans/35-harden-baikai-kit-install-and-status.md | None | None | Complete |
 | 3 | Harden CLI subprocess argument and pipe handling | docs/plans/36-harden-cli-subprocess-argument-and-pipe-handling.md | None | None | Complete |
 | 4 | Correct usage and cost accounting | docs/plans/37-correct-usage-and-cost-accounting.md | None | None | Complete |
-| 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | In Progress |
+| 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | Complete |
 | 6 | Unify the error contract and revive error classification | docs/plans/39-unify-the-error-contract-and-revive-error-classification.md | EP-5 | None | Not Started |
 | 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | Not Started |
 | 8 | Implement compat quirks and transport options | docs/plans/41-implement-compat-quirks-and-transport-options.md | None | EP-6, EP-7 | Not Started |
@@ -210,7 +210,7 @@ EP-10 relocate them if needed.
 - [x] EP-5 M1: event algebra reshaped (ThinkingEndPayload, responseId carriage) and workspace compiling
 - [x] EP-5 M2: full-fidelity reassembly (terminal-authoritative content)
 - [x] EP-5 M3: protocol and exception invariants (EventStart-first, sync-only catch, clamped latency)
-- [ ] EP-5 M4: validation, hand-off contract, living sections
+- [x] EP-5 M4: validation, hand-off contract, living sections
 - [ ] EP-6 M1: one error contract in core (`responseError`, non-throwing dispatch, in-band lift)
 - [ ] EP-6 M2: Claude live classification via local SSE transport
 - [ ] EP-6 M3: OpenAI live classification, `content_filter`, codex CLI in-band
@@ -279,6 +279,12 @@ EP-10 relocate them if needed.
   restores `HOME` with `finally`. Future kit tests that mutate process-global
   environment should stay under that serial suite or use a different configuration
   injection strategy. (2026-07-03, EP-2 implementation)
+- While implementing EP-5, the stream protocol type change exposed a positional
+  `TerminalPayload` pattern in `baikai-smoke/test/Smoke.hs`, outside the initially
+  listed four-suite compile-through. It was converted to a record pattern. Also
+  verified in Streamly source that `Fold.foldlM'` supports a monadic initial state,
+  which is what lets `reassembleResponse` capture its wall-clock start at fold start.
+  (2026-07-03, EP-5 implementation)
 
 
 ## Decision Log

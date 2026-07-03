@@ -108,13 +108,21 @@ reading this plan's diff.
       (2026-07-03)
 - [x] M3: async-passthrough and EventStart-first tests in `baikai/test/StreamSpec.hs`
       (2026-07-03)
-- [ ] M4: full validation matrix run and recorded; Interfaces section verified against
+- [x] M4: full validation matrix run and recorded; Interfaces section verified against
       the compiled code; masterplan Progress updated; living sections finalized
+      (2026-07-03)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The M1 compile-through exposed one extra direct `TerminalPayload` positional pattern
+  in `baikai-smoke/test/Smoke.hs`, outside the four-suite checklist. It was converted
+  to a record pattern in the M1 commit so future terminal-payload field additions are
+  less brittle. (2026-07-03)
+- The local Streamly source confirmed `Streamly.Data.Fold.foldlM'` accepts a monadic
+  initial state (`m b`), even though the curated fold docs summary showed a pure
+  initial value. The implementation therefore captures `wallStart` in the fold's
+  initial action as planned. (2026-07-03)
 
 
 ## Decision Log
@@ -228,7 +236,38 @@ reading this plan's diff.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Implemented on 2026-07-03 across three commits:
+
+- `696e8c4` reshaped the event algebra: `ThinkingEndPayload` carries full
+  `ThinkingContent`, `StartPayload` and `TerminalPayload` carry `responseId`, and
+  Claude emits the id/signature values already available at its construction sites.
+- `849afa5` made reassembly full-fidelity: terminal content wins when present,
+  `Response.responseId` is populated from terminal-then-start payloads, dangling
+  buffers are recovered in `contentIndex` order including partial tool-call arguments,
+  and latency is measured from the reassembler wall clock with a zero clamp.
+- `7d4edb1` restored protocol and cancellation invariants: lifted blocking handlers
+  rethrow async exceptions, core synthetic errors and provider request-preparation
+  errors now begin with `EventStart`, and tests cover both cases.
+
+The compiled payload definitions in `baikai/src/Baikai/Stream/Event.hs` match the
+Interfaces and Dependencies section: `ThinkingEnd ThinkingEndPayload`,
+`StartPayload { partial, responseId }`,
+`TerminalPayload { reason, message, responseId, errorInfo }`,
+`doneTerminal :: Maybe Text -> StopReason -> Message -> TerminalPayload`, and
+`errorTerminal :: Maybe Text -> StopReason -> Message -> Maybe BaikaiError ->
+TerminalPayload`.
+
+Validation completed:
+
+- `cabal build all --enable-tests` — passed (`Up to date` on final M4 run).
+- `cabal test baikai baikai-claude baikai-openai baikai-effectful --test-show-details=direct`
+  — passed; `baikai` reported `All 108 tests passed`, `baikai-claude` `All 20 tests
+  passed`, `baikai-openai` `All 23 tests passed`, and `baikai-effectful` `All 4 tests
+  passed`.
+
+Known hand-off: the protocol haddock intentionally records the remaining Claude
+mid-call pre-`message_start` EventStart gap for EP-7. EP-6 and EP-7 can now rely on
+the final payload shapes and the reassembler semantics described in this plan.
 
 
 ## Context and Orientation
