@@ -1,7 +1,9 @@
 module Main (main) where
 
 import Baikai
-import Baikai.Provider.OpenAI.Api
+import Baikai.Cost qualified as Cost
+import Baikai.Cost.Pricing (computeCost)
+import Baikai.Provider.OpenAI.Api (mapRequest, openaiChatStream, parseUsage, rawUsageToUsage)
 import Baikai.Provider.OpenAI.Cli qualified as CodexCli
 import Baikai.Provider.OpenAI.Interactive
 import Control.Lens ((&), (.~), (^.))
@@ -29,6 +31,7 @@ main =
         batchCommandRenderingTest,
         batchSystemPromptTest,
         stderrFloodTest,
+        usageMappingTests,
         promptRenderingTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
@@ -73,6 +76,93 @@ responseFormatMappingTest =
           RF.strict js @?= Just True
           RF.description js @?= Nothing
         other -> assertFailure ("expected JSON_Schema, got: " <> show other)
+
+usageMappingTests :: TestTree
+usageMappingTests =
+  testGroup
+    "usage mapping"
+    [ testCase "cached prompt tokens map to disjoint fields" $ do
+        u <- normalizedUsage cachedUsagePayload
+        inputTokens u @?= 20
+        cacheReadTokens u @?= 80
+        outputTokens u @?= 50
+        reasoningTokens u @?= Just 20
+        cacheWriteTokens u @?= 0
+        totalTokens u @?= 150,
+      testCase "computeCost bills each token class exactly once" $ do
+        u <- normalizedUsage cachedUsagePayload
+        let c = computeCost usageCostModel u
+        -- The double-billing bug produced 358 / 1000000 by charging
+        -- cached tokens at both the input and cache-read rates.
+        Cost.usd c @?= (139 / 500000 :: Rational)
+        Cost.inputUsd (Cost.breakdown c) @?= (20 / 1000000 :: Rational)
+        Cost.cachedInputUsd (Cost.breakdown c) @?= (8 / 1000000 :: Rational),
+      testCase "clamps when a compatible host over-reports cached tokens" $ do
+        u <- normalizedUsage overCachedUsagePayload
+        inputTokens u @?= 0
+        cacheReadTokens u @?= 120
+        outputTokens u @?= 50
+        totalTokens u @?= 170,
+      testCase "no cache details means no cache tokens" $ do
+        u <- normalizedUsage uncachedUsagePayload
+        inputTokens u @?= 100
+        cacheReadTokens u @?= 0
+        outputTokens u @?= 50
+        reasoningTokens u @?= Nothing
+        totalTokens u @?= 150
+    ]
+
+cachedUsagePayload :: Aeson.Object
+cachedUsagePayload =
+  usageObject
+    [ "prompt_tokens" Aeson..= (100 :: Int),
+      "completion_tokens" Aeson..= (50 :: Int),
+      "total_tokens" Aeson..= (150 :: Int),
+      "prompt_tokens_details" Aeson..= Aeson.object ["cached_tokens" Aeson..= (80 :: Int)],
+      "completion_tokens_details" Aeson..= Aeson.object ["reasoning_tokens" Aeson..= (20 :: Int)]
+    ]
+
+overCachedUsagePayload :: Aeson.Object
+overCachedUsagePayload =
+  usageObject
+    [ "prompt_tokens" Aeson..= (100 :: Int),
+      "completion_tokens" Aeson..= (50 :: Int),
+      "total_tokens" Aeson..= (150 :: Int),
+      "prompt_tokens_details" Aeson..= Aeson.object ["cached_tokens" Aeson..= (120 :: Int)]
+    ]
+
+uncachedUsagePayload :: Aeson.Object
+uncachedUsagePayload =
+  usageObject
+    [ "prompt_tokens" Aeson..= (100 :: Int),
+      "completion_tokens" Aeson..= (50 :: Int),
+      "total_tokens" Aeson..= (150 :: Int)
+    ]
+
+usageObject pairs =
+  case Aeson.object pairs of
+    Aeson.Object o -> o
+    _ -> error "unreachable: Aeson.object builds an Object"
+
+normalizedUsage :: Aeson.Object -> IO Usage
+normalizedUsage payload =
+  case parseUsage payload of
+    Just raw -> pure (rawUsageToUsage raw)
+    Nothing -> assertFailure "expected usage payload to parse"
+
+usageCostModel :: Model
+usageCostModel =
+  _Model
+    & #modelId .~ "gpt-test"
+    & #api .~ OpenAIChatCompletions
+    & #provider .~ "openai"
+    & #cost
+      .~ ModelCost
+        { inputCost = 1,
+          outputCost = 5,
+          cacheReadCost = 1 / 10,
+          cacheWriteCost = 5 / 4
+        }
 
 commandRenderingTest :: TestTree
 commandRenderingTest =

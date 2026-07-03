@@ -1,11 +1,27 @@
 -- | Token-usage accounting for a single provider call.
 --
--- The shape splits cache-read tokens (the prompt fragment served from a
--- prior cache write) from cache-write tokens (the prompt fragment the
--- provider stored for future calls), so callers can reason about both
--- billing dimensions. 'cost' is always populated — providers without
--- pricing data fill it with '_Cost' (zero across all rates) rather than
--- a 'Nothing' that every cost-reading caller would have to handle.
+-- The prompt-side fields are provider-normalized into disjoint token
+-- classes. 'inputTokens' counts only non-cached prompt tokens and
+-- excludes both cache counters. 'cacheReadTokens' counts prompt tokens
+-- served from a provider-side cache; 'cacheWriteTokens' counts prompt
+-- tokens stored for future cache reads. Providers whose wire format is
+-- inclusive, such as OpenAI Chat Completions where @prompt_tokens@
+-- includes @prompt_tokens_details.cached_tokens@, must normalize by
+-- subtraction when constructing 'Usage'.
+--
+-- 'totalTokens' is the sum of the billed token classes:
+-- 'inputTokens' + 'outputTokens' + 'cacheReadTokens' +
+-- 'cacheWriteTokens'. Provider mappings compute it from the normalized
+-- parts rather than trusting a wire total. 'reasoningTokens', when
+-- present, is an informational subset of 'outputTokens'; it is already
+-- counted in 'outputTokens' and 'totalTokens' and is not billed
+-- separately.
+--
+-- 'cost' is always populated — providers without pricing data fill it
+-- with '_Cost' (zero across all rates) rather than a 'Nothing' that
+-- every cost-reading caller would have to handle. 'Baikai.Cost.Pricing.computeCost'
+-- depends on the token classes being disjoint so each class is billed
+-- exactly once.
 module Baikai.Usage (Usage (..), _Usage, sumUsage) where
 
 import Baikai.Cost (Cost, _Cost)
@@ -20,13 +36,34 @@ import Data.Maybe (fromMaybe)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
+-- | Provider-normalized token usage for one model call.
+--
+-- The prompt-side classes are disjoint: 'inputTokens' excludes
+-- 'cacheReadTokens' and 'cacheWriteTokens'. 'totalTokens' is the sum
+-- of all billed token classes, and 'reasoningTokens' is an optional
+-- breakdown already included in 'outputTokens'.
 data Usage = Usage
-  { inputTokens :: !Natural,
+  { -- | Non-cached prompt tokens. Excludes 'cacheReadTokens' and
+    -- 'cacheWriteTokens'.
+    inputTokens :: !Natural,
+    -- | Output tokens billed at the model's output rate. Any
+    -- 'reasoningTokens' are already included here.
     outputTokens :: !Natural,
+    -- | Prompt tokens served from a provider-side cache.
     cacheReadTokens :: !Natural,
+    -- | Prompt tokens written into a provider-side cache for future
+    -- reads.
     cacheWriteTokens :: !Natural,
+    -- | Optional reasoning/thinking-token breakdown. These tokens are
+    -- an informational subset of 'outputTokens', not an additional
+    -- billed class.
     reasoningTokens :: !(Maybe Natural),
+    -- | Sum of the billed token classes:
+    -- 'inputTokens' + 'outputTokens' + 'cacheReadTokens' +
+    -- 'cacheWriteTokens'.
     totalTokens :: !Natural,
+    -- | Computed cost for this usage. Providers without pricing data
+    -- use '_Cost'.
     cost :: !Cost
   }
   deriving stock (Eq, Show, Generic)
@@ -36,6 +73,7 @@ usageOptions = defaultOptions {fieldLabelModifier = camelTo2 '_'}
 
 instance ToJSON Usage where toJSON = genericToJSON usageOptions
 
+-- | Empty usage with every count and cost set to zero.
 _Usage :: Usage
 _Usage =
   Usage

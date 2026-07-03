@@ -31,6 +31,13 @@ module Baikai.Provider.OpenAI.Api
     registerWithRegistry,
     openaiChatStream,
     mapRequest,
+
+    -- * Usage mapping
+
+    -- Exposed for tests; may move behind an .Internal namespace in a later plan.
+    RawUsage (..),
+    parseUsage,
+    rawUsageToUsage,
   )
 where
 
@@ -585,20 +592,35 @@ applyOneToolDelta d ass =
           else events0 <> [ToolCallDelta DeltaPayload {contentIndex = baikaiIdx, delta = argsDelta}]
    in (events1, ass3)
 
+-- | Normalize OpenAI's inclusive usage counters into baikai's
+-- disjoint 'Usage.Usage' convention. OpenAI's @prompt_tokens@
+-- includes @prompt_tokens_details.cached_tokens@, so the cached count
+-- is subtracted out of 'Usage.inputTokens'. The subtraction is clamped
+-- at zero because 'Natural' subtraction throws on underflow and because
+-- OpenAI-compatible hosts can report inconsistent counters.
+-- 'Usage.totalTokens' is recomputed from the normalized parts;
+-- 'Usage.reasoningTokens' is a subset of 'Usage.outputTokens' and is
+-- not added to the total. OpenAI does not bill cache writes, so
+-- 'Usage.cacheWriteTokens' is always zero.
+rawUsageToUsage :: RawUsage -> Usage.Usage
+rawUsageToUsage u =
+  let prompt = u ^. #inputTokens
+      cached = u ^. #cacheReadTokens
+      out = u ^. #outputTokens
+      nonCached = if cached >= prompt then 0 else prompt - cached
+   in Usage.Usage
+        { Usage.inputTokens = nonCached,
+          Usage.outputTokens = out,
+          Usage.cacheReadTokens = cached,
+          Usage.cacheWriteTokens = 0,
+          Usage.reasoningTokens = u ^. #reasoningTokens,
+          Usage.totalTokens = nonCached + out + cached,
+          Usage.cost = _Cost
+        }
+
 applyUsage :: Maybe RawUsage -> Assembler -> Assembler
 applyUsage Nothing ass = ass
-applyUsage (Just u) ass =
-  let usage' =
-        Usage.Usage
-          { Usage.inputTokens = u ^. #inputTokens,
-            Usage.outputTokens = u ^. #outputTokens,
-            Usage.cacheReadTokens = u ^. #cacheReadTokens,
-            Usage.cacheWriteTokens = 0,
-            Usage.reasoningTokens = u ^. #reasoningTokens,
-            Usage.totalTokens = (u ^. #inputTokens) + (u ^. #outputTokens) + (u ^. #cacheReadTokens),
-            Usage.cost = _Cost
-          }
-   in ass & #usage .~ usage'
+applyUsage (Just u) ass = ass & #usage .~ rawUsageToUsage u
 
 -- | Close all open content blocks and stash the resolved stop
 -- reason; defer 'EventDone' to channel close.

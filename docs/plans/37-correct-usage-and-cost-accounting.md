@@ -45,20 +45,25 @@ work is load-bearing, not cosmetic.
 
 ## Progress
 
-- [ ] Milestone 1: `Usage` invariant written on the record haddock in
+- [x] Milestone 1: `Usage` invariant written on the record haddock in
       `baikai/src/Baikai/Usage.hs` (disjoint input/cache classes, `totalTokens` sum,
-      `reasoningTokens` subset rule).
-- [ ] Milestone 1: cross-provider invariant test group added to
+      `reasoningTokens` subset rule). (2026-07-03)
+- [x] Milestone 1: cross-provider invariant test group added to
       `baikai/test/UsageSpec.hs` and passing.
-- [ ] Milestone 2: pure `rawUsageToUsage` normalizer added to
+      (2026-07-03)
+- [x] Milestone 2: pure `rawUsageToUsage` normalizer added to
       `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`; `applyUsage` rewritten to use
       it; `RawUsage (..)`, `parseUsage`, `rawUsageToUsage` exported.
-- [ ] Milestone 2: OpenAI usage regression tests (wire payload → disjoint fields →
+      (2026-07-03)
+- [x] Milestone 2: OpenAI usage regression tests (wire payload → disjoint fields →
       exact `computeCost`) added to `baikai-openai/test/Main.hs` and passing.
-- [ ] Milestone 2: Claude provider mapping re-verified against the documented
+      (2026-07-03)
+- [x] Milestone 2: Claude provider mapping re-verified against the documented
       invariant (read-only check; no edit expected).
-- [ ] Final: `cabal build all --enable-tests` clean; `cabal test baikai baikai-openai`
+      (2026-07-03)
+- [x] Final: `cabal build all --enable-tests` clean; `cabal test baikai baikai-openai`
       green; living sections of this plan updated.
+      (2026-07-03)
 
 
 ## Surprises & Discoveries
@@ -133,7 +138,29 @@ work is load-bearing, not cosmetic.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Implemented on 2026-07-03. `Baikai.Usage.Usage` now documents the provider-independent
+disjoint token-class invariant on the record and fields, including the rule that
+`reasoningTokens` is an informational subset of `outputTokens` and not an additional
+billed class. The core usage spec has an executable arithmetic witness for that
+invariant.
+
+The OpenAI provider now normalizes inclusive `prompt_tokens` through
+`rawUsageToUsage`: cached prompt tokens are subtracted from full-rate input tokens,
+the subtraction clamps at zero for malformed compatible-host counters, cache writes
+stay zero, and `totalTokens` is recomputed from normalized parts. The OpenAI test
+suite feeds wire-shaped JSON through `parseUsage` and `rawUsageToUsage`, then checks
+the normalized fields and exact `computeCost` result. The Claude mapping was
+re-checked read-only and already satisfies the invariant.
+
+Validation completed:
+
+- `cabal test baikai baikai-openai --test-show-details=direct` — passed; `baikai`
+  reported `All 100 tests passed`, `baikai-openai` reported `All 23 tests passed`.
+- `cabal build all --enable-tests` — passed.
+- `cabal haddock baikai` — passed and generated
+  `dist-newstyle/build/aarch64-osx/ghc-9.12.4/baikai-0.2.0.0/doc/html/baikai`;
+  `Baikai.Usage` reports 100% Haddock coverage. The command still emits unrelated
+  existing documentation/link warnings in other modules.
 
 
 ## Context and Orientation

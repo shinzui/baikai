@@ -100,7 +100,7 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | 1 | Harden trace and call-log workers | docs/plans/34-harden-trace-and-call-log-workers.md | None | None | Complete |
 | 2 | Harden baikai-kit install and status | docs/plans/35-harden-baikai-kit-install-and-status.md | None | None | Complete |
 | 3 | Harden CLI subprocess argument and pipe handling | docs/plans/36-harden-cli-subprocess-argument-and-pipe-handling.md | None | None | Complete |
-| 4 | Correct usage and cost accounting | docs/plans/37-correct-usage-and-cost-accounting.md | None | None | Not Started |
+| 4 | Correct usage and cost accounting | docs/plans/37-correct-usage-and-cost-accounting.md | None | None | Complete |
 | 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | Not Started |
 | 6 | Unify the error contract and revive error classification | docs/plans/39-unify-the-error-contract-and-revive-error-classification.md | EP-5 | None | Not Started |
 | 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | Not Started |
@@ -205,8 +205,8 @@ EP-10 relocate them if needed.
 - [x] EP-3 M1: `--` option terminator at all four launch sites, argv builders unit-tested
 - [x] EP-3 M2: system prompt sent through the codex batch provider
 - [x] EP-3 M3: concurrent stderr drain and exception-safe cleanup for codex
-- [ ] EP-4 M1: `Usage` invariant defined and documented in core (disjoint token classes)
-- [ ] EP-4 M2: OpenAI mapping normalized with wire-payload regression tests
+- [x] EP-4 M1: `Usage` invariant defined and documented in core (disjoint token classes)
+- [x] EP-4 M2: OpenAI mapping normalized with wire-payload regression tests
 - [ ] EP-5 M1: event algebra reshaped (ThinkingEndPayload, responseId carriage) and workspace compiling
 - [ ] EP-5 M2: full-fidelity reassembly (terminal-authoritative content)
 - [ ] EP-5 M3: protocol and exception invariants (EventStart-first, sync-only catch, clamped latency)

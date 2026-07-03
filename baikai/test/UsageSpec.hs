@@ -12,6 +12,7 @@ tests =
     [ identityTests,
       additionTests,
       reasoningTests,
+      documentedSemanticsTests,
       costTests,
       sumUsageTests
     ]
@@ -84,6 +85,27 @@ reasoningTests =
   where
     rJust n = _Usage {reasoningTokens = Just n}
     rNothing = _Usage {reasoningTokens = Nothing}
+
+-- Provider mappings must uphold the documented field semantics:
+-- 'anthroUsageToBaikai' in baikai-claude/src/Baikai/Provider/Claude/Api.hs
+-- and 'rawUsageToUsage' in baikai-openai/src/Baikai/Provider/OpenAI/Api.hs.
+documentedSemanticsTests :: TestTree
+documentedSemanticsTests =
+  testGroup
+    "documented field semantics"
+    [ testCase "totalTokens sums disjoint billed classes and excludes reasoning double-count" $ do
+        let u =
+              _Usage
+                { inputTokens = 20,
+                  outputTokens = 50,
+                  cacheReadTokens = 80,
+                  cacheWriteTokens = 7,
+                  reasoningTokens = Just 20,
+                  totalTokens = 157
+                }
+        totalTokens u
+          @?= inputTokens u + outputTokens u + cacheReadTokens u + cacheWriteTokens u
+    ]
 
 costTests :: TestTree
 costTests =
