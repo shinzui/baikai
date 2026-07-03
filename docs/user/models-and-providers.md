@@ -13,16 +13,16 @@ catalog doesn't cover.
 ```haskell
 import Baikai.Models.Generated qualified as Models
 
-Models.anthropic_claude_haiku_4_5
-Models.anthropic_claude_haiku_4_5_20251001
-Models.anthropic_claude_opus_4_7
+Models.anthropic_claude_opus_4_8
 Models.anthropic_claude_sonnet_4_6
+Models.anthropic_claude_haiku_4_5
+Models.anthropic_claude_fable_5
 Models.deepseek_deepseek_chat
 Models.deepseek_deepseek_reasoner
-Models.openai_gpt_4o
+Models.openai_gpt_5_5
+Models.openai_gpt_5_mini
 Models.openai_gpt_4o_mini
-Models.openai_o1
-Models.openai_o1_mini
+Models.openai_o3
 Models.openrouter_anthropic_claude_sonnet_4
 Models.openrouter_openai_gpt_4o_mini
 ```
