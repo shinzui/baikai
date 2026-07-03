@@ -1,0 +1,96 @@
+module TransportSpec (tests) where
+
+import Baikai
+import Baikai.Provider.Claude.Transport qualified as Transport
+import Control.Concurrent (threadDelay)
+import Control.Exception (bracket, try)
+import Control.Lens ((&), (.~), (^.))
+import Data.CaseInsensitive qualified as CI
+import Data.Map.Strict qualified as Map
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Data.Vector qualified as Vector
+import Network.HTTP.Types.Header (RequestHeaders)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
+
+tests :: TestTree
+tests =
+  testGroup
+    "Baikai.Provider.Claude.Transport"
+    [ clientEnvCacheTest,
+      requestHeadersTest,
+      sessionAffinityTest,
+      timeoutTest,
+      unknownHostKeyTest
+    ]
+
+clientEnvCacheTest :: TestTree
+clientEnvCacheTest =
+  testCase "cached ClientEnv is allocated once for a base URL" $ do
+    let url = "https://cache-anthropic.test"
+    before <- Transport.cachedClientEnvCount
+    _ <- Transport.getClientEnvCached url
+    afterFirst <- Transport.cachedClientEnvCount
+    _ <- Transport.getClientEnvCached url
+    afterSecond <- Transport.cachedClientEnvCount
+    afterFirst @?= before + 1
+    afterSecond @?= afterFirst
+
+requestHeadersTest :: TestTree
+requestHeadersTest =
+  testCase "model and option headers reach the wire, options winning case-insensitively" $ do
+    let model =
+          _Model
+            & #headers .~ Map.fromList [("X-Trace", "model"), ("x-api-key", "model-key")]
+        opts =
+          _Options
+            & #headers .~ Map.fromList [("x-trace", "option"), ("X-API-Key", "option-key")]
+        headers = Transport.requestHeaders "secret" (Just "2023-06-01") defaultAnthropicMessagesCompat _Context model opts
+    header "X-Trace" headers @?= Just "option"
+    header "x-api-key" headers @?= Just "option-key"
+    header "anthropic-version" headers @?= Just "2023-06-01"
+
+sessionAffinityTest :: TestTree
+sessionAffinityTest =
+  testCase "sendSessionAffinityHeaders adds a stable session header" $ do
+    let compat = defaultAnthropicMessagesCompat {sendSessionAffinityHeaders = True}
+        ctx =
+          _Context
+            & #systemPrompt .~ Just "system"
+            & #messages .~ Vector.singleton (user "first")
+        headers = Transport.requestHeaders "secret" Nothing compat ctx _Model _Options
+        affinity = Transport.sessionAffinityValue ctx
+    Text.length affinity @?= 64
+    header "x-session-affinity" headers @?= Just affinity
+
+timeoutTest :: TestTree
+timeoutTest =
+  testCase "runWithTimeout classifies an elapsed whole-call timeout as transient" $ do
+    result <- Transport.runWithTimeout (Just 1) (threadDelay 100000)
+    case result of
+      Just be -> do
+        be ^. #category @?= TransientError
+        "timeoutMs=1" `Text.isInfixOf` (be ^. #message) @?= True
+      Nothing -> assertFailure "expected timeout error"
+
+unknownHostKeyTest :: TestTree
+unknownHostKeyTest =
+  testCase "unknown hosts do not fall back to ANTHROPIC_API_KEY" $
+    withEnv "ANTHROPIC_API_KEY" "anthropic-secret" $ do
+      result <- try (Transport.resolveKey "https://unknown.example" _Options) :: IO (Either BaikaiError Text.Text)
+      case result of
+        Left be -> be ^. #category @?= AuthError
+        Right _ -> assertFailure "expected AuthError for unknown host"
+
+header :: Text.Text -> RequestHeaders -> Maybe Text.Text
+header name headers =
+  Text.decodeUtf8 <$> lookup (CI.mk (Text.encodeUtf8 name)) headers
+
+withEnv :: String -> String -> IO a -> IO a
+withEnv name value =
+  bracket
+    (lookupEnv name <* setEnv name value)
+    (maybe (unsetEnv name) (setEnv name))
+    . const

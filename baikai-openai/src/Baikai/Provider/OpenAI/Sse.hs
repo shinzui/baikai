@@ -4,6 +4,7 @@
 module Baikai.Provider.OpenAI.Sse
   ( openaiSseStream,
     openaiSseStreamValue,
+    openaiSseStreamValueWithHeaders,
     sseFromResponse,
   )
 where
@@ -20,6 +21,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
 import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Types.Header (RequestHeaders)
 import Network.HTTP.Types.Status qualified as Status
 import OpenAI.V1.Chat.Completions qualified as Chat
 import Servant.Client qualified as Client
@@ -42,7 +44,21 @@ openaiSseStreamValue ::
   Aeson.Value ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
-openaiSseStreamValue env apiKey requestBody onEvent = do
+openaiSseStreamValue env apiKey =
+  openaiSseStreamValueWithHeaders
+    env
+    [ ("Authorization", Text.encodeUtf8 ("Bearer " <> apiKey)),
+      ("Accept", "text/event-stream"),
+      ("Content-Type", "application/json")
+    ]
+
+openaiSseStreamValueWithHeaders ::
+  Client.ClientEnv ->
+  RequestHeaders ->
+  Aeson.Value ->
+  (Either BaikaiError Aeson.Value -> IO ()) ->
+  IO ()
+openaiSseStreamValueWithHeaders env requestHeaders requestBody onEvent = do
   let base = Client.baseUrl env
       secure = case Client.baseUrlScheme base of
         Client.Http -> False
@@ -54,11 +70,7 @@ openaiSseStreamValue env apiKey requestBody onEvent = do
             HTTP.port = Client.baseUrlPort base,
             HTTP.method = "POST",
             HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> "/v1/chat/completions"),
-            HTTP.requestHeaders =
-              [ ("Authorization", Text.encodeUtf8 ("Bearer " <> apiKey)),
-                ("Accept", "text/event-stream"),
-                ("Content-Type", "application/json")
-              ],
+            HTTP.requestHeaders = requestHeaders,
             HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
             -- EP-8 wires Options.timeoutMs through this local transport.
             HTTP.responseTimeout = HTTP.responseTimeoutNone

@@ -9,6 +9,7 @@
 module Baikai.Provider.Claude.Sse
   ( claudeSseStream,
     claudeSseStreamValue,
+    claudeSseStreamValueWithHeaders,
     sseFromResponse,
   )
 where
@@ -26,6 +27,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
 import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Types.Header (RequestHeaders)
 import Network.HTTP.Types.Status qualified as Status
 import Servant.Client qualified as Client
 
@@ -49,7 +51,26 @@ claudeSseStreamValue ::
   Aeson.Value ->
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
-claudeSseStreamValue env apiKey anthropicVersion requestBody onEvent = do
+claudeSseStreamValue env apiKey anthropicVersion =
+  claudeSseStreamValueWithHeaders env requestHeaders
+  where
+    requestHeaders =
+      maybe
+        id
+        (\v -> (("anthropic-version", Text.encodeUtf8 v) :))
+        anthropicVersion
+        [ ("x-api-key", Text.encodeUtf8 apiKey),
+          ("Accept", "text/event-stream"),
+          ("Content-Type", "application/json")
+        ]
+
+claudeSseStreamValueWithHeaders ::
+  Client.ClientEnv ->
+  RequestHeaders ->
+  Aeson.Value ->
+  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  IO ()
+claudeSseStreamValueWithHeaders env requestHeaders requestBody onEvent = do
   let base = Client.baseUrl env
       secure = case Client.baseUrlScheme base of
         Client.Http -> False
@@ -66,15 +87,6 @@ claudeSseStreamValue env apiKey anthropicVersion requestBody onEvent = do
             -- EP-8 wires Options.timeoutMs through this local transport.
             HTTP.responseTimeout = HTTP.responseTimeoutNone
           }
-      requestHeaders =
-        maybe
-          id
-          (\v -> (("anthropic-version", Text.encodeUtf8 v) :))
-          anthropicVersion
-          [ ("x-api-key", Text.encodeUtf8 apiKey),
-            ("Accept", "text/event-stream"),
-            ("Content-Type", "application/json")
-          ]
   HTTP.withResponse request (Client.manager env) (`sseFromResponse` onEvent)
 
 -- | Consume an @http-client@ response as an Anthropic SSE stream.

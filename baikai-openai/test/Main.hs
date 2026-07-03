@@ -36,6 +36,7 @@ import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import TransportSpec qualified
 
 main :: IO ()
 main =
@@ -57,7 +58,8 @@ main =
         ErrorClassSpec.tests,
         ReasoningSpec.tests,
         ShapeSpec.tests,
-        SseSpec.tests
+        SseSpec.tests,
+        TransportSpec.tests
       ]
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto the

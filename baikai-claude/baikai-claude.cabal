@@ -38,6 +38,7 @@ library
     Baikai.Provider.Claude.Interactive
     Baikai.Provider.Claude.Shape
     Baikai.Provider.Claude.Sse
+    Baikai.Provider.Claude.Transport
 
   build-depends:
     , aeson
@@ -49,6 +50,7 @@ library
     , claude
     , containers
     , cradle
+    , crypton
     , generic-lens
     , http-client
     , http-client-tls
@@ -71,6 +73,7 @@ test-suite baikai-claude-test
     ShapeSpec
     SseSpec
     ThinkingSpec
+    TransportSpec
 
   -- cradle (used by Baikai.Provider.Claude.Interactive) requires the threaded RTS.
   ghc-options:    -threaded -with-rtsopts=-N

@@ -1,0 +1,164 @@
+module Baikai.Provider.Claude.Transport
+  ( getClientEnvCached,
+    cachedClientEnvCount,
+    requestHeaders,
+    resolveKey,
+    runWithTimeout,
+    sessionAffinityValue,
+  )
+where
+
+import Baikai.Auth qualified as Auth
+import Baikai.Compat (AnthropicMessagesCompat (..))
+import Baikai.Content qualified as Content
+import Baikai.Context (Context (..))
+import Baikai.Error (BaikaiError (..), ErrorCategory (..), authError)
+import Baikai.Message qualified as Msg
+import Baikai.Model (Model (..))
+import Baikai.Options (Options (..))
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
+import Control.Exception (throwIO)
+import Control.Lens ((^.))
+import Crypto.Hash (Digest, SHA256)
+import Crypto.Hash qualified as Hash
+import Data.CaseInsensitive qualified as CI
+import Data.Generics.Labels ()
+import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Data.Vector qualified as Vector
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.TLS qualified as TLS
+import Network.HTTP.Types.Header (RequestHeaders)
+import Servant.Client qualified as Client
+import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout qualified as Timeout
+
+getClientEnvCached :: Text -> IO Client.ClientEnv
+getClientEnvCached baseUrl =
+  modifyMVar clientEnvCache $ \cache ->
+    case Map.lookup baseUrl cache of
+      Just env -> pure (cache, env)
+      Nothing -> do
+        env <- newClientEnv baseUrl
+        pure (Map.insert baseUrl env cache, env)
+
+cachedClientEnvCount :: IO Int
+cachedClientEnvCount =
+  modifyMVar clientEnvCache $ \cache -> pure (cache, Map.size cache)
+
+requestHeaders ::
+  Text ->
+  Maybe Text ->
+  AnthropicMessagesCompat ->
+  Context ->
+  Model ->
+  Options ->
+  RequestHeaders
+requestHeaders apiKey anthropicVersion compat ctx m opts =
+  applyHeaderOverrides providerHeaders (Map.toList (m ^. #headers) <> Map.toList (opts ^. #headers))
+  where
+    providerHeaders =
+      maybe
+        id
+        (\v -> (("anthropic-version", Text.encodeUtf8 v) :))
+        anthropicVersion
+        ( sessionHeaders
+            <> [ ("x-api-key", Text.encodeUtf8 apiKey),
+                 ("Accept", "text/event-stream"),
+                 ("Content-Type", "application/json")
+               ]
+        )
+    sessionHeaders =
+      if sendSessionAffinityHeaders compat
+        then [("x-session-affinity", Text.encodeUtf8 (sessionAffinityValue ctx))]
+        else []
+
+resolveKey :: Text -> Options -> IO Text
+resolveKey baseUrl opts = case opts ^. #apiKey of
+  Just source -> Auth.resolveApiKey source
+  Nothing -> case Auth.defaultApiKeyEnvForBaseUrl baseUrl of
+    Just name -> Auth.resolveApiKey (Auth.ApiKeyEnv name)
+    Nothing ->
+      throwIO $
+        authError $
+          "no default API key env is known for " <> baseUrl <> "; set Options.apiKey explicitly"
+
+runWithTimeout :: Maybe Int -> IO () -> IO (Maybe BaikaiError)
+runWithTimeout Nothing action = action >> pure Nothing
+runWithTimeout (Just ms) action = do
+  result <- Timeout.timeout (max 0 ms * 1000) action
+  pure $ case result of
+    Just () -> Nothing
+    Nothing -> Just (timeoutError ms)
+
+sessionAffinityValue :: Context -> Text
+sessionAffinityValue ctx =
+  let digest = Hash.hash (Text.encodeUtf8 (affinitySeed ctx)) :: Digest SHA256
+   in Text.pack (show digest)
+
+affinitySeed :: Context -> Text
+affinitySeed ctx =
+  Text.intercalate
+    "\n"
+    [ maybe "" id (ctx ^. #systemPrompt),
+      firstUserText (ctx ^. #messages)
+    ]
+
+firstUserText :: Vector.Vector Msg.Message -> Text
+firstUserText =
+  maybe "" id . foldr firstText Nothing . Vector.toList
+  where
+    firstText msg acc =
+      case msg of
+        Msg.UserMessage Msg.UserPayload {Msg.content = content} ->
+          case firstTextContent content of
+            Just t -> Just t
+            Nothing -> acc
+        _ -> acc
+
+firstTextContent :: Vector.Vector Content.UserContent -> Maybe Text
+firstTextContent =
+  foldr firstText Nothing . Vector.toList
+  where
+    firstText block acc =
+      case block of
+        Content.UserText Content.TextContent {Content.text = t} -> Just t
+        _ -> acc
+
+timeoutError :: Int -> BaikaiError
+timeoutError ms =
+  BaikaiError
+    { category = TransientError,
+      message = "provider stream exceeded timeoutMs=" <> Text.pack (show ms),
+      httpStatus = Nothing,
+      retryAfterSeconds = Nothing,
+      exitCode = Nothing
+    }
+
+newClientEnv :: Text -> IO Client.ClientEnv
+newClientEnv baseUrl = do
+  parsed <- Client.parseBaseUrl (Text.unpack baseUrl)
+  manager <-
+    TLS.newTlsManagerWith
+      TLS.tlsManagerSettings
+        { HTTP.managerResponseTimeout = HTTP.responseTimeoutNone
+        }
+  pure (Client.mkClientEnv manager parsed)
+
+applyHeaderOverrides ::
+  RequestHeaders ->
+  [(Text, Text)] ->
+  RequestHeaders
+applyHeaderOverrides =
+  foldl addHeader
+  where
+    addHeader headers (name, value) =
+      let nameBytes = Text.encodeUtf8 name
+          ciName = CI.mk nameBytes
+       in (ciName, Text.encodeUtf8 value) : filter ((/= ciName) . fst) headers
+
+{-# NOINLINE clientEnvCache #-}
+clientEnvCache :: MVar (Map.Map Text Client.ClientEnv)
+clientEnvCache = unsafePerformIO (newMVar Map.empty)

@@ -52,7 +52,6 @@ module Baikai.Provider.OpenAI.Api
 where
 
 import Baikai.Api (Api (..))
-import Baikai.Auth qualified as Auth
 import Baikai.Compat
   ( OpenAICompletionsCompat (..),
     ThinkingFormat (..),
@@ -67,7 +66,8 @@ import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.OpenAI.ErrorClass (classifyException)
 import Baikai.Provider.OpenAI.Shape (streamRequestBody)
-import Baikai.Provider.OpenAI.Sse (openaiSseStreamValue)
+import Baikai.Provider.OpenAI.Sse (openaiSseStreamValueWithHeaders)
+import Baikai.Provider.OpenAI.Transport qualified as Transport
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -119,8 +119,8 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
+import Network.HTTP.Types.Header (RequestHeaders)
 import Numeric.Natural (Natural)
-import OpenAI.V1 qualified as OpenAI
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.Models qualified as OpenAIModels
 import OpenAI.V1.ResponseFormat qualified as RF
@@ -191,7 +191,8 @@ skeletonStart _m start =
 -- | Per-call prepared values.
 data OpenAICall = OpenAICall
   { clientEnv :: !Client.ClientEnv,
-    apiKey :: !Text,
+    requestHeaders :: !RequestHeaders,
+    timeoutMs :: !(Maybe Int),
     requestBody :: !Aeson.Value
   }
   deriving stock (Generic)
@@ -200,19 +201,23 @@ prepareCall :: Model -> Context -> Options -> IO (Either BaikaiError OpenAICall)
 prepareCall m ctx opts = case mapRequest m ctx opts of
   Left e -> pure (Left (invalidRequest e))
   Right req -> do
-    key <- resolveKey opts
     let url = case m ^. #baseUrl of
           "" -> "https://api.openai.com"
           u -> u
-    env <- OpenAI.getClientEnv url
+    key <- Transport.resolveKey url opts
+    env <- Transport.getClientEnvCached url
     let compat = openaiCompletionsCompatFor m
         body = streamRequestBody compat opts req
-    pure (Right OpenAICall {clientEnv = env, apiKey = key, requestBody = body})
-
-resolveKey :: Options -> IO Text
-resolveKey opts = case opts ^. #apiKey of
-  Just source -> Auth.resolveApiKey source
-  Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "OPENAI_API_KEY")
+        headers = Transport.requestHeaders key m opts
+    pure
+      ( Right
+          OpenAICall
+            { clientEnv = env,
+              requestHeaders = headers,
+              timeoutMs = opts ^. #timeoutMs,
+              requestBody = body
+            }
+      )
 
 -- | A loose summary of one streamed chunk. The raw 'Aeson.Value' is
 -- pre-parsed into the fields we care about; unknown fields are
@@ -248,13 +253,15 @@ worker ::
 worker call ch = do
   r <-
     trySync $
-      openaiSseStreamValue (call ^. #clientEnv) (call ^. #apiKey) (call ^. #requestBody) $ \case
-        Left be -> writeChan ch (Just (Left be))
-        Right val -> case parseChunk val of
-          Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
-          Right chunk -> writeChan ch (Just (Right chunk))
+      Transport.runWithTimeout (call ^. #timeoutMs) $
+        openaiSseStreamValueWithHeaders (call ^. #clientEnv) (call ^. #requestHeaders) (call ^. #requestBody) $ \case
+          Left be -> writeChan ch (Just (Left be))
+          Right val -> case parseChunk val of
+            Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
+            Right chunk -> writeChan ch (Just (Right chunk))
   case r of
-    Right () -> pure ()
+    Right Nothing -> pure ()
+    Right (Just be) -> writeChan ch (Just (Left be))
     Left e -> writeChan ch (Just (Left (exceptionToError e)))
   writeChan ch Nothing
 

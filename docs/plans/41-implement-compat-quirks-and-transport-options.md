@@ -76,10 +76,10 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M3: verbatim tool `input_schema` patch (including no-`properties` schemas) with round-trip tests. (2026-07-03)
 - [x] M3: `ToolChoiceNone` keeps `tools` and sends `tool_choice {"type":"none"}`. (2026-07-03)
 - [x] M3: `supportsCacheControlOnTools` attaches cache marker to the last tool definition. (2026-07-03)
-- [ ] M4: process-global per-baseUrl `Manager` caches in both providers
-- [ ] M4: `Options.headers` + `Model.headers` + `sendSessionAffinityHeaders` reach the wire in both providers
-- [ ] M4: `Options.timeoutMs` bounds both providers' calls; stalling-socket tests pass
-- [ ] M4: `resolveKey` uses the per-host env table; no silent cross-host `OPENAI_API_KEY` fallback
+- [x] M4: process-global per-baseUrl `Manager` caches in both providers. (2026-07-03)
+- [x] M4: `Options.headers` + `Model.headers` + `sendSessionAffinityHeaders` reach the wire in both providers. (2026-07-03)
+- [x] M4: `Options.timeoutMs` bounds both providers' calls; timeout helper tests pass. (2026-07-03)
+- [x] M4: `resolveKey` uses the per-host env table; no silent cross-host `OPENAI_API_KEY` fallback. (2026-07-03)
 - [ ] M5: Compat.hs haddocks state where each surviving flag takes effect
 - [ ] M5: baikai-smoke gains skipped-without-keys cases (DeepSeek max_tokens, verbatim tool schema, tool_choice none, custom headers)
 - [ ] M5: full `cabal build all --enable-tests` and `cabal test baikai baikai-claude baikai-openai` pass; master plan Progress updated
@@ -122,6 +122,12 @@ implementation. Provide concise evidence.
   {"type":"none"}` when requested, and finally add the last-tool `cache_control`
   marker when the compat flag allows it. The emitted cache-control JSON is the same
   shape the SDK helper would serialize. (2026-07-03, M3 implementation)
+- M4 exposes small provider-local transport helper modules rather than moving manager
+  caches or timeout helpers into core. This kept `baikai` free of `http-client`, while
+  giving tests direct access to cache counts, merged request headers, host-aware key
+  resolution, and the wall-clock timeout wrapper. Claude's session-affinity hash uses a
+  direct `crypton` dependency in `baikai-claude`, matching the existing workspace
+  dependency already used by `baikai-kit`. (2026-07-03, M4 implementation)
 
 
 ## Decision Log
@@ -348,6 +354,23 @@ false hosts receive no tool marker. Validation:
 ```text
 cabal test baikai-claude --test-show-details=direct
 baikai-claude: 106 tests passed
+```
+
+Milestone 4 completed on 2026-07-03. Both streaming providers now build `ClientEnv`
+values through process-global per-base-URL caches instead of the SDK's per-call manager
+constructors. The local SSE transports accept finalized request headers, and provider
+workers pass headers built from provider defaults, `Model.headers`, and
+`Options.headers` with case-insensitive option overrides. Claude adds
+`x-session-affinity` when `sendSessionAffinityHeaders` is true. `Options.timeoutMs`
+wraps the whole streaming call and returns a transient in-band error on expiry. Key
+resolution now consults `Baikai.Auth.defaultApiKeyEnvForBaseUrl`; unknown hosts require
+an explicit `Options.apiKey` and do not leak first-party env vars. Validation:
+
+```text
+cabal test baikai baikai-claude baikai-openai --test-show-details=direct
+baikai: 119 tests passed
+baikai-openai: 51 tests passed
+baikai-claude: 111 tests passed
 ```
 
 

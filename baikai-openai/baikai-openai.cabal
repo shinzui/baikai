@@ -37,6 +37,7 @@ library
     Baikai.Provider.OpenAI.Interactive
     Baikai.Provider.OpenAI.Shape
     Baikai.Provider.OpenAI.Sse
+    Baikai.Provider.OpenAI.Transport
 
   build-depends:
     , aeson
@@ -70,6 +71,7 @@ test-suite baikai-openai-test
     ReasoningSpec
     ShapeSpec
     SseSpec
+    TransportSpec
 
   build-depends:
     , aeson

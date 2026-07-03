@@ -33,7 +33,6 @@ module Baikai.Provider.Claude.Api
 where
 
 import Baikai.Api (Api (..))
-import Baikai.Auth qualified as Auth
 import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Compat (AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
 import Baikai.Content qualified as Content
@@ -46,7 +45,8 @@ import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Claude.ErrorClass (classifyErrorValue, classifyException)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
-import Baikai.Provider.Claude.Sse (claudeSseStreamValue)
+import Baikai.Provider.Claude.Sse (claudeSseStreamValueWithHeaders)
+import Baikai.Provider.Claude.Transport qualified as Transport
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -70,7 +70,6 @@ import Baikai.Stream.Event
 import Baikai.ThinkingLevel (ThinkingLevel (..), thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
-import Claude.V1 qualified as Claude
 import Claude.V1.Messages qualified as Messages
 import Claude.V1.Tool qualified as ClaudeTool
 import Control.Concurrent (forkIO)
@@ -94,6 +93,7 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
+import Network.HTTP.Types.Header (RequestHeaders)
 import Numeric.Natural (Natural)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
@@ -157,8 +157,8 @@ claudeMessagesStream m ctx opts =
 -- passed to the local streaming transport.
 data ClaudeCall = ClaudeCall
   { clientEnv :: !Client.ClientEnv,
-    apiKey :: !Text,
-    anthropicVersion :: !(Maybe Text),
+    requestHeaders :: !RequestHeaders,
+    timeoutMs :: !(Maybe Int),
     requestBody :: !Aeson.Value
   }
   deriving stock (Generic)
@@ -169,19 +169,24 @@ prepareCall m ctx opts = do
   case mapRequest m ctx opts of
     Left e -> pure (Left (invalidRequest e))
     Right req -> do
-      key <- resolveKey opts
       let url = case m ^. #baseUrl of
             "" -> "https://api.anthropic.com"
             u -> u
-      env <- Claude.getClientEnv url
-      let compat = anthropicMessagesCompatFor m
-          body = streamRequestBody compat ctx opts req
-      pure (Right ClaudeCall {clientEnv = env, apiKey = key, anthropicVersion = Just "2023-06-01", requestBody = body})
-
-resolveKey :: Options -> IO Text
-resolveKey opts = case opts ^. #apiKey of
-  Just source -> Auth.resolveApiKey source
-  Nothing -> Auth.resolveApiKey (Auth.ApiKeyEnv "ANTHROPIC_API_KEY")
+          compat = anthropicMessagesCompatFor m
+          version = Just "2023-06-01"
+      key <- Transport.resolveKey url opts
+      env <- Transport.getClientEnvCached url
+      let body = streamRequestBody compat ctx opts req
+          headers = Transport.requestHeaders key version compat ctx m opts
+      pure
+        ( Right
+            ClaudeCall
+              { clientEnv = env,
+                requestHeaders = headers,
+                timeoutMs = opts ^. #timeoutMs,
+                requestBody = body
+              }
+        )
 
 -- | Worker body: drive the SDK's typed callback, forwarding events
 -- onto the channel. Any exception is converted into a synthetic
@@ -195,14 +200,15 @@ worker ::
 worker call ch = do
   r <-
     trySync $
-      claudeSseStreamValue
-        (call ^. #clientEnv)
-        (call ^. #apiKey)
-        (call ^. #anthropicVersion)
-        (call ^. #requestBody)
-        (writeChan ch . Just)
+      Transport.runWithTimeout (call ^. #timeoutMs) $
+        claudeSseStreamValueWithHeaders
+          (call ^. #clientEnv)
+          (call ^. #requestHeaders)
+          (call ^. #requestBody)
+          (writeChan ch . Just)
   case r of
-    Right () -> pure ()
+    Right Nothing -> pure ()
+    Right (Just be) -> writeChan ch (Just (Left be))
     Left e -> writeChan ch (Just (Left (exceptionToError e)))
   writeChan ch Nothing
 
