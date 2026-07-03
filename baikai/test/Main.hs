@@ -16,6 +16,7 @@ import ErrorInfoSpec qualified
 import ErrorSpec qualified
 import FetchModelsSpec qualified
 import InteractiveSpec qualified
+import StreamSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -88,6 +89,7 @@ main = do
         ErrorSpec.tests,
         FetchModelsSpec.tests,
         InteractiveSpec.tests,
+        StreamSpec.tests,
         TraceSpec.tests,
         UsageSpec.tests
       ]

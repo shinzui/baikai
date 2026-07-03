@@ -208,7 +208,7 @@ EP-10 relocate them if needed.
 - [x] EP-4 M1: `Usage` invariant defined and documented in core (disjoint token classes)
 - [x] EP-4 M2: OpenAI mapping normalized with wire-payload regression tests
 - [x] EP-5 M1: event algebra reshaped (ThinkingEndPayload, responseId carriage) and workspace compiling
-- [ ] EP-5 M2: full-fidelity reassembly (terminal-authoritative content)
+- [x] EP-5 M2: full-fidelity reassembly (terminal-authoritative content)
 - [ ] EP-5 M3: protocol and exception invariants (EventStart-first, sync-only catch, clamped latency)
 - [ ] EP-5 M4: validation, hand-off contract, living sections
 - [ ] EP-6 M1: one error contract in core (`responseError`, non-throwing dispatch, in-band lift)

@@ -79,16 +79,22 @@ reading this plan's diff.
       (2026-07-03)
 - [x] M1: `cabal build all --enable-tests` and all four test suites green
       (2026-07-03)
-- [ ] M2: `ReassemblyState` reworked (wall-clock start, `responseId`, terminal record
+- [x] M2: `ReassemblyState` reworked (wall-clock start, `responseId`, terminal record
       with done/error discriminator)
-- [ ] M2: terminal-authoritative content resolution in `finalizeState`
-- [ ] M2: `Response.responseId` populated from events
-- [ ] M2: dangling buffers merged in `contentIndex` order; partial tool-call arguments
+      (2026-07-03)
+- [x] M2: terminal-authoritative content resolution in `finalizeState`
+      (2026-07-03)
+- [x] M2: `Response.responseId` populated from events
+      (2026-07-03)
+- [x] M2: dangling buffers merged in `contentIndex` order; partial tool-call arguments
       flushed as a `ToolCall`
-- [ ] M2: `latencyMs` measured on the reassembler's own wall clock and clamped at zero
-- [ ] M2: new `baikai/test/StreamSpec.hs` covering signature round-trip,
+      (2026-07-03)
+- [x] M2: `latencyMs` measured on the reassembler's own wall clock and clamped at zero
+      (2026-07-03)
+- [x] M2: new `baikai/test/StreamSpec.hs` covering signature round-trip,
       terminal-authoritative content, responseId carriage, dangling ordering, latency
       clamp; registered in `baikai/baikai.cabal` and `baikai/test/Main.hs`
+      (2026-07-03)
 - [ ] M3: `tryAny` replaced with sync-only `trySync` in `baikai/src/Baikai/Stream.hs`
 - [ ] M3: `EventStart`-first on the no-provider stream and `liftCompleteToStream`'s
       exception path

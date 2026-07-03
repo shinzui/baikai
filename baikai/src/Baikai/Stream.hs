@@ -57,6 +57,7 @@ import Baikai.Stream.Event
     errorTerminal,
   )
 import Baikai.Usage (_Usage)
+import Control.Applicative ((<|>))
 import Control.Exception (fromException)
 import Control.Exception qualified
 import Control.Lens ((%~), (&), (.~), (^.))
@@ -116,34 +117,46 @@ streamingComplete f m ctx opts =
 -- reassembly logic.
 reassembleResponse :: Model -> Fold IO AssistantMessageEvent Response
 reassembleResponse m =
-  Fold.rmapM finalizeState (Fold.foldl' step (initialState m))
+  Fold.rmapM
+    finalizeState
+    (Fold.foldlM' (\s e -> pure (step s e)) (initialState m <$> getCurrentTime))
 
 -- | One frozen-in-time view of the partial assembly.
 data ReassemblyState = ReassemblyState
   { model :: !Model,
     -- | 'Just' once 'EventStart' has been observed.
     skeleton :: !(Maybe Message),
-    -- | Captured from the EventStart message's timestamp.
-    startTime :: !(Maybe UTCTime),
+    -- | Captured by the reassembler when the fold starts driving the stream.
+    wallStart :: !UTCTime,
+    -- | Provider message id, preferring the terminal payload over the start payload.
+    responseId :: !(Maybe Text),
     -- | Content blocks closed so far, keyed by @contentIndex@.
     blocks :: !(IntMap AssistantContent),
     -- | Open text accumulators, indexed by @contentIndex@.
     textBuf :: !(IntMap Text),
     thinkBuf :: !(IntMap Text),
     toolArgsBuf :: !(IntMap Text),
-    -- | 'Just (reason, msg, errorInfo)' once 'EventDone' or 'EventError'
-    -- fires. @errorInfo@ is the structured error from an 'EventError'
-    -- terminal (if the provider classified it), 'Nothing' otherwise.
-    terminal :: !(Maybe (StopReason, Message, Maybe BaikaiError))
+    -- | 'Just' once 'EventDone' or 'EventError' fires.
+    terminal :: !(Maybe TerminalSeen)
   }
   deriving stock (Show, Generic)
 
-initialState :: Model -> ReassemblyState
-initialState m =
+-- | What the terminal event told us, plus which terminal it was.
+data TerminalSeen = TerminalSeen
+  { reason :: !StopReason,
+    message :: !Message,
+    errorInfo :: !(Maybe BaikaiError),
+    failed :: !Bool
+  }
+  deriving stock (Show, Generic)
+
+initialState :: Model -> UTCTime -> ReassemblyState
+initialState m start =
   ReassemblyState
     { model = m,
       skeleton = Nothing,
-      startTime = Nothing,
+      wallStart = start,
+      responseId = Nothing,
       blocks = IntMap.empty,
       textBuf = IntMap.empty,
       thinkBuf = IntMap.empty,
@@ -153,11 +166,8 @@ initialState m =
 
 step :: ReassemblyState -> AssistantMessageEvent -> ReassemblyState
 step s = \case
-  EventStart StartPayload {partial = sk} ->
-    let t = case sk of
-          AssistantMessage AssistantPayload {Msg.timestamp = ts} -> Just ts
-          _ -> Nothing
-     in s & #skeleton .~ Just sk & #startTime .~ t
+  EventStart StartPayload {partial = sk, responseId = rid} ->
+    s & #skeleton .~ Just sk & #responseId .~ rid
   TextStart IndexPayload {contentIndex = i} ->
     s & #textBuf %~ IntMap.insert i Text.empty
   TextDelta DeltaPayload {contentIndex = i, delta = d} ->
@@ -185,54 +195,96 @@ step s = \case
     s
       & #blocks %~ IntMap.insert i (AssistantToolCall tc)
       & #toolArgsBuf %~ IntMap.delete i
-  EventDone TerminalPayload {reason = r, message = msg} ->
-    s & #terminal .~ Just (r, msg, Nothing)
-  EventError TerminalPayload {reason = r, message = msg, errorInfo = ei} ->
-    s & #terminal .~ Just (r, msg, ei)
+  EventDone TerminalPayload {reason = r, message = msg, responseId = rid} ->
+    s
+      & #terminal
+        .~ Just TerminalSeen {reason = r, message = msg, errorInfo = Nothing, failed = False}
+      & #responseId %~ (\old -> rid <|> old)
+  EventError TerminalPayload {reason = r, message = msg, responseId = rid, errorInfo = ei} ->
+    s
+      & #terminal
+        .~ Just TerminalSeen {reason = r, message = msg, errorInfo = ei, failed = True}
+      & #responseId %~ (\old -> rid <|> old)
 
 finalizeState :: ReassemblyState -> IO Response
 finalizeState s = do
   now <- getCurrentTime
   let m = s ^. #model
-      assembled = assembleBlocks s
-      (terminalMsg, terminalReason, terminalError) = case s ^. #terminal of
-        Just (r, msg, ei) -> (msg, r, ei)
-        Nothing -> (synthesizeTerminal now assembled, Stop, Nothing)
-      message' = overrideBlocksAndReason terminalReason terminalMsg assembled now
-      endTs = message' ^. #timestamp
-      latency = case s ^. #startTime of
-        Just startTs ->
-          round (realToFrac (Data.Time.Clock.diffUTCTime endTs startTs) * (1000 :: Double))
-        Nothing -> 0
+      assembled = assembledBlocks s
+      dangling = danglingBlocks s
+      (terminalMsg, terminalReason, terminalError, terminalFailed, sawTerminal) =
+        case s ^. #terminal of
+          Just TerminalSeen {reason = r, message = msg, errorInfo = ei, failed = failed'} ->
+            (msg, r, ei, failed', True)
+          Nothing -> (synthesizeTerminal now assembled, Stop, Nothing, False, False)
+      terminalContent = messageContent terminalMsg
+      finalContent
+        | not sawTerminal = assembled
+        | Vector.null terminalContent = assembled
+        | terminalFailed = terminalContent <> Vector.fromList (IntMap.elems dangling)
+        | otherwise = terminalContent
+      message' = overrideBlocksAndReason terminalReason terminalMsg finalContent now
+      latency =
+        max
+          0
+          (round (realToFrac (Data.Time.Clock.diffUTCTime now (s ^. #wallStart)) * (1000 :: Double)))
   pure
     Response
       { message = message',
         model = m,
         api = m ^. #api,
         provider = m ^. #provider,
-        responseId = Nothing,
+        responseId = s ^. #responseId,
         latencyMs = latency,
         errorInfo = terminalError
       }
 
--- | Project the closed content blocks in 'contentIndex' order, plus
--- any still-open text/thinking accumulators flushed as best-effort
--- content (recovery path; providers should not exercise this).
-assembleBlocks :: ReassemblyState -> Vector AssistantContent
-assembleBlocks s =
-  let closed = IntMap.elems (s ^. #blocks)
-      danglingText =
-        [ AssistantText (TextContent t)
-        | (_, t) <- IntMap.toAscList (s ^. #textBuf),
-          not (Text.null t)
-        ]
-      danglingThink =
-        [ AssistantThinking
-            ThinkingContent {thinking = t, signature = Nothing, redacted = False}
-        | (_, t) <- IntMap.toAscList (s ^. #thinkBuf),
-          not (Text.null t)
-        ]
-   in Vector.fromList (closed <> danglingText <> danglingThink)
+-- | Project the event-assembled content in 'contentIndex' order,
+-- including still-open buffers as best-effort recovery content.
+assembledBlocks :: ReassemblyState -> Vector AssistantContent
+assembledBlocks s =
+  Vector.fromList (IntMap.elems (IntMap.union (s ^. #blocks) (danglingBlocks s)))
+
+-- | Convert any still-open buffers into inspectable content. This is
+-- the recovery path for streams that die before an @_End@ event. Partial
+-- tool arguments are preserved as decoded JSON when possible, otherwise
+-- as an 'Aeson.String' carrying the raw accumulated text.
+danglingBlocks :: ReassemblyState -> IntMap AssistantContent
+danglingBlocks s =
+  IntMap.unions
+    [ IntMap.mapMaybe textBlock (s ^. #textBuf),
+      IntMap.mapMaybe thinkingBlock (s ^. #thinkBuf),
+      IntMap.mapMaybe toolBlock (s ^. #toolArgsBuf)
+    ]
+  where
+    textBlock t
+      | Text.null t = Nothing
+      | otherwise = Just (AssistantText (TextContent t))
+
+    thinkingBlock t
+      | Text.null t = Nothing
+      | otherwise =
+          Just (AssistantThinking ThinkingContent {thinking = t, signature = Nothing, redacted = False})
+
+    toolBlock raw
+      | Text.null raw = Nothing
+      | otherwise =
+          let decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 raw) of
+                Right v -> v
+                Left _ -> Aeson.String raw
+           in Just
+                ( AssistantToolCall
+                    Content.ToolCall
+                      { Content.id_ = "",
+                        Content.name = "",
+                        Content.arguments = decoded
+                      }
+                )
+
+messageContent :: Message -> Vector AssistantContent
+messageContent = \case
+  AssistantMessage AssistantPayload {Msg.content = c} -> c
+  _ -> Vector.empty
 
 -- | Replace the content vector and stop reason of an assistant
 -- message, preserving usage, errorMessage, and timestamp.
