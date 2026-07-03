@@ -102,7 +102,7 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | 3 | Harden CLI subprocess argument and pipe handling | docs/plans/36-harden-cli-subprocess-argument-and-pipe-handling.md | None | None | Complete |
 | 4 | Correct usage and cost accounting | docs/plans/37-correct-usage-and-cost-accounting.md | None | None | Complete |
 | 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | Complete |
-| 6 | Unify the error contract and revive error classification | docs/plans/39-unify-the-error-contract-and-revive-error-classification.md | EP-5 | None | In Progress |
+| 6 | Unify the error contract and revive error classification | docs/plans/39-unify-the-error-contract-and-revive-error-classification.md | EP-5 | None | Complete |
 | 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | Not Started |
 | 8 | Implement compat quirks and transport options | docs/plans/41-implement-compat-quirks-and-transport-options.md | None | EP-6, EP-7 | Not Started |
 | 9 | Add core ergonomic helpers before the API freeze | docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md | None | EP-6 | Not Started |
@@ -214,7 +214,7 @@ EP-10 relocate them if needed.
 - [x] EP-6 M1: one error contract in core (`responseError`, non-throwing dispatch, in-band lift)
 - [x] EP-6 M2: Claude live classification via local SSE transport
 - [x] EP-6 M3: OpenAI live classification, `content_filter`, codex CLI in-band
-- [ ] EP-6 M4: conformance sweep, documentation, changelog
+- [x] EP-6 M4: conformance sweep, documentation, changelog
 - [ ] EP-7 M1: Claude cap-safe `max_tokens` and per-generation thinking style
 - [ ] EP-7 M2: Claude stream fidelity and verbatim replay (signature, redacted, phantom tool calls)
 - [ ] EP-7 M3: OpenAI-compatible reasoning extraction
@@ -285,6 +285,11 @@ EP-10 relocate them if needed.
   verified in Streamly source that `Fold.foldlM'` supports a monadic initial state,
   which is what lets `reassembleResponse` capture its wall-clock start at fold start.
   (2026-07-03, EP-5 implementation)
+- While implementing EP-6, the local Claude and OpenAI SSE transports became the durable
+  seam for live HTTP classification because they preserve status, `Retry-After`, and
+  response bodies that the SDK streaming callbacks drop. EP-8 must extend these modules
+  for `Options.timeoutMs`, request headers, and host-specific transport behavior rather
+  than reintroducing the SDK streaming path. (2026-07-03, EP-6 implementation)
 
 
 ## Decision Log

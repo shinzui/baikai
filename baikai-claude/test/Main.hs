@@ -20,7 +20,7 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 main :: IO ()
 main =
@@ -204,6 +204,7 @@ rejectsImageToolResultsTest =
                       }
                 )
     events <- Stream.toList (claudeMessagesStream model ctx _Options)
+    assertErrorContract events
     case events of
       [ EventStart StartPayload {},
         EventError TerminalPayload {message = AssistantMessage AssistantPayload {errorMessage = Just msg}}
@@ -223,7 +224,7 @@ noKeyStreamTest =
               & #api .~ AnthropicMessages
               & #provider .~ "anthropic"
       events <- Stream.toList (claudeMessagesStream model _Context _Options)
-      length (filter isTerminal events) @?= 1
+      assertErrorContract events
       case last events of
         EventError TerminalPayload {errorInfo = Just be} ->
           be ^. #category @?= AuthError
@@ -255,6 +256,15 @@ withUnsetEnv name action =
     (const (unsetEnv name >> action))
   where
     restore = maybe (unsetEnv name) (setEnv name)
+
+assertErrorContract :: [AssistantMessageEvent] -> Assertion
+assertErrorContract events = do
+  let terminals = filter isTerminal events
+  length terminals @?= 1
+  case terminals of
+    [EventError TerminalPayload {errorInfo = Nothing}] ->
+      assertFailure "terminal EventError omitted errorInfo"
+    _ -> pure ()
 
 assistantText :: Response -> Text.Text
 assistantText resp =

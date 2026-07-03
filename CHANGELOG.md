@@ -7,6 +7,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Added `responseError`, `errorResponse`, `httpError`, and
+  `parseRetryAfterSeconds` for the in-band error contract.
+
+### Changed
+
+- **Breaking:** `completeRequest` / `completeRequestWith` no longer throw
+  `BaikaiError` for unregistered API tags; they return an error-shaped
+  `Response`.
+- **Breaking:** CLI providers now report subprocess/decode/provider failures
+  in-band as error-shaped `Response`s.
+- **Breaking:** `errorTerminal` now requires a `BaikaiError`, enforcing
+  structured error details for `EventError` construction sites.
+
+### Fixed
+
+- Live HTTP status, `Retry-After`, and network-failure classification now
+  works on both API providers.
+- `content_filter` / Anthropic refusals terminate as classified `EventError`
+  terminals, and `liftCompleteToStream` preserves error-shaped responses.
+
 ## [baikai 0.2.0.0] - 2026-06-21
 
 ### Added

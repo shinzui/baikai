@@ -44,10 +44,10 @@ data Response = Response
     latencyMs :: !Integer,
     -- | Structured error detail when the call failed in-band
     -- (@stopReason = ErrorReason@): the category, HTTP status, and any
-    -- retry-after hint. 'Nothing' on success or when the provider could
-    -- not classify the failure. Lets a caller branch on
-    -- 'Baikai.Error.category' / 'Baikai.Error.isRetryable' without
-    -- parsing 'errorMessage' text.
+    -- retry-after hint. Conforming providers set this to 'Just' for
+    -- error-shaped responses and 'Nothing' on success. Use
+    -- 'responseError' for the normalized failure view; it synthesizes
+    -- an 'OtherError' if a nonconforming provider omits this field.
     errorInfo :: !(Maybe BaikaiError)
   }
   deriving stock (Eq, Show, Generic)

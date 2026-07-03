@@ -106,7 +106,8 @@ walkthrough.
   create a `ProviderRegistry` with `newProviderRegistry`, register into
   it with `registerWithRegistry` or `registerApiProviderWith`, and call
   `completeRequestWith` / `streamRequestWith`. Dispatch looks the handler
-  up by `Model.api`; an unregistered tag throws `ProviderError`.
+  up by `Model.api`; an unregistered tag returns an error-shaped
+  `Response` or terminal `EventError` with category `ProviderUnavailable`.
 
   | `Api` tag                | Registered by                  | Backend |
   |--------------------------|--------------------------------|---------|

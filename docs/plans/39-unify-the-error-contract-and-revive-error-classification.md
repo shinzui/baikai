@@ -95,11 +95,11 @@ Milestone 3 — OpenAI classification goes live:
 
 Milestone 4 — conformance sweep, docs, and changelog:
 
-- [ ] Contract-assertion helper applied across provider tests: every error path yields exactly one terminal, `EventError ⟹ errorInfo` present, blocking `Response` satisfies `responseError`.
-- [ ] No-key stub tests (env var unset) assert one terminal `EventError` with category `AuthError` on both API providers.
-- [ ] Doc sweep: `Baikai.Provider.Registry`, `Baikai.Stream`, CLI provider haddocks, `baikai/CHANGELOG.md` breaking-change entry.
-- [ ] EP-5 plan (`docs/plans/38-...md`) and MasterPlan Decision Logs updated with the `errorTerminal` signature change.
-- [ ] `cabal build all --enable-tests` and all four test suites green; Outcomes & Retrospective written.
+- [x] Contract-assertion helper applied across provider tests: every error path yields exactly one terminal, `EventError ⟹ errorInfo` present, blocking `Response` satisfies `responseError`. (2026-07-03)
+- [x] No-key stub tests (env var unset) assert one terminal `EventError` with category `AuthError` on both API providers. (2026-07-03)
+- [x] Doc sweep: `Baikai.Provider.Registry`, `Baikai.Stream`, CLI provider haddocks, `baikai/CHANGELOG.md` breaking-change entry. (2026-07-03)
+- [x] EP-5 plan (`docs/plans/38-...md`) and MasterPlan Decision Logs updated with the `errorTerminal` signature change. (2026-07-03)
+- [x] `cabal build all --enable-tests` and all four test suites green; Outcomes & Retrospective written. (2026-07-03)
 
 
 ## Surprises & Discoveries
@@ -252,7 +252,35 @@ whole plan; implementation-time discoveries should be appended below them.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed on 2026-07-03. The final result is one in-band error contract across core,
+Claude, OpenAI, and the CLI providers: blocking failures are error-shaped `Response`s
+discoverable through `responseError`, streaming failures are exactly one terminal
+`EventError`, and provider HTTP failures retain status, `Retry-After`, retryability, and
+the provider body through the new local SSE transports. The plan also repaired
+`liftCompleteToStream`, unregistered-provider dispatch, `content_filter` / Anthropic
+refusal handling, and the public documentation/changelog that described the old split
+contract.
+
+The work landed incrementally in the following commits: `98ee04a` introduced the core
+contract, `d07d21f` made Claude classification live, `8a6dffa` made OpenAI
+classification live, and the final conformance sweep records the provider contract
+assertions and documentation updates. Validation on 2026-07-03 was:
+
+```text
+cabal build all --enable-tests
+PASS
+
+cabal test baikai baikai-claude baikai-openai baikai-effectful --test-show-details=direct
+baikai: 115 tests passed
+baikai-claude: 29 tests passed
+baikai-openai: 33 tests passed
+baikai-effectful: 4 tests passed
+```
+
+The main follow-on constraint for later plans is now explicit: EP-8 must extend the
+`Baikai.Provider.Claude.Sse` and `Baikai.Provider.OpenAI.Sse` modules for
+`Options.timeoutMs`, request headers, and host-specific transport behavior instead of
+returning to the SDK streaming helpers that drop response headers.
 
 
 ## Context and Orientation
@@ -1059,3 +1087,11 @@ into the two `Sse` transport modules (the `responseTimeoutNone` comment marks th
 EP-9's `runToolLoop` terminates on `responseError`; EP-10 may move the `Sse` and
 `ErrorClass` modules behind an `.Internal` namespace — they are written as
 plain exposed modules here and relocation is EP-10's call.
+
+
+---
+
+Revision note (2026-07-03): after completing Milestone 4, the Progress section was
+updated with final validation, the Outcomes & Retrospective section was filled with the
+implemented contract and test evidence, and the EP-8 SSE-transport handoff was restated
+so later transport-option work extends the local modules introduced here.
