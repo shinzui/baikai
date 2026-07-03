@@ -6,6 +6,7 @@ import Baikai.Provider.Claude.Api qualified as ClaudeApi
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
 import Baikai.Provider.OpenAI.Cli qualified as CodexCli
+import CompatSmoke qualified
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (unless, when)
 import Data.ByteString qualified as BS
@@ -42,6 +43,7 @@ main = do
   hadStructured <- mapM runStructuredCase apiCases
   hadMultiHost <- MultiHostSmoke.runMultiHostCase
   hadThinking <- ThinkingSmoke.runThinkingCases
+  hadCompat <- CompatSmoke.runCompatCases
   unless
     ( or hadApi
         || or hadStream
@@ -52,6 +54,7 @@ main = do
         || or hadStructured
         || hadMultiHost
         || hadThinking
+        || hadCompat
     )
     $ hPutStrLn
       stderr

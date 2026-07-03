@@ -1,11 +1,24 @@
 -- | The 'Options' record — the per-call knobs that vary between
 -- requests on the same conversation.
 --
--- 'apiKey' is 'Nothing' by default; the registered handler then
--- consults a provider-specific env var
--- (@ANTHROPIC_API_KEY@ for Anthropic, @OPENAI_API_KEY@ for OpenAI).
+-- 'apiKey' is 'Nothing' by default; API providers then consult the
+-- host-specific env var from 'Baikai.Auth.defaultApiKeyEnvForBaseUrl'
+-- after substituting their default base URL. Unknown hosts require an
+-- explicit key source instead of falling back to another provider's
+-- credential.
 -- 'maxTokens' defaults to 'Nothing'; the handler falls back to the
 -- chosen model's 'Baikai.Model.maxOutputTokens'.
+--
+-- 'timeoutMs' is a wall-clock bound on the entire API streaming call
+-- in the OpenAI and Claude providers: connection setup, response
+-- headers, and full stream drain. On expiry the stream terminates
+-- in-band with a retryable transient 'Baikai.Error.BaikaiError'.
+--
+-- 'headers' are per-call HTTP header overrides for API providers.
+-- Provider defaults are built first, then 'Baikai.Model.headers',
+-- then this field; later values replace earlier ones by
+-- case-insensitive header name, including auth headers for callers
+-- intentionally fronting a gateway.
 --
 -- EP-4 added @toolChoice@. EP-5 adds @cacheRetention@ and @thinking@
 -- (provider-agnostic preferences that each provider maps to its own

@@ -112,32 +112,45 @@ data AnthropicThinkingStyle
 -- override the differing fields only.
 data OpenAICompletionsCompat = OpenAICompletionsCompat
   { -- | Where the max-output-tokens cap goes in the request body.
+    --   Consumed by @Baikai.Provider.OpenAI.Shape.renameMaxTokens@,
+    --   which rewrites @max_completion_tokens@ to @max_tokens@
+    --   for hosts that require the legacy key.
     maxTokensField :: !MaxTokensField,
     -- | Whether the host accepts @strict: true@ on function tool
-    --   definitions. Set 'False' to drop the field on hosts that
-    --   reject it.
+    --   definitions. Consumed by
+    --   @Baikai.Provider.OpenAI.Api.mkOpenAIResponseFormat@ and
+    --   @Baikai.Provider.OpenAI.Shape.dropUnsupportedStrict@ to
+    --   omit JSON-schema @strict@ on hosts that reject it.
     supportsStrictMode :: !Bool,
     -- | Whether the host smuggles thinking into the assistant text as
     --   @\<think\>...\</think\>@ or
     --   @\<thinking\>...\</thinking\>@ markers. Field-based reasoning
     --   extraction (for @reasoning_content@ / @reasoning@ deltas) is
     --   unconditional; this flag enables the incremental tag scanner
-    --   for hosts that do not split reasoning into a separate field.
+    --   in @Baikai.Provider.OpenAI.Api.translateTextLikeDelta@ for
+    --   hosts that do not split reasoning into a separate field.
     requiresThinkingAsText :: !Bool,
     -- | The wire shape the host accepts for reasoning-effort
-    --   preferences.
+    --   preferences. Consumed by
+    --   @Baikai.Provider.OpenAI.Api.applyThinkingFormat@ for the
+    --   OpenAI-native field and by
+    --   @Baikai.Provider.OpenAI.Shape.injectThinkingShape@ for
+    --   OpenAI-compatible host-specific JSON keys.
     thinkingFormat :: !ThinkingFormat,
     -- | Whether the host accepts Anthropic-style @cache_control@
     --   markers (some OpenRouter routes pass them through to an
-    --   Anthropic backend).
+    --   Anthropic backend). Consumed by
+    --   @Baikai.Provider.OpenAI.Shape.injectCacheControl@.
     cacheControlFormat :: !(Maybe CacheControlFormat),
     -- | Whether the host emits a final @usage@ chunk in streaming
-    --   responses. OpenAI does; older OpenAI-compatible servers may
-    --   not. Currently advisory.
+    --   responses. Consumed by
+    --   @Baikai.Provider.OpenAI.Shape.streamRequestBody@ to include
+    --   or omit @stream_options.include_usage@.
     supportsUsageInStreaming :: !Bool,
     -- | Whether the host honours long (1h) cache TTLs through the
-    --   Anthropic-style cache_control marker. Currently only relevant
-    --   when 'cacheControlFormat' is 'Just CacheControlFormatAnthropic'.
+    --   Anthropic-style cache_control marker. Consumed by
+    --   @Baikai.Provider.OpenAI.Shape.injectCacheControl@ when
+    --   'cacheControlFormat' is 'Just CacheControlFormatAnthropic'.
     supportsLongCacheRetention :: !Bool
   }
   deriving stock (Eq, Show, Generic)
@@ -161,15 +174,23 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
   { -- | Whether the host honours Anthropic's
     --   @cache_control.ttl: "1h"@ long-retention marker. When 'False',
     --   long-retention preferences silently downgrade to ephemeral.
+    --   Consumed by @Baikai.Provider.Claude.Api.computeCacheControl@
+    --   for top-level cache markers and by
+    --   @Baikai.Provider.Claude.Shape.injectToolCacheControl@ for
+    --   tool cache markers.
     supportsLongCacheRetention :: !Bool,
     -- | Whether tool definitions accept @cache_control@ markers.
+    --   Consumed by
+    --   @Baikai.Provider.Claude.Shape.injectToolCacheControl@.
     --   Anthropic's own host does; some compatible hosts do not.
     supportsCacheControlOnTools :: !Bool,
     -- | Whether to add session-affinity headers on every request
-    --   (Fireworks-style routing).
+    --   (Fireworks-style routing). Consumed by
+    --   @Baikai.Provider.Claude.Transport.requestHeaders@.
     sendSessionAffinityHeaders :: !Bool,
     -- | Which extended-thinking request shape to send for the
-    --   selected model generation.
+    --   selected model generation. Consumed by
+    --   @Baikai.Provider.Claude.Api.computeThinking@.
     thinkingStyle :: !AnthropicThinkingStyle
   }
   deriving stock (Eq, Show, Generic)

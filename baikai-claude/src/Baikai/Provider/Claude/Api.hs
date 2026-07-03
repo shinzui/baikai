@@ -9,16 +9,22 @@
 -- this handler.
 --
 -- The handler resolves 'Baikai.Options.apiKey' when present, falling
--- back to the @ANTHROPIC_API_KEY@ env var via
--- 'Baikai.Auth.resolveApiKey'.
+-- back to the host-specific env var from
+-- 'Baikai.Auth.defaultApiKeyEnvForBaseUrl'. Unknown hosts require an
+-- explicit key source.
 --
 -- EP-3 promotes streaming to the primary entry point. The handler
 -- exposes a 'streamly' 'Stream' of 'AssistantMessageEvent' values
 -- bridged from a local SSE transport that preserves HTTP status,
--- headers, and body for error classification. The synchronous
--- 'complete' field is derived via 'streamingComplete', so callers
--- that drain the stream get the same fully-assembled 'Response' they
--- had before.
+-- headers, and body for error classification. Requests start as the
+-- SDK's typed 'Claude.V1.Messages.CreateMessage' value, then
+-- 'Baikai.Provider.Claude.Shape.streamRequestBody' patches the raw
+-- JSON body for tool-schema, @tool_choice@, and tool-cache compat
+-- before 'Baikai.Provider.Claude.Sse.claudeSseStreamValueWithHeaders'
+-- sends it with cached transport settings and caller headers. The
+-- synchronous 'complete' field is derived via 'streamingComplete',
+-- so callers that drain the stream get the same fully-assembled
+-- 'Response' they had before.
 module Baikai.Provider.Claude.Api
   ( register,
     registerWithRegistry,
@@ -766,15 +772,14 @@ adaptiveEffort = \case
   ThinkingHigh -> Nothing
 
 -- | Map a baikai 'Tool.Tool' into the upstream Anthropic
--- 'ClaudeTool.ToolDefinition'. The JSON Schema is passed through
--- verbatim; 'ClaudeTool.functionTool' extracts @properties@ and
--- @required@ off the top-level schema if present.
+-- 'ClaudeTool.ToolDefinition'. The SDK helper is used to populate
+-- the ordinary typed fields; the raw request shaper later restores
+-- the caller's verbatim @input_schema@ because
+-- 'ClaudeTool.functionTool' keeps only a subset of JSON Schema.
 --
--- The compat record is threaded through so future revisions can
--- apply per-tool @cache_control@ markers (when
--- 'supportsCacheControlOnTools' is True) or per-tool eager input
--- streaming flags. EP-5 ships the parameter at its default, leaving
--- the upstream tool definition without cache markers.
+-- The compat record is accepted at this layer for call-site
+-- consistency; per-tool @cache_control@ markers are applied by
+-- 'Baikai.Provider.Claude.Shape.injectToolCacheControl'.
 mkAnthropicTool :: AnthropicMessagesCompat -> Tool.Tool -> ClaudeTool.ToolDefinition
 mkAnthropicTool _compat t =
   ClaudeTool.inlineTool

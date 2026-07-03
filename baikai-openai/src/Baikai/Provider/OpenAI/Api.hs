@@ -9,19 +9,20 @@
 -- through this handler.
 --
 -- The handler resolves 'Baikai.Options.apiKey' when present, falling
--- back to the @OPENAI_API_KEY@ env var via
--- 'Baikai.Auth.resolveApiKey'.
+-- back to the host-specific env var from
+-- 'Baikai.Auth.defaultApiKeyEnvForBaseUrl'. Unknown hosts require an
+-- explicit key source.
 --
 -- EP-3 promotes streaming to the primary entry point. The handler
 -- exposes a 'streamly' 'Stream' of 'AssistantMessageEvent' values
--- bridged from the upstream SDK's raw
--- 'createChatCompletionStream' callback. We deliberately bypass
--- the typed variant because the typed @ChatCompletionChunk@
--- requires @id@ + @function.name@ on every tool-call delta — fields
--- that OpenAI omits on partial-argument continuation chunks — so a
--- tool-using stream fails to parse end-to-end. Parsing the raw
--- 'Aeson.Value' chunk manually lets us tolerate missing fields the
--- way the upstream wire protocol intends.
+-- bridged from a local SSE transport. Requests start as the SDK's
+-- typed 'OpenAI.V1.Chat.Completions.CreateChatCompletion' value, then
+-- 'Baikai.Provider.OpenAI.Shape.streamRequestBody' rewrites the raw
+-- JSON body for OpenAI-compatible host quirks before
+-- 'Baikai.Provider.OpenAI.Sse.openaiSseStreamValueWithHeaders' sends
+-- it with cached transport settings and caller headers. Streaming
+-- responses are parsed from raw 'Aeson.Value' chunks so partial
+-- tool-call deltas may omit fields such as @id@ and @function.name@.
 --
 -- The synchronous 'complete' field is derived via
 -- 'streamingComplete', so callers that drain the stream get the

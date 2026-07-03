@@ -80,9 +80,9 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M4: `Options.headers` + `Model.headers` + `sendSessionAffinityHeaders` reach the wire in both providers. (2026-07-03)
 - [x] M4: `Options.timeoutMs` bounds both providers' calls; timeout helper tests pass. (2026-07-03)
 - [x] M4: `resolveKey` uses the per-host env table; no silent cross-host `OPENAI_API_KEY` fallback. (2026-07-03)
-- [ ] M5: Compat.hs haddocks state where each surviving flag takes effect
-- [ ] M5: baikai-smoke gains skipped-without-keys cases (DeepSeek max_tokens, verbatim tool schema, tool_choice none, custom headers)
-- [ ] M5: full `cabal build all --enable-tests` and `cabal test baikai baikai-claude baikai-openai` pass; master plan Progress updated
+- [x] M5: Compat.hs haddocks state where each surviving flag takes effect. (2026-07-03)
+- [x] M5: baikai-smoke gains skipped-without-keys cases (DeepSeek max_tokens, verbatim tool schema, tool_choice none, custom headers). (2026-07-03)
+- [x] M5: full `cabal build all --enable-tests` and `cabal test baikai baikai-claude baikai-openai` pass; master plan Progress updated. (2026-07-03)
 
 
 ## Surprises & Discoveries
@@ -371,6 +371,31 @@ cabal test baikai baikai-claude baikai-openai --test-show-details=direct
 baikai: 119 tests passed
 baikai-openai: 51 tests passed
 baikai-claude: 111 tests passed
+```
+
+Milestone 5 completed on 2026-07-03. The compat and options haddocks now name the
+provider functions that consume each surviving flag and option, and the provider module
+docs describe the typed-request-then-shaped-JSON local SSE architecture. The smoke
+suite gained `CompatSmoke`: DeepSeek `max_tokens`, Claude verbatim `$defs` tool schema
+plus `ToolChoiceNone`, and OpenRouter custom-header/cache-control live cases all skip
+cleanly when their keys are absent. On this machine the smoke suite ran available
+OpenAI and CLI cases and skipped the new DeepSeek/Claude/OpenRouter compat cases due
+to missing corresponding keys. Validation:
+
+```text
+rg "supportsDeveloperRole|supportsEagerToolInputStreaming" . --glob '*.hs'
+no matches
+
+cabal build all --enable-tests
+pass
+
+cabal test baikai baikai-claude baikai-openai --test-show-details=direct
+baikai: 119 tests passed
+baikai-claude: 111 tests passed
+baikai-openai: 51 tests passed
+
+cabal test baikai-smoke --test-show-details=direct
+baikai-smoke: PASS
 ```
 
 

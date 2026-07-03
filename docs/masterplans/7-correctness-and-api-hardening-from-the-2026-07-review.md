@@ -223,7 +223,7 @@ EP-10 relocate them if needed.
 - [x] EP-8 M2: OpenAI request shaping (every kept flag on the wire, zero-cap, delta keying)
 - [x] EP-8 M3: Claude raw streaming path — verbatim tool schemas, tool_choice none, cache markers
 - [x] EP-8 M4: transport options — manager cache, headers, timeout, per-host keys
-- [ ] EP-8 M5: truth pass and live evidence
+- [x] EP-8 M5: truth pass and live evidence
 - [ ] EP-9 M1: honest message timestamps and a lawful `Context`
 - [ ] EP-9 M2: tool loop, one-shot completion, streamly-free streaming
 - [ ] EP-9 M3: registry, auth, model-construction, and Options ergonomics

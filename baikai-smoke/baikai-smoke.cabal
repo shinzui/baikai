@@ -34,6 +34,7 @@ test-suite baikai-smoke
   hs-source-dirs: test
   main-is:        Smoke.hs
   other-modules:
+    CompatSmoke
     InteractiveSmoke
     MultiHostSmoke
     StructuredSmoke
@@ -50,6 +51,7 @@ test-suite baikai-smoke
     , base               >=4.20  && <5
     , base64-bytestring
     , bytestring
+    , containers
     , directory
     , generic-lens
     , lens               ^>=5.3
