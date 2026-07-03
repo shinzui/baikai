@@ -143,7 +143,7 @@ openaiChatStream m ctx opts =
   Stream.concatEffect $ do
     setup <- prepareCall m ctx opts
     case setup of
-      Left err -> pure (Stream.fromEffect (immediateError err))
+      Left err -> Stream.fromList <$> immediateError err
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe RawChunk))
         tref <- newIORef False
@@ -720,9 +720,9 @@ finalMessage ass now errMsg sr =
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
 blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 
--- | Immediate single-error stream emitted when the request itself
--- could not be built (e.g. message mapping failed).
-immediateError :: Text -> IO AssistantMessageEvent
+-- | Immediate error stream emitted when the request itself could not
+-- be built (e.g. message mapping failed).
+immediateError :: Text -> IO [AssistantMessageEvent]
 immediateError errText = do
   now <- getCurrentTime
   let msg =
@@ -734,7 +734,10 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText))))
+  pure
+    [ EventStart StartPayload {partial = msg, responseId = Nothing},
+      EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText)))
+    ]
 
 -- ============================================================
 -- Request mapping (preserved from EP-2 with minor refactoring)

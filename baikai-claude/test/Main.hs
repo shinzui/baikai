@@ -199,11 +199,13 @@ rejectsImageToolResultsTest =
                 )
     events <- Stream.toList (claudeMessagesStream model ctx _Options)
     case events of
-      [EventError TerminalPayload {message = AssistantMessage AssistantPayload {errorMessage = Just msg}}] ->
-        assertBool
-          ("expected ToolResultImage error, got: " <> Text.unpack msg)
-          ("ToolResultImage" `Text.isInfixOf` msg)
-      other -> error ("expected one EventError; got: " <> show other)
+      [ EventStart StartPayload {},
+        EventError TerminalPayload {message = AssistantMessage AssistantPayload {errorMessage = Just msg}}
+        ] ->
+          assertBool
+            ("expected ToolResultImage error, got: " <> Text.unpack msg)
+            ("ToolResultImage" `Text.isInfixOf` msg)
+      other -> error ("expected EventStart then EventError; got: " <> show other)
 
 assistantText :: Response -> Text.Text
 assistantText resp =

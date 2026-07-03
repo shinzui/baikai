@@ -95,14 +95,19 @@ reading this plan's diff.
       terminal-authoritative content, responseId carriage, dangling ordering, latency
       clamp; registered in `baikai/baikai.cabal` and `baikai/test/Main.hs`
       (2026-07-03)
-- [ ] M3: `tryAny` replaced with sync-only `trySync` in `baikai/src/Baikai/Stream.hs`
-- [ ] M3: `EventStart`-first on the no-provider stream and `liftCompleteToStream`'s
+- [x] M3: `tryAny` replaced with sync-only `trySync` in `baikai/src/Baikai/Stream.hs`
+      (2026-07-03)
+- [x] M3: `EventStart`-first on the no-provider stream and `liftCompleteToStream`'s
       exception path
-- [ ] M3: `EventStart`-first in both providers' `immediateError`; both provider tests
+      (2026-07-03)
+- [x] M3: `EventStart`-first in both providers' `immediateError`; both provider tests
       updated
-- [ ] M3: protocol haddock in `baikai/src/Baikai/Stream/Event.hs` and
+      (2026-07-03)
+- [x] M3: protocol haddock in `baikai/src/Baikai/Stream/Event.hs` and
       `liftCompleteToStream`'s haddock updated to the strengthened invariant
-- [ ] M3: async-passthrough and EventStart-first tests in `baikai/test/StreamSpec.hs`
+      (2026-07-03)
+- [x] M3: async-passthrough and EventStart-first tests in `baikai/test/StreamSpec.hs`
+      (2026-07-03)
 - [ ] M4: full validation matrix run and recorded; Interfaces section verified against
       the compiled code; masterplan Progress updated; living sections finalized
 

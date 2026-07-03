@@ -4,9 +4,9 @@
 --
 -- 'streamRequest' looks up the per-API handler registered for a
 -- model's 'Api' tag and returns its event stream. When no handler is
--- registered the function returns a one-event error stream (a single
--- 'EventError' with @stopReason = ErrorReason@) so a caller iterating
--- the stream always gets at least one terminal event.
+-- registered the function returns a synthetic 'EventStart' followed by
+-- a terminal 'EventError' with @stopReason = ErrorReason@, preserving
+-- the protocol that every core-owned stream starts with 'EventStart'.
 --
 -- 'streamingComplete' folds an event stream into the synchronous
 -- 'Response' shape. Vendor providers register both the @stream@
@@ -80,9 +80,8 @@ import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 
 -- | Dispatch a streaming call through the registered handler for the
--- model's 'Api' tag. Returns a one-event error stream when no handler
--- is registered for that tag — the caller always sees at least one
--- terminal event.
+-- model's 'Api' tag. Returns an 'EventStart' then 'EventError' stream
+-- when no handler is registered for that tag.
 streamRequest :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
 streamRequest = streamRequestWith globalProviderRegistry
 
@@ -99,7 +98,7 @@ streamRequestWith reg m ctx opts =
     mProvider <- lookupApiProviderWith reg (m ^. #api)
     case mProvider of
       Just p -> pure (stream p m ctx opts)
-      Nothing -> pure (Stream.fromEffect (noProviderEvent m))
+      Nothing -> Stream.fromList <$> noProviderEvents m
 
 -- | Drain an event stream into a 'Response' by folding events into
 -- the assembled message.
@@ -336,9 +335,10 @@ synthesizeTerminal now blocks =
 --   'ToolCallDelta' with the JSON-encoded arguments.
 -- * 'EventDone' carrying the fully assembled assistant message.
 --
--- An exception from @complete@ becomes a single-'EventError' stream
--- with @stopReason = ErrorReason@ and 'errorMessage' set from the
--- exception's display.
+-- A synchronous exception from @complete@ becomes a synthetic
+-- 'EventStart' followed by 'EventError' with @stopReason = ErrorReason@
+-- and 'errorMessage' set from the exception's display. Asynchronous
+-- exceptions are rethrown so cancellation works.
 liftCompleteToStream ::
   (Model -> Context -> Options -> IO Response) ->
   Model ->
@@ -348,14 +348,26 @@ liftCompleteToStream ::
 liftCompleteToStream f m ctx opts =
   Stream.concatEffect $ do
     startTs <- getCurrentTime
-    er <- tryAny (f m ctx opts)
+    er <- trySync (f m ctx opts)
     case er of
       Right resp -> pure (Stream.fromList (eventsFor startTs resp))
-      Left e -> pure (Stream.fromEffect (errorEvent e))
+      Left e -> Stream.fromList <$> errorEvents e
 
--- | A typed 'try' over any synchronous exception.
-tryAny :: IO a -> IO (Either Control.Exception.SomeException a)
-tryAny = Control.Exception.try
+-- | 'try' for synchronous exceptions only. Anything delivered
+-- asynchronously (wrapped in 'Control.Exception.SomeAsyncException' by
+-- 'Control.Exception.throwTo', 'System.Timeout.timeout', Ctrl-C) is
+-- rethrown so cancellation works; converting it into an 'EventError'
+-- would defeat it.
+trySync :: IO a -> IO (Either Control.Exception.SomeException a)
+trySync action = do
+  r <- Control.Exception.try action
+  case r of
+    Left e
+      | Just (Control.Exception.SomeAsyncException _) <-
+          (fromException e :: Maybe Control.Exception.SomeAsyncException) ->
+          Control.Exception.throwIO e
+      | otherwise -> pure (Left e)
+    Right a -> pure (Right a)
 
 -- | Build the synthetic event list for a fully resolved 'Response'.
 -- The 'EventStart' carries the supplied @startTs@ on its message
@@ -405,8 +417,8 @@ blockEvent i = \case
           ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc}
         ]
 
-errorEvent :: Control.Exception.SomeException -> IO AssistantMessageEvent
-errorEvent e = do
+errorEvents :: Control.Exception.SomeException -> IO [AssistantMessageEvent]
+errorEvents e = do
   now <- getCurrentTime
   -- When a @complete@ handler threw a typed 'BaikaiError' (the CLI,
   -- 'Baikai.Auth', and registry paths do), preserve it structurally so a
@@ -425,12 +437,15 @@ errorEvent e = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Nothing ErrorReason msg mErr))
+  pure
+    [ EventStart StartPayload {partial = msg, responseId = Nothing},
+      EventError (errorTerminal Nothing ErrorReason msg mErr)
+    ]
 
--- | The single 'EventError' value used when no provider is
--- registered for the model's API tag.
-noProviderEvent :: Model -> IO AssistantMessageEvent
-noProviderEvent m = do
+-- | The synthetic error stream used when no provider is registered for
+-- the model's API tag.
+noProviderEvents :: Model -> IO [AssistantMessageEvent]
+noProviderEvents m = do
   now <- getCurrentTime
   let detail = "No provider registered for API: " <> renderApi (m ^. #api)
       be = providerUnavailable detail
@@ -443,4 +458,7 @@ noProviderEvent m = do
               Msg.errorMessage = Just detail,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Nothing ErrorReason msg (Just be)))
+  pure
+    [ EventStart StartPayload {partial = msg, responseId = Nothing},
+      EventError (errorTerminal Nothing ErrorReason msg (Just be))
+    ]

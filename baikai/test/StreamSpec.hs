@@ -2,12 +2,14 @@ module StreamSpec (tests) where
 
 import Baikai
 import Baikai.Prelude
+import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay, throwTo)
+import Control.Exception qualified as Exception
 import Data.Aeson qualified as Aeson
 import Data.Time (UTCTime)
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 streamApi :: Api
 streamApi = Custom "baikai-stream-spec"
@@ -144,5 +146,41 @@ tests =
                 %~ (#timestamp .~ epoch)
             handler _ _ _ = pure oldResponse
         resp <- streamingComplete (liftCompleteToStream handler) streamModel streamContext streamOptions
-        assertBool "latencyMs should be non-negative" (resp ^. #latencyMs >= 0)
+        assertBool "latencyMs should be non-negative" (resp ^. #latencyMs >= 0),
+      testCase "async exceptions pass through liftCompleteToStream" $ do
+        done <- newEmptyMVar
+        let blocked _ _ _ = threadDelay (10 * 1000 * 1000) *> pure (responseWith Nothing [])
+        tid <-
+          forkIO $ do
+            outcome <- Exception.try (Stream.toList (liftCompleteToStream blocked streamModel streamContext streamOptions))
+            putMVar done (outcome :: Either Exception.SomeException [AssistantMessageEvent])
+        threadDelay 100000
+        throwTo tid Exception.ThreadKilled
+        outcome <- takeMVar done
+        case outcome of
+          Left e ->
+            (Exception.fromException e :: Maybe Exception.AsyncException)
+              @?= Just Exception.ThreadKilled
+          Right events -> assertFailure ("expected ThreadKilled, got events: " <> show events),
+      testCase "error-only streams begin with EventStart" $ do
+        reg <- newProviderRegistry
+        noProviderEvents <- Stream.toList (streamRequestWith reg streamModel streamContext streamOptions)
+        case noProviderEvents of
+          [ EventStart StartPayload {},
+            EventError TerminalPayload {errorInfo = Just be}
+            ] ->
+              be ^. #category @?= ProviderUnavailable
+          other -> assertFailure ("expected EventStart then provider-unavailable EventError, got: " <> show other)
+
+        let throwing _ _ _ = Exception.throwIO (rateLimited (Just 5) "slow down")
+        liftedEvents <- Stream.toList (liftCompleteToStream throwing streamModel streamContext streamOptions)
+        case liftedEvents of
+          [EventStart StartPayload {}, EventError {}] -> pure ()
+          other -> assertFailure ("expected EventStart then EventError, got: " <> show other)
+        resp <- runEvents liftedEvents
+        case resp ^. #errorInfo of
+          Just be -> do
+            be ^. #category @?= RateLimited
+            be ^. #retryAfterSeconds @?= Just 5
+          Nothing -> assertFailure "expected lifted BaikaiError to survive reassembly"
     ]

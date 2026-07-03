@@ -8,10 +8,15 @@
 -- provider, model id), interleaves per-content-block lifecycle events
 -- (@_Start@ / @_Delta@ / @_End@) keyed by 'contentIndex', and
 -- terminates with exactly one 'EventDone' (success) or 'EventError'
--- (any failure that bubbled out of the producer). The terminal event
--- carries the fully assembled 'AssistantMessage' so a consumer that
--- only pattern-matches on the terminal event still gets a correct
--- response without folding deltas.
+-- (any failure that bubbled out of the producer). This EventStart-first
+-- invariant includes error-only streams produced by core dispatch and
+-- request-preparation failures; they emit a synthetic skeleton before
+-- the terminal error. One temporary provider-side gap remains: a Claude
+-- mid-call failure before @message_start@ can still terminate without a
+-- start event until the EP-7 Claude streaming rewrite pre-seeds its
+-- skeleton. The terminal event carries the fully assembled
+-- 'AssistantMessage' so a consumer that only pattern-matches on the
+-- terminal event still gets a correct response without folding deltas.
 --
 -- The algebra is closed and shared by every provider in baikai 0.1.
 -- Adding a new variant is a breaking change to baikai's public

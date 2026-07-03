@@ -209,7 +209,7 @@ EP-10 relocate them if needed.
 - [x] EP-4 M2: OpenAI mapping normalized with wire-payload regression tests
 - [x] EP-5 M1: event algebra reshaped (ThinkingEndPayload, responseId carriage) and workspace compiling
 - [x] EP-5 M2: full-fidelity reassembly (terminal-authoritative content)
-- [ ] EP-5 M3: protocol and exception invariants (EventStart-first, sync-only catch, clamped latency)
+- [x] EP-5 M3: protocol and exception invariants (EventStart-first, sync-only catch, clamped latency)
 - [ ] EP-5 M4: validation, hand-off contract, living sections
 - [ ] EP-6 M1: one error contract in core (`responseError`, non-throwing dispatch, in-band lift)
 - [ ] EP-6 M2: Claude live classification via local SSE transport

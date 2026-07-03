@@ -126,7 +126,7 @@ claudeMessagesStream m ctx opts =
   Stream.concatEffect $ do
     setup <- prepareCall m ctx opts
     case setup of
-      Left err -> pure (Stream.fromEffect (immediateError err))
+      Left err -> Stream.fromList <$> immediateError err
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe Messages.MessageStreamEvent))
         tref <- newIORef False
@@ -509,7 +509,7 @@ blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 -- | The immediate "request invalid" stream — emitted when
 -- 'mapRequest' fails or 'prepareCall' is otherwise unable to build
 -- a valid SDK request.
-immediateError :: Text -> IO AssistantMessageEvent
+immediateError :: Text -> IO [AssistantMessageEvent]
 immediateError errText = do
   now <- getCurrentTime
   let msg =
@@ -521,7 +521,10 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText))))
+  pure
+    [ EventStart StartPayload {partial = msg, responseId = Nothing},
+      EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText)))
+    ]
 
 renderAnthropicError :: Value -> Text
 renderAnthropicError v = case v of
