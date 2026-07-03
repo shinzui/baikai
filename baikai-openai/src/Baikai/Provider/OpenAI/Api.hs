@@ -33,6 +33,10 @@ module Baikai.Provider.OpenAI.Api
     mapRequest,
     RawChunk (..),
     RawToolDelta (..),
+    parseChunk,
+    TagScanState (..),
+    _TagScanState,
+    scanThinkTags,
     Assembler (..),
     emptyAssembler,
     translate,
@@ -78,6 +82,7 @@ import Baikai.Stream.Event
     DeltaPayload (..),
     IndexPayload (..),
     StartPayload (..),
+    ThinkingEndPayload (..),
     ToolCallEndPayload (..),
     doneTerminal,
     errorTerminal,
@@ -219,6 +224,7 @@ resolveKey opts = case opts ^. #apiKey of
 -- tool-call deltas).
 data RawChunk = RawChunk
   { contentDelta :: !(Maybe Text),
+    reasoningDelta :: !(Maybe Text),
     finishReason :: !(Maybe Text),
     toolDeltas :: ![RawToolDelta],
     usage :: !(Maybe RawUsage)
@@ -268,19 +274,20 @@ parseChunk = Aeson.parseEither $ Aeson.withObject "ChatCompletionChunk" $ \o -> 
                 Aeson.Object obj -> Just obj
                 _ -> Nothing
         _ -> Nothing
-  (contentDelta, finishR, toolDeltas) <- case firstChoice of
-    Nothing -> pure (Nothing, Nothing, [])
+  (contentDelta, reasoningDelta, finishR, toolDeltas) <- case firstChoice of
+    Nothing -> pure (Nothing, Nothing, Nothing, [])
     Just ch -> do
       finish <- ch .:? "finish_reason"
       delta <- ch .:? "delta"
       case delta of
-        Nothing -> pure (Nothing, finish, [])
+        Nothing -> parseMessageObject ch finish
         Just (Aeson.Object dObj) -> do
           cd <- dObj .:? "content"
+          let rd = reasoningText dObj
           tc <- dObj .:? "tool_calls"
           let tds = parseToolCallDeltas tc
-          pure (cd, finish, tds)
-        _ -> pure (Nothing, finish, [])
+          pure (cd, rd, finish, tds)
+        _ -> parseMessageObject ch finish
   usageM <- o .:? "usage"
   let ru = case usageM of
         Just (Aeson.Object uObj) -> parseUsage uObj
@@ -288,10 +295,27 @@ parseChunk = Aeson.parseEither $ Aeson.withObject "ChatCompletionChunk" $ \o -> 
   pure
     RawChunk
       { contentDelta = contentDelta,
+        reasoningDelta = reasoningDelta,
         finishReason = finishR,
         toolDeltas = toolDeltas,
         usage = ru
       }
+
+parseMessageObject ::
+  Aeson.Object ->
+  Maybe Text ->
+  Aeson.Parser (Maybe Text, Maybe Text, Maybe Text, [RawToolDelta])
+parseMessageObject ch finish = do
+  msg <- ch .:? "message"
+  case msg of
+    Just (Aeson.Object mObj) -> do
+      cd <- mObj .:? "content"
+      pure (cd, reasoningText mObj, finish, [])
+    _ -> pure (Nothing, Nothing, finish, [])
+
+reasoningText :: Aeson.Object -> Maybe Text
+reasoningText obj =
+  lookupText "reasoning_content" obj <|> lookupText "reasoning" obj
 
 parseToolCallDeltas :: Maybe Value -> [RawToolDelta]
 parseToolCallDeltas = \case
@@ -441,6 +465,99 @@ terminal = \case
 -- Translation
 -- ============================================================
 
+data TagMode
+  = TagVisible
+  | TagReasoning
+  deriving stock (Eq, Show, Generic)
+
+-- | Incremental scanner state for hosts that stream reasoning in
+-- assistant text using @<think>@ or @<thinking>@ tags.
+data TagScanState = TagScanState
+  { tagMode :: !TagMode,
+    tagPending :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+
+_TagScanState :: TagScanState
+_TagScanState =
+  TagScanState
+    { tagMode = TagVisible,
+      tagPending = Text.empty
+    }
+
+-- | Split one text delta into reasoning fragments ('Left') and
+-- visible text fragments ('Right'), preserving partial tag prefixes
+-- across chunk boundaries.
+scanThinkTags :: TagScanState -> Text -> (TagScanState, [Either Text Text])
+scanThinkTags st input =
+  let (mode', pending', parts) = go (tagMode st) (tagPending st <> input) []
+   in (TagScanState {tagMode = mode', tagPending = pending'}, parts)
+  where
+    go mode txt acc =
+      case findTag mode txt of
+        Just (before, after, nextMode) ->
+          go nextMode after (appendPart mode before acc)
+        Nothing ->
+          let (emitNow, pending) = splitPending mode txt
+           in (mode, pending, appendPart mode emitNow acc)
+
+    appendPart _ "" acc = acc
+    appendPart TagVisible t acc = acc <> [Right t]
+    appendPart TagReasoning t acc = acc <> [Left t]
+
+findTag :: TagMode -> Text -> Maybe (Text, Text, TagMode)
+findTag mode txt =
+  case earliest markers of
+    Nothing -> Nothing
+    Just (idx, marker) ->
+      Just
+        ( Text.take idx txt,
+          Text.drop (idx + Text.length marker) txt,
+          nextMode
+        )
+  where
+    (markers, nextMode) = case mode of
+      TagVisible -> (openingTags, TagReasoning)
+      TagReasoning -> (closingTags, TagVisible)
+    earliest =
+      foldr
+        ( \marker best ->
+            case Text.breakOn marker txt of
+              (_, "") -> best
+              (before, _) ->
+                let candidate = (Text.length before, marker)
+                 in case best of
+                      Nothing -> Just candidate
+                      Just (oldIdx, _) | Text.length before < oldIdx -> Just candidate
+                      _ -> best
+        )
+        Nothing
+
+splitPending :: TagMode -> Text -> (Text, Text)
+splitPending mode txt =
+  let suffix = longestTagPrefix (case mode of TagVisible -> openingTags; TagReasoning -> closingTags) txt
+   in (Text.dropEnd (Text.length suffix) txt, suffix)
+
+longestTagPrefix :: [Text] -> Text -> Text
+longestTagPrefix markers txt =
+  foldr longer Text.empty candidates
+  where
+    candidates =
+      [ suffix
+      | n <- [1 .. Text.length txt],
+        let suffix = Text.takeEnd n txt,
+        any (suffix `Text.isPrefixOf`) markers
+      ]
+    longer a b
+      | Text.length a > Text.length b = a
+      | otherwise = b
+
+openingTags :: [Text]
+openingTags = ["<think>", "<thinking>"]
+
+closingTags :: [Text]
+closingTags = ["</think>", "</thinking>"]
+
 -- | Translation state across one streaming call.
 data Assembler = Assembler
   { model :: !Model,
@@ -450,6 +567,9 @@ data Assembler = Assembler
     textOpen :: !(Maybe Int),
     textAccum :: !Text,
     textEverOpened :: !Bool,
+    reasoningOpen :: !(Maybe Int),
+    reasoningAccum :: !Text,
+    tagScanState :: !TagScanState,
     -- | Maps OpenAI's per-call tool-call index to baikai's
     -- 'contentIndex'.
     toolIndexMap :: !(IntMap Int),
@@ -479,6 +599,9 @@ emptyAssembler m s =
       textOpen = Nothing,
       textAccum = Text.empty,
       textEverOpened = False,
+      reasoningOpen = Nothing,
+      reasoningAccum = Text.empty,
+      tagScanState = _TagScanState,
       toolIndexMap = IntMap.empty,
       toolMeta = IntMap.empty,
       toolArgs = IntMap.empty,
@@ -501,35 +624,81 @@ translate chunk ass now
       let msg = finalMessage ass now (Just (be ^. #message)) Stop.ErrorReason
        in ([EventError (errorTerminal Nothing Stop.ErrorReason msg be)], ass)
   | Right raw <- chunk =
-      let -- 1. Apply content delta (open text block if needed).
-          (textEvents, ass1) = applyContentDelta (raw ^. #contentDelta) ass
-          -- 2. Apply tool-call deltas.
-          (toolEvents, ass2) = applyToolDeltas (raw ^. #toolDeltas) ass1
-          -- 3. Apply usage chunk if present.
-          ass3 = applyUsage (raw ^. #usage) ass2
-          -- 4. If finish_reason is set, close any open text/tool
+      let -- 1. Apply field-based reasoning delta.
+          (reasoningEvents, ass1) = applyReasoningDelta (raw ^. #reasoningDelta) ass
+          -- 2. Apply content delta (open text block if needed).
+          (textEvents, ass2) = applyContentDelta (raw ^. #contentDelta) ass1
+          -- 3. Apply tool-call deltas.
+          (toolEvents, ass3) = applyToolDeltas (raw ^. #toolDeltas) ass2
+          -- 4. Apply usage chunk if present.
+          ass4 = applyUsage (raw ^. #usage) ass3
+          -- 5. If finish_reason is set, close any open text/tool
           --    blocks and stash the reason. EventDone is deferred
           --    to channel close so the post-finish_reason usage
           --    chunk has a chance to land.
-          (closeEvents, ass4) = case raw ^. #finishReason of
-            Just fr -> closeOnFinish fr ass3
-            Nothing -> ([], ass3)
-       in (textEvents <> toolEvents <> closeEvents, ass4)
+          (closeEvents, ass5) = case raw ^. #finishReason of
+            Just fr -> closeOnFinish fr ass4
+            Nothing -> ([], ass4)
+       in (reasoningEvents <> textEvents <> toolEvents <> closeEvents, ass5)
+
+applyReasoningDelta ::
+  Maybe Text -> Assembler -> ([AssistantMessageEvent], Assembler)
+applyReasoningDelta Nothing ass = ([], ass)
+applyReasoningDelta (Just "") ass = ([], ass)
+applyReasoningDelta (Just d) ass =
+  case ass ^. #reasoningOpen of
+    Just i ->
+      ( [ThinkingDelta DeltaPayload {contentIndex = i, delta = d}],
+        ass & #reasoningAccum %~ (<> d)
+      )
+    Nothing ->
+      let i = ass ^. #nextContentIndex
+       in ( [ThinkingStart IndexPayload {contentIndex = i}, ThinkingDelta DeltaPayload {contentIndex = i, delta = d}],
+            ass
+              & #reasoningOpen .~ Just i
+              & #reasoningAccum .~ d
+              & #nextContentIndex .~ (i + 1)
+          )
 
 applyContentDelta ::
   Maybe Text -> Assembler -> ([AssistantMessageEvent], Assembler)
 applyContentDelta Nothing ass = ([], ass)
 applyContentDelta (Just "") ass = ([], ass)
 applyContentDelta (Just d) ass =
+  if requiresThinkingAsText (openaiCompletionsCompatFor (ass ^. #model))
+    then
+      let (tagState', parts) = scanThinkTags (ass ^. #tagScanState) d
+          (events, ass') = foldl' applyTaggedPart ([], ass & #tagScanState .~ tagState') parts
+       in (events, ass')
+    else applyVisibleTextDelta d ass
+
+applyTaggedPart ::
+  ([AssistantMessageEvent], Assembler) ->
+  Either Text Text ->
+  ([AssistantMessageEvent], Assembler)
+applyTaggedPart (acc, ass) = \case
+  Left reasoning ->
+    let (events, ass') = applyReasoningDelta (Just reasoning) ass
+     in (acc <> events, ass')
+  Right visible ->
+    let (events, ass') = applyVisibleTextDelta visible ass
+     in (acc <> events, ass')
+
+applyVisibleTextDelta ::
+  Text -> Assembler -> ([AssistantMessageEvent], Assembler)
+applyVisibleTextDelta "" ass = ([], ass)
+applyVisibleTextDelta d ass =
   case ass ^. #textOpen of
     Just i ->
-      ( [TextDelta DeltaPayload {contentIndex = i, delta = d}],
-        ass & #textAccum %~ (<> d)
-      )
+      let (reasoningEvents, ass1) = closeOpenReasoning ass
+       in ( reasoningEvents <> [TextDelta DeltaPayload {contentIndex = i, delta = d}],
+            ass1 & #textAccum %~ (<> d)
+          )
     Nothing ->
-      let i = ass ^. #nextContentIndex
-       in ( [TextStart IndexPayload {contentIndex = i}, TextDelta DeltaPayload {contentIndex = i, delta = d}],
-            ass
+      let (reasoningEvents, ass1) = closeOpenReasoning ass
+          i = ass1 ^. #nextContentIndex
+       in ( reasoningEvents <> [TextStart IndexPayload {contentIndex = i}, TextDelta DeltaPayload {contentIndex = i, delta = d}],
+            ass1
               & #textOpen .~ Just i
               & #textAccum .~ d
               & #textEverOpened .~ True
@@ -538,7 +707,11 @@ applyContentDelta (Just d) ass =
 
 applyToolDeltas ::
   [RawToolDelta] -> Assembler -> ([AssistantMessageEvent], Assembler)
-applyToolDeltas deltas ass = foldl' apply ([], ass) deltas
+applyToolDeltas [] ass = ([], ass)
+applyToolDeltas deltas ass =
+  let (reasoningEvents, ass0) = closeOpenReasoning ass
+      (toolEvents, ass') = foldl' apply ([], ass0) deltas
+   in (reasoningEvents <> toolEvents, ass')
   where
     apply (acc, a) d =
       let (events, a') = applyOneToolDelta d a
@@ -615,20 +788,51 @@ applyUsage (Just u) ass = ass & #usage .~ rawUsageToUsage u
 closeOnFinish ::
   Text -> Assembler -> ([AssistantMessageEvent], Assembler)
 closeOnFinish finishReason ass =
-  let (closeText, ass1) = closeOpenText ass
-      (closeTools, ass2) = closeOpenTools ass1
+  let (tagEvents, ass0) = flushTagScanPending ass
+      (closeReasoning, ass1) = closeOpenReasoning ass0
+      (closeText, ass2) = closeOpenText ass1
+      (closeTools, ass3) = closeOpenTools ass2
       (reason, note) = mapFinishReason finishReason
       pending =
         if reason == Stop.ErrorReason
           then Just (providerError ("provider stopped the response: finish_reason=" <> finishReason))
           else Nothing
-      ass3 =
-        ass2
+      ass4 =
+        ass3
           & #stopReason .~ reason
           & #finishSeen .~ True
           & #pendingError .~ pending
           & #finishNote .~ note
-   in (closeText <> closeTools, ass3)
+   in (tagEvents <> closeReasoning <> closeText <> closeTools, ass4)
+
+flushTagScanPending :: Assembler -> ([AssistantMessageEvent], Assembler)
+flushTagScanPending ass =
+  let st = ass ^. #tagScanState
+      pending = tagPending st
+      ass0 = ass & #tagScanState .~ st {tagPending = Text.empty}
+   in case (tagMode st, pending) of
+        (_, "") -> ([], ass0)
+        (TagVisible, t) -> applyVisibleTextDelta t ass0
+        (TagReasoning, t) -> applyReasoningDelta (Just t) ass0
+
+closeOpenReasoning :: Assembler -> ([AssistantMessageEvent], Assembler)
+closeOpenReasoning ass = case ass ^. #reasoningOpen of
+  Nothing -> ([], ass)
+  Just i ->
+    let body = ass ^. #reasoningAccum
+        thinkingContent =
+          Content.ThinkingContent
+            { Content.thinking = body,
+              Content.signature = Nothing,
+              Content.redacted = False
+            }
+        block = Content.AssistantThinking thinkingContent
+     in ( [ThinkingEnd ThinkingEndPayload {contentIndex = i, content = thinkingContent}],
+          ass
+            & #reasoningOpen .~ Nothing
+            & #reasoningAccum .~ Text.empty
+            & #closed %~ IntMap.insert i block
+        )
 
 -- | Close the open text block, if any, by emitting a 'TextEnd' and
 -- storing the assembled content in 'closed'.
@@ -694,16 +898,18 @@ closeOpenStream now mErr ass
       -- still-open blocks and emit EventError. When the worker stored a
       -- classified HTTP error ('Just be'), surface it structurally;
       -- otherwise report the unexpected end of stream.
-      let (closeText, ass1) = closeOpenText ass
-          (closeTools, ass2) = closeOpenTools ass1
+      let (tagEvents, ass0) = flushTagScanPending ass
+          (closeReasoning, ass1) = closeOpenReasoning ass0
+          (closeText, ass2) = closeOpenText ass1
+          (closeTools, ass3) = closeOpenTools ass2
           reason = Stop.ErrorReason
           errText = case mErr of
             Just be -> be ^. #message
             Nothing -> "openai stream ended without finish_reason"
-          msg = finalMessage ass2 now (Just errText) reason
+          msg = finalMessage ass3 now (Just errText) reason
           errInfo = fromMaybe (providerError errText) mErr
           errEv = EventError (errorTerminal Nothing reason msg errInfo)
-       in (closeText <> closeTools <> [errEv], ass2)
+       in (tagEvents <> closeReasoning <> closeText <> closeTools <> [errEv], ass3)
 
 finalMessage ::
   Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message
@@ -934,10 +1140,7 @@ collectAssistantText =
     . Vector.mapMaybe
       ( \case
           Content.AssistantText (Content.TextContent t) -> Just t
-          Content.AssistantThinking th ->
-            if Content.redacted th
-              then Nothing
-              else Just ("<thinking>" <> Content.thinking th <> "</thinking>")
+          Content.AssistantThinking _ -> Nothing
           Content.AssistantToolCall _ -> Nothing
       )
 

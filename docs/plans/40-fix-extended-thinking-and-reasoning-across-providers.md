@@ -81,12 +81,14 @@ This section must always reflect the actual current state of the work.
       `assistantContentToBlock`; omit signature-less thinking blocks. (2026-07-03)
 - [x] M2: round-trip tests (stream events → assembled message → `mapRequest` output).
       (2026-07-03)
-- [ ] M3: parse `reasoning_content`/`reasoning` deltas and the message-object shape in
+- [x] M3: parse `reasoning_content`/`reasoning` deltas and the message-object shape in
       `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`; thinking-block lifecycle in the
-      OpenAI assembler.
-- [ ] M3: implement the `<think>`-tag extraction transformer gated by
+      OpenAI assembler. (2026-07-03)
+- [x] M3: implement the `<think>`-tag extraction transformer gated by
       `requiresThinkingAsText`; update the flag's haddock in `baikai/src/Baikai/Compat.hs`.
-- [ ] M3: stream-assembly unit tests in `baikai-openai/test/ReasoningSpec.hs`.
+      (2026-07-03)
+- [x] M3: stream-assembly unit tests in `baikai-openai/test/ReasoningSpec.hs`.
+      (2026-07-03)
 - [ ] M4: live smoke cases (Anthropic budget model, Anthropic adaptive model,
       deepseek-reasoner) in `baikai-smoke/test/`, skipped without keys.
 - [ ] M4: full validation sweep (`cabal build all --enable-tests`, all test suites,
@@ -110,6 +112,13 @@ implementation. Provide concise evidence.
   separate `redactedBuf` lets redacted payloads close without pretending to be readable
   thinking text. Validation evidence: `cabal test baikai-claude --test-show-details=direct`
   passed with 102 tests. (2026-07-03, M2 implementation)
+- OpenAI-compatible replay was doing the wrong thing for prior thinking blocks: it
+  serialized `AssistantThinking` as `<thinking>...</thinking>` text, even though
+  DeepSeek documents `reasoning_content` as output-only and does not accept it on
+  replay. The M3 fix drops `AssistantThinking` from OpenAI-compatible assistant-message
+  replay and keeps only visible text and tool calls. Validation evidence: `cabal test
+  baikai baikai-openai --test-show-details=direct` passed with `baikai` 116 tests and
+  `baikai-openai` 41 tests. (2026-07-03, M3 implementation)
 
 
 ## Decision Log
@@ -208,6 +217,14 @@ implementation. Provide concise evidence.
   is wired by EP-7") is thereby satisfied — EP-8
   (`docs/plans/41-implement-compat-quirks-and-transport-options.md`) must not delete it.
   Date: 2026-07-01
+- Decision: OpenAI-compatible replay drops `AssistantThinking` blocks rather than
+  serializing them as `<thinking>...</thinking>` text.
+  Rationale: DeepSeek/OpenAI-compatible hosts expose `reasoning_content` and
+  `reasoning` as response-only fields; there is no supported request-side content part
+  for replaying them. Tag-serializing hidden reasoning into visible assistant text risks
+  corrupting the conversation and leaking content the provider will not validate as
+  reasoning. Visible assistant text and tool calls are still replayed.
+  Date: 2026-07-03
 - Decision: while rewriting the Claude block state machine, add opened-index tracking:
   a `content_block_delta` or `content_block_stop` for an index that never received a
   `content_block_start` is dropped (no event, no state change), instead of today's
@@ -253,6 +270,19 @@ deltas no longer fabricate phantom tool calls. Focused validation:
 ```text
 cabal test baikai-claude --test-show-details=direct
 baikai-claude: 102 tests passed
+```
+
+Milestone 3 completed on 2026-07-03. OpenAI-compatible streaming now extracts
+`reasoning_content` and `reasoning` from delta chunks and whole-message chunks, emits
+reasoning as normal `ThinkingStart`/`ThinkingDelta`/`ThinkingEnd` blocks before visible
+text, and scans `<think>` / `<thinking>` tags only for models whose compat record
+requires text-based thinking extraction. OpenAI-compatible replay now omits
+`AssistantThinking` blocks instead of converting them to visible text tags. Validation:
+
+```text
+cabal test baikai baikai-openai --test-show-details=direct
+baikai-openai: 41 tests passed
+baikai: 116 tests passed
 ```
 
 

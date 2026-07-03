@@ -217,7 +217,7 @@ EP-10 relocate them if needed.
 - [x] EP-6 M4: conformance sweep, documentation, changelog
 - [x] EP-7 M1: Claude cap-safe `max_tokens` and per-generation thinking style
 - [x] EP-7 M2: Claude stream fidelity and verbatim replay (signature, redacted, phantom tool calls)
-- [ ] EP-7 M3: OpenAI-compatible reasoning extraction
+- [x] EP-7 M3: OpenAI-compatible reasoning extraction
 - [ ] EP-7 M4: live proof and validation sweep
 - [ ] EP-8 M1: core groundwork — honest host detection, flag deletions, key-env table
 - [ ] EP-8 M2: OpenAI request shaping (every kept flag on the wire, zero-cap, delta keying)
@@ -290,6 +290,11 @@ EP-10 relocate them if needed.
   response bodies that the SDK streaming callbacks drop. EP-8 must extend these modules
   for `Options.timeoutMs`, request headers, and host-specific transport behavior rather
   than reintroducing the SDK streaming path. (2026-07-03, EP-6 implementation)
+- While implementing EP-7 M3, OpenAI-compatible replay was tightened to drop
+  `AssistantThinking` blocks instead of serializing them as visible `<thinking>` text.
+  EP-10's documentation sweep should describe provider-specific replay behavior:
+  Anthropic can replay signed/redacted thinking; OpenAI-compatible providers keep only
+  visible assistant text and tool calls. (2026-07-03, EP-7 implementation)
 
 
 ## Decision Log

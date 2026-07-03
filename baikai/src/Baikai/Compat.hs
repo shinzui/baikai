@@ -119,10 +119,11 @@ data OpenAICompletionsCompat = OpenAICompletionsCompat
     --   reject it.
     supportsStrictMode :: !Bool,
     -- | Whether the host smuggles thinking into the assistant text as
-    --   @\<thinking\>...\</thinking\>@ markers. When 'True', the
-    --   provider's stream transformer extracts those markers into
-    --   typed thinking deltas on the way out. (The transformer itself
-    --   is wired in by EP-3; EP-5 only flips the switch.)
+    --   @\<think\>...\</think\>@ or
+    --   @\<thinking\>...\</thinking\>@ markers. Field-based reasoning
+    --   extraction (for @reasoning_content@ / @reasoning@ deltas) is
+    --   unconditional; this flag enables the incremental tag scanner
+    --   for hosts that do not split reasoning into a separate field.
     requiresThinkingAsText :: !Bool,
     -- | The wire shape the host accepts for reasoning-effort
     --   preferences.

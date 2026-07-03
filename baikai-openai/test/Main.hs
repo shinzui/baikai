@@ -26,6 +26,7 @@ import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
+import ReasoningSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
@@ -53,6 +54,7 @@ main =
         finishReasonTests,
         responseFormatMappingTest,
         ErrorClassSpec.tests,
+        ReasoningSpec.tests,
         SseSpec.tests
       ]
 
@@ -380,12 +382,12 @@ finishReasonTests =
     [ testCase "content_filter terminates as EventError" $ do
         let (_events1, ass1) =
               translate
-                (Right RawChunk {contentDelta = Just "partial", finishReason = Nothing, toolDeltas = [], usage = Nothing})
+                (Right RawChunk {contentDelta = Just "partial", reasoningDelta = Nothing, finishReason = Nothing, toolDeltas = [], usage = Nothing})
                 (emptyAssembler openaiTestModel (read "2026-06-05 00:00:00 UTC"))
                 (read "2026-06-05 00:00:01 UTC")
             (events2, ass2) =
               translate
-                (Right RawChunk {contentDelta = Nothing, finishReason = Just "content_filter", toolDeltas = [], usage = Nothing})
+                (Right RawChunk {contentDelta = Nothing, reasoningDelta = Nothing, finishReason = Just "content_filter", toolDeltas = [], usage = Nothing})
                 ass1
                 (read "2026-06-05 00:00:02 UTC")
             (events3, _) = closeOpenStream (read "2026-06-05 00:00:03 UTC") Nothing ass2
@@ -399,7 +401,7 @@ finishReasonTests =
       testCase "unknown finish_reason is a successful diagnostic" $ do
         let (_events, ass1) =
               translate
-                (Right RawChunk {contentDelta = Nothing, finishReason = Just "mystery", toolDeltas = [], usage = Nothing})
+                (Right RawChunk {contentDelta = Nothing, reasoningDelta = Nothing, finishReason = Just "mystery", toolDeltas = [], usage = Nothing})
                 (emptyAssembler openaiTestModel (read "2026-06-05 00:00:00 UTC"))
                 (read "2026-06-05 00:00:01 UTC")
             (terminalEvents, _) = closeOpenStream (read "2026-06-05 00:00:02 UTC") Nothing ass1
