@@ -7,6 +7,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- Added PVP-compliant upper bounds to all previously-unbounded library and
+  executable dependencies across every package (`baikai`, `baikai-claude`,
+  `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`), so
+  the next release resolves against explicit version ranges. No version bump on
+  its own — these fold into whatever the next release bumps.
+
 ## [baikai 0.3.0.0] - 2026-07-03
 
 ### Added

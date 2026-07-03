@@ -41,26 +41,26 @@ library
     Baikai.Provider.OpenAI.Transport
 
   build-depends:
-    , aeson
+    , aeson              ^>=2.2
     , baikai             ^>=0.3.0
     , base               >=4.20   && <5
-    , base64-bytestring
-    , bytestring
-    , case-insensitive
-    , containers
-    , generic-lens
-    , http-client
-    , http-client-tls
-    , http-types
+    , base64-bytestring  ^>=1.2
+    , bytestring         ^>=0.12
+    , case-insensitive   ^>=1.2
+    , containers         ^>=0.7
+    , generic-lens       ^>=2.3
+    , http-client        ^>=0.7
+    , http-client-tls    ^>=0.3
+    , http-types         ^>=0.12
     , lens               ^>=5.3
-    , openai
-    , process
-    , servant-client
+    , openai             ^>=2.5
+    , process            ^>=1.6
+    , servant-client     ^>=0.20
     , streamly           >=0.11   && <0.13
     , streamly-core      >=0.3    && <0.5
     , text               ^>=2.1
-    , time
-    , vector
+    , time               ^>=1.14
+    , vector             ^>=0.13
 
 test-suite baikai-openai-test
   import:         common-options

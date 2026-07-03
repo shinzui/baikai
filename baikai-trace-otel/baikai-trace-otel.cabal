@@ -37,14 +37,14 @@ library
   build-depends:
     , baikai                                 ^>=0.3.0
     , base                                   >=4.20   && <5
-    , containers
+    , containers                             ^>=0.7
     , hs-opentelemetry-api                   >=1.0    && <1.1
     , hs-opentelemetry-semantic-conventions  >=1.40   && <2
-    , scientific
+    , scientific                             ^>=0.3
     , streamly-core                          ^>=0.3
     , text                                   ^>=2.1
-    , time
-    , unordered-containers
+    , time                                   ^>=1.14
+    , unordered-containers                   ^>=0.2
 
 test-suite baikai-trace-otel-test
   import:         common-options
