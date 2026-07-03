@@ -106,7 +106,7 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | Complete |
 | 8 | Implement compat quirks and transport options | docs/plans/41-implement-compat-quirks-and-transport-options.md | None | EP-6, EP-7 | Complete |
 | 9 | Add core ergonomic helpers before the API freeze | docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md | None | EP-6 | Complete |
-| 10 | Tighten the public surface and sweep the docs | docs/plans/43-tighten-the-public-surface-and-sweep-the-docs.md | EP-9 | EP-1..EP-8 | Not Started |
+| 10 | Tighten the public surface and sweep the docs | docs/plans/43-tighten-the-public-surface-and-sweep-the-docs.md | EP-9 | EP-1..EP-8 | Complete |
 
 
 ## Dependency Graph
@@ -228,10 +228,10 @@ EP-10 relocate them if needed.
 - [x] EP-9 M2: tool loop, one-shot completion, streamly-free streaming
 - [x] EP-9 M3: registry, auth, model-construction, and Options ergonomics
 - [x] EP-9 M4: living proof — smoke and worked examples rewritten on the new helpers
-- [ ] EP-10 M1: constructor export policy, `_X` → `empty*`/`zero*` renames, consistency nits
-- [ ] EP-10 M2: internal namespacing, Prelude policy, umbrella statement
-- [ ] EP-10 M3: robustness cleanups (embeddings partial function, generator escaping/collisions)
-- [ ] EP-10 M4: documentation sweep, CHANGELOG, version bumps
+- [x] EP-10 M1: constructor export policy, `_X` → `empty*`/`zero*` renames, consistency nits
+- [x] EP-10 M2: internal namespacing, Prelude policy, umbrella statement
+- [x] EP-10 M3: robustness cleanups (embeddings partial function, generator escaping/collisions)
+- [x] EP-10 M4: documentation sweep, CHANGELOG, version bumps
 
 
 ## Surprises & Discoveries
@@ -341,7 +341,22 @@ EP-10 relocate them if needed.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+The initiative completed all ten child ExecPlans. The review's three broken subsystems
+now have direct tests and documented behavior: provider failures flow through an
+in-band `BaikaiError` contract with retry categories, thinking/reasoning survives
+provider-specific request and replay constraints, and every retained compatibility flag
+affects real request shaping or transport behavior. The API freeze work also landed:
+evolvable records construct from exported bases instead of public constructors,
+misleading `_X` names are deprecated in favor of `empty*`/`zero*`, provider internals
+live under `.Internal`, and user docs plus changelog/version metadata describe the
+post-hardening surface.
+
+Final validation for EP-10 passed on 2026-07-03 with `cabal build all --enable-tests`,
+`cabal test all --test-show-details=direct`, `cabal haddock baikai`, and the drift
+greps for stale provider errors, stale API-key names, Hackage wording, and old
+`baikai ^>=0.2.0` bounds. Some live smoke cases still skipped because this environment
+lacked Anthropic, DeepSeek, and OpenRouter keys; the keyed OpenAI and local Claude/Codex
+smoke paths passed.
 
 
 ---

@@ -24,7 +24,7 @@ import Data.Vector qualified as V
 
 getTime :: Tool
 getTime =
-  _Tool
+  emptyTool
     { name = "get_time"
     , description = "Return the current UTC ISO-8601 timestamp."
     , parameters =
@@ -48,7 +48,7 @@ mkContext :: IO Context
 mkContext = do
   prompt <- userNow "What time is it? Use the tool."
   pure $
-    _Context
+    emptyContext
       & #messages .~ V.singleton prompt
       & #tools .~ V.singleton getTime
 ```
@@ -98,7 +98,7 @@ runConversation = do
   let ctx0 =
         contextOf [user "What time is it? Use the tool."]
           & #tools .~ V.singleton getTime
-      opts = _Options & #maxTokens .~ Just 1024
+      opts = emptyOptions & #maxTokens .~ Just 1024
 
   (ctxDone, finalResp) <- runToolLoop 8 dispatcher model ctx0 opts
   -- ctxDone contains only fully resolved tool exchanges. Append the
@@ -137,11 +137,11 @@ runConversation = do
   prompt <- userNow "What time is it?"
   let model = Models.openai_gpt_4o_mini
       ctx0 =
-        _Context
+        emptyContext
           & #messages .~ V.singleton prompt
           & #tools .~ V.singleton getTime
       base =
-        _Options
+        emptyOptions
           & #maxTokens .~ Just 1024
           & #temperature .~ Just 0.0
       turn1Opts = base & #toolChoice .~ Just ToolChoiceRequired

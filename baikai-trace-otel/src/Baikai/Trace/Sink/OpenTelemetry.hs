@@ -119,7 +119,7 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
                   maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
                     AttrMap.insertByKey SC.genAi_response_model model $
                       HashMap.fromList
-                        [ ("baikai.latency_ms", Attr.toAttribute (fromIntegral latencyMs :: Int))
+                        [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
                         ]
         Otel.addAttributes sp attrs
         Otel.setStatus sp Otel.Ok
@@ -134,7 +134,7 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
       Just sp -> do
         Otel.addAttributes sp $
           HashMap.fromList
-            [ ("baikai.latency_ms", Attr.toAttribute (fromIntegral latencyMs :: Int)),
+            [ ("baikai.latency_ms", Attr.toAttribute latencyMs),
               ("baikai.error", Attr.toAttribute errorMessage)
             ]
         Otel.setStatus sp (Otel.Error errorMessage)

@@ -58,14 +58,14 @@ shared registry and re-exports nothing of its own.
 
 | Package              | Hackage    | What's inside |
 |----------------------|------------|---------------|
-| **`baikai`**         | published  | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
-| **`baikai-claude`**  | published  | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
-| **`baikai-openai`**  | published  | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
-| **`baikai-trace-otel`** | published | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
+| **`baikai`**         | not yet    | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
+| **`baikai-claude`**  | not yet    | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
+| **`baikai-openai`**  | not yet    | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
+| **`baikai-trace-otel`** | not yet | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
 | `baikai-smoke`       | internal   | Live smoke tests across every shipped provider (skips, never fails, when API keys are absent). Not published — useful as worked examples. |
 
-Packages version independently and publish in dependency order, `baikai`
-first.
+Packages version independently and will publish in dependency order,
+`baikai` first.
 
 ## Quick taste
 
@@ -81,14 +81,14 @@ main :: IO ()
 main = do
   OpenAIApi.register                       -- install the handler once
   prompt <- userNow "Say hi."
-  let ctx  = _Context & #systemPrompt .~ Just "You are terse."
+  let ctx  = emptyContext & #systemPrompt .~ Just "You are terse."
                       & #messages .~ V.singleton prompt
-      opts = _Options & #maxTokens .~ Just 32
+      opts = emptyOptions & #maxTokens .~ Just 32
   resp <- completeRequest Models.openai_gpt_4o_mini ctx opts
   print (flattenAssistantText (flattenAssistantBlocks resp))
 ```
 
-`_Context` / `_Options` / `_Model` are empty bases you fill with
+`emptyContext` / `emptyOptions` / `emptyModel` are empty bases you fill with
 `generic-lens` record updates. `apiKey` left unset falls back to the
 provider's environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 …). Set `#apiKey .~ Just (ApiKeyLiteral key)` to override with an
@@ -130,17 +130,7 @@ walkthrough.
 
 ## Install
 
-The core packages are being published to Hackage. Once available:
-
-```cabal
-build-depends:
-  , baikai
-  , baikai-claude
-  , baikai-openai
-  , baikai-trace-otel   -- optional, for OpenTelemetry
-```
-
-Until a published version is on the index, pull from git via
+Until the packages appear on the package index, pull them from git via
 `cabal.project`:
 
 ```cabal
@@ -149,6 +139,16 @@ source-repository-package
   location: https://github.com/shinzui/baikai
   tag: <commit>
   subdir: baikai baikai-claude baikai-openai
+```
+
+Once published, use ordinary package dependencies:
+
+```cabal
+build-depends:
+  , baikai
+  , baikai-claude
+  , baikai-openai
+  , baikai-trace-otel   -- optional, for OpenTelemetry
 ```
 
 ## Documentation

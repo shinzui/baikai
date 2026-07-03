@@ -18,7 +18,6 @@ import Baikai.Compat
     OpenAICompletionsCompat
       ( cacheControlFormat,
         maxTokensField,
-        requiresThinkingAsText,
         supportsLongCacheRetention,
         supportsStrictMode,
         supportsUsageInStreaming,

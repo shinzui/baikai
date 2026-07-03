@@ -6,10 +6,10 @@ whose operations mirror baikai's transport functions, plus interpreters that run
 operations against a real or isolated provider registry.
 
 It is the *seam*, not the framework: it adds **no** retries, backoff, rate limiting,
-budgets, caching, or error remapping. Failures propagate exactly as baikai produces them —
-the blocking path throws `Baikai.Error.BaikaiError`; the streaming paths surface baikai's
-terminal `EventError` event in-band. Policy belongs one layer up, written *in terms of* this
-effect.
+budgets, caching, or error remapping. Failures propagate exactly as baikai produces them:
+blocking completions return the same error-shaped `Response` as `completeRequest`, and
+streaming paths surface baikai's terminal `EventError` event in-band. Policy belongs one
+layer up, written *in terms of* this effect.
 
 ## The effect
 
@@ -24,7 +24,7 @@ data Baikai :: Effect where
 
 | Operation                         | Meaning                                                        |
 | --------------------------------- | ------------------------------------------------------------- |
-| `complete m c o`                  | Blocking completion → `Response`. Throws `BaikaiError`.       |
+| `complete m c o`                  | Blocking completion → `Response`, including error-shaped responses. |
 | `streamCollect m c o`             | Drain the stream into the full `[AssistantMessageEvent]`.     |
 | `streamEach m c o k`              | Run callback `k` once per event, in order, inside `Eff`.      |
 

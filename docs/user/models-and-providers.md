@@ -87,7 +87,7 @@ the JSON change and the regenerated `Baikai.Models.Generated.hs`.
 
 ## Hand-rolled models
 
-You don't need a catalog entry to dispatch against a host. `_Model`
+You don't need a catalog entry to dispatch against a host. `emptyModel`
 is an empty base; fill in the fields and pass it directly:
 
 ```haskell
@@ -95,7 +95,7 @@ import Baikai
 
 llama :: Model
 llama =
-  _Model
+  emptyModel
     { modelId = "meta-llama/Meta-Llama-3-8B-Instruct-Turbo"
     , name = "Llama 3 8B Instruct Turbo"
     , api = OpenAIChatCompletions
@@ -114,10 +114,11 @@ cover.
 ## Compatibility policy
 
 `Compat`, `OpenAICompletionsCompat`, and `AnthropicMessagesCompat`
-are public 0.1 API. They are provider-quirk records: each field says
-whether a host accepts one request shape, such as OpenAI-style
-reasoning controls, Anthropic cache markers, or long cache
-retention.
+describe provider quirks: each field says whether a host accepts one
+request shape, such as OpenAI-style reasoning controls, Anthropic cache
+markers, or long cache retention. The compat record constructors are not
+exported; start from `defaultOpenAICompletionsCompat` or
+`defaultAnthropicMessagesCompat` and update only the fields you need.
 
 Most callers should leave `compat = CompatNone`; providers then call
 `openaiCompletionsCompatFor` or `anthropicMessagesCompatFor` and
@@ -132,7 +133,7 @@ let compat =
         }
 
 let model =
-      _Model
+      emptyModel
         { modelId = "custom-chat"
         , api = OpenAIChatCompletions
         , baseUrl = "https://proxy.example.com"
@@ -163,8 +164,8 @@ main = do
   let openai = Models.openai_gpt_4o_mini
       deepseek = Models.deepseek_deepseek_chat
       llama = -- the hand-rolled record above
-        _Model { … }
-      opts key = _Options & #apiKey .~ Just (ApiKeyLiteral key)
+        emptyModel { … }
+      opts key = emptyOptions & #apiKey .~ Just (ApiKeyLiteral key)
 
   -- All three dispatch through the same registered handler.
   _ <- completeRequest openai   ctx (opts openaiKey)
@@ -201,9 +202,9 @@ multiple `ProviderRegistry` values and selecting the registry at call time.
 | `Custom !Text`             | Any caller — register your own.     |
 
 Both global and explicit dispatch look the handler up by the model's
-`api` tag. Unregistered tag -> `Baikai.Error.ProviderError` for
-blocking calls; `streamRequest` / `streamRequestWith` return a terminal
-error event.
+`api` tag. An unregistered tag returns an error-shaped `Response` for
+blocking calls, or a terminal `EventError` for streams, with
+`errorInfo.category = ProviderUnavailable`.
 
 The two `*Cli` tags drive local subprocesses (`claude -p` and
 `codex exec`) rather than HTTP calls; their semantics differ from
@@ -235,7 +236,7 @@ myProvider =
     }
 
 myModel :: Model
-myModel = _Model
+myModel = emptyModel
   { modelId = "my-llm-1"
   , api = Custom "my-llm-host"
   , baseUrl = "https://my-llm.example.com"

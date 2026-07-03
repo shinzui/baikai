@@ -89,11 +89,11 @@ Milestone 3 — robustness cleanups:
 
 Milestone 4 — documentation sweep, CHANGELOG, version bumps:
 
-- [ ] Fix every enumerated drift item in README.md and `docs/user/*.md` (list in Plan of Work, Milestone 4).
-- [ ] Sweep renamed values, hidden constructors, and post-fix behavior (EP-1..EP-9 outcomes) through every code snippet in README.md, `docs/user/*.md`, and `baikai-effectful/README.md`, spot-checking each snippet against the real export lists.
-- [ ] Write CHANGELOG.md entries and bump versions: baikai/baikai-claude/baikai-openai/baikai-effectful/baikai-trace-otel 0.2.0.0 → 0.3.0.0, baikai-kit 0.1.0.0 → 0.1.0.1; update all `baikai ^>=0.2.0` bounds to `^>=0.3.0`.
-- [ ] `cabal build all --enable-tests && cabal test all && cabal haddock baikai` all green; final grep sweeps clean.
-- [ ] Update the master plan's Progress section for the two EP-10 entries.
+- [x] Fix every enumerated drift item in README.md and `docs/user/*.md` (list in Plan of Work, Milestone 4).
+- [x] Sweep renamed values, hidden constructors, and post-fix behavior (EP-1..EP-9 outcomes) through every code snippet in README.md, `docs/user/*.md`, and `baikai-effectful/README.md`, spot-checking each snippet against the real export lists.
+- [x] Write CHANGELOG.md entries and bump versions: baikai/baikai-claude/baikai-openai/baikai-effectful/baikai-trace-otel 0.2.0.0 → 0.3.0.0, baikai-kit 0.1.0.0 → 0.1.0.1; update all `baikai ^>=0.2.0` bounds to `^>=0.3.0`.
+- [x] `cabal build all --enable-tests && cabal test all && cabal haddock baikai` all green; final grep sweeps clean.
+- [x] Update the master plan's Progress section for the two EP-10 entries.
 
 
 ## Surprises & Discoveries
@@ -275,6 +275,14 @@ Compare the result against the original purpose.
   binding collisions before rendering. Validation passed with
   `cabal build all --enable-tests`, `cabal run baikai-gen-models` with no
   `Baikai.Models.Generated` diff, and `cabal test all --test-show-details=direct`.
+- Milestone 4 completes the public-surface release boundary: README and `docs/user/`
+  use the new `empty*`/`zero*` names, describe in-band provider errors and real API-key
+  variables, keep Hackage status truthful, and show selector imports for hidden config
+  constructors. The release bookkeeping now records `baikai`/providers/effectful/trace
+  at `0.3.0.0`, `baikai-kit` at `0.1.0.1`, and all released package bounds on
+  `baikai ^>=0.3.0`. Final validation passed with `cabal build all --enable-tests`,
+  `cabal test all --test-show-details=direct`, `cabal haddock baikai`, and the M4 grep
+  sweeps.
 
 
 ## Context and Orientation

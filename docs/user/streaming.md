@@ -132,10 +132,10 @@ the response's message.
 
 ## Event stability policy
 
-`AssistantMessageEvent` is a closed 0.1 API. The constructors listed
-above are the complete event set every provider must use; providers
-do not emit raw provider-specific or unknown-event values. Adding a
-new constructor is therefore a breaking API change for consumers who
+`AssistantMessageEvent` is a closed API. The constructors listed above
+are the complete event set every provider must use; providers do not
+emit raw provider-specific or unknown-event values. Adding a new
+constructor is therefore a breaking API change for consumers who
 pattern-match exhaustively.
 
 If you want compiler help when the event set changes, match every
@@ -178,7 +178,7 @@ across every `Api` tag. For the full CLI provider surface
 | `Stop`         | Normal completion.                                                                         |
 | `Length`       | Hit the `maxTokens` cap or the model's `maxOutputTokens`.                                  |
 | `ToolUse`      | Model emitted tool calls and expects you to dispatch them. See [Tools](tools.md).          |
-| `ErrorReason`  | Provider returned an error (auth, rate limit, malformed input, …). `errorMessage` is set.  |
+| `ErrorReason`  | Provider returned an error (auth, rate limit, malformed input, …). `errorMessage` and structured `errorInfo` are set. |
 | `Aborted`      | The caller cancelled via signal/timeout. The terminal `message` carries whatever streamed first. |
 
 ## Notes

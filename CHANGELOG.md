@@ -7,13 +7,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.3.0.0] - 2026-07-03
+
 ### Added
 
+- Added the documented record-update bases `emptyOptions`, `emptyContext`,
+  `emptyModel`, `emptyResponse`, `emptyTool`, `emptyTextContent`,
+  `emptyThinkingContent`, `emptyToolCall`, `emptyImageContent`,
+  `emptyEmbeddingModel`, plus zero-valued bases `zeroUsage`, `zeroCost`,
+  `zeroCostBreakdown`, and `zeroModelCost`.
+- Added `firstEmbedding`, a total accessor for OpenAI-compatible embedding
+  responses.
 - Added `responseError`, `errorResponse`, `httpError`, and
   `parseRetryAfterSeconds` for the in-band error contract.
 
 ### Changed
 
+- **Breaking:** Constructors for evolvable records are no longer exported:
+  `Options`, `Context`, `Model`, `OpenAICompletionsCompat`,
+  `AnthropicMessagesCompat`, and `InteractiveLaunchRequest` are built from
+  exported base values plus record updates.
+- **Breaking:** The `_X` base values are deprecated in favor of the new
+  `empty*` and `zero*` names; the aliases remain for this release.
+- **Breaking:** Removed `unModel`; use `mkModel` or `emptyModel` record
+  updates.
+- **Breaking:** Renamed `InteractiveLaunchRequest.model` to `modelId`.
+- **Breaking:** `Response.latencyMs` and trace event `latencyMs` fields are
+  now `Int`.
 - **Breaking:** `completeRequest` / `completeRequestWith` no longer throw
   `BaikaiError` for unregistered API tags; they return an error-shaped
   `Response`.
@@ -21,13 +41,67 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   in-band as error-shaped `Response`s.
 - **Breaking:** `errorTerminal` now requires a `BaikaiError`, enforcing
   structured error details for `EventError` construction sites.
+- Documented that `Baikai.Prelude` is a convenience module outside the PVP
+  stability contract and that `.Internal` modules have no compatibility
+  guarantees.
 
 ### Fixed
 
+- Empty embedding `data` arrays now produce a typed `decodeError` instead of
+  crashing on an empty vector.
+- The model-fetch JSON renderer now delegates string escaping to aeson.
+- The model generator now fails on sanitized Haskell identifier collisions
+  instead of rendering duplicate bindings.
 - Live HTTP status, `Retry-After`, and network-failure classification now
   works on both API providers.
 - `content_filter` / Anthropic refusals terminate as classified `EventError`
   terminals, and `liftCompleteToStream` preserves error-shaped responses.
+
+## [baikai-claude 0.3.0.0] - 2026-07-03
+
+### Changed
+
+- **Breaking:** `Baikai.Provider.Claude.ErrorClass` moved to
+  `Baikai.Provider.Claude.Internal.ErrorClass`.
+- **Breaking:** `mapRequest` and pure request-shaping helpers moved from
+  `Baikai.Provider.Claude.Api` to
+  `Baikai.Provider.Claude.Internal.Request`.
+- **Breaking:** `ClaudeCliConfig` and `ClaudeInteractiveConfig` constructors
+  are no longer exported; start from their default config values and update
+  fields.
+- **Breaking:** CLI and interactive `extraArgs` fields are now `[Text]`.
+
+## [baikai-openai 0.3.0.0] - 2026-07-03
+
+### Changed
+
+- **Breaking:** `Baikai.Provider.OpenAI.ErrorClass` moved to
+  `Baikai.Provider.OpenAI.Internal.ErrorClass`.
+- **Breaking:** `mapRequest` and pure request-shaping helpers moved from
+  `Baikai.Provider.OpenAI.Api` to
+  `Baikai.Provider.OpenAI.Internal.Request`.
+- **Breaking:** `CodexCliConfig` and `CodexInteractiveConfig` constructors are
+  no longer exported; start from their default config values and update fields.
+- **Breaking:** CLI and interactive `extraArgs` fields are now `[Text]`.
+
+## [baikai-trace-otel 0.3.0.0] - 2026-07-03
+
+### Changed
+
+- Updated the `baikai` dependency bound to `^>=0.3.0`.
+- Adjusted to the core trace event `latencyMs :: Int` type.
+
+## [baikai-effectful 0.3.0.0] - 2026-07-03
+
+### Changed
+
+- Updated the `baikai` dependency bound to `^>=0.3.0`.
+
+## [baikai-kit 0.1.0.1] - 2026-07-03
+
+### Changed
+
+- Updated the `baikai` dependency bound to `^>=0.3.0`.
 
 ## [baikai 0.2.0.0] - 2026-06-21
 

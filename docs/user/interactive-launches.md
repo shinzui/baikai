@@ -24,9 +24,9 @@ main = do
   result <-
     launchClaudeInteractive
       defaultClaudeInteractiveConfig
-      (_InteractiveLaunchRequest "Inspect this project and suggest next steps.")
+      (interactiveLaunchRequest "Inspect this project and suggest next steps.")
         { systemPrompt = Just "Be concise."
-        , model = Just "sonnet"
+        , modelId = Just "sonnet"
         , workingDir = Just "/path/to/project"
         , extraDirs = ["/path/to/shared/context"]
         , safety = ClaudeAllowedTools ["Read", "Bash(git status)"]
@@ -54,9 +54,9 @@ main = do
   result <-
     launchCodexInteractive
       defaultCodexInteractiveConfig
-      (_InteractiveLaunchRequest "Inspect this project and suggest next steps.")
+      (interactiveLaunchRequest "Inspect this project and suggest next steps.")
         { systemPrompt = Just "Be concise."
-        , model = Just "gpt-5-codex"
+        , modelId = Just "gpt-5-codex"
         , workingDir = Just "/path/to/project"
         , extraDirs = ["/path/to/shared/context"]
         , safety = CodexSandbox CodexWorkspaceWrite CodexApprovalOnRequest

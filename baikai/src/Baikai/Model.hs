@@ -161,7 +161,7 @@ emptyModel =
 -- | Build a dispatchable 'Model' from its three discriminators: the
 -- 'Api' tag used for handler lookup, the upstream model id, and the
 -- base URL. 'name' defaults to the model id, 'provider' defaults to
--- 'renderApi' of the tag, and all other fields come from '_Model'.
+-- 'renderApi' of the tag, and all other fields come from 'emptyModel'.
 mkModel :: Api -> Text -> Text -> Model
 mkModel apiTag modelId_ baseUrl_ =
   emptyModel

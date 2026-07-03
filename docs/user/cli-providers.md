@@ -60,25 +60,25 @@ main = do
   CodexCli.register
 
   let claudeModel =
-        _Model
+        emptyModel
           { modelId = "sonnet"               -- passed to claude -p --model
           , api = AnthropicMessagesCli
           , provider = "anthropic"
           }
       codexModel =
-        _Model
+        emptyModel
           { modelId = ""                     -- empty = let codex pick its default
           , api = OpenAICompletionsCli
           , provider = "openai"
           }
       ctx =
-        _Context
+        emptyContext
           & #systemPrompt .~ Just "Reply with the single word: pong."
   prompt <- userNow "ping"
   let ctx' = ctx & #messages .~ V.singleton prompt
 
-  resp1 <- completeRequest claudeModel ctx' _Options
-  resp2 <- completeRequest codexModel  ctx' _Options
+  resp1 <- completeRequest claudeModel ctx' emptyOptions
+  resp2 <- completeRequest codexModel  ctx' emptyOptions
   print (resp1, resp2)
 ```
 
@@ -106,9 +106,12 @@ when registering CLI providers into an explicit `ProviderRegistry`.
 
 ```haskell
 import Baikai.Provider.Claude.Cli
-  ( ClaudeCliConfig (..)
+  ( ClaudeCliConfig
   , defaultClaudeCliConfig
+  , executable
+  , extraArgs
   , registerWith
+  , workingDir
   )
 
 main :: IO ()
@@ -125,9 +128,14 @@ main = do
 
 ```haskell
 import Baikai.Provider.OpenAI.Cli
-  ( CodexCliConfig (..)
+  ( CodexCliConfig
   , defaultCodexCliConfig
+  , ephemeral
+  , executable
+  , extraArgs
   , registerWith
+  , skipGitRepoCheck
+  , workingDir
   )
 
 main :: IO ()
@@ -165,10 +173,10 @@ CLI providers return a normal `Response`, with three caveats:
 
 The assistant message carries exactly one `AssistantText` block
 holding the full response. `stopReason` is always `Stop` on
-success; failures raise `Baikai.Error.BaikaiError`
-(`ProcessError n stderr` for a non-zero exit,
-`DecodeError msg` for malformed JSON, `ProviderError msg` for a
-CLI-reported error).
+success. Failures return an error-shaped `Response` with
+`stopReason = ErrorReason` and structured `errorInfo`: non-zero exits
+use the `processError` smart constructor, malformed JSON uses
+`decodeError`, and CLI-reported provider failures use `providerError`.
 
 ## Streaming
 
@@ -239,7 +247,7 @@ types compile:
    `temperature`, `apiKey`, `timeoutMs`, `headers`, `metadata`,
    `cacheRetention`, `thinking` — none of these are forwarded.
    `Options` is accepted to keep the dispatch signature uniform,
-   not because the CLI providers consume it. Pass `_Options` and
+   not because the CLI providers consume it. Pass `emptyOptions` and
    move on.
 
 If your code needs to handle both API and CLI providers
