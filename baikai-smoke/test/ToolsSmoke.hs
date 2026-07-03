@@ -1,7 +1,6 @@
--- | Two-turn tool round-trip smoke: ask the model for the time,
--- assert it invoked the @get_time@ tool, feed a synthesised
--- timestamp back, and assert the second-turn final answer
--- references the timestamp.
+-- | Tool round-trip smoke: ask the model for the time, let
+-- 'runToolLoop' execute the @get_time@ call, and assert the final
+-- answer references the synthesised timestamp.
 --
 -- Mirrors the exit-code/skip style of 'Smoke.runApiCase': skips
 -- (returns 'False') when the relevant API key is absent; calls
@@ -49,7 +48,7 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
           <> caseLabel
           <> "."
       pure False
-    Just (envVar, key) -> do
+    Just (envVar, _key) -> do
       let getTime =
             _Tool
               { name = "get_time",
@@ -62,80 +61,60 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
                     ]
               }
           ctx0 =
-            _Context
-              & #messages
-                .~ Vector.singleton
-                  (user "What time is it? Use the get_time tool to find out.")
+            contextOf
+              [user "What time is it? Use the get_time tool to find out."]
               & #tools .~ Vector.singleton getTime
-          baseOpts =
+          opts =
             _Options
               & #maxTokens .~ Just 1024
               & #temperature .~ Just 0.0
-              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
-          -- Turn 1: force a tool call so the round-trip is
-          -- deterministic. Turn 2: let the model speak freely (it
-          -- must produce text, not another tool call).
-          turn1Opts = baseOpts & #toolChoice .~ Just ToolChoiceRequired
-          turn2Opts = baseOpts & #toolChoice .~ Nothing
-      resp1 <- completeRequest caseModel ctx0 turn1Opts
-      let blocks1 = flattenAssistantBlocks resp1
-          toolCalls = [tc | AssistantToolCall tc <- Vector.toList blocks1]
-      case toolCalls of
-        [] -> do
-          hPutStrLn stderr $
-            "[baikai-smoke] tool round-trip failed for "
-              <> caseLabel
-              <> " via "
-              <> envVar
-              <> ": expected an AssistantToolCall block in turn 1; got blocks: "
-              <> show blocks1
-          exitFailure
-        (tc : _) -> do
-          when (tc ^. #name /= "get_time") $ do
-            hPutStrLn stderr $
-              "[baikai-smoke] tool round-trip "
-                <> caseLabel
-                <> ": expected tool name 'get_time'; got "
-                <> show (tc ^. #name)
-            exitFailure
-          let timestamp = "2026-05-14T15:09:00Z" :: Text
-          ctx1 <-
-            appendToolResultText ctx0 resp1 (\_ -> pure timestamp)
-          resp2 <- completeRequest caseModel ctx1 turn2Opts
-          let blocks2 = flattenAssistantBlocks resp2
-              texts =
-                [ t
-                | AssistantText (TextContent t) <- Vector.toList blocks2
-                ]
-              -- The model may rewrite "2026-05-14T15:09:00Z" into
-              -- prose ("May 14, 2026", "15:09 UTC", etc.). Accept
-              -- any rendering that surfaces the year, a date
-              -- fragment, or the time of day — that is enough to
-              -- prove the tool result reached the model.
-              mentions =
-                any
-                  ( \t ->
-                      Text.isInfixOf "2026" t
-                        || Text.isInfixOf "15:09" t
-                        || Text.isInfixOf "May 14" t
-                  )
-                  texts
-          when (not mentions) $ do
-            hPutStrLn stderr $
-              "[baikai-smoke] tool round-trip "
-                <> caseLabel
-                <> ": turn-2 final answer did not mention the timestamp. Texts: "
-                <> show texts
-            exitFailure
-          hPutStrLn stderr $
-            "[baikai-smoke] tool round-trip "
-              <> caseLabel
-              <> " ok via "
-              <> envVar
-              <> "; tool="
-              <> show (tc ^. #name)
-              <> ", final mentions timestamp"
-          pure True
+              -- Presence is checked above for skip/logging; resolution itself
+              -- goes through the chain so provider code owns fallback order.
+              & #apiKey .~ Just (ApiKeyEnvChain caseEnvVars)
+          timestamp = "2026-05-14T15:09:00Z" :: Text
+          dispatcher tc =
+            if tc ^. #name == "get_time"
+              then pure (toolResultText timestamp)
+              else pure (toolResultErrorText ("unknown tool: " <> (tc ^. #name)))
+      (ctx1, finalResp) <- runToolLoop 4 dispatcher caseModel ctx0 opts
+      when (finalResp ^. #message ^. #stopReason == ToolUse) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] tool round-trip "
+            <> caseLabel
+            <> " exhausted before final text; response="
+            <> show finalResp
+        exitFailure
+      let toolResults =
+            [ payload
+            | ToolResultMessage payload <- Vector.toList (ctx1 ^. #messages),
+              payload ^. #toolName == "get_time"
+            ]
+          finalText = flattenAssistantText (flattenAssistantBlocks finalResp)
+          mentions =
+            Text.isInfixOf "2026" finalText
+              || Text.isInfixOf "15:09" finalText
+              || Text.isInfixOf "May 14" finalText
+      when (null toolResults) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] tool round-trip "
+            <> caseLabel
+            <> ": no get_time ToolResultMessage was appended. Context: "
+            <> show ctx1
+        exitFailure
+      when (not mentions) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] tool round-trip "
+            <> caseLabel
+            <> ": final answer did not mention the timestamp. Text: "
+            <> Text.unpack finalText
+        exitFailure
+      hPutStrLn stderr $
+        "[baikai-smoke] tool round-trip "
+          <> caseLabel
+          <> " ok via "
+          <> envVar
+          <> "; final mentions timestamp"
+      pure True
 
 firstSetEnv :: [String] -> IO (Maybe (String, String))
 firstSetEnv vars = do

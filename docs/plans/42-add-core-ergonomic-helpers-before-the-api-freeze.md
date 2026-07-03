@@ -100,11 +100,11 @@ into "done" and "remaining" at every stopping point.
 - [x] M3: unit tests — auth chain, `mkModel`, `assertRegistered`,
       `newProviderRegistryFrom` in `baikai/test/HelpersSpec.hs`; option-mapping
       assertions in `baikai-claude/test/Main.hs` and `baikai-openai/test/Main.hs`.
-- [ ] M4: `baikai-smoke/test/ToolsSmoke.hs` rewritten on `runToolLoop` +
+- [x] M4: `baikai-smoke/test/ToolsSmoke.hs` rewritten on `runToolLoop` +
       `ApiKeyEnvChain`; `baikai-smoke/test/Smoke.hs` and
       `baikai-smoke/test/StructuredSmoke.hs` local `flattenAssistantText` copies
       deleted in favor of the library export.
-- [ ] M4: `docs/user/tools.md` gains a short `runToolLoop` section;
+- [x] M4: `docs/user/tools.md` gains a short `runToolLoop` section;
       `docs/user/getting-started.md` shows `completeText` and the now-real
       `flattenAssistantText`.
 - [ ] Final: `cabal build all --enable-tests` clean;
@@ -336,6 +336,12 @@ completion, comparing the result against the Purpose section.
   `presencePenalty`. Validation passed with `cabal build all --enable-tests` and
   `cabal test baikai baikai-claude baikai-openai baikai-effectful
   --test-show-details=direct`.
+- 2026-07-03 M4: `ToolsSmoke` now uses `runToolLoop` and `ApiKeyEnvChain`, and
+  user docs show `runToolLoop`, `addResponse`, `completeText`, and the exported
+  `flattenAssistantText`. Validation passed with `cabal build all
+  --enable-tests` and `cabal test baikai-smoke --test-show-details=direct`; the
+  OpenAI live tool round-trip ran and succeeded, while Anthropic-dependent cases
+  skipped due missing keys.
 
 
 ## Context and Orientation

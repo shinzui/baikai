@@ -73,15 +73,38 @@ use; an unregistered API tag throws `Baikai.Error.ProviderError` on
 dispatch.
 
 For isolated tests or applications with more than one handler set,
-construct a `ProviderRegistry` with `newProviderRegistry`, call the
-provider's `registerWithRegistry`, and dispatch with
-`completeRequestWith` or `streamRequestWith`.
+construct a `ProviderRegistry` with `newProviderRegistryFrom` and
+provider values such as `OpenAIApi.openaiChatProvider`, then dispatch
+with `completeRequestWith` or `streamRequestWith`. Use
+`assertRegistered` at startup to fail fast when an expected `Api` tag
+has no handler.
+
+## Your first call (text)
+
+```haskell
+import Baikai
+import Baikai.Models.Generated qualified as Models
+import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
+import Data.Text qualified as Text
+
+main :: IO ()
+main = do
+  OpenAIApi.register
+  text <- completeText Models.openai_gpt_4o_mini "Say hi."
+  putStrLn (Text.unpack text)
+```
+
+`completeText` is the one-shot convenience wrapper: it builds a single
+user-message context, uses `_Options`, and returns
+`flattenAssistantText (flattenAssistantBlocks resp)`. If the provider
+returns an error-shaped response, it throws the `BaikaiError`.
 
 ## Your first call (blocking)
 
 ```haskell
 import Baikai
 import Baikai.Models.Generated qualified as Models
+import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
 import Data.Vector qualified as V
@@ -104,11 +127,12 @@ main = do
 
 `_Context` and `_Options` are empty bases for record updates; the
 `#field .~ value` syntax comes from `generic-lens`. `apiKey` is
-left unset, so the OpenAI handler reads `OPENAI_API_KEY` (or
-`OPENAI_KEY`) from the environment. Anthropic falls back to
-`ANTHROPIC_API_KEY` / `ANTHROPIC_KEY`. Pass
+left unset, so the OpenAI handler reads `OPENAI_API_KEY` from the
+environment. Anthropic falls back to `ANTHROPIC_API_KEY`. Pass
 `#apiKey .~ Just (ApiKeyLiteral key)` explicitly to override with a
-literal credential; its `Show` and JSON instances redact the key.
+literal credential, or `ApiKeyEnvChain ["OPENAI_KEY", "OPENAI_API_KEY"]`
+to try several environment variables in order; `Show` and JSON
+instances redact literal keys.
 
 The result is a `Response`. `resp ^. #message` is the assistant
 payload. Use `responseMessage resp` when you need it wrapped as a

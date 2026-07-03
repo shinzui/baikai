@@ -77,6 +77,41 @@ turn — once you've fed the tool result back — set the choice to
 `Nothing` or `ToolChoiceAuto` so the model can produce a final
 answer instead of being forced into another tool call.
 
+## The tool loop
+
+For ordinary agent loops, use `runToolLoop`: it calls the model,
+dispatches every `AssistantToolCall`, appends the assistant/tool-result
+exchange to the context, and repeats until the model stops asking for
+tools, returns an error-shaped response, or the turn budget is spent.
+
+```haskell
+dispatcher :: ToolCall -> IO ToolResult
+dispatcher tc = case tc ^. #name of
+  "get_time" -> do
+    now <- getCurrentTime
+    pure (toolResultText (Text.pack (iso8601Show now)))
+  other ->
+    pure (toolResultErrorText ("unknown tool: " <> other))
+
+runConversation :: IO Response
+runConversation = do
+  let ctx0 =
+        contextOf [user "What time is it? Use the tool."]
+          & #tools .~ V.singleton getTime
+      opts = _Options & #maxTokens .~ Just 1024
+
+  (ctxDone, finalResp) <- runToolLoop 8 dispatcher model ctx0 opts
+  -- ctxDone contains only fully resolved tool exchanges. Append the
+  -- final assistant message yourself if you want a full transcript:
+  let fullTranscript = addResponse finalResp ctxDone
+  pure finalResp
+```
+
+`runToolLoopWith` is the explicit-registry variant. The same `Options`
+are used for every model call, so avoid `ToolChoiceRequired` in a loop
+unless exhausting the budget is intended. Unknown tools should be
+returned as `toolResultErrorText` so the model can recover in-band.
+
 ## The round-trip
 
 The full pattern is two `completeRequest` calls with
