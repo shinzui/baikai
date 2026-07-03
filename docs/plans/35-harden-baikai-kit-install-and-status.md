@@ -49,17 +49,17 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: create `baikai-kit/src/Baikai/Kit/Path.hs` with `safeItemName`, `safeRelativePath`, `safeUnder`; add it to `exposed-modules` in `baikai-kit/baikai-kit.cabal`.
-- [ ] Milestone 1: wire sanitization into `installItem`/`doInstall`, `uninstallItem`, `isInstalled`, `copySkillFile`, `agentSourceBase` call sites in `baikai-kit/src/Baikai/Kit/Install.hs` and into `computeKitHash` in `baikai-kit/src/Baikai/Kit/Sidecar.hs`.
-- [ ] Milestone 1: rewrite `stripYamlFrontmatter` line-wise (CRLF and EOF tolerant) and export it from `Baikai.Kit.Install`.
-- [ ] Milestone 1: unit tests for `safeItemName`/`safeRelativePath`/`safeUnder` and `stripYamlFrontmatter`; filesystem tests proving zip-slip install and traversal uninstall are refused.
-- [ ] Milestone 2: add `KitItemKind` and `kitItemKind`/`kindLabel` to `baikai-kit/src/Baikai/Kit/Manifest.hs`; rework `sidecarPath` in `baikai-kit/src/Baikai/Kit/Sidecar.hs` to take kind and name and to use `System.FilePath.dropExtension`; delete `dummyAgent`/`agentSidecarTarget` hack in `Install.hs`.
-- [ ] Milestone 2: key sidecar lookup off the scan in `collectStatus` (`baikai-kit/src/Baikai/Kit/Status.hs`); add `KitDirtyOutdated` and `KitDelisted` states; rework `classify`.
-- [ ] Milestone 2: update existing `classify` tests, add new classify and filesystem status tests (dirty+outdated, delisted-with-sidecar), update the states list in `docs/user/kit.md`.
-- [ ] Milestone 3: staged two-phase install (`PlannedWrite`, plan across all providers, temp-file writes, rename into place, cleanup on failure) in `Install.hs`; `newSidecarMeta` in `Sidecar.hs`.
-- [ ] Milestone 3: truthful uninstall (`RemovalOutcome`, `uninstallOutcomes`, pure `renderUninstallReport`).
-- [ ] Milestone 3: `PullResult` in `baikai-kit/src/Baikai/Kit/Repo.hs`; `updateKit` fails loudly on pull failure; `ensureKitRepo` keeps warn-and-use-cache.
-- [ ] Milestone 3: rollback, uninstall-report, and pull-failure tests; full `cabal build all --enable-tests` and `cabal test baikai-kit` green.
+- [x] Milestone 1: create `baikai-kit/src/Baikai/Kit/Path.hs` with `safeItemName`, `safeRelativePath`, `safeUnder`; add it to `exposed-modules` in `baikai-kit/baikai-kit.cabal`. Completed 2026-07-03.
+- [x] Milestone 1: wire sanitization into `installItem`/`doInstall`, `uninstallItem`, `isInstalled`, `copySkillFile`, `agentSourceBase` call sites in `baikai-kit/src/Baikai/Kit/Install.hs` and into `computeKitHash` in `baikai-kit/src/Baikai/Kit/Sidecar.hs`. Completed 2026-07-03; the old `copySkillFile` and `agentSourceBase` install helpers were removed during the plan/execute refactor.
+- [x] Milestone 1: rewrite `stripYamlFrontmatter` line-wise (CRLF and EOF tolerant) and export it from `Baikai.Kit.Install`. Completed 2026-07-03.
+- [x] Milestone 1: unit tests for `safeItemName`/`safeRelativePath`/`safeUnder` and `stripYamlFrontmatter`; filesystem tests proving zip-slip install and traversal uninstall are refused. Completed 2026-07-03.
+- [x] Milestone 2: add `KitItemKind` and `kitItemKind`/`kindLabel` to `baikai-kit/src/Baikai/Kit/Manifest.hs`; rework `sidecarPath` in `baikai-kit/src/Baikai/Kit/Sidecar.hs` to take kind and name and to use `System.FilePath.dropExtension`; delete `dummyAgent`/`agentSidecarTarget` hack in `Install.hs`. Completed 2026-07-03.
+- [x] Milestone 2: key sidecar lookup off the scan in `collectStatus` (`baikai-kit/src/Baikai/Kit/Status.hs`); add `KitDirtyOutdated` and `KitDelisted` states; rework `classify`. Completed 2026-07-03.
+- [x] Milestone 2: update existing `classify` tests, add new classify and filesystem status tests (dirty+outdated, delisted-with-sidecar), update the states list in `docs/user/kit.md`. Completed 2026-07-03.
+- [x] Milestone 3: staged two-phase install (`PlannedWrite`, plan across all providers, temp-file writes, rename into place, cleanup on failure) in `Install.hs`; `newSidecarMeta` in `Sidecar.hs`. Completed 2026-07-03.
+- [x] Milestone 3: truthful uninstall (`RemovalOutcome`, `uninstallOutcomes`, pure `renderUninstallReport`). Completed 2026-07-03.
+- [x] Milestone 3: `PullResult` in `baikai-kit/src/Baikai/Kit/Repo.hs`; `updateKit` fails loudly on pull failure; `ensureKitRepo` keeps warn-and-use-cache. Completed 2026-07-03.
+- [x] Milestone 3: rollback, uninstall-report, and pull-failure tests; full `cabal build all --enable-tests` and `cabal test baikai-kit` green. Completed 2026-07-03.
 
 
 ## Surprises & Discoveries
@@ -67,7 +67,14 @@ here, even if it requires splitting a partially completed task into two ("done" 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The `baikai-kit` tests mutate `HOME` to verify user-scope installs. Once this plan
+  added several more filesystem tests, Tasty's default parallel execution let tests
+  race on the process-wide environment and briefly wrote to the real home directory
+  during the first run. The suite now uses `localOption (NumThreads 1)` and
+  `withPreparedKitHome` restores `HOME` with `finally`, so the isolated-home invariant
+  holds even after assertion failures. Evidence: the initial `cabal test baikai-kit`
+  run failed with real-home paths such as `/Users/shinzui/.config/testkit/...`; after
+  the harness fix, all 29 tests passed. (2026-07-03)
 
 
 ## Decision Log
@@ -152,6 +159,13 @@ Record every decision made while working on the plan.
   already default extensions in `baikai-kit/baikai-kit.cabal`, so bare names cannot
   collide.
   Date: 2026-07-01
+- Decision: Run the `baikai-kit` test suite with one Tasty worker.
+  Rationale: the package's filesystem tests intentionally override the process-wide
+  `HOME` environment variable. Parallel tests would make two independent isolated-home
+  fixtures share one mutable environment, which invalidates the safety assertions and
+  can write to real user paths. Serial execution is the smallest harness change that
+  preserves the existing integration-test shape.
+  Date: 2026-07-03
 
 
 ## Outcomes & Retrospective
@@ -159,7 +173,19 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+EP-2 is complete as of 2026-07-03. The implementation added a shared lexical path
+validation module, routed install/uninstall/hash paths through it, made frontmatter
+stripping CRLF-tolerant, re-keyed sidecars by scanned kind and name, added
+`dirty+outdated` and `delisted` status states, staged provider writes through temporary
+files before atomic renames, made uninstall reporting data-driven, and split pull
+results so `kit update` fails loudly while cache-backed commands keep warn-and-use-cache
+behavior. Validation passed with:
+
+```text
+cabal build all --enable-tests
+cabal test baikai-kit
+All 29 tests passed
+```
 
 
 ## Context and Orientation

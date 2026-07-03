@@ -7,43 +7,68 @@ import Baikai.Kit
   ( AgentEntry (..),
     KitConfig (..),
     KitItem (..),
+    KitItemKind (..),
     KitManifest (..),
     KitScope (UserScope),
     KitState (..),
+    PullResult (..),
+    RemovalOutcome (..),
     SidecarMeta (..),
     SkillEntry (..),
     classify,
+    collectStatus,
     computeKitHash,
     installItem,
+    pullKitRepo,
     readSidecar,
+    renderUninstallReport,
+    safeItemName,
+    safeRelativePath,
+    safeUnder,
+    sidecarFileName,
+    sidecarPath,
+    stripYamlFrontmatter,
     uninstallItem,
+    uninstallOutcomes,
+    updateKit,
   )
 import Baikai.Prelude
+import Control.Exception (finally, try)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
+import Data.List (find, isSuffixOf)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import System.Directory
   ( createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    doesPathExist,
+    listDirectory,
+    removeDirectoryRecursive,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.FilePath ((</>))
+import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
-import Test.Tasty (TestTree, defaultMain, testGroup)
+import Test.Tasty (TestTree, defaultMain, localOption, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.Runners (NumThreads (NumThreads))
 
 main :: IO ()
 main =
   defaultMain $
-    testGroup
-      "baikai-kit"
-      [ manifestTests,
-        hashTests,
-        classifyTests,
-        installRoundTripTests
-      ]
+    localOption (NumThreads 1) $
+      testGroup
+        "baikai-kit"
+        [ manifestTests,
+          hashTests,
+          pathSafetyTests,
+          frontmatterTests,
+          classifyTests,
+          statusFilesystemTests,
+          installRoundTripTests
+        ]
 
 manifestTests :: TestTree
 manifestTests =
@@ -90,20 +115,20 @@ classifyTests =
     "Status.classify"
     [ testCase "no sidecar => unknown" $
         classify Nothing (Just (mkSkillItem "foo" (Just "1.0"))) (Just "h") @?= KitUnknown,
-      testCase "no upstream entry => unknown" $
-        classify (Just (mkSidecar (Just "1.0") "h")) Nothing (Just "h") @?= KitUnknown,
+      testCase "no upstream entry with a sidecar => delisted" $
+        classify (Just (mkSidecar (Just "1.0") "h")) Nothing (Just "h") @?= KitDelisted,
       testCase "version mismatch => outdated" $
         classify
           (Just (mkSidecar (Just "1.0") "h"))
           (Just (mkSkillItem "foo" (Just "2.0")))
           (Just "h")
           @?= KitOutdated,
-      testCase "version mismatch beats hash mismatch => outdated" $
+      testCase "version and hash mismatch => dirty+outdated" $
         classify
           (Just (mkSidecar (Just "1.0") "h1"))
           (Just (mkSkillItem "foo" (Just "2.0")))
           (Just "h2")
-          @?= KitOutdated,
+          @?= KitDirtyOutdated,
       testCase "hash mismatch => dirty" $
         classify
           (Just (mkSidecar (Just "1.0") "h1"))
@@ -122,6 +147,84 @@ classifyTests =
           (Just (mkAgentItem "foo" (Just "1.0")))
           Nothing
           @?= KitUpToDate
+    ]
+
+pathSafetyTests :: TestTree
+pathSafetyTests =
+  testGroup
+    "Path safety"
+    [ testCase "safeRelativePath accepts and normalises harmless paths" $ do
+        safeRelativePath "SKILL.md" @?= Right "SKILL.md"
+        safeRelativePath "skills/review" @?= Right "skills/review"
+        safeRelativePath "a/./b" @?= Right ("a" </> "b"),
+      testCase "safeRelativePath rejects zip-slip, absolute paths, backslashes, and NUL" $ do
+        mapM_
+          (assertLeft . safeRelativePath)
+          ["", "/etc/passwd", "../x", "a/../../x", "..", "a/..", "a\\..\\b", "a\0b"],
+      testCase "safeItemName rejects multi-component and hidden names" $ do
+        safeItemName "reviewer" @?= Right "reviewer"
+        mapM_ (assertLeft . safeItemName) ["a/b", ".", ".hidden"],
+      testCase "safeUnder rejects an absolute right operand" $
+        assertLeft (safeUnder "/base" "/etc/passwd"),
+      testCase "install refuses a manifest file path that escapes the install root" $
+        withPreparedKitHome $ \home cache -> do
+          BS.writeFile (cache </> "kit.json") maliciousManifestJson
+          result <- try @ExitCode (installItem testConfig "evil" UserScope)
+          result @?= Left (ExitFailure 1)
+          assertFileMissing (takeDirectory home </> "escape.txt"),
+      testCase "uninstall refuses a traversal name" $
+        withPreparedKitHome $ \home _cache -> do
+          let victim = home </> "victim"
+          createDirectoryIfMissing True victim
+          result <- try @ExitCode (uninstallItem testConfig "../victim" UserScope)
+          result @?= Left (ExitFailure 1)
+          assertDirectoryExists victim
+    ]
+
+frontmatterTests :: TestTree
+frontmatterTests =
+  testGroup
+    "Frontmatter"
+    [ testCase "stripYamlFrontmatter handles LF, CRLF, and final delimiter without newline" $ do
+        stripYamlFrontmatter "---\nname: x\n---\nBody.\n" @?= "Body.\n"
+        stripYamlFrontmatter "---\r\nname: x\r\n---\r\nBody.\r\n" @?= "Body.\n"
+        stripYamlFrontmatter "---\nname: x\n---" @?= "",
+      testCase "stripYamlFrontmatter leaves non-frontmatter and unterminated blocks unchanged" $ do
+        stripYamlFrontmatter "Body.\n" @?= "Body.\n"
+        stripYamlFrontmatter "---\nname: x\nBody.\n" @?= "---\nname: x\nBody.\n"
+    ]
+
+statusFilesystemTests :: TestTree
+statusFilesystemTests =
+  testGroup
+    "Status filesystem"
+    [ testCase "sidecarPath drops any agent target extension" $
+        withPreparedKitHome $ \home _cache -> do
+          let claudeBase = home </> ".config" </> "testkit" </> "agents"
+              codexBase = home
+              sidecar = sidecarFileName testConfig
+          sidecarPath InteractiveClaude AgentKind "reviewer" claudeBase sidecar
+            @?= claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
+          sidecarPath InteractiveCodex AgentKind "reviewer" codexBase sidecar
+            @?= codexBase </> ".codex" </> "agents" </> "reviewer.testkit-kit.json",
+      testCase "delisted installed item keeps sidecar version in status" $
+        withPreparedKitHome $ \_home cache -> do
+          installItem testConfig "demo" UserScope
+          BS.writeFile (cache </> "kit.json") manifestWithoutDemoJson
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          let demoRows = filter ((== "demo") . view #name) rows
+          assertBool "expected demo status rows" (not (null demoRows))
+          mapM_ (\row -> row ^. #state @?= KitDelisted) demoRows
+          mapM_ (\row -> row ^. #installedVersion @?= Just "0.1.0") demoRows,
+      testCase "version and cached hash drift reports dirty+outdated" $
+        withPreparedKitHome $ \_home cache -> do
+          installItem testConfig "demo" UserScope
+          BS.writeFile (cache </> "skills" </> "demo" </> "SKILL.md") "changed instructions\n"
+          BS.writeFile (cache </> "kit.json") manifestWithDemoVersionJson
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          let demoRows = filter ((== "demo") . view #name) rows
+          assertBool "expected demo status rows" (not (null demoRows))
+          mapM_ (\row -> row ^. #state @?= KitDirtyOutdated) demoRows
     ]
 
 installRoundTripTests :: TestTree
@@ -163,7 +266,56 @@ installRoundTripTests =
           assertFileMissing claudeAgent
           assertFileMissing codexAgent
           assertFileMissing claudeAgentSidecar
-          assertFileMissing codexAgentSidecar
+          assertFileMissing codexAgentSidecar,
+      testCase "Codex TOML strips CRLF YAML frontmatter" $
+        withPreparedKitHome $ \home cache -> do
+          let codexAgent = home </> ".codex" </> "agents" </> "reviewer.toml"
+          BS.writeFile (cache </> "agents" </> "reviewer.md") "---\r\nname: reviewer\r\n---\r\nReview carefully.\r\n"
+          installItem testConfig "reviewer" UserScope
+          toml <- Text.Encoding.decodeUtf8 <$> BS.readFile codexAgent
+          assertBool "frontmatter name should be stripped" (not ("name: reviewer" `Text.isInfixOf` toml))
+          assertBool "CR characters should be stripped" (not ("\r" `Text.isInfixOf` toml)),
+      testCase "failed provider write rolls back all staged writes" $
+        withPreparedKitHome $ \home _cache -> do
+          let claudeBase = home </> ".config" </> "testkit" </> "agents"
+              claudeAgent = claudeBase </> ".claude" </> "agents" </> "reviewer.md"
+              claudeAgentSidecar = claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
+          BS.writeFile (home </> ".codex") ""
+          result <- try @ExitCode (installItem testConfig "reviewer" UserScope)
+          result @?= Left (ExitFailure 1)
+          assertFileMissing claudeAgent
+          assertFileMissing claudeAgentSidecar
+          tmpFiles <- findFilesWithSuffix home ".baikai-kit-tmp"
+          tmpFiles @?= [],
+      testCase "renderUninstallReport names actual assets and stale metadata" $ do
+        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude True False False]
+          @?= "Uninstalled skill 'demo' from user scope (claude)."
+        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude True False False, RemovalOutcome InteractiveCodex True False False]
+          @?= "Uninstalled skill 'demo' from user scope (claude,codex)."
+        renderUninstallReport "reviewer" UserScope [RemovalOutcome InteractiveClaude False False True]
+          @?= "Removed stale kit metadata for 'reviewer' from user scope."
+        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude False False False]
+          @?= "'demo' is not installed in user scope.",
+      testCase "uninstallOutcomes reports per-provider removals" $
+        withPreparedKitHome $ \home _cache -> do
+          let codexSkill = home </> ".agents" </> "skills" </> "demo"
+          installItem testConfig "demo" UserScope
+          removeDirectoryRecursive codexSkill
+          outcomes <- uninstallOutcomes testConfig "demo" UserScope
+          let claudeOutcome = findOutcome InteractiveClaude outcomes
+              codexOutcome = findOutcome InteractiveCodex outcomes
+          view #skillRemoved claudeOutcome @?= True
+          view #skillRemoved codexOutcome @?= False
+          view #agentRemoved codexOutcome @?= False
+          view #sidecarRemoved codexOutcome @?= False,
+      testCase "pull failure is returned and update exits nonzero" $
+        withPreparedKitHome $ \_home cache -> do
+          result <- pullKitRepo testConfig cache
+          case result of
+            PullFailed _ -> pure ()
+            PullSucceeded -> assertFailure "expected fake .git cache pull to fail"
+          updateResult <- try @ExitCode (updateKit testConfig Nothing)
+          updateResult @?= Left (ExitFailure 1)
     ]
 
 decodeFixture :: FilePath -> IO KitManifest
@@ -226,7 +378,7 @@ withPreparedKitHome action =
     BS.writeFile (cache </> "agents" </> "reviewer.md") "---\nname: reviewer\n---\nReview carefully.\n"
     BS.writeFile (cache </> "kit.json") manifestJson
     setEnv "HOME" home
-    action home cache <* restoreHome oldHome
+    action home cache `finally` restoreHome oldHome
   where
     restoreHome Nothing = unsetEnv "HOME"
     restoreHome (Just value) = setEnv "HOME" value
@@ -251,6 +403,61 @@ manifestJson =
         "}]} "
       ]
 
+manifestWithoutDemoJson :: BS.ByteString
+manifestWithoutDemoJson =
+  Text.Encoding.encodeUtf8 $
+    Text.concat
+      [ "{\"version\":2,",
+        "\"skills\":[],",
+        "\"agents\":[{",
+        "\"name\":\"reviewer\",",
+        "\"description\":\"Review agent\",",
+        "\"version\":\"0.1.0\",",
+        "\"path\":\"agents/reviewer.md\"",
+        "}]} "
+      ]
+
+manifestWithDemoVersionJson :: BS.ByteString
+manifestWithDemoVersionJson =
+  Text.Encoding.encodeUtf8 $
+    Text.concat
+      [ "{\"version\":2,",
+        "\"skills\":[{",
+        "\"name\":\"demo\",",
+        "\"description\":\"Demo skill\",",
+        "\"version\":\"0.2.0\",",
+        "\"path\":\"skills/demo\",",
+        "\"files\":[\"SKILL.md\"]",
+        "}],",
+        "\"agents\":[{",
+        "\"name\":\"reviewer\",",
+        "\"description\":\"Review agent\",",
+        "\"version\":\"0.1.0\",",
+        "\"path\":\"agents/reviewer.md\"",
+        "}]} "
+      ]
+
+maliciousManifestJson :: BS.ByteString
+maliciousManifestJson =
+  Text.Encoding.encodeUtf8 $
+    Text.concat
+      [ "{\"version\":2,",
+        "\"skills\":[{",
+        "\"name\":\"evil\",",
+        "\"description\":\"Evil skill\",",
+        "\"version\":\"0.1.0\",",
+        "\"path\":\"skills/demo\",",
+        "\"files\":[\"../../../../escape.txt\"]",
+        "}],",
+        "\"agents\":[]} "
+      ]
+
+assertLeft :: (Show b) => Either a b -> IO ()
+assertLeft result =
+  case result of
+    Left _ -> pure ()
+    Right value -> assertFailure ("expected Left, got Right " <> show value)
+
 assertFileExists :: FilePath -> IO ()
 assertFileExists path = do
   exists <- doesFileExist path
@@ -265,3 +472,27 @@ assertDirectoryMissing :: FilePath -> IO ()
 assertDirectoryMissing path = do
   exists <- doesDirectoryExist path
   assertBool ("expected directory to be missing: " <> path) (not exists)
+
+assertDirectoryExists :: FilePath -> IO ()
+assertDirectoryExists path = do
+  exists <- doesDirectoryExist path
+  assertBool ("expected directory to exist: " <> path) exists
+
+findFilesWithSuffix :: FilePath -> String -> IO [FilePath]
+findFilesWithSuffix root suffix = do
+  exists <- doesPathExist root
+  if not exists
+    then pure []
+    else do
+      isDir <- doesDirectoryExist root
+      if not isDir
+        then pure [root | suffix `isSuffixOf` root]
+        else do
+          names <- listDirectory root
+          fmap concat $ mapM (\name -> findFilesWithSuffix (root </> name) suffix) names
+
+findOutcome :: InteractiveProvider -> [RemovalOutcome] -> RemovalOutcome
+findOutcome expected outcomes =
+  case find ((== expected) . view #provider) outcomes of
+    Just outcome -> outcome
+    Nothing -> error "expected provider outcome"

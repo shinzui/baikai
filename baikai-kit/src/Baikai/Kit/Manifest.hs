@@ -1,12 +1,15 @@
 module Baikai.Kit.Manifest
-  ( KitManifest (..),
-    SkillEntry (..),
-    AgentEntry (..),
+  ( AgentEntry (..),
     KitItem (..),
+    KitItemKind (..),
+    KitManifest (..),
+    SkillEntry (..),
     agentSources,
-    itemName,
     itemKind,
+    itemName,
     itemVersion,
+    kitItemKind,
+    kindLabel,
   )
 where
 
@@ -47,6 +50,11 @@ data KitItem
   | KitAgentItem !AgentEntry
   deriving stock (Generic, Show)
 
+data KitItemKind
+  = SkillKind
+  | AgentKind
+  deriving stock (Eq, Ord, Show)
+
 agentSources :: AgentEntry -> [(FilePath, FilePath)]
 agentSources entry =
   case entry ^. #files of
@@ -62,6 +70,14 @@ itemName (KitAgentItem entry) = entry ^. #name
 itemKind :: KitItem -> Text
 itemKind KitSkillItem {} = "skill"
 itemKind KitAgentItem {} = "agent"
+
+kitItemKind :: KitItem -> KitItemKind
+kitItemKind KitSkillItem {} = SkillKind
+kitItemKind KitAgentItem {} = AgentKind
+
+kindLabel :: KitItemKind -> Text
+kindLabel SkillKind = "skill"
+kindLabel AgentKind = "agent"
 
 itemVersion :: KitItem -> Maybe Text
 itemVersion (KitSkillItem entry) = entry ^. #version

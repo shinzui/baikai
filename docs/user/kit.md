@@ -164,7 +164,10 @@ States are:
 - `outdated`: the sidecar version differs from the current manifest
   version.
 - `dirty`: the cached upstream file hash differs from the sidecar hash.
-- `unknown`: the item or sidecar cannot be matched to the manifest.
+- `dirty+outdated`: both the version and cached upstream file hash differ.
+- `delisted`: the sidecar is valid, but the item is no longer present in
+  the current manifest.
+- `unknown`: the sidecar is missing or unreadable.
 
 The current dirty check compares sidecar metadata with the cached
 upstream item hash. It does not hash provider-installed target files.

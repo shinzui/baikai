@@ -6,6 +6,7 @@ module Baikai.Kit.Config
     projectAgentsDir,
     resolveAgentsBase,
     providerAgentsBase,
+    providerLabel,
     sidecarFileName,
     scopeLabel,
   )
@@ -53,6 +54,10 @@ providerAgentsBase :: KitConfig -> AgentAssetProvider -> KitScope -> IO FilePath
 providerAgentsBase config InteractiveClaude scope = resolveAgentsBase config scope
 providerAgentsBase _config InteractiveCodex UserScope = getHomeDirectory
 providerAgentsBase _config InteractiveCodex ProjectScope = getCurrentDirectory
+
+providerLabel :: AgentAssetProvider -> Text
+providerLabel InteractiveClaude = "claude"
+providerLabel InteractiveCodex = "codex"
 
 sidecarFileName :: KitConfig -> Text
 sidecarFileName config = "." <> (config ^. #toolName) <> "-kit.json"

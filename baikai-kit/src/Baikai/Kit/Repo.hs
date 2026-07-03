@@ -1,5 +1,6 @@
 module Baikai.Kit.Repo
   ( ensureKitRepo,
+    PullResult (..),
     pullKitRepo,
   )
 where
@@ -15,13 +16,22 @@ import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
 import System.Process (readProcessWithExitCode)
 
+data PullResult
+  = PullSucceeded
+  | PullFailed !Text
+  deriving stock (Eq, Show)
+
 ensureKitRepo :: KitConfig -> IO FilePath
 ensureKitRepo config = do
   cacheDir <- kitCacheDir config
   exists <- doesDirectoryExist (cacheDir </> ".git")
   if exists
     then do
-      pullKitRepo config cacheDir
+      result <- pullKitRepo config cacheDir
+      case result of
+        PullSucceeded -> pure ()
+        PullFailed err ->
+          hPutStrLn stderr $ "Warning: git pull failed, using cached data. " <> Text.unpack err
       pure cacheDir
     else do
       Text.IO.putStrLn $ "Fetching " <> (config ^. #toolName) <> "-kit..."
@@ -43,14 +53,14 @@ ensureKitRepo config = do
               hPutStrLn stderr $ "Error: Failed to fetch kit repository: " <> errOut
               exitFailure
 
-pullKitRepo :: KitConfig -> FilePath -> IO ()
+pullKitRepo :: KitConfig -> FilePath -> IO PullResult
 pullKitRepo _config cacheDir = do
   result <-
     try @IOException $
       readProcessWithExitCode "git" ["-C", cacheDir, "pull", "--ff-only", "--quiet"] ""
   case result of
-    Right (ExitSuccess, _, _) -> pure ()
+    Right (ExitSuccess, _, _) -> pure PullSucceeded
     Right (ExitFailure _, _, errOut) ->
-      hPutStrLn stderr $ "Warning: git pull failed, using cached data. " <> errOut
+      pure (PullFailed (Text.pack errOut))
     Left e ->
-      hPutStrLn stderr $ "Warning: git pull failed: " <> show e
+      pure (PullFailed (Text.pack (show e)))

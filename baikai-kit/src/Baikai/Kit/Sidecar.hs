@@ -1,6 +1,7 @@
 module Baikai.Kit.Sidecar
   ( SidecarMeta (..),
     computeKitHash,
+    newSidecarMeta,
     sidecarPath,
     readSidecar,
     writeSidecar,
@@ -9,7 +10,8 @@ where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
 import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
-import Baikai.Kit.Manifest (KitItem (..), itemKind, itemName, itemVersion)
+import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemName, itemVersion, kitItemKind)
+import Baikai.Kit.Path (safeRelativePath)
 import Baikai.Prelude
 import Crypto.Hash (Digest, SHA256)
 import Crypto.Hash qualified as Hash
@@ -23,7 +25,7 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (dropExtension, takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 
 data SidecarMeta = SidecarMeta
@@ -45,26 +47,21 @@ computeKitHash baseDir relFiles = do
   where
     readOne :: FilePath -> Text -> IO BS.ByteString
     readOne dir rel = do
-      content <- BS.readFile (dir </> Text.unpack rel)
-      let pathBytes = Text.Encoding.encodeUtf8 rel
+      safeRel <- either (ioError . userError . Text.unpack) pure (safeRelativePath rel)
+      content <- BS.readFile (dir </> safeRel)
+      let pathBytes = Text.Encoding.encodeUtf8 (Text.pack safeRel)
           lenBytes = LBS.toStrict (runPut (putWord64be (fromIntegral (BS.length content))))
       pure $ BS.concat [pathBytes, BS.singleton 0x00, lenBytes, content, BS.singleton 0x00]
 
-sidecarPath :: AgentAssetProvider -> KitItem -> FilePath -> Text -> FilePath
-sidecarPath provider (KitSkillItem entry) targetBase sidecarName =
+sidecarPath :: AgentAssetProvider -> KitItemKind -> Text -> FilePath -> Text -> FilePath
+sidecarPath provider SkillKind itemName' targetBase sidecarName =
   targetBase
-    </> skillTargetPath provider InteractiveProjectScope (Text.unpack (entry ^. #name))
+    </> skillTargetPath provider InteractiveProjectScope (Text.unpack itemName')
     </> Text.unpack sidecarName
-sidecarPath provider (KitAgentItem entry) targetBase sidecarName =
+sidecarPath provider AgentKind itemName' targetBase sidecarName =
   targetBase
-    </> dropExtensionForSidecar (agentTargetPath provider InteractiveProjectScope (Text.unpack (entry ^. #name)))
+    </> dropExtension (agentTargetPath provider InteractiveProjectScope (Text.unpack itemName'))
       <> Text.unpack sidecarName
-  where
-    dropExtensionForSidecar path =
-      case reverse path of
-        'd' : 'm' : '.' : rest -> reverse rest
-        'l' : 'm' : 'o' : 't' : '.' : rest -> reverse rest
-        _ -> path
 
 readSidecar :: FilePath -> IO (Maybe SidecarMeta)
 readSidecar p = do
@@ -81,16 +78,20 @@ readSidecar p = do
 
 writeSidecar :: AgentAssetProvider -> KitItem -> FilePath -> Text -> Text -> IO ()
 writeSidecar provider item targetBase sidecarName hashStr = do
-  now <- getCurrentTime
-  let stamp = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
-      meta =
-        SidecarMeta
-          { name = itemName item,
-            kind = itemKind item,
-            version = itemVersion item,
-            hash = hashStr,
-            installedAt = stamp
-          }
-      out = sidecarPath provider item targetBase sidecarName
+  meta <- newSidecarMeta item hashStr
+  let out = sidecarPath provider (kitItemKind item) (itemName item) targetBase sidecarName
   createDirectoryIfMissing True (takeDirectory out)
   LBS.writeFile out (encode meta)
+
+newSidecarMeta :: KitItem -> Text -> IO SidecarMeta
+newSidecarMeta item hashStr = do
+  now <- getCurrentTime
+  let stamp = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
+  pure
+    SidecarMeta
+      { name = itemName item,
+        kind = itemKind item,
+        version = itemVersion item,
+        hash = hashStr,
+        installedAt = stamp
+      }

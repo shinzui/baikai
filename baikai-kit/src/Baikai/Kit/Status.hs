@@ -9,10 +9,10 @@ module Baikai.Kit.Status
 where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
-import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (InteractiveProjectScope))
-import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, sidecarFileName)
+import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
+import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, providerLabel, sidecarFileName)
 import Baikai.Kit.Install (loadManifestMaybe, lookupItem)
-import Baikai.Kit.Manifest (AgentEntry, KitItem (..), agentSources, itemVersion)
+import Baikai.Kit.Manifest (AgentEntry, KitItem (..), KitItemKind (..), agentSources, itemKind, itemVersion, kindLabel)
 import Baikai.Kit.Repo (ensureKitRepo)
 import Baikai.Kit.Sidecar (SidecarMeta, computeKitHash, readSidecar, sidecarPath)
 import Baikai.Prelude
@@ -29,6 +29,8 @@ data KitState
   = KitUpToDate
   | KitOutdated
   | KitDirty
+  | KitDirtyOutdated
+  | KitDelisted
   | KitUnknown
   deriving stock (Eq, Ord, Show)
 
@@ -48,21 +50,25 @@ renderState = \case
   KitUpToDate -> "up-to-date"
   KitOutdated -> "outdated"
   KitDirty -> "dirty"
+  KitDirtyOutdated -> "dirty+outdated"
+  KitDelisted -> "delisted"
   KitUnknown -> "unknown"
 
 classify :: Maybe SidecarMeta -> Maybe KitItem -> Maybe Text -> KitState
 classify Nothing _ _ = KitUnknown
-classify (Just _) Nothing _ = KitUnknown
+classify (Just _) Nothing _ = KitDelisted
 classify (Just sm) (Just it) mUpstreamHash =
-  let mInstalled = sm ^. #version
-      mLatest = itemVersion it
-   in case mLatest of
-        Just latest
-          | mInstalled /= Just latest -> KitOutdated
-        _ ->
-          case mUpstreamHash of
-            Just up | up /= sm ^. #hash -> KitDirty
-            _ -> KitUpToDate
+  let outdated = case itemVersion it of
+        Just latest -> sm ^. #version /= Just latest
+        Nothing -> False
+      dirty = case mUpstreamHash of
+        Just up -> up /= sm ^. #hash
+        Nothing -> False
+   in case (outdated, dirty) of
+        (True, True) -> KitDirtyOutdated
+        (True, False) -> KitOutdated
+        (False, True) -> KitDirty
+        (False, False) -> KitUpToDate
 
 kitStatus :: KitConfig -> IO ()
 kitStatus config = do
@@ -75,17 +81,15 @@ collectStatus config cacheDir scopes = do
   mManifest <- loadManifestMaybe cacheDir
   fmap concat . forM scopes $ \(scope, scopeText) -> do
     items <- scanInstalled config scope
-    forM items $ \(provider, baseDir, itemName', _itemKind) -> do
+    forM items $ \(provider, baseDir, itemName', scannedKind) -> do
       let mItem = lookupItem itemName' =<< mManifest
-      mSidecar <- case mItem of
-        Just item -> readSidecar (sidecarPath provider item baseDir (sidecarFileName config))
-        Nothing -> pure Nothing
+      mSidecar <- readSidecar (sidecarPath provider scannedKind itemName' baseDir (sidecarFileName config))
       mUpstreamHash <- upstreamHash cacheDir mItem
       let state' = classify mSidecar mItem mUpstreamHash
       pure
         StatusRow
           { name = itemName',
-            kind = maybe _itemKind itemKindOf mItem,
+            kind = maybe (kindLabel scannedKind) itemKind mItem,
             scope = scopeText,
             providers = providerLabel provider,
             installedVersion = mSidecar >>= (^. #version),
@@ -117,7 +121,7 @@ tryHash base files = do
     Right h -> pure (Just h)
     Left _ -> pure Nothing
 
-scanInstalled :: KitConfig -> KitScope -> IO [(AgentAssetProvider, FilePath, Text, Text)]
+scanInstalled :: KitConfig -> KitScope -> IO [(AgentAssetProvider, FilePath, Text, KitItemKind)]
 scanInstalled config scope = fmap concat $
   forM (config ^. #providers) $ \provider -> do
     baseDir <- providerAgentsBase config provider scope
@@ -125,23 +129,23 @@ scanInstalled config scope = fmap concat $
     agentItems <- scanAgents provider (takeDirectory (baseDir </> agentTargetPath provider InteractiveProjectScope "__scan__"))
     pure [(provider', baseDir, itemName', kind) | (provider', itemName', kind) <- skillItems ++ agentItems]
 
-scanSkills :: AgentAssetProvider -> FilePath -> IO [(AgentAssetProvider, Text, Text)]
+scanSkills :: AgentAssetProvider -> FilePath -> IO [(AgentAssetProvider, Text, KitItemKind)]
 scanSkills provider dir = do
   exists <- doesDirectoryExist dir
   if exists
     then do
       entries <- listDirectory dir
-      pure [(provider, Text.pack e, "skill") | e <- entries, visible e]
+      pure [(provider, Text.pack e, SkillKind) | e <- entries, visible e]
     else pure []
 
-scanAgents :: AgentAssetProvider -> FilePath -> IO [(AgentAssetProvider, Text, Text)]
+scanAgents :: AgentAssetProvider -> FilePath -> IO [(AgentAssetProvider, Text, KitItemKind)]
 scanAgents provider dir = do
   exists <- doesDirectoryExist dir
   if exists
     then do
       entries <- listDirectory dir
       let files = filter (\f -> agentExtension provider `isSuffixOf` f && visible f) entries
-      pure [(provider, Text.pack (dropAgentExtension provider f), "agent") | f <- files]
+      pure [(provider, Text.pack (dropAgentExtension provider f), AgentKind) | f <- files]
     else pure []
 
 renderStatusTable :: [StatusRow] -> IO ()
@@ -198,10 +202,6 @@ aggregateStatusRows rows =
       firstRow & #providers .~ Text.intercalate "," (sort (nub (map (^. #providers) groupRows)))
     summarize [] = error "aggregateStatusRows: empty group"
 
-itemKindOf :: KitItem -> Text
-itemKindOf KitSkillItem {} = "skill"
-itemKindOf KitAgentItem {} = "agent"
-
 agentSourceBase :: FilePath -> AgentEntry -> FilePath
 agentSourceBase repoDir entry =
   case entry ^. #files of
@@ -220,10 +220,6 @@ dropAgentExtension :: AgentAssetProvider -> FilePath -> FilePath
 dropAgentExtension provider file =
   let ext = agentExtension provider
    in take (length file - length ext) file
-
-providerLabel :: AgentAssetProvider -> Text
-providerLabel InteractiveClaude = "claude"
-providerLabel InteractiveCodex = "codex"
 
 visible :: FilePath -> Bool
 visible = not . ("." `isPrefixOf`)

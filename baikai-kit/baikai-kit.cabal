@@ -38,6 +38,7 @@ library
     Baikai.Kit.Config
     Baikai.Kit.Install
     Baikai.Kit.Manifest
+    Baikai.Kit.Path
     Baikai.Kit.Repo
     Baikai.Kit.Session
     Baikai.Kit.Sidecar

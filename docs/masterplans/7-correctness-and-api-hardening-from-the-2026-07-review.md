@@ -98,7 +98,7 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Harden trace and call-log workers | docs/plans/34-harden-trace-and-call-log-workers.md | None | None | Complete |
-| 2 | Harden baikai-kit install and status | docs/plans/35-harden-baikai-kit-install-and-status.md | None | None | Not Started |
+| 2 | Harden baikai-kit install and status | docs/plans/35-harden-baikai-kit-install-and-status.md | None | None | Complete |
 | 3 | Harden CLI subprocess argument and pipe handling | docs/plans/36-harden-cli-subprocess-argument-and-pipe-handling.md | None | None | Not Started |
 | 4 | Correct usage and cost accounting | docs/plans/37-correct-usage-and-cost-accounting.md | None | None | Not Started |
 | 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | Not Started |
@@ -199,9 +199,9 @@ EP-10 relocate them if needed.
 - [x] EP-1 M1: workers always signal — sink/log failures captured and reported once, no hang
 - [x] EP-1 M2: collision-free 64-bit event ids
 - [x] EP-1 M3: synthetic terminal on early abort; OTel unknown-id drop documented
-- [ ] EP-2 M1: path sanitization and CRLF-safe frontmatter stripping
-- [ ] EP-2 M2: truthful status — scan-keyed sidecars, dirty+outdated and delisted states
-- [ ] EP-2 M3: robust install (staged writes + rollback), truthful uninstall, loud update failures
+- [x] EP-2 M1: path sanitization and CRLF-safe frontmatter stripping
+- [x] EP-2 M2: truthful status — scan-keyed sidecars, dirty+outdated and delisted states
+- [x] EP-2 M3: robust install (staged writes + rollback), truthful uninstall, loud update failures
 - [ ] EP-3 M1: `--` option terminator at all four launch sites, argv builders unit-tested
 - [ ] EP-3 M2: system prompt sent through the codex batch provider
 - [ ] EP-3 M3: concurrent stderr drain and exception-safe cleanup for codex
@@ -272,6 +272,13 @@ EP-10 relocate them if needed.
   documentation or cleanup work must preserve the "abort terminal is eventual but the
   worker remains rooted until finalization" invariant. (2026-07-03, EP-1
   implementation)
+- While implementing EP-2, the expanded `baikai-kit` filesystem tests exposed that the
+  suite's isolated-home helper was not safe under Tasty's default parallel execution:
+  tests race through the process-wide `HOME` variable and can briefly operate on the
+  real user home. EP-2 serializes the `baikai-kit` suite with `NumThreads 1` and
+  restores `HOME` with `finally`. Future kit tests that mutate process-global
+  environment should stay under that serial suite or use a different configuration
+  injection strategy. (2026-07-03, EP-2 implementation)
 
 
 ## Decision Log
