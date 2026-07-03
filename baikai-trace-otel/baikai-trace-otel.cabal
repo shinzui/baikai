@@ -61,6 +61,7 @@ test-suite baikai-trace-otel-test
     , hs-opentelemetry-exporter-in-memory  >=1.0    && <1.1
     , hs-opentelemetry-sdk                 >=1.0    && <1.1
     , lens                                 ^>=5.3
+    , streamly-core                        ^>=0.3
     , tasty
     , tasty-hunit
     , text

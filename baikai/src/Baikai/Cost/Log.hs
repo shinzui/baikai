@@ -11,6 +11,10 @@
 -- > withCallLog (CallLogConfig "/tmp/baikai.jsonl" True) $ \h -> do
 -- >   _ <- runRequestWithLog h model context options
 -- >   pure ()
+--
+-- If the worker cannot open or write the log file, the close path
+-- reports one warning on stderr and returns. Logging failures do not
+-- mask the request body or hang release actions.
 module Baikai.Cost.Log
   ( CallLogConfig (..),
     CallLogEntry (..),
@@ -45,8 +49,9 @@ import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (bracket)
+import Control.Exception (SomeException, bracket, displayException, try)
 import Control.Lens ((^.))
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Aeson (FromJSON, ToJSON)
@@ -55,6 +60,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Generics.Labels ()
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -64,7 +70,7 @@ import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
-import System.IO (BufferMode (LineBuffering), IOMode (AppendMode), hSetBuffering, withFile)
+import System.IO (BufferMode (LineBuffering), IOMode (AppendMode), hPutStrLn, hSetBuffering, stderr, withFile)
 
 -- | Where (and whether) to write the call log.
 data CallLogConfig = CallLogConfig
@@ -95,7 +101,8 @@ data CallLogEntry = CallLogEntry
 data CallLogHandle = CallLogHandle
   { chan :: !(Chan (Maybe CallLogEntry)),
     done :: !(MVar ()),
-    cfg :: !CallLogConfig
+    cfg :: !CallLogConfig,
+    workerError :: !(IORef (Maybe SomeException))
   }
 
 -- | Open a handle. When @enabled = True@, fork the worker thread
@@ -104,12 +111,13 @@ openCallLog :: (MonadIO m) => CallLogConfig -> m CallLogHandle
 openCallLog c = liftIO $ do
   ch <- newChan
   d <- newEmptyMVar
+  e <- newIORef Nothing
   case enabled c of
     False -> putMVar d ()
     True -> do
-      _ <- forkIO (worker (path c) ch d)
+      _ <- forkIO (worker (path c) ch d e)
       pure ()
-  pure CallLogHandle {chan = ch, done = d, cfg = c}
+  pure CallLogHandle {chan = ch, done = d, cfg = c, workerError = e}
 
 -- | Signal shutdown and block until the worker has drained every
 -- pending entry to disk.
@@ -119,6 +127,11 @@ closeCallLog h = liftIO $ do
     True -> writeChan (chan h) Nothing
     False -> pure ()
   takeMVar (done h)
+  merr <- readIORef (workerError h)
+  forM_ merr $ \e ->
+    hPutStrLn
+      stderr
+      ("baikai: call log worker failed; pending entries were dropped: " <> displayException e)
 
 -- | Bracketed lifetime: open the handle, run the body, close
 -- exactly once on every path (including exceptions).
@@ -185,20 +198,26 @@ positive n = Just n
 
 -- | Worker loop: pull 'Maybe CallLogEntry' off the channel, drain
 -- through a streamly fold that writes each entry as one JSON line.
-worker :: FilePath -> Chan (Maybe CallLogEntry) -> MVar () -> IO ()
-worker p ch d =
-  withFile p AppendMode $ \fh -> do
-    hSetBuffering fh LineBuffering
-    let step :: () -> IO (Maybe (CallLogEntry, ()))
-        step () = do
-          msg <- readChan ch
-          case msg of
-            Nothing -> pure Nothing
-            Just e -> pure (Just (e, ()))
-    Stream.unfoldrM step ()
-      & Stream.fold (Fold.drainMapM (writeEntry fh))
-    putMVar d ()
+worker :: FilePath -> Chan (Maybe CallLogEntry) -> MVar () -> IORef (Maybe SomeException) -> IO ()
+worker p ch d errRef = do
+  result <- try drainToFile :: IO (Either SomeException ())
+  case result of
+    Left e -> writeIORef errRef (Just e)
+    Right () -> pure ()
+  putMVar d ()
   where
+    drainToFile =
+      withFile p AppendMode $ \fh -> do
+        hSetBuffering fh LineBuffering
+        let step :: () -> IO (Maybe (CallLogEntry, ()))
+            step () = do
+              msg <- readChan ch
+              case msg of
+                Nothing -> pure Nothing
+                Just e -> pure (Just (e, ()))
+        Stream.unfoldrM step ()
+          & Stream.fold (Fold.drainMapM (writeEntry fh))
+
     writeEntry fh entry =
       BSL.hPut fh (Aeson.encode entry <> "\n")
 

@@ -12,15 +12,21 @@ import Baikai.Provider (ApiProvider (..), registerApiProvider)
 import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.Trace (withTrace)
+import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
 import Baikai.Usage (_Usage)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Exception (throwIO)
+import Control.Monad (replicateM)
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 import Streamly.Data.Fold qualified as Fold
+import Streamly.Data.Stream qualified as Stream
+import System.Mem (performMajorGC)
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -30,7 +36,10 @@ tests =
     "Baikai.Trace"
     [ silentTest,
       memoryFinishTest,
-      memoryFailTest
+      memoryFailTest,
+      throwingSinkTest,
+      eventIdUniquenessTest,
+      earlyAbortTest
     ]
 
 -- | Each test uses its own private 'Api' tag so tasty's parallel
@@ -160,3 +169,59 @@ memoryFailTest =
           ("expected error to mention stub-failure, got: " <> show msg)
           ("stub-failure" `Text.isInfixOf` msg)
       _ -> assertFailure ("unexpected event sequence: " <> show events)
+
+throwingSink :: TraceSink
+throwingSink =
+  TraceSink (Fold.drainMapM (\_ -> throwIO (providerError "sink exploded")))
+
+throwingSinkTest :: TestTree
+throwingSinkTest =
+  testCase "a throwing sink cannot hang withTrace" $ do
+    let a = Custom "baikai-trace-throwing-sink"
+    registerOk a
+    result <- timeout 5000000 (withTrace throwingSink (stubModel a) stubContext stubOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a throwing sink"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= Stop
+
+eventIdUniquenessTest :: TestTree
+eventIdUniquenessTest =
+  testCase "newEventId yields 70000 distinct 16-char ids" $ do
+    ids <- replicateM 70000 newEventId
+    Set.size (Set.fromList ids) @?= 70000
+    assertBool "every id is 16 chars" (all ((== 16) . Text.length) ids)
+
+earlyAbortTest :: TestTree
+earlyAbortTest =
+  testCase "early abort pushes a synthetic CallFailed" $ do
+    let a = Custom "baikai-trace-abort"
+    registerOk a
+    (ref, sink) <- memorySink
+    emitted <-
+      Stream.toList
+        (Stream.take 1 (withTraceStream sink (stubModel a) stubContext stubOptions))
+    length emitted @?= 1
+    events <- awaitEvents ref 2
+    case events of
+      [s@CallStarted {}, f@CallFailed {errorMessage = msg}] -> do
+        (s ^. #eventId :: Text) @?= (f ^. #eventId :: Text)
+        assertBool
+          ("expected abort message, got: " <> show msg)
+          ("aborted" `Text.isInfixOf` msg)
+      _ -> assertFailure ("unexpected event sequence: " <> show events)
+
+-- The trace finalizer on an abandoned stream runs from streamly's GC hook.
+awaitEvents :: TVar [TraceEvent] -> Int -> IO [TraceEvent]
+awaitEvents ref n = go (100 :: Int)
+  where
+    go 0 = do
+      evs <- readTVarIO ref
+      assertFailure ("timed out waiting for trace events; got: " <> show (reverse evs))
+    go k = do
+      performMajorGC
+      evs <- readTVarIO ref
+      if length evs >= n
+        then pure (reverse evs)
+        else threadDelay 50000 >> go (k - 1)

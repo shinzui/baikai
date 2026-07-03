@@ -107,6 +107,9 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
     pure (Map.insert eventId sp m)
   CallFinished {eventId, timestamp, model, latencyMs, inputTokens, outputTokens, usd} ->
     case Map.lookup eventId m of
+      -- A terminal without a live span is unreachable for normal withTraceStream
+      -- usage because each traced call drives a fresh fold. Keep the silent drop so
+      -- hand-fed or replayed event streams cannot crash the sink.
       Nothing -> pure m
       Just sp -> do
         let attrs :: HashMap.HashMap Text Attr.Attribute
@@ -124,6 +127,9 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
         pure (Map.delete eventId m)
   CallFailed {eventId, timestamp, latencyMs, errorMessage} ->
     case Map.lookup eventId m of
+      -- A terminal without a live span is unreachable for normal withTraceStream
+      -- usage because each traced call drives a fresh fold. Keep the silent drop so
+      -- hand-fed or replayed event streams cannot crash the sink.
       Nothing -> pure m
       Just sp -> do
         Otel.addAttributes sp $

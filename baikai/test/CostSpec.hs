@@ -6,7 +6,8 @@ import Baikai.Context (Context (..), _Context)
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogConfig (..),
-    CallLogEntry,
+    CallLogEntry (..),
+    appendEntry,
     runRequestWithLog,
     withCallLog,
   )
@@ -27,9 +28,11 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
 import Data.Maybe (fromJust, isJust)
+import Data.Time (getCurrentTime)
 import Data.Vector qualified as V
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -223,5 +226,25 @@ callLogTests =
         entry ^. #latencyMs @?= 7
         entry ^. #promptSummary @?= "Hello world"
         isJust (entry ^. #usd) @?= True
-        removeFile path'
+        removeFile path',
+      testCase "closeCallLog returns even when the log path is unwritable" $ do
+        tmp <- getTemporaryDirectory
+        let missing = tmp </> "baikai-costspec-no-such-dir" </> "entries.jsonl"
+            cfg = CallLogConfig {path = missing, enabled = True}
+        now <- getCurrentTime
+        let entry =
+              CallLogEntry
+                { timestamp = now,
+                  provider = "test",
+                  model = "m",
+                  inputTokens = Nothing,
+                  outputTokens = Nothing,
+                  cachedInputTokens = Nothing,
+                  reasoningTokens = Nothing,
+                  usd = Nothing,
+                  latencyMs = 0,
+                  promptSummary = ""
+                }
+        result <- timeout 5000000 (withCallLog cfg (\h -> appendEntry h entry))
+        result @?= Just ()
     ]

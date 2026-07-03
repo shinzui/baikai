@@ -166,4 +166,5 @@ test-suite baikai-test
     , tasty-hunit
     , temporary
     , text
+    , time
     , vector

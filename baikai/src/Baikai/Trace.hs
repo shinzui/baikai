@@ -18,8 +18,10 @@
 -- matching 'CallFinished' / 'CallFailed' before yielding the
 -- terminal event to the consumer. Cleanup ('Nothing' sentinel on
 -- the channel + 'takeMVar' on the worker) is idempotent and runs
--- through 'Stream.finallyIO' so an early-aborting consumer never
--- leaks the worker.
+-- through 'Stream.finallyIO' so an early-aborting consumer eventually
+-- records a synthetic 'CallFailed' and never leaks the worker. Sink
+-- exceptions are captured by the worker and reported once on stderr
+-- during cleanup; they do not propagate into the provider call.
 module Baikai.Trace
   ( -- * Re-exports
     TraceEvent (..),
@@ -63,19 +65,21 @@ import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
--- Control.Exception no longer needed; producer errors flow through
--- the stream as 'EventError'.
-import Control.Monad (unless)
+import Control.Exception (SomeException, displayException, try)
+import Control.Monad (forM_, unless)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Bits (unsafeShiftL, (.&.), (.|.))
-import Data.IORef (IORef, atomicModifyIORef', newIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Word (Word64)
+import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
 import Numeric (showHex)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
+import System.IO (hPutStrLn, stderr)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- ============================================================
@@ -119,8 +123,15 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
         let stepDrain () = do
               msg <- readChan c
               pure (fmap (\e -> (e, ())) msg)
-        Stream.unfoldrM stepDrain ()
-          & Stream.fold sinkFold
+        result <-
+          try
+            ( Stream.unfoldrM stepDrain ()
+                & Stream.fold sinkFold
+            ) ::
+            IO (Either SomeException ())
+        case result of
+          Left e -> writeIORef (state ^. #sinkError) (Just e)
+          Right () -> pure ()
         putMVar d ()
     eid <- newEventId
     start <- getCurrentTime
@@ -136,7 +147,7 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
           }
     pure $
       Stream.finallyIO
-        (cleanupTrace state)
+        (finalizeTrace state eid start m)
         (Stream.mapM (traceEvent state eid start m) (streamRequestWith reg m ctx opts))
 
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
@@ -180,7 +191,10 @@ withTraceWith reg sink model ctx opts =
 data TraceState = TraceState
   { chan :: !(Chan (Maybe TraceEvent)),
     done :: !(MVar ()),
-    closed :: !(IORef Bool)
+    closed :: !(IORef Bool),
+    sinkError :: !(IORef (Maybe SomeException)),
+    terminalSent :: !(IORef Bool),
+    stableRoot :: !(IORef (Maybe (StablePtr TraceState)))
   }
   deriving stock (Generic)
 
@@ -189,15 +203,49 @@ newTraceState = do
   c <- newChan
   d <- newEmptyMVar
   r <- newIORef False
-  pure TraceState {chan = c, done = d, closed = r}
+  e <- newIORef Nothing
+  t <- newIORef False
+  root <- newIORef Nothing
+  let state = TraceState {chan = c, done = d, closed = r, sinkError = e, terminalSent = t, stableRoot = root}
+  sp <- newStablePtr state
+  writeIORef root (Just sp)
+  pure state
 
-cleanupTrace :: TraceState -> IO ()
-cleanupTrace s = do
+finalizeTrace :: TraceState -> Text -> UTCTime -> Model -> IO ()
+finalizeTrace s eid start m = do
   alreadyClosed <-
     atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
   unless alreadyClosed $ do
+    sent <- readIORef (s ^. #terminalSent)
+    unless sent $ do
+      now <- getCurrentTime
+      writeChan (s ^. #chan) $
+        Just
+          CallFailed
+            { eventId = eid,
+              timestamp = now,
+              provider = m ^. #provider,
+              model = m ^. #modelId,
+              latencyMs = millisBetween start now,
+              errorMessage = "aborted: stream consumer stopped before the terminal event"
+            }
     writeChan (s ^. #chan) Nothing
     takeMVar (s ^. #done)
+    reportSinkError s
+    releaseStableRoot s
+
+releaseStableRoot :: TraceState -> IO ()
+releaseStableRoot s = do
+  msp <- atomicModifyIORef' (s ^. #stableRoot) (\sp -> (Nothing, sp))
+  forM_ msp freeStablePtr
+
+reportSinkError :: TraceState -> IO ()
+reportSinkError s = do
+  merr <- readIORef (s ^. #sinkError)
+  forM_ merr $ \e ->
+    hPutStrLn
+      stderr
+      ("baikai: trace sink failed; trace events for this call were dropped: " <> displayException e)
 
 traceEvent ::
   TraceState ->
@@ -228,7 +276,8 @@ traceEvent state eid start m ev = do
                     else Nothing
               }
       writeChan (state ^. #chan) (Just finished)
-      cleanupTrace state
+      writeIORef (state ^. #terminalSent) True
+      finalizeTrace state eid start m
     EventError TerminalPayload {message = msg} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
@@ -245,7 +294,8 @@ traceEvent state eid start m ev = do
                 errorMessage = errMsg
               }
       writeChan (state ^. #chan) (Just failed)
-      cleanupTrace state
+      writeIORef (state ^. #terminalSent) True
+      finalizeTrace state eid start m
     _ -> pure ()
   pure ev
 
@@ -331,13 +381,19 @@ millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
 -- Event id
 -- ============================================================
 
+-- | Generate a 16-character lowercase hexadecimal event id. The high
+-- 32 bits are derived from process-start POSIX seconds and the low
+-- 32 bits are a process-local counter, so ids are unique within a
+-- process for 2^32 calls.
 newEventId :: IO Text
 newEventId = do
   n <- atomicModifyIORef' eventCounter (\k -> (k + 1, k))
-  let raw :: Word
-      raw = (eventBase .&. 0xFFFF) `unsafeShiftL` 16 .|. (n .&. 0xFFFF)
+  let raw :: Word64
+      raw =
+        (fromIntegral eventBase .&. 0xFFFFFFFF) `unsafeShiftL` 32
+          .|. (fromIntegral n .&. 0xFFFFFFFF)
       hex = showHex raw ""
-      padded = replicate (8 - length hex) '0' <> hex
+      padded = replicate (16 - length hex) '0' <> hex
   pure (Text.pack padded)
 
 eventCounter :: IORef Word

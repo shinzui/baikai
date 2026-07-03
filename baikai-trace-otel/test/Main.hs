@@ -13,19 +13,23 @@ import Baikai.Provider (ApiProvider (..), registerApiProvider)
 import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.Trace (withTrace)
+import Baikai.Trace (withTrace, withTraceStream)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 import Baikai.Usage (Usage, _Usage)
+import Control.Concurrent (threadDelay)
 import Control.Exception (throwIO)
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, readIORef)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
 import OpenTelemetry.Trace.Core qualified as Otel
+import Streamly.Data.Stream qualified as Stream
+import System.Mem (performMajorGC)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase, (@?=))
 
@@ -35,7 +39,8 @@ main =
     testGroup
       "baikai-trace-otel"
       [ successSpanTest,
-        failureSpanTest
+        failureSpanTest,
+        abortSpanTest
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses
@@ -177,3 +182,41 @@ failureSpanTest =
         assertBool "has baikai.error" (HashMap.member "baikai.error" attrs)
         assertBool "has baikai.latency_ms" (HashMap.member "baikai.latency_ms" attrs)
       _ -> assertFailure "expected exactly one span"
+
+abortSpanTest :: TestTree
+abortSpanTest =
+  testCase "early abort closes the span with Error status" $ do
+    let a = Custom "baikai-otel-abort"
+    registerOk a
+    (tracer, getSpans) <- newTracerWithInMemory
+    let sink = otelSink tracer
+    emitted <-
+      Stream.toList
+        (Stream.take 1 (withTraceStream sink (stubModel a) stubContext stubOptions))
+    length emitted @?= 1
+    spans <- awaitSpans getSpans 1
+    assertEqual "exactly one span recorded" 1 (length spans)
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        case Otel.hotStatus hot of
+          Otel.Error msg ->
+            assertBool
+              ("expected abort message, got: " <> show msg)
+              ("aborted" `Text.isInfixOf` msg)
+          other -> assertFailure ("expected Error status, got: " <> show other)
+      _ -> assertFailure "expected exactly one span"
+
+-- The trace finalizer on an abandoned stream runs from streamly's GC hook.
+awaitSpans :: IO [Otel.ImmutableSpan] -> Int -> IO [Otel.ImmutableSpan]
+awaitSpans getSpans n = go (100 :: Int)
+  where
+    go 0 = do
+      spans <- getSpans
+      assertFailure ("timed out waiting for spans; got: " <> show (length spans))
+    go k = do
+      performMajorGC
+      spans <- getSpans
+      if length spans >= n
+        then pure spans
+        else threadDelay 50000 >> go (k - 1)
