@@ -72,10 +72,10 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M2: `shapeRequestBody` post-processor added to baikai-openai (maxTokensField rename, non-OpenAI thinkingFormat shapes, cacheControlFormat markers honoring supportsLongCacheRetention). (2026-07-03)
 - [x] M2: `supportsStrictMode` gates `response_format` strict; `supportsUsageInStreaming` gates `stream_options`; `max_completion_tokens` omitted when resolved cap is 0. (2026-07-03)
 - [x] M2: tool-call delta keying survives missing `index` (id-based and sequential fallback). (2026-07-03)
-- [ ] M3: local SSE raw-value send path (`Baikai.Provider.Claude.Sse`) in baikai-claude
-- [ ] M3: verbatim tool `input_schema` patch (including no-`properties` schemas) with round-trip tests
-- [ ] M3: `ToolChoiceNone` keeps `tools` and sends `tool_choice {"type":"none"}`
-- [ ] M3: `supportsCacheControlOnTools` attaches cache marker to the last tool definition
+- [x] M3: local SSE raw-value send path (`Baikai.Provider.Claude.Sse`) in baikai-claude. (2026-07-03)
+- [x] M3: verbatim tool `input_schema` patch (including no-`properties` schemas) with round-trip tests. (2026-07-03)
+- [x] M3: `ToolChoiceNone` keeps `tools` and sends `tool_choice {"type":"none"}`. (2026-07-03)
+- [x] M3: `supportsCacheControlOnTools` attaches cache marker to the last tool definition. (2026-07-03)
 - [ ] M4: process-global per-baseUrl `Manager` caches in both providers
 - [ ] M4: `Options.headers` + `Model.headers` + `sendSessionAffinityHeaders` reach the wire in both providers
 - [ ] M4: `Options.timeoutMs` bounds both providers' calls; stalling-socket tests pass
@@ -115,6 +115,13 @@ implementation. Provide concise evidence.
   contract for `supportsStrictMode = False` is "do not send strict", the M2 shaper
   deletes `response_format.json_schema.strict` on those hosts after typed request
   encoding. (2026-07-03, M2 implementation)
+- Claude tool cache-control marking now happens in the raw JSON shaper instead of
+  through the SDK's `withToolCacheControl` helper. This keeps all M3 tool-body rewrites
+  in one seam: first build the typed request, then replace each function tool's
+  lossy `input_schema` with the caller's verbatim schema, inject `tool_choice:
+  {"type":"none"}` when requested, and finally add the last-tool `cache_control`
+  marker when the compat flag allows it. The emitted cache-control JSON is the same
+  shape the SDK helper would serialize. (2026-07-03, M3 implementation)
 
 
 ## Decision Log
@@ -326,6 +333,21 @@ content index 0. Validation:
 ```text
 cabal test baikai-openai --test-show-details=direct
 baikai-openai: 47 tests passed
+```
+
+Milestone 3 completed on 2026-07-03. Claude streaming now sends a shaped raw
+`Aeson.Value` body through `claudeSseStreamValue`, preserving the local classified SSE
+error path while allowing request JSON patches the SDK types cannot express. Tool
+definitions keep the caller's verbatim `Tool.parameters` as `input_schema`, including
+schemas with no `properties` key and extra keys such as `$defs`. `ToolChoiceNone` no
+longer suppresses the `tools` field; the shaped body carries `tool_choice:
+{"type":"none"}`. When `supportsCacheControlOnTools` is true and cache retention is
+active, the last tool definition receives the computed Anthropic cache marker; flag
+false hosts receive no tool marker. Validation:
+
+```text
+cabal test baikai-claude --test-show-details=direct
+baikai-claude: 106 tests passed
 ```
 
 

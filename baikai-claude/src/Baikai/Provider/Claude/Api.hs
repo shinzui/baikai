@@ -45,7 +45,8 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Claude.ErrorClass (classifyErrorValue, classifyException)
-import Baikai.Provider.Claude.Sse (claudeSseStream)
+import Baikai.Provider.Claude.Shape (streamRequestBody)
+import Baikai.Provider.Claude.Sse (claudeSseStreamValue)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -152,13 +153,13 @@ claudeMessagesStream m ctx opts =
                 }
         pure (Stream.unfoldrM step initialState)
 
--- | Per-call prepared values: the typed SDK request, plus the
--- methods record to invoke the streaming endpoint.
+-- | Per-call prepared values, including the shaped JSON request body
+-- passed to the local streaming transport.
 data ClaudeCall = ClaudeCall
   { clientEnv :: !Client.ClientEnv,
     apiKey :: !Text,
     anthropicVersion :: !(Maybe Text),
-    request :: !Messages.CreateMessage
+    requestBody :: !Aeson.Value
   }
   deriving stock (Generic)
 
@@ -173,7 +174,9 @@ prepareCall m ctx opts = do
             "" -> "https://api.anthropic.com"
             u -> u
       env <- Claude.getClientEnv url
-      pure (Right ClaudeCall {clientEnv = env, apiKey = key, anthropicVersion = Just "2023-06-01", request = req})
+      let compat = anthropicMessagesCompatFor m
+          body = streamRequestBody compat ctx opts req
+      pure (Right ClaudeCall {clientEnv = env, apiKey = key, anthropicVersion = Just "2023-06-01", requestBody = body})
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
@@ -192,11 +195,11 @@ worker ::
 worker call ch = do
   r <-
     trySync $
-      claudeSseStream
+      claudeSseStreamValue
         (call ^. #clientEnv)
         (call ^. #apiKey)
         (call ^. #anthropicVersion)
-        (call ^. #request)
+        (call ^. #requestBody)
         (writeChan ch . Just)
   case r of
     Right () -> pure ()
@@ -633,14 +636,7 @@ mapRequest m ctx opts = do
         Just b -> clamp (baseTokens + b)
         Nothing -> clamp baseTokens
       cacheControlField = computeCacheControl compat (opts ^. #cacheRetention)
-      -- `ToolChoiceNone` is not a first-class Anthropic value; the
-      -- standard way to disable tool use on a per-call basis is to
-      -- omit the @tools@ field entirely. Suppress both fields when
-      -- the caller asked for `None`.
-      suppressTools = case opts ^. #toolChoice of
-        Just Tool.ToolChoiceNone -> True
-        _ -> False
-      toolsVec = if suppressTools then Vector.empty else ctx ^. #tools
+      toolsVec = ctx ^. #tools
       toolsField =
         if Vector.null toolsVec
           then Nothing
@@ -783,16 +779,16 @@ mkAnthropicTool _compat t =
     )
 
 -- | Map a baikai 'Tool.ToolChoice' into the upstream Anthropic
--- 'ClaudeTool.ToolChoice'. 'Tool.ToolChoiceNone' is handled at the
--- call site by suppressing the @tools@ field — it never reaches
--- this function. 'Tool.ToolChoiceRequired' maps to Anthropic's
+-- 'ClaudeTool.ToolChoice'. 'Tool.ToolChoiceNone' is handled by the
+-- raw request shaper because the SDK lacks a @none@ constructor.
+-- 'Tool.ToolChoiceRequired' maps to Anthropic's
 -- @any@ which is the closest equivalent ("must call some tool").
 mkAnthropicToolChoice :: Tool.ToolChoice -> ClaudeTool.ToolChoice
 mkAnthropicToolChoice = \case
   Tool.ToolChoiceAuto -> ClaudeTool.ToolChoice_Auto
   Tool.ToolChoiceRequired -> ClaudeTool.ToolChoice_Any
   Tool.ToolChoiceSpecific n -> ClaudeTool.ToolChoice_Tool {ClaudeTool.name = n}
-  -- Unreachable: ToolChoiceNone is suppressed in 'mapRequest'.
+  -- Unreachable in typed requests: ToolChoiceNone is injected by the shaper.
   Tool.ToolChoiceNone -> ClaudeTool.ToolChoice_Auto
 
 -- | Anthropic enforces @[a-zA-Z0-9_-]+@ on tool-call ids and caps

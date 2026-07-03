@@ -8,6 +8,7 @@
 -- classified 'BaikaiError' values.
 module Baikai.Provider.Claude.Sse
   ( claudeSseStream,
+    claudeSseStreamValue,
     sseFromResponse,
   )
 where
@@ -38,12 +39,21 @@ claudeSseStream ::
   Messages.CreateMessage ->
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
-claudeSseStream env apiKey anthropicVersion req onEvent = do
+claudeSseStream env apiKey anthropicVersion req =
+  claudeSseStreamValue env apiKey anthropicVersion (Aeson.toJSON req {Messages.stream = Just True})
+
+claudeSseStreamValue ::
+  Client.ClientEnv ->
+  Text ->
+  Maybe Text ->
+  Aeson.Value ->
+  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  IO ()
+claudeSseStreamValue env apiKey anthropicVersion requestBody onEvent = do
   let base = Client.baseUrl env
       secure = case Client.baseUrlScheme base of
         Client.Http -> False
         Client.Https -> True
-      req' = req {Messages.stream = Just True}
       request =
         HTTP.defaultRequest
           { HTTP.secure = secure,
@@ -52,7 +62,7 @@ claudeSseStream env apiKey anthropicVersion req onEvent = do
             HTTP.method = "POST",
             HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> "/v1/messages"),
             HTTP.requestHeaders = requestHeaders,
-            HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode req'),
+            HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
             -- EP-8 wires Options.timeoutMs through this local transport.
             HTTP.responseTimeout = HTTP.responseTimeoutNone
           }

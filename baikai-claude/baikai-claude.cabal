@@ -36,6 +36,7 @@ library
     Baikai.Provider.Claude.Cli
     Baikai.Provider.Claude.ErrorClass
     Baikai.Provider.Claude.Interactive
+    Baikai.Provider.Claude.Shape
     Baikai.Provider.Claude.Sse
 
   build-depends:
@@ -67,6 +68,7 @@ test-suite baikai-claude-test
   main-is:        Main.hs
   other-modules:
     ErrorClassSpec
+    ShapeSpec
     SseSpec
     ThinkingSpec
 

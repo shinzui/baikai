@@ -13,6 +13,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
+import ShapeSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
@@ -37,6 +38,7 @@ main =
         cliMissingBinaryTest,
         responseFormatMappingTest,
         ErrorClassSpec.tests,
+        ShapeSpec.tests,
         SseSpec.tests,
         ThinkingSpec.tests
       ]
