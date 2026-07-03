@@ -90,11 +90,11 @@ stubComplete t _ _ _ = pure (stubResponse t)
 -- 'EventStart' first, one text block, and one 'EventDone' last.
 stubEvents :: Text -> [AssistantMessageEvent]
 stubEvents t =
-  [ EventStart StartPayload {partial = AssistantMessage stubPayload},
+  [ EventStart StartPayload {partial = AssistantMessage stubPayload, responseId = Nothing},
     TextStart IndexPayload {contentIndex = 0},
     TextDelta DeltaPayload {contentIndex = 0, delta = t},
     TextEnd BlockEndPayload {contentIndex = 0, content = t},
-    EventDone (doneTerminal Stop (AssistantMessage (stubPayloadWith t)))
+    EventDone (doneTerminal Nothing Stop (AssistantMessage (stubPayloadWith t)))
   ]
 
 -- | The provider's streaming completion: ignore the request, emit fixed events.

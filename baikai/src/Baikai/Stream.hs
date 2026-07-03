@@ -51,6 +51,7 @@ import Baikai.Stream.Event
     IndexPayload (..),
     StartPayload (..),
     TerminalPayload (..),
+    ThinkingEndPayload (..),
     ToolCallEndPayload (..),
     doneTerminal,
     errorTerminal,
@@ -169,14 +170,12 @@ step s = \case
     s & #thinkBuf %~ IntMap.insert i Text.empty
   ThinkingDelta DeltaPayload {contentIndex = i, delta = d} ->
     s & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  ThinkingEnd BlockEndPayload {contentIndex = i, content = body} ->
+  ThinkingEnd ThinkingEndPayload {contentIndex = i, content = tc} ->
     s
       & #blocks
         %~ IntMap.insert
           i
-          ( AssistantThinking
-              ThinkingContent {thinking = body, signature = Nothing, redacted = False}
-          )
+          (AssistantThinking tc)
       & #thinkBuf %~ IntMap.delete i
   ToolCallStart IndexPayload {contentIndex = i} ->
     s & #toolArgsBuf %~ IntMap.insert i Text.empty
@@ -330,9 +329,9 @@ eventsFor startTs resp =
           | (i, b) <- zip [0 ..] blocks
           ]
       reason = payload ^. #stopReason
-   in [EventStart StartPayload {partial = skeleton}]
+   in [EventStart StartPayload {partial = skeleton, responseId = resp ^. #responseId}]
         <> blockEvents
-        <> [EventDone (doneTerminal reason msg)]
+        <> [EventDone (doneTerminal (resp ^. #responseId) reason msg)]
 
 blockEvent :: Int -> AssistantContent -> [AssistantMessageEvent]
 blockEvent i = \case
@@ -341,10 +340,10 @@ blockEvent i = \case
       TextDelta DeltaPayload {contentIndex = i, delta = t},
       TextEnd BlockEndPayload {contentIndex = i, content = t}
     ]
-  AssistantThinking ThinkingContent {thinking = t} ->
+  AssistantThinking th@ThinkingContent {thinking = t} ->
     [ ThinkingStart IndexPayload {contentIndex = i},
       ThinkingDelta DeltaPayload {contentIndex = i, delta = t},
-      ThinkingEnd BlockEndPayload {contentIndex = i, content = t}
+      ThinkingEnd ThinkingEndPayload {contentIndex = i, content = th}
     ]
   AssistantToolCall tc ->
     let argsText =
@@ -374,7 +373,7 @@ errorEvent e = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal ErrorReason msg mErr))
+  pure (EventError (errorTerminal Nothing ErrorReason msg mErr))
 
 -- | The single 'EventError' value used when no provider is
 -- registered for the model's API tag.
@@ -392,4 +391,4 @@ noProviderEvent m = do
               Msg.errorMessage = Just detail,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal ErrorReason msg (Just be)))
+  pure (EventError (errorTerminal Nothing ErrorReason msg (Just be)))

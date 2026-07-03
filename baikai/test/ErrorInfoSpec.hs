@@ -36,6 +36,7 @@ errStream _ _ _ =
           .~ Just "rate limited, slow down"
       term =
         errorTerminal
+          Nothing
           ErrorReason
           (AssistantMessage payload)
           (Just (rateLimited (Just 5) "rate limited, slow down"))

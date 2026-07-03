@@ -29,6 +29,7 @@ module Baikai.Stream.Event
     IndexPayload (..),
     DeltaPayload (..),
     BlockEndPayload (..),
+    ThinkingEndPayload (..),
     ToolCallEndPayload (..),
     TerminalPayload (..),
     doneTerminal,
@@ -37,7 +38,7 @@ module Baikai.Stream.Event
   )
 where
 
-import Baikai.Content (ToolCall)
+import Baikai.Content (ThinkingContent, ToolCall)
 import Baikai.Error (BaikaiError)
 import Baikai.Message (Message)
 import Baikai.StopReason (StopReason)
@@ -59,8 +60,9 @@ import GHC.Generics (Generic)
 -- partial (e.g. a @delta@ that throws on 'EventStart'); @-Wpartial-fields@
 -- flags that latent runtime hazard. Same-shaped constructors share one
 -- payload type ('IndexPayload', 'DeltaPayload', 'BlockEndPayload',
--- 'TerminalPayload'), so the payloads also collapse the repetition the
--- flat encoding spread across twelve constructors.
+-- 'ThinkingEndPayload', 'TerminalPayload'), so the payloads also
+-- collapse the repetition the flat encoding spread across twelve
+-- constructors.
 data AssistantMessageEvent
   = -- | The first event in every stream. The payload's 'partial' is an
     -- 'AssistantMessage' with empty content; downstream consumers that
@@ -79,8 +81,10 @@ data AssistantMessageEvent
     ThinkingStart IndexPayload
   | -- | A chunk of reasoning text appended to the thinking block.
     ThinkingDelta DeltaPayload
-  | -- | The thinking block at @contentIndex@ is closed.
-    ThinkingEnd BlockEndPayload
+  | -- | The thinking block at @contentIndex@ is closed. The payload
+    -- carries the full 'ThinkingContent', including provider
+    -- signature and redacted flag when available.
+    ThinkingEnd ThinkingEndPayload
   | -- | A tool-call content block is about to receive argument-JSON
     -- chunks. The tool's @id_@ and @name@ become known on this event
     -- when the upstream API delivers them up front (Anthropic), or on
@@ -107,9 +111,12 @@ data AssistantMessageEvent
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
--- | Payload of 'EventStart': the message skeleton observed up front.
-newtype StartPayload = StartPayload
-  { partial :: Message
+-- | Payload of 'EventStart': the message skeleton observed up front,
+-- plus the provider's message id when the provider learns it this
+-- early (Anthropic's @message_start.id@). 'Nothing' otherwise.
+data StartPayload = StartPayload
+  { partial :: !Message,
+    responseId :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -130,11 +137,22 @@ data DeltaPayload = DeltaPayload
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
--- | Payload of the text/thinking @_End@ events: the closed block's
--- fully concatenated 'content'.
+-- | Payload of the text @_End@ event: the closed block's fully
+-- concatenated 'content'.
 data BlockEndPayload = BlockEndPayload
   { contentIndex :: !Int,
     content :: !Text
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
+-- | Payload of 'ThinkingEnd': the closed thinking block in full —
+-- concatenated reasoning text plus the provider 'signature' and
+-- 'redacted' flag. The concatenation of the preceding
+-- 'ThinkingDelta's equals the payload's @content.thinking@.
+data ThinkingEndPayload = ThinkingEndPayload
+  { contentIndex :: !Int,
+    content :: !ThinkingContent
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -152,6 +170,9 @@ data ToolCallEndPayload = ToolCallEndPayload
 data TerminalPayload = TerminalPayload
   { reason :: !StopReason,
     message :: !Message,
+    -- | The provider's message id when known by stream end. Consumers
+    -- should prefer this over 'StartPayload.responseId'.
+    responseId :: !(Maybe Text),
     -- | Structured error detail for an 'EventError' terminal: the
     -- category, HTTP status, and any retry-after hint a caller needs to
     -- decide retry policy. 'Nothing' for a successful 'EventDone'
@@ -164,13 +185,15 @@ data TerminalPayload = TerminalPayload
 -- | Build a success terminal payload ('errorInfo' is always 'Nothing').
 -- Prefer this over the raw 'TerminalPayload' constructor so a new field
 -- can never be left uninitialised at a construction site.
-doneTerminal :: StopReason -> Message -> TerminalPayload
-doneTerminal r m = TerminalPayload {reason = r, message = m, errorInfo = Nothing}
+doneTerminal :: Maybe Text -> StopReason -> Message -> TerminalPayload
+doneTerminal rid r m =
+  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = Nothing}
 
 -- | Build an error terminal payload carrying optional structured error
 -- detail. Prefer this over the raw 'TerminalPayload' constructor.
-errorTerminal :: StopReason -> Message -> Maybe BaikaiError -> TerminalPayload
-errorTerminal r m e = TerminalPayload {reason = r, message = m, errorInfo = e}
+errorTerminal :: Maybe Text -> StopReason -> Message -> Maybe BaikaiError -> TerminalPayload
+errorTerminal rid r m e =
+  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = e}
 
 -- | 'True' when the event terminates the stream — exactly one
 -- 'EventDone' or 'EventError' is emitted per call.

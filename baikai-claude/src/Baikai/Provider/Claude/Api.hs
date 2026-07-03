@@ -54,6 +54,7 @@ import Baikai.Stream.Event
     DeltaPayload (..),
     IndexPayload (..),
     StartPayload (..),
+    ThinkingEndPayload (..),
     ToolCallEndPayload (..),
     doneTerminal,
     errorTerminal,
@@ -281,7 +282,7 @@ unexpectedEoS now mErr ass =
         Just be -> be ^. #message
         Nothing -> "claude stream ended without message_stop"
       msg = finalMessageOnError ass now errText
-   in (EventError (errorTerminal Stop.ErrorReason msg mErr), ass)
+   in (EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg mErr), ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
@@ -326,7 +327,7 @@ translate raw ass now = case raw of
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
         ass' = ass & #responseId .~ Just (mr ^. #id) & #usage .~ usage0
         skeleton = skeletonMessage ass' now
-     in ([EventStart StartPayload {partial = skeleton}], ass')
+     in ([EventStart StartPayload {partial = skeleton, responseId = Just (mr ^. #id)}], ass')
   Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
     handleBlockStart (fromIntegral idx) block ass
   Messages.Content_Block_Delta {Messages.index = idx, Messages.delta = d} ->
@@ -345,12 +346,12 @@ translate raw ass now = case raw of
      in ([], ass & #stopReason .~ stopR & #usage .~ u')
   Messages.Message_Stop ->
     let msg = finalMessage ass now
-     in ([EventDone (doneTerminal (ass ^. #stopReason) msg)], ass)
+     in ([EventDone (doneTerminal (ass ^. #responseId) (ass ^. #stopReason) msg)], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
         mErr = classifyErrorValue errVal
         msg = finalMessageOnError ass now errText
-     in ([EventError (errorTerminal Stop.ErrorReason msg mErr)], ass)
+     in ([EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg mErr)], ass)
 
 handleBlockStart ::
   Int ->
@@ -418,14 +419,14 @@ handleBlockStop i ass
           )
   | Just body <- IntMap.lookup i (ass ^. #thinkBuf) =
       let sig = IntMap.lookup i (ass ^. #thinkSig)
-          block =
-            Content.AssistantThinking
-              Content.ThinkingContent
-                { Content.thinking = body,
-                  Content.signature = if maybe True Text.null sig then Nothing else sig,
-                  Content.redacted = False
-                }
-       in ( [ThinkingEnd BlockEndPayload {contentIndex = i, content = body}],
+          thinkingContent =
+            Content.ThinkingContent
+              { Content.thinking = body,
+                Content.signature = if maybe True Text.null sig then Nothing else sig,
+                Content.redacted = False
+              }
+          block = Content.AssistantThinking thinkingContent
+       in ( [ThinkingEnd ThinkingEndPayload {contentIndex = i, content = thinkingContent}],
             ass
               & #closed %~ IntMap.insert i block
               & #thinkBuf %~ IntMap.delete i
@@ -520,7 +521,7 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Stop.ErrorReason msg (Just (invalidRequest errText))))
+  pure (EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText))))
 
 renderAnthropicError :: Value -> Text
 renderAnthropicError v = case v of

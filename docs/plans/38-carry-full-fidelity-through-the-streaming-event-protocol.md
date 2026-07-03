@@ -60,19 +60,25 @@ reading this plan's diff.
 
 ## Progress
 
-- [ ] M1: `ThinkingEndPayload` added; `ThinkingEnd` carries `ThinkingContent`
-      (`baikai/src/Baikai/Stream/Event.hs`)
-- [ ] M1: `responseId :: Maybe Text` added to `StartPayload` and `TerminalPayload`;
+- [x] M1: `ThinkingEndPayload` added; `ThinkingEnd` carries `ThinkingContent`
+      (`baikai/src/Baikai/Stream/Event.hs`) (2026-07-03)
+- [x] M1: `responseId :: Maybe Text` added to `StartPayload` and `TerminalPayload`;
       `doneTerminal`/`errorTerminal` take it as their first argument
-- [ ] M1: mechanical compile-through of `baikai/src/Baikai/Stream.hs` (step, blockEvent,
+      (2026-07-03)
+- [x] M1: mechanical compile-through of `baikai/src/Baikai/Stream.hs` (step, blockEvent,
       eventsFor) against the new payloads
-- [ ] M1: mechanical compile-through of `baikai-claude/src/Baikai/Provider/Claude/Api.hs`
+      (2026-07-03)
+- [x] M1: mechanical compile-through of `baikai-claude/src/Baikai/Provider/Claude/Api.hs`
       (populates `responseId` and full `ThinkingContent` — values already at hand)
-- [ ] M1: mechanical compile-through of `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`
+      (2026-07-03)
+- [x] M1: mechanical compile-through of `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`
       (passes `Nothing` for `responseId`)
-- [ ] M1: mechanical compile-through of `baikai-effectful/test/StubProvider.hs` and
+      (2026-07-03)
+- [x] M1: mechanical compile-through of `baikai-effectful/test/StubProvider.hs` and
       `baikai/test/ErrorInfoSpec.hs`
-- [ ] M1: `cabal build all --enable-tests` and all four test suites green
+      (2026-07-03)
+- [x] M1: `cabal build all --enable-tests` and all four test suites green
+      (2026-07-03)
 - [ ] M2: `ReassemblyState` reworked (wall-clock start, `responseId`, terminal record
       with done/error discriminator)
 - [ ] M2: terminal-authoritative content resolution in `finalizeState`

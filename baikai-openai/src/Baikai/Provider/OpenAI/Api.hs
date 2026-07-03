@@ -153,7 +153,7 @@ openaiChatStream m ctx opts =
         let initialState =
               ProducerState
                 { chan = ch,
-                  pending = [EventStart StartPayload {partial = skeletonStart m startTime}],
+                  pending = [EventStart StartPayload {partial = skeletonStart m startTime, responseId = Nothing}],
                   assembler = emptyAssembler m startTime,
                   finished = False,
                   terminalRef = tref,
@@ -509,7 +509,7 @@ translate ::
 translate chunk ass now
   | Just errMsg <- chunk ^. #error =
       let msg = finalMessage ass now (Just errMsg) Stop.ErrorReason
-       in ( [EventError (errorTerminal Stop.ErrorReason msg (classifyErrorText errMsg))],
+       in ( [EventError (errorTerminal Nothing Stop.ErrorReason msg (classifyErrorText errMsg))],
             ass & #errorMsg .~ Just errMsg
           )
   | otherwise =
@@ -684,7 +684,7 @@ closeOpenStream now mErr ass
       -- EventDone with the accumulated content + usage.
       let reason = ass ^. #stopReason
           msg = finalMessage ass now Nothing reason
-       in ([EventDone (doneTerminal reason msg)], ass)
+       in ([EventDone (doneTerminal Nothing reason msg)], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
       -- still-open blocks and emit EventError. When the worker stored a
@@ -697,7 +697,7 @@ closeOpenStream now mErr ass
             Just be -> be ^. #message
             Nothing -> "openai stream ended without finish_reason"
           msg = finalMessage ass2 now (Just errText) reason
-          errEv = EventError (errorTerminal reason msg mErr)
+          errEv = EventError (errorTerminal Nothing reason msg mErr)
        in (closeText <> closeTools <> [errEv], ass2)
 
 finalMessage ::
@@ -734,7 +734,7 @@ immediateError errText = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
-  pure (EventError (errorTerminal Stop.ErrorReason msg (Just (invalidRequest errText))))
+  pure (EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText))))
 
 -- ============================================================
 -- Request mapping (preserved from EP-2 with minor refactoring)
