@@ -42,12 +42,12 @@ requestHeadersTest :: TestTree
 requestHeadersTest =
   testCase "model and option headers reach the wire, options winning case-insensitively" $ do
     let model =
-          _Model
+          emptyModel
             & #headers .~ Map.fromList [("X-Trace", "model"), ("x-api-key", "model-key")]
         opts =
-          _Options
+          emptyOptions
             & #headers .~ Map.fromList [("x-trace", "option"), ("X-API-Key", "option-key")]
-        headers = Transport.requestHeaders "secret" (Just "2023-06-01") defaultAnthropicMessagesCompat _Context model opts
+        headers = Transport.requestHeaders "secret" (Just "2023-06-01") defaultAnthropicMessagesCompat emptyContext model opts
     header "X-Trace" headers @?= Just "option"
     header "x-api-key" headers @?= Just "option-key"
     header "anthropic-version" headers @?= Just "2023-06-01"
@@ -57,10 +57,10 @@ sessionAffinityTest =
   testCase "sendSessionAffinityHeaders adds a stable session header" $ do
     let compat = defaultAnthropicMessagesCompat {sendSessionAffinityHeaders = True}
         ctx =
-          _Context
+          emptyContext
             & #systemPrompt .~ Just "system"
             & #messages .~ Vector.singleton (user "first")
-        headers = Transport.requestHeaders "secret" Nothing compat ctx _Model _Options
+        headers = Transport.requestHeaders "secret" Nothing compat ctx emptyModel emptyOptions
         affinity = Transport.sessionAffinityValue ctx
     Text.length affinity @?= 64
     header "x-session-affinity" headers @?= Just affinity
@@ -79,7 +79,7 @@ unknownHostKeyTest :: TestTree
 unknownHostKeyTest =
   testCase "unknown hosts do not fall back to ANTHROPIC_API_KEY" $
     withEnv "ANTHROPIC_API_KEY" "anthropic-secret" $ do
-      result <- try (Transport.resolveKey "https://unknown.example" _Options) :: IO (Either BaikaiError Text.Text)
+      result <- try (Transport.resolveKey "https://unknown.example" emptyOptions) :: IO (Either BaikaiError Text.Text)
       case result of
         Left be -> be ^. #category @?= AuthError
         Right _ -> assertFailure "expected AuthError for unknown host"

@@ -11,12 +11,26 @@
 -- model identifier, or 'mkModel' to build a dispatchable record.
 module Baikai.Model
   ( -- * Model
-    Model (..),
+    Model,
+    modelId,
+    name,
+    api,
+    provider,
+    baseUrl,
+    reasoning,
+    input,
+    cost,
+    contextWindow,
+    maxOutputTokens,
+    headers,
+    compat,
+    emptyModel,
     _Model,
     mkModel,
 
     -- * Cost rates
     ModelCost (..),
+    zeroModelCost,
     _ModelCost,
 
     -- * Capabilities
@@ -116,8 +130,8 @@ data Model = Model
 
 -- | A zero 'ModelCost' across all rates. Useful as a default for
 -- models without published pricing (CLI providers, custom hosts).
-_ModelCost :: ModelCost
-_ModelCost =
+zeroModelCost :: ModelCost
+zeroModelCost =
   ModelCost
     { inputCost = 0,
       outputCost = 0,
@@ -127,8 +141,8 @@ _ModelCost =
 
 -- | A blank 'Model'. Useful as a record-update base for hand-rolled
 -- 'Model' values in tests and one-shot scripts.
-_Model :: Model
-_Model =
+emptyModel :: Model
+emptyModel =
   Model
     { modelId = "",
       name = "",
@@ -137,7 +151,7 @@ _Model =
       baseUrl = "",
       reasoning = False,
       input = [InputText],
-      cost = _ModelCost,
+      cost = zeroModelCost,
       contextWindow = 0,
       maxOutputTokens = 0,
       headers = Map.empty,
@@ -150,10 +164,18 @@ _Model =
 -- 'renderApi' of the tag, and all other fields come from '_Model'.
 mkModel :: Api -> Text -> Text -> Model
 mkModel apiTag modelId_ baseUrl_ =
-  _Model
+  emptyModel
     { modelId = modelId_,
       name = modelId_,
       api = apiTag,
       provider = renderApi apiTag,
       baseUrl = baseUrl_
     }
+
+{-# DEPRECATED _ModelCost "Use zeroModelCost instead." #-}
+_ModelCost :: ModelCost
+_ModelCost = zeroModelCost
+
+{-# DEPRECATED _Model "Use emptyModel instead." #-}
+_Model :: Model
+_Model = emptyModel

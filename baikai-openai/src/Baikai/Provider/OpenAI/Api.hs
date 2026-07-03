@@ -60,7 +60,7 @@ import Baikai.Compat
   )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
-import Baikai.Cost (_Cost)
+import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Message qualified as Msg
@@ -192,7 +192,7 @@ skeletonStart _m start =
   Msg.AssistantMessage
     Msg.AssistantPayload
       { Msg.content = Vector.empty,
-        Msg.usage = Usage._Usage,
+        Msg.usage = Usage.zeroUsage,
         Msg.stopReason = Stop.Stop,
         Msg.errorMessage = Nothing,
         Msg.timestamp = Just start
@@ -624,7 +624,7 @@ emptyAssembler m s =
       toolArgs = IntMap.empty,
       closed = IntMap.empty,
       nextContentIndex = 0,
-      usage = Usage._Usage,
+      usage = Usage.zeroUsage,
       stopReason = Stop.Stop,
       finishSeen = False,
       pendingError = Nothing,
@@ -808,7 +808,7 @@ rawUsageToUsage u =
           Usage.cacheWriteTokens = 0,
           Usage.reasoningTokens = u ^. #reasoningTokens,
           Usage.totalTokens = nonCached + out + cached,
-          Usage.cost = _Cost
+          Usage.cost = zeroCost
         }
 
 applyUsage :: Maybe RawUsage -> Assembler -> Assembler
@@ -975,7 +975,7 @@ immediateError err = do
         Msg.AssistantMessage
           Msg.AssistantPayload
             { Msg.content = Vector.empty,
-              Msg.usage = Usage._Usage,
+              Msg.usage = Usage.zeroUsage,
               Msg.stopReason = Stop.ErrorReason,
               Msg.errorMessage = Just errText,
               Msg.timestamp = Just now

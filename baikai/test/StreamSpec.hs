@@ -16,7 +16,7 @@ streamApi = Custom "baikai-stream-spec"
 
 streamModel :: Model
 streamModel =
-  _Model
+  emptyModel
     & #modelId
     .~ "stream-spec-model"
     & #api
@@ -25,10 +25,10 @@ streamModel =
     .~ "stream-spec"
 
 streamContext :: Context
-streamContext = _Context
+streamContext = emptyContext
 
 streamOptions :: Options
-streamOptions = _Options
+streamOptions = emptyOptions
 
 epoch :: UTCTime
 epoch = read "2000-01-01 00:00:00 UTC"
@@ -37,7 +37,7 @@ assistantPayload :: Vector AssistantContent -> StopReason -> Maybe Text -> UTCTi
 assistantPayload blocks sr err ts =
   AssistantPayload
     { content = blocks,
-      usage = _Usage,
+      usage = zeroUsage,
       stopReason = sr,
       errorMessage = err,
       timestamp = Just ts
@@ -49,7 +49,7 @@ assistantMessage blocks =
 
 responseWith :: Maybe Text -> [AssistantContent] -> Response
 responseWith rid blocks =
-  _Response
+  emptyResponse
     & #message
     .~ assistantPayload (Vector.fromList blocks) Stop Nothing epoch
     & #model

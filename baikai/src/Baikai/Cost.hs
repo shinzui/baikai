@@ -1,6 +1,8 @@
 module Baikai.Cost
   ( Cost (..),
     CostBreakdown (..),
+    zeroCost,
+    zeroCostBreakdown,
     _Cost,
     _CostBreakdown,
     usdAsScientific,
@@ -25,8 +27,8 @@ data Cost = Cost
   }
   deriving stock (Eq, Show, Generic)
 
-_CostBreakdown :: CostBreakdown
-_CostBreakdown =
+zeroCostBreakdown :: CostBreakdown
+zeroCostBreakdown =
   CostBreakdown
     { inputUsd = 0,
       outputUsd = 0,
@@ -34,8 +36,8 @@ _CostBreakdown =
       cachedWriteUsd = 0
     }
 
-_Cost :: Cost
-_Cost = Cost {usd = 0, breakdown = _CostBreakdown}
+zeroCost :: Cost
+zeroCost = Cost {usd = 0, breakdown = zeroCostBreakdown}
 
 -- Field-wise combination so callers can total per-call costs with
 -- '(<>)'/'mconcat'. 'mempty' reuses the existing zero value, so the
@@ -51,13 +53,13 @@ instance Semigroup CostBreakdown where
       }
 
 instance Monoid CostBreakdown where
-  mempty = _CostBreakdown
+  mempty = zeroCostBreakdown
 
 instance Semigroup Cost where
   a <> b = Cost {usd = usd a + usd b, breakdown = breakdown a <> breakdown b}
 
 instance Monoid Cost where
-  mempty = _Cost
+  mempty = zeroCost
 
 instance ToJSON CostBreakdown where
   toJSON cb =
@@ -80,3 +82,11 @@ usdAsScientific = ratToSci . usd
 
 ratToSci :: Rational -> Scientific
 ratToSci = fst . fromRationalRepetendUnlimited
+
+{-# DEPRECATED _CostBreakdown "Use zeroCostBreakdown instead." #-}
+_CostBreakdown :: CostBreakdown
+_CostBreakdown = zeroCostBreakdown
+
+{-# DEPRECATED _Cost "Use zeroCost instead." #-}
+_Cost :: Cost
+_Cost = zeroCost

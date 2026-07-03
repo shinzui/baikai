@@ -1,7 +1,7 @@
 module UsageSpec (tests) where
 
-import Baikai.Cost (Cost (..), CostBreakdown (..), _Cost, _CostBreakdown)
-import Baikai.Usage (Usage (..), sumUsage, _Usage)
+import Baikai.Cost (Cost (..), CostBreakdown (..), zeroCost, zeroCostBreakdown)
+import Baikai.Usage (Usage (..), sumUsage, zeroUsage)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -20,7 +20,7 @@ tests =
 -- | A non-trivial usage value for identity checks.
 u0 :: Usage
 u0 =
-  _Usage
+  zeroUsage
     { inputTokens = 10,
       outputTokens = 5,
       cacheReadTokens = 2,
@@ -51,7 +51,7 @@ identityTests =
     "monoid identity"
     [ testCase "mempty <> u == u" $ (mempty <> u0) @?= u0,
       testCase "u <> mempty == u" $ (u0 <> mempty) @?= u0,
-      testCase "mempty == _Usage" $ (mempty :: Usage) @?= _Usage
+      testCase "mempty == zeroUsage" $ (mempty :: Usage) @?= zeroUsage
     ]
 
 additionTests :: TestTree
@@ -59,8 +59,8 @@ additionTests =
   testGroup
     "field-wise addition"
     [ testCase "numeric fields add" $ do
-        let a = _Usage {inputTokens = 10, outputTokens = 5, cacheReadTokens = 2, cacheWriteTokens = 1, totalTokens = 15}
-            b = _Usage {inputTokens = 3, outputTokens = 1, cacheReadTokens = 4, cacheWriteTokens = 5, totalTokens = 4}
+        let a = zeroUsage {inputTokens = 10, outputTokens = 5, cacheReadTokens = 2, cacheWriteTokens = 1, totalTokens = 15}
+            b = zeroUsage {inputTokens = 3, outputTokens = 1, cacheReadTokens = 4, cacheWriteTokens = 5, totalTokens = 4}
             s = a <> b
         inputTokens s @?= 13
         outputTokens s @?= 6
@@ -83,8 +83,8 @@ reasoningTests =
         reasoningTokens (rJust 2 <> rJust 3) @?= Just 5
     ]
   where
-    rJust n = _Usage {reasoningTokens = Just n}
-    rNothing = _Usage {reasoningTokens = Nothing}
+    rJust n = zeroUsage {reasoningTokens = Just n}
+    rNothing = zeroUsage {reasoningTokens = Nothing}
 
 -- Provider mappings must uphold the documented field semantics:
 -- 'anthroUsageToBaikai' in baikai-claude/src/Baikai/Provider/Claude/Api.hs
@@ -95,7 +95,7 @@ documentedSemanticsTests =
     "documented field semantics"
     [ testCase "totalTokens sums disjoint billed classes and excludes reasoning double-count" $ do
         let u =
-              _Usage
+              zeroUsage
                 { inputTokens = 20,
                   outputTokens = 50,
                   cacheReadTokens = 80,
@@ -112,8 +112,8 @@ costTests =
   testGroup
     "cost totals add"
     [ testCase "usd and breakdown add" $ do
-        let a = _Usage {cost = costOf 1 0 0 0}
-            b = _Usage {cost = costOf 2 0 0 0}
+        let a = zeroUsage {cost = costOf 1 0 0 0}
+            b = zeroUsage {cost = costOf 2 0 0 0}
             c = cost (a <> b)
         usd c @?= 3 / 100
         inputUsd (breakdown c) @?= 3 / 100,
@@ -124,8 +124,8 @@ costTests =
         cachedInputUsd s @?= 10 / 100
         cachedWriteUsd s @?= 12 / 100,
       testCase "mempty cost is zero" $ do
-        (mempty :: Cost) @?= _Cost
-        (mempty :: CostBreakdown) @?= _CostBreakdown
+        (mempty :: Cost) @?= zeroCost
+        (mempty :: CostBreakdown) @?= zeroCostBreakdown
     ]
 
 sumUsageTests :: TestTree
@@ -133,9 +133,9 @@ sumUsageTests =
   testGroup
     "sumUsage"
     [ testCase "sumUsage equals chained <>" $ do
-        let u1 = _Usage {inputTokens = 1, totalTokens = 1}
-            u2 = _Usage {inputTokens = 2, totalTokens = 2}
-            u3 = _Usage {inputTokens = 3, totalTokens = 3}
+        let u1 = zeroUsage {inputTokens = 1, totalTokens = 1}
+            u2 = zeroUsage {inputTokens = 2, totalTokens = 2}
+            u3 = zeroUsage {inputTokens = 3, totalTokens = 3}
         sumUsage [u1, u2, u3] @?= (u1 <> u2 <> u3),
       testCase "sumUsage [] == mempty" $
         sumUsage [] @?= (mempty :: Usage)

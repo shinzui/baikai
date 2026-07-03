@@ -54,7 +54,7 @@ responseFormatMappingTest :: TestTree
 responseFormatMappingTest =
   testCase "responseFormat JsonSchema maps onto Anthropic output_config" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "claude-haiku-4-5-20251001"
             & #api .~ AnthropicMessages
             & #provider .~ "anthropic"
@@ -69,9 +69,9 @@ responseFormatMappingTest =
               "required" Aeson..= (["name", "age"] :: [Text.Text]),
               "additionalProperties" Aeson..= False
             ]
-        ctx = _Context
+        ctx = emptyContext
         opts =
-          _Options
+          emptyOptions
             & #responseFormat
               .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
     case mapRequest model ctx opts of
@@ -84,18 +84,18 @@ optionsMappingTest :: TestTree
 optionsMappingTest =
   testCase "sampling Options map onto Anthropic request fields" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "claude-haiku-4-5-20251001"
             & #api .~ AnthropicMessages
             & #provider .~ "anthropic"
         opts =
-          _Options
+          emptyOptions
             & #topP .~ Just 0.9
             & #stopSequences .~ Just (Vector.fromList ["END", "STOP"])
             & #seed .~ Just 7
             & #frequencyPenalty .~ Just 0.2
             & #presencePenalty .~ Just 0.3
-    case mapRequest model _Context opts of
+    case mapRequest model emptyContext opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right req -> do
         Messages.top_p req @?= Just 0.9
@@ -107,12 +107,12 @@ commandRenderingTest =
     let cfg =
           defaultClaudeInteractiveConfig
             { executable = "/bin/claude",
-              extraArgs = Vector.fromList ["--debug"]
+              extraArgs = ["--debug"]
             }
         req =
-          (_InteractiveLaunchRequest "inspect the repo")
+          (interactiveLaunchRequest "inspect the repo")
             & #systemPrompt .~ Just "Be terse."
-            & #model .~ Just "sonnet"
+            & #modelId .~ Just "sonnet"
             & #workingDir .~ Just "/work/project"
             & #extraDirs .~ ["/work/shared", "/work/docs"]
             & #safety .~ ClaudeAllowedTools ["Read", "Bash(git status)"]
@@ -143,15 +143,15 @@ batchCommandRenderingTest =
     let cfg =
           ClaudeCli.defaultClaudeCliConfig
             { ClaudeCli.executable = "/bin/claude",
-              ClaudeCli.extraArgs = Vector.fromList ["--allowedTools", "Read"]
+              ClaudeCli.extraArgs = ["--allowedTools", "Read"]
             }
         model =
-          _Model
+          emptyModel
             & #modelId .~ "sonnet"
             & #api .~ AnthropicMessagesCli
             & #provider .~ "anthropic"
         ctx =
-          _Context
+          emptyContext
             & #systemPrompt .~ Just "Be terse."
             & #messages .~ Vector.singleton (user "-begin with a dash")
     ClaudeCli.claudeCliCommand cfg model ctx
@@ -187,12 +187,12 @@ stderrFloodTest =
     reg <- newProviderRegistry
     registerApiProviderWith reg (ClaudeCli.claudeCliProvider ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = script})
     let model =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ AnthropicMessagesCli
             & #provider .~ "anthropic"
-        ctx = _Context & #messages .~ Vector.singleton (user "ping")
-    mResp <- timeout 30000000 (completeRequestWith reg model ctx _Options)
+        ctx = emptyContext & #messages .~ Vector.singleton (user "ping")
+    mResp <- timeout 30000000 (completeRequestWith reg model ctx emptyOptions)
     case mResp of
       Nothing -> assertFailure "deadlock: stderr was not drained concurrently"
       Just resp -> assistantText resp @?= "pong"
@@ -201,7 +201,7 @@ compatDetectionTest :: TestTree
 compatDetectionTest =
   testCase "Anthropic-compatible hosts auto-detect request-shaping compat flags" $ do
     let model =
-          _Model
+          emptyModel
             & #api .~ AnthropicMessages
             & #baseUrl .~ "https://api.fireworks.ai/inference/v1"
         compat = anthropicMessagesCompatFor model
@@ -213,13 +213,13 @@ rejectsImageToolResultsTest :: TestTree
 rejectsImageToolResultsTest =
   testCase "Claude API mapping rejects image tool-result blocks instead of dropping them" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "claude-test"
             & #api .~ AnthropicMessages
             & #provider .~ "anthropic"
         image = ImageContent {imageData = BS8.pack "png-bytes", mimeType = "image/png"}
         ctx =
-          _Context
+          emptyContext
             & #messages
               .~ Vector.singleton
                 ( ToolResultMessage
@@ -231,7 +231,7 @@ rejectsImageToolResultsTest =
                         timestamp = Just (read "2026-06-05 00:00:00 UTC")
                       }
                 )
-    events <- Stream.toList (claudeMessagesStream model ctx _Options)
+    events <- Stream.toList (claudeMessagesStream model ctx emptyOptions)
     assertErrorContract events
     case events of
       [ EventStart StartPayload {},
@@ -247,11 +247,11 @@ noKeyStreamTest =
   testCase "missing ANTHROPIC_API_KEY yields one terminal EventError" $
     withUnsetEnv "ANTHROPIC_API_KEY" $ do
       let model =
-            _Model
+            emptyModel
               & #modelId .~ "claude-test"
               & #api .~ AnthropicMessages
               & #provider .~ "anthropic"
-      events <- Stream.toList (claudeMessagesStream model _Context _Options)
+      events <- Stream.toList (claudeMessagesStream model emptyContext emptyOptions)
       assertErrorContract events
       case last events of
         EventError TerminalPayload {errorInfo = Just be} ->
@@ -266,12 +266,12 @@ cliMissingBinaryTest =
       reg
       (ClaudeCli.claudeCliProvider ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = "/nonexistent/claude-binary"})
     let model =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ AnthropicMessagesCli
             & #provider .~ "anthropic"
-        ctx = _Context & #messages .~ Vector.singleton (user "ping")
-    resp <- completeRequestWith reg model ctx _Options
+        ctx = emptyContext & #messages .~ Vector.singleton (user "ping")
+    resp <- completeRequestWith reg model ctx emptyOptions
     case responseError resp of
       Just be -> be ^. #category @?= OtherError
       Nothing -> assertFailure "expected missing binary to be returned in-band"

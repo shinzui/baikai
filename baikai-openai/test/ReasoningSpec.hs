@@ -169,13 +169,13 @@ replayDropsThinkingTest =
                           },
                       AssistantText (TextContent "visible")
                     ],
-                usage = _Usage,
+                usage = zeroUsage,
                 stopReason = Stop,
                 errorMessage = Nothing,
                 timestamp = Just testTime
               }
-        ctx = _Context & #messages .~ Vector.singleton msg
-    case mapRequest deepseek_deepseek_reasoner ctx _Options of
+        ctx = emptyContext & #messages .~ Vector.singleton msg
+    case mapRequest deepseek_deepseek_reasoner ctx emptyOptions of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right req -> case Vector.toList (requestMessages req) of
         [Chat.Assistant {Chat.assistant_content = Just parts}] ->

@@ -58,18 +58,18 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 
 Milestone 1 — constructor export policy, renames, consistency nits:
 
-- [ ] Read the Decision Logs of `docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md` (hard dependency) and `docs/plans/34…41` (soft) and record in this plan's Decision Log the final names/locations of EP-9's helpers and any field additions that change the export lists below.
-- [ ] Hide the `Options` constructor and rename `_Options` → `emptyOptions` in `baikai/src/Baikai/Options.hs` (deprecated alias kept).
-- [ ] Hide the `Context` constructor, rename `_Context` → `emptyContext`, and add the lawful `Semigroup`/`Monoid` instances in `baikai/src/Baikai/Context.hs` (skip the instances if EP-9 already added them).
-- [ ] Hide the `Model` constructor, rename `_Model` → `emptyModel` and `_ModelCost` → `zeroModelCost`, and delete `unModel` in `baikai/src/Baikai/Model.hs`.
-- [ ] Hide the `OpenAICompletionsCompat` and `AnthropicMessagesCompat` constructors and rewrite the "intentionally public in baikai 0.1" haddock in `baikai/src/Baikai/Compat.hs`.
-- [ ] Hide the `InteractiveLaunchRequest` constructor, rename its `model` field to `modelId`, and rename `_InteractiveLaunchRequest`/`_InteractiveLaunchResult` to `interactiveLaunchRequest`/`interactiveLaunchResult` in `baikai/src/Baikai/Interactive.hs`.
-- [ ] Hide the four CLI/interactive config constructors and change their `extraArgs` fields from `Vector Text` to `[Text]` in `baikai-claude/src/Baikai/Provider/Claude/Cli.hs`, `baikai-claude/src/Baikai/Provider/Claude/Interactive.hs`, `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs`, `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`.
-- [ ] Rename the remaining `_X` bases (`_Usage`, `_Cost`, `_CostBreakdown`, `_Response`, `_Tool`, `_TextContent`, `_ThinkingContent`, `_ToolCall`, `_ImageContent`, `_EmbeddingModel`) with deprecated aliases.
-- [ ] Change `latencyMs` from `Integer` to `Int` in `baikai/src/Baikai/Response.hs` and `baikai/src/Baikai/Trace/Event.hs` and sweep producers/consumers.
-- [ ] Update `baikai/gen/GenModels.hs` to emit record-update-style catalog entries and regenerate `baikai/src/Baikai/Models/Generated.hs`.
-- [ ] Sweep every in-repo use of the renamed values and hidden constructors (core src, `baikai/test`, `baikai-claude/test`, `baikai-openai/test`, `baikai-effectful/test`, `baikai-smoke/test`, `baikai-trace-otel/test`, `baikai-kit`) and get `cabal build all --enable-tests` and `cabal test all` green.
-- [ ] Add the surface-probe test module `baikai/test/SurfaceSpec.hs` and the documented repl check.
+- [x] Read the Decision Logs of `docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md` (hard dependency) and `docs/plans/34…41` (soft) and record in this plan's Decision Log the final names/locations of EP-9's helpers and any field additions that change the export lists below.
+- [x] Hide the `Options` constructor and rename `_Options` → `emptyOptions` in `baikai/src/Baikai/Options.hs` (deprecated alias kept).
+- [x] Hide the `Context` constructor, rename `_Context` → `emptyContext`, and add the lawful `Semigroup`/`Monoid` instances in `baikai/src/Baikai/Context.hs` (skip the instances if EP-9 already added them).
+- [x] Hide the `Model` constructor, rename `_Model` → `emptyModel` and `_ModelCost` → `zeroModelCost`, and delete `unModel` in `baikai/src/Baikai/Model.hs`.
+- [x] Hide the `OpenAICompletionsCompat` and `AnthropicMessagesCompat` constructors and rewrite the "intentionally public in baikai 0.1" haddock in `baikai/src/Baikai/Compat.hs`.
+- [x] Hide the `InteractiveLaunchRequest` constructor, rename its `model` field to `modelId`, and rename `_InteractiveLaunchRequest`/`_InteractiveLaunchResult` to `interactiveLaunchRequest`/`interactiveLaunchResult` in `baikai/src/Baikai/Interactive.hs`.
+- [x] Hide the four CLI/interactive config constructors and change their `extraArgs` fields from `Vector Text` to `[Text]` in `baikai-claude/src/Baikai/Provider/Claude/Cli.hs`, `baikai-claude/src/Baikai/Provider/Claude/Interactive.hs`, `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs`, `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`.
+- [x] Rename the remaining `_X` bases (`_Usage`, `_Cost`, `_CostBreakdown`, `_Response`, `_Tool`, `_TextContent`, `_ThinkingContent`, `_ToolCall`, `_ImageContent`, `_EmbeddingModel`) with deprecated aliases.
+- [x] Change `latencyMs` from `Integer` to `Int` in `baikai/src/Baikai/Response.hs` and `baikai/src/Baikai/Trace/Event.hs` and sweep producers/consumers.
+- [x] Update `baikai/gen/GenModels.hs` to emit record-update-style catalog entries and regenerate `baikai/src/Baikai/Models/Generated.hs`.
+- [x] Sweep every in-repo use of the renamed values and hidden constructors (core src, `baikai/test`, `baikai-claude/test`, `baikai-openai/test`, `baikai-effectful/test`, `baikai-smoke/test`, `baikai-trace-otel/test`, `baikai-kit`) and get `cabal build all --enable-tests` and `cabal test all` green.
+- [x] Add the surface-probe test module `baikai/test/SurfaceSpec.hs` and the documented repl check.
 
 Milestone 2 — internal namespacing and Prelude/umbrella policy:
 
@@ -101,11 +101,35 @@ Milestone 4 — documentation sweep, CHANGELOG, version bumps:
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Fixing `AssistantPayload.timestamp` to `Maybe UTCTime` in EP-9 left one trace-otel
+  fixture as `timestamp = read "2026-05-14 00:00:00 UTC"`. It compiled by inferring
+  `read :: String -> Maybe UTCTime` and failed only at runtime during `cabal test all`.
+  The fixture now uses `Just (read "2026-05-14 00:00:00 UTC")`.
+- The documented constructor-hidden check must be run from a downstream-style target,
+  not `cabal repl baikai`: the library REPL loads the defining modules and can display
+  internal constructors. `printf 'import Baikai.Options\n:t Options\n:quit\n' | cabal repl
+  baikai-test` rejects term-level `Options` as expected.
 
 
 ## Decision Log
 
+- Decision: EP-9 landed the helper surface in these final homes: `contextOf`,
+  `systemUser`, `addUser`, `addMessage`, and `addResponse` in `Baikai.Context`;
+  `flattenAssistantText` in `Baikai.Response`; `runToolLoop`, `runToolLoopWith`,
+  `completeText`, `newProviderRegistryFrom`, and `assertRegistered` in
+  `Baikai.Provider.Registry` and re-exported by `Baikai.Provider`;
+  `streamRequestEach`, `streamRequestEachWith`, `streamRequestList`, and
+  `streamRequestListWith` in `Baikai.Stream`; `ApiKeyEnvChain` in `Baikai.Auth`;
+  `mkModel` in `Baikai.Model`; first-class provider values
+  `claudeMessagesProvider`, `openaiChatProvider`,
+  `claudeCliProvider :: ClaudeCliConfig -> ApiProvider`, and
+  `codexCliProvider :: CodexCliConfig -> ApiProvider` in their provider modules.
+  `Options` also now carries `topP`, `stopSequences`, `seed`, `frequencyPenalty`,
+  and `presencePenalty`, and `unModel` has already been deleted.
+  Rationale: the first EP-10 milestone changes export lists and constructor policy, so
+  the prior plan's final public names must be treated as fixed inputs rather than
+  re-decided while doing the surface sweep.
+  Date: 2026-07-03
 - Decision: Rename the *entire* `_X` empty-base family, not just the three names the
   review calls out. Final names: `emptyOptions`, `emptyContext`, `emptyModel`,
   `emptyResponse`, `emptyTool`, `emptyTextContent`, `emptyThinkingContent`,

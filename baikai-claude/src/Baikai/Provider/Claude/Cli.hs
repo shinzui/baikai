@@ -14,7 +14,10 @@
 -- error-shaped responses; the masterplan's Decision Log records the
 -- reasoning.
 module Baikai.Provider.Claude.Cli
-  ( ClaudeCliConfig (..),
+  ( ClaudeCliConfig,
+    executable,
+    extraArgs,
+    workingDir,
     claudeCliCommand,
     defaultClaudeCliConfig,
     claudeCliProvider,
@@ -27,7 +30,7 @@ where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
-import Baikai.Context (Context (..))
+import Baikai.Context (Context)
 import Baikai.Error (BaikaiError, decodeError, processError, providerError)
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
@@ -42,7 +45,7 @@ import Baikai.Provider.Registry
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.Usage (_Usage)
+import Baikai.Usage (zeroUsage)
 import Control.Exception (SomeAsyncException (..), SomeException, displayException, fromException, throwIO, try)
 import Control.Lens ((^.))
 import Cradle
@@ -73,7 +76,7 @@ import GHC.Generics (Generic)
 -- | Configuration for the @claude -p@ subprocess.
 data ClaudeCliConfig = ClaudeCliConfig
   { executable :: !FilePath,
-    extraArgs :: !(Vector Text),
+    extraArgs :: ![Text],
     workingDir :: !(Maybe FilePath)
   }
   deriving stock (Eq, Show, Generic)
@@ -142,7 +145,7 @@ claudeCliCommand cfg m ctx =
       <> modelArgs m
       <> ["--output-format", "json", "--no-session-persistence"]
       <> systemPromptArgs ctx
-      <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+      <> fmap Text.unpack (cfg ^. #extraArgs)
       <> ["--", Text.unpack (Internal.renderPrompt ctx)]
   )
 
@@ -215,7 +218,7 @@ mkResponse m start end body =
     { Resp.message =
         AssistantPayload
           { content = Vector.singleton (AssistantText (TextContent body)),
-            usage = _Usage,
+            usage = zeroUsage,
             stopReason = Stop,
             errorMessage = Nothing,
             timestamp = Just end
@@ -228,7 +231,7 @@ mkResponse m start end body =
       Resp.errorInfo = Nothing
     }
 
-millisBetween :: UTCTime -> UTCTime -> Integer
+millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
 
 trySync :: IO a -> IO (Either SomeException a)

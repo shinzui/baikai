@@ -75,13 +75,13 @@ runStructuredCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
       pure False
     Just (envVar, key) -> do
       let ctx =
-            _Context
+            emptyContext
               & #systemPrompt .~ Just "Extract the person's name and age."
               & #messages
                 .~ Vector.singleton
                   (user "Ada Lovelace, the mathematician, was 36.")
           opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 256
               & #temperature .~ Just 0.0
               & #responseFormat

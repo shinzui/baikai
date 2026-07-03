@@ -40,10 +40,10 @@ requestHeadersTest :: TestTree
 requestHeadersTest =
   testCase "model and option headers reach the wire, options winning case-insensitively" $ do
     let model =
-          _Model
+          emptyModel
             & #headers .~ Map.fromList [("X-Trace", "model"), ("authorization", "model-auth")]
         opts =
-          _Options
+          emptyOptions
             & #headers .~ Map.fromList [("x-trace", "option"), ("Authorization", "option-auth")]
         headers = Transport.requestHeaders "secret" model opts
     header "X-Trace" headers @?= Just "option"
@@ -64,7 +64,7 @@ unknownHostKeyTest :: TestTree
 unknownHostKeyTest =
   testCase "unknown hosts do not fall back to OPENAI_API_KEY" $
     withEnv "OPENAI_API_KEY" "openai-secret" $ do
-      result <- try (Transport.resolveKey "https://unknown.example" _Options) :: IO (Either BaikaiError Text.Text)
+      result <- try (Transport.resolveKey "https://unknown.example" emptyOptions) :: IO (Either BaikaiError Text.Text)
       case result of
         Left be -> be ^. #category @?= AuthError
         Right _ -> assertFailure "expected AuthError for unknown host"

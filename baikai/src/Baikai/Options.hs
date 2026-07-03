@@ -33,7 +33,23 @@
 -- provider-agnostic structured-output preference — see
 -- 'Baikai.ResponseFormat'.
 module Baikai.Options
-  ( Options (..),
+  ( Options,
+    maxTokens,
+    temperature,
+    apiKey,
+    timeoutMs,
+    headers,
+    metadata,
+    toolChoice,
+    cacheRetention,
+    thinking,
+    responseFormat,
+    topP,
+    stopSequences,
+    seed,
+    frequencyPenalty,
+    presencePenalty,
+    emptyOptions,
     _Options,
   )
 where
@@ -71,8 +87,8 @@ data Options = Options
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
-_Options :: Options
-_Options =
+emptyOptions :: Options
+emptyOptions =
   Options
     { maxTokens = Nothing,
       temperature = Nothing,
@@ -90,3 +106,7 @@ _Options =
       frequencyPenalty = Nothing,
       presencePenalty = Nothing
     }
+
+{-# DEPRECATED _Options "Use emptyOptions instead." #-}
+_Options :: Options
+_Options = emptyOptions

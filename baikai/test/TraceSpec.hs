@@ -2,11 +2,11 @@ module TraceSpec (tests) where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
-import Baikai.Context (Context (..), _Context)
+import Baikai.Context (Context (..), emptyContext)
 import Baikai.Error (BaikaiError, providerError)
 import Baikai.Message (AssistantPayload (..), user)
-import Baikai.Model (Model (..), _Model)
-import Baikai.Options (Options, _Options)
+import Baikai.Model (Model (..), emptyModel)
+import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
 import Baikai.Provider (ApiProvider (..), registerApiProvider)
 import Baikai.Response (Response (..))
@@ -15,7 +15,7 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
-import Baikai.Usage (_Usage)
+import Baikai.Usage (zeroUsage)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Exception (throwIO)
@@ -47,7 +47,7 @@ tests =
 -- tests.
 stubModel :: Api -> Model
 stubModel a =
-  _Model
+  emptyModel
     & #modelId
     .~ "stub-1"
     & #api
@@ -58,10 +58,10 @@ stubModel a =
     .~ 16
 
 stubContext :: Context
-stubContext = _Context & #messages .~ V.fromList [user "hello"]
+stubContext = emptyContext & #messages .~ V.fromList [user "hello"]
 
 stubOptions :: Options
-stubOptions = _Options & #maxTokens .~ Just 16
+stubOptions = emptyOptions & #maxTokens .~ Just 16
 
 stubResponse :: Api -> Response
 stubResponse a =
@@ -69,7 +69,7 @@ stubResponse a =
     { message =
         AssistantPayload
           { content = V.singleton (AssistantText (TextContent "hi")),
-            usage = _Usage,
+            usage = zeroUsage,
             stopReason = Stop,
             errorMessage = Nothing,
             timestamp = Just (read "2026-05-14 00:00:00 UTC")

@@ -46,10 +46,10 @@ runDeepSeekMaxTokensCase = do
     Just (envVar, key) -> do
       let model = Models.deepseek_deepseek_chat & #maxOutputTokens .~ 64
           ctx =
-            _Context
+            emptyContext
               & #messages .~ Vector.singleton (user "Reply with the single word: pong.")
           opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 16
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
@@ -67,7 +67,7 @@ runClaudeVerbatimToolSchemaAndNoneCase = do
     Just (envVar, key) -> do
       let model = Models.anthropic_claude_haiku_4_5 & #maxOutputTokens .~ 1024
           lookupWeather =
-            _Tool
+            emptyTool
               { name = "lookup_weather",
                 description = "Return a compact weather report for a timezone.",
                 parameters =
@@ -90,13 +90,13 @@ runClaudeVerbatimToolSchemaAndNoneCase = do
                     ]
               }
           ctx0 =
-            _Context
+            emptyContext
               & #messages
                 .~ Vector.singleton
                   (user "Use lookup_weather for UTC, then report the result.")
               & #tools .~ Vector.singleton lookupWeather
           baseOpts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 1024
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
@@ -122,11 +122,11 @@ runOpenRouterHeadersCacheCase = do
     Just (envVar, key) -> do
       let model = Models.openrouter_openai_gpt_4o_mini & #maxOutputTokens .~ 64
           ctx =
-            _Context
+            emptyContext
               & #systemPrompt .~ Just "You are terse."
               & #messages .~ Vector.singleton (user "Reply with the single word: pong.")
           opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 32
               & #temperature .~ Just 0.0
               & #cacheRetention .~ Just CacheRetentionLong

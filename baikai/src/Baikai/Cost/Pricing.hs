@@ -4,7 +4,7 @@
 -- Pricing rates live on 'Baikai.Model.Model.cost' directly, so the
 -- computation collapses to a record-field access. Models without
 -- published pricing carry a zero 'Baikai.Model.ModelCost' (the
--- default in '_Model'), producing a zero 'Cost'.
+-- default in 'emptyModel'), producing a zero 'Cost'.
 module Baikai.Cost.Pricing
   ( computeCost,
     attachCost,

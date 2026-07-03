@@ -50,12 +50,12 @@ runAnthropicCase caseLabel caseModel thinkingLevel = do
       pure False
     Just (envVar, key) -> do
       let opts =
-            _Options
+            emptyOptions
               & #thinking .~ Just thinkingLevel
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
           ctx =
-            _Context
+            emptyContext
               & #systemPrompt .~ Just "Answer tersely."
               & #messages
                 .~ Vector.singleton
@@ -90,13 +90,13 @@ runDeepSeekCase = do
       pure False
     Just (envVar, key) -> do
       let opts =
-            _Options
+            emptyOptions
               & #thinking .~ Just ThinkingMedium
               & #maxTokens .~ Just 128
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
           ctx =
-            _Context
+            emptyContext
               & #systemPrompt .~ Just "Answer tersely."
               & #messages
                 .~ Vector.singleton

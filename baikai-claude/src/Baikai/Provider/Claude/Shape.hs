@@ -11,9 +11,9 @@ module Baikai.Provider.Claude.Shape
 where
 
 import Baikai.CacheRetention (CacheRetention (..))
-import Baikai.Compat (AnthropicMessagesCompat (..))
-import Baikai.Context (Context (..))
-import Baikai.Options (Options (..))
+import Baikai.Compat (AnthropicMessagesCompat (supportsCacheControlOnTools, supportsLongCacheRetention))
+import Baikai.Context (Context, tools)
+import Baikai.Options (Options, cacheRetention, toolChoice)
 import Baikai.Tool qualified as Tool
 import Claude.V1.Messages qualified as Messages
 import Data.Aeson (Value (..), (.=))
@@ -45,21 +45,24 @@ streamRequestBody compat ctx opts req =
   shapeRequestBody compat ctx opts (Aeson.toJSON req {Messages.stream = Just True})
 
 replaceToolSchemas :: Context -> Aeson.Value -> Aeson.Value
-replaceToolSchemas Context {tools = toolsVec}
+replaceToolSchemas ctx
   | Vector.null toolsVec = id
   | otherwise =
       mapObject $
         adjustKey (key "tools") $
           mapTools (Vector.toList toolsVec)
+  where
+    toolsVec = tools ctx
 
 injectToolChoiceNone :: Options -> Aeson.Value -> Aeson.Value
-injectToolChoiceNone Options {toolChoice = Just Tool.ToolChoiceNone} =
-  mapObject (KeyMap.insert (key "tool_choice") (Aeson.object ["type" .= ("none" :: Text)]))
-injectToolChoiceNone _ = id
+injectToolChoiceNone opts
+  | Just Tool.ToolChoiceNone <- toolChoice opts =
+      mapObject (KeyMap.insert (key "tool_choice") (Aeson.object ["type" .= ("none" :: Text)]))
+  | otherwise = id
 
 injectToolCacheControl :: AnthropicMessagesCompat -> Options -> Aeson.Value -> Aeson.Value
-injectToolCacheControl compat Options {cacheRetention = retentionOpt} body =
-  case (supportsCacheControlOnTools compat, retentionOpt) of
+injectToolCacheControl compat opts body =
+  case (supportsCacheControlOnTools compat, cacheRetention opts) of
     (True, Just retention)
       | Just marker <- cacheControlMarker compat retention ->
           mapObject (adjustKey (key "tools") (markLastTool marker)) body

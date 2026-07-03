@@ -14,7 +14,11 @@
 -- referenced by the @tools@ field, so 'Baikai.Tool' cannot itself
 -- depend on 'Context').
 module Baikai.Context
-  ( Context (..),
+  ( Context,
+    systemPrompt,
+    messages,
+    tools,
+    emptyContext,
     _Context,
     contextOf,
     systemUser,
@@ -47,8 +51,8 @@ data Context = Context
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
 
-_Context :: Context
-_Context =
+emptyContext :: Context
+emptyContext =
   Context
     { systemPrompt = Nothing,
       messages = V.empty,
@@ -64,17 +68,17 @@ instance Semigroup Context where
       }
 
 instance Monoid Context where
-  mempty = _Context
+  mempty = emptyContext
 
 -- | Build a context from an existing list of messages.
 contextOf :: [Message] -> Context
 contextOf msgs =
-  _Context {messages = V.fromList msgs}
+  emptyContext {messages = V.fromList msgs}
 
 -- | Build a context with a system prompt and one user message.
 systemUser :: Text -> Text -> Context
 systemUser sys prompt =
-  _Context
+  emptyContext
     { systemPrompt = Just sys,
       messages = V.singleton (user prompt)
     }
@@ -135,3 +139,7 @@ appendToolResultText ::
   IO Context
 appendToolResultText ctx resp dispatcher =
   appendToolResult ctx resp (fmap toolResultText . dispatcher)
+
+{-# DEPRECATED _Context "Use emptyContext instead." #-}
+_Context :: Context
+_Context = emptyContext

@@ -5,7 +5,12 @@
 -- 'Baikai.Api.OpenAICompletionsCli' handler with default config.
 -- 'registerWith' accepts a caller-supplied 'CodexCliConfig'.
 module Baikai.Provider.OpenAI.Cli
-  ( CodexCliConfig (..),
+  ( CodexCliConfig,
+    executable,
+    extraArgs,
+    workingDir,
+    skipGitRepoCheck,
+    ephemeral,
     codexCliCommand,
     codexCliPrompt,
     defaultCodexCliConfig,
@@ -34,7 +39,7 @@ import Baikai.Provider.Registry
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.Usage (_Usage)
+import Baikai.Usage (zeroUsage)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeAsyncException (..), SomeException, displayException, fromException, throwIO, try)
@@ -45,7 +50,6 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
-import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Streamly.Data.Stream (Stream)
@@ -57,7 +61,7 @@ import System.Process qualified as P
 -- | Configuration for the @codex exec --json@ subprocess.
 data CodexCliConfig = CodexCliConfig
   { executable :: !FilePath,
-    extraArgs :: !(Vector Text),
+    extraArgs :: ![Text],
     workingDir :: !(Maybe FilePath),
     skipGitRepoCheck :: !Bool,
     ephemeral :: !Bool
@@ -149,7 +153,7 @@ codexCliCommand cfg m ctx =
       <> ["--json"]
       <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
       <> ["--ephemeral" | cfg ^. #ephemeral]
-      <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+      <> fmap Text.unpack (cfg ^. #extraArgs)
       <> ["--", Text.unpack (codexCliPrompt ctx)]
   )
 
@@ -202,7 +206,7 @@ consume start m _ mOut mErr ph = do
                   AssistantPayload
                     { content =
                         Vector.singleton (AssistantText (TextContent (Text.strip body))),
-                      usage = _Usage,
+                      usage = zeroUsage,
                       stopReason = Stop,
                       errorMessage = Nothing,
                       timestamp = Just end
@@ -219,7 +223,7 @@ consume start m _ mOut mErr ph = do
       end <- getCurrentTime
       pure (Resp.errorResponse m end (millisBetween start end) err)
 
-millisBetween :: UTCTime -> UTCTime -> Integer
+millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
 
 trySync :: IO a -> IO (Either SomeException a)

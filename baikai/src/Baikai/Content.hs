@@ -28,6 +28,10 @@ module Baikai.Content
     ToolResultContent (..),
 
     -- * Smart defaults
+    emptyTextContent,
+    emptyThinkingContent,
+    emptyToolCall,
+    emptyImageContent,
     _TextContent,
     _ThinkingContent,
     _ToolCall,
@@ -118,27 +122,27 @@ data ToolResultContent
   | ToolResultImage !ImageContent
   deriving stock (Eq, Show, Generic)
 
-_TextContent :: TextContent
-_TextContent = TextContent {text = Text.empty}
+emptyTextContent :: TextContent
+emptyTextContent = TextContent {text = Text.empty}
 
-_ThinkingContent :: ThinkingContent
-_ThinkingContent =
+emptyThinkingContent :: ThinkingContent
+emptyThinkingContent =
   ThinkingContent
     { thinking = Text.empty,
       signature = Nothing,
       redacted = False
     }
 
-_ToolCall :: ToolCall
-_ToolCall =
+emptyToolCall :: ToolCall
+emptyToolCall =
   ToolCall
     { id_ = Text.empty,
       name = Text.empty,
       arguments = Null
     }
 
-_ImageContent :: ImageContent
-_ImageContent =
+emptyImageContent :: ImageContent
+emptyImageContent =
   ImageContent
     { imageData = BS.empty,
       mimeType = Text.empty
@@ -212,3 +216,19 @@ instance FromJSON ToolResultContent where
 
 instance ToJSON ToolResultContent where
   toJSON = genericToJSON contentSumOptions
+
+{-# DEPRECATED _TextContent "Use emptyTextContent instead." #-}
+_TextContent :: TextContent
+_TextContent = emptyTextContent
+
+{-# DEPRECATED _ThinkingContent "Use emptyThinkingContent instead." #-}
+_ThinkingContent :: ThinkingContent
+_ThinkingContent = emptyThinkingContent
+
+{-# DEPRECATED _ToolCall "Use emptyToolCall instead." #-}
+_ToolCall :: ToolCall
+_ToolCall = emptyToolCall
+
+{-# DEPRECATED _ImageContent "Use emptyImageContent instead." #-}
+_ImageContent :: ImageContent
+_ImageContent = emptyImageContent

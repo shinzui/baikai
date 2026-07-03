@@ -15,10 +15,18 @@ import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Compat
   ( CacheControlFormat (..),
     MaxTokensField (..),
-    OpenAICompletionsCompat (..),
+    OpenAICompletionsCompat
+      ( cacheControlFormat,
+        maxTokensField,
+        requiresThinkingAsText,
+        supportsLongCacheRetention,
+        supportsStrictMode,
+        supportsUsageInStreaming,
+        thinkingFormat
+      ),
     ThinkingFormat (..),
   )
-import Baikai.Options (Options (..))
+import Baikai.Options (Options, cacheRetention, thinking)
 import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
@@ -81,8 +89,8 @@ dropUnsupportedStrict compat
               mapObject (KeyMap.delete (key "strict"))
 
 injectThinkingShape :: OpenAICompletionsCompat -> Options -> Aeson.Value -> Aeson.Value
-injectThinkingShape compat Options {thinking = thinkingOpt} body =
-  case thinkingOpt of
+injectThinkingShape compat opts body =
+  case thinking opts of
     Nothing -> body
     Just lvl -> case thinkingFormat compat of
       ThinkingFormatOpenAI -> body
@@ -101,8 +109,8 @@ injectThinkingShape compat Options {thinking = thinkingOpt} body =
         insertTop "enable_thinking" (Bool True) body
 
 injectCacheControl :: OpenAICompletionsCompat -> Options -> Aeson.Value -> Aeson.Value
-injectCacheControl compat Options {cacheRetention = retentionOpt} body =
-  case (cacheControlFormat compat, retentionOpt) of
+injectCacheControl compat opts body =
+  case (cacheControlFormat compat, cacheRetention opts) of
     (Just CacheControlFormatAnthropic, Just retention)
       | Just marker <- cacheControlMarker compat retention ->
           mapObject

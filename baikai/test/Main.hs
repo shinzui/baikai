@@ -21,6 +21,7 @@ import HelpersSpec qualified
 import InteractiveSpec qualified
 import StreamSpec qualified
 import Streamly.Data.Stream qualified as Stream
+import SurfaceSpec qualified
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck (Gen)
@@ -36,7 +37,7 @@ testApi = Custom "baikai-test"
 
 testModel :: Model
 testModel =
-  _Model
+  emptyModel
     & #modelId
     .~ "test-model"
     & #name
@@ -57,11 +58,11 @@ testProvider :: Text -> Text -> ApiProvider
 testProvider providerName canned =
   let handler m _ctx _opts =
         pure $
-          _Response
+          emptyResponse
             & #message
             .~ AssistantPayload
               { content = V.singleton (AssistantText (TextContent canned)),
-                usage = _Usage,
+                usage = zeroUsage,
                 stopReason = Stop,
                 errorMessage = Nothing,
                 timestamp = Just (read "2026-06-05 00:00:00 UTC")
@@ -97,6 +98,7 @@ main = do
         HelpersSpec.tests,
         InteractiveSpec.tests,
         StreamSpec.tests,
+        SurfaceSpec.tests,
         TraceSpec.tests,
         UsageSpec.tests
       ]
@@ -105,39 +107,39 @@ tests :: TestTree
 tests =
   testGroup
     "baikai EP-2"
-    [ testCase "_Context defaults are zero-y" $ do
-        _Context ^. #systemPrompt @?= Nothing
-        V.length (_Context ^. #messages) @?= 0,
-      testCase "_Options defaults are zero-y" $ do
-        _Options ^. #maxTokens @?= Nothing
-        _Options ^. #temperature @?= Nothing
-        _Options ^. #apiKey @?= Nothing
-        _Options ^. #responseFormat @?= Nothing,
+    [ testCase "emptyContext defaults are zero-y" $ do
+        emptyContext ^. #systemPrompt @?= Nothing
+        V.length (emptyContext ^. #messages) @?= 0,
+      testCase "emptyOptions defaults are zero-y" $ do
+        emptyOptions ^. #maxTokens @?= Nothing
+        emptyOptions ^. #temperature @?= Nothing
+        emptyOptions ^. #apiKey @?= Nothing
+        emptyOptions ^. #responseFormat @?= Nothing,
       testCase "responseFormat round-trips through Options" $ do
-        responseFormat (_Options & #responseFormat .~ Just JsonObject)
+        responseFormat (emptyOptions & #responseFormat .~ Just JsonObject)
           @?= Just JsonObject
         let person =
               Aeson.object
                 [ "type" Aeson..= ("object" :: Text)
                 ]
             schemaFmt = JsonSchema {name = "person", schema = person, strict = True}
-        responseFormat (_Options & #responseFormat .~ Just schemaFmt)
+        responseFormat (emptyOptions & #responseFormat .~ Just schemaFmt)
           @?= Just schemaFmt,
       testCase "Options Show redacts literal API keys" $ do
         let secret = "sk-baikai-secret-never-print"
-            opts = _Options & #apiKey .~ Just (ApiKeyLiteral secret)
+            opts = emptyOptions & #apiKey .~ Just (ApiKeyLiteral secret)
         assertBool
           "show opts must not contain the raw API key"
           (not (secret `Text.isInfixOf` Text.pack (show opts))),
       testCase "Options JSON redacts literal API keys" $ do
         let secret = "sk-baikai-secret-never-print"
-            opts = _Options & #apiKey .~ Just (ApiKeyLiteral secret)
+            opts = emptyOptions & #apiKey .~ Just (ApiKeyLiteral secret)
         assertBool
           "Aeson.encode opts must not contain the raw API key"
           (not (secret `Text.isInfixOf` Text.pack (LBS8.unpack (Aeson.encode opts)))),
       testCase "completeRequest dispatches through the registered handler" $ do
-        let ctx = _Context & #messages .~ V.fromList [user "ping"]
-        resp <- completeRequest testModel ctx _Options
+        let ctx = emptyContext & #messages .~ V.fromList [user "ping"]
+        resp <- completeRequest testModel ctx emptyOptions
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hello from the test provider"))
         (resp ^. #model) ^. #modelId @?= "test-model"
@@ -147,9 +149,9 @@ tests =
         regB <- newProviderRegistry
         registerApiProviderWith regA (testProvider "provider-a" "hello from A")
         registerApiProviderWith regB (testProvider "provider-b" "hello from B")
-        let ctx = _Context & #messages .~ V.fromList [user "ping"]
-        respA <- completeRequestWith regA testModel ctx _Options
-        respB <- completeRequestWith regB testModel ctx _Options
+        let ctx = emptyContext & #messages .~ V.fromList [user "ping"]
+        respA <- completeRequestWith regA testModel ctx emptyOptions
+        respB <- completeRequestWith regB testModel ctx emptyOptions
         flattenAssistantBlocks respA
           @?= V.singleton (AssistantText (TextContent "hello from A"))
         flattenAssistantBlocks respB
@@ -159,14 +161,14 @@ tests =
       testCase "streamRequestWith dispatches through an explicit registry" $ do
         reg <- newProviderRegistry
         registerApiProviderWith reg (testProvider "stream-provider" "hello from stream")
-        let ctx = _Context & #messages .~ V.fromList [user "ping"]
-        events <- Stream.toList (streamRequestWith reg testModel ctx _Options)
+        let ctx = emptyContext & #messages .~ V.fromList [user "ping"]
+        events <- Stream.toList (streamRequestWith reg testModel ctx emptyOptions)
         resp <- Stream.fold (reassembleResponse testModel) (Stream.fromList events)
         flattenAssistantBlocks resp
           @?= V.singleton (AssistantText (TextContent "hello from stream")),
       testCase "OpenAI compat auto-detection drives provider request policy" $ do
         let deepseek =
-              _Model
+              emptyModel
                 & #api
                 .~ OpenAIChatCompletions
                 & #baseUrl
@@ -215,7 +217,7 @@ tests =
                   thinkingFormat = ThinkingFormatNone
                 }
             model =
-              _Model
+              emptyModel
                 & #api
                 .~ OpenAIChatCompletions
                 & #baseUrl
@@ -227,7 +229,7 @@ tests =
         compat ^. #thinkingFormat @?= ThinkingFormatNone,
       testCase "Anthropic compat auto-detection drives cache request policy" $ do
         let fireworks =
-              _Model
+              emptyModel
                 & #api
                 .~ AnthropicMessages
                 & #baseUrl
@@ -285,19 +287,19 @@ tests =
           _ -> error "expected UserMessage",
       testCase "appendToolResult carries text, image, and error payloads" $ do
         let textCall =
-              _ToolCall
+              emptyToolCall
                 { id_ = "call_text",
                   name = "text_tool",
                   arguments = Aeson.object []
                 }
             imageCall =
-              _ToolCall
+              emptyToolCall
                 { id_ = "call_image",
                   name = "image_tool",
                   arguments = Aeson.object []
                 }
             errorCall =
-              _ToolCall
+              emptyToolCall
                 { id_ = "call_error",
                   name = "error_tool",
                   arguments = Aeson.object []
@@ -311,16 +313,16 @@ tests =
                           AssistantToolCall imageCall,
                           AssistantToolCall errorCall
                         ],
-                    usage = _Usage,
+                    usage = zeroUsage,
                     stopReason = ToolUse,
                     errorMessage = Nothing,
                     timestamp = Just (read "2026-06-05 00:00:00 UTC")
                   }
-            resp = _Response & #message .~ assistantPayload
+            resp = emptyResponse & #message .~ assistantPayload
             assistantPayload = case assistantTurn of
               AssistantMessage p -> p
               _ -> error "expected assistant fixture"
-            ctx0 = _Context & #messages .~ V.singleton (user "use tools")
+            ctx0 = emptyContext & #messages .~ V.singleton (user "use tools")
             image = ImageContent {imageData = BS8.pack "png-bytes", mimeType = "image/png"}
             dispatcher tc = case tc ^. #name of
               "text_tool" -> pure (toolResultText "text result")

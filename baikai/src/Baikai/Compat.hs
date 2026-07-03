@@ -14,28 +14,37 @@
 -- on a per-'Baikai.Model.Model' record means the same provider
 -- handler can serve both hosts without any per-host code branching.
 --
--- These record constructors are intentionally public in baikai 0.1.
--- They are the supported escape hatch for hand-rolled models and
--- generated catalog overrides when a host speaks a familiar protocol
--- but rejects or requires a small request-shaping difference. New
--- fields or enum constructors may be added in later minor versions as
--- new provider quirks are discovered; callers that want fewer upgrade
--- edits should start from the @default*@ values and use record updates
--- rather than constructing every field from scratch.
+-- The records export their field selectors but not their data
+-- constructors. They are expected to grow as provider quirks are
+-- discovered, so callers should start from the @default*@ values and
+-- use record updates for the fields they need to override.
 --
 -- Auto-detection from a 'Baikai.Model.Model' @baseUrl@ provides
 -- reasonable defaults so callers rarely need to spell out a full
 -- compat record.
 module Baikai.Compat
   ( -- * OpenAI Chat Completions compat
-    OpenAICompletionsCompat (..),
+    OpenAICompletionsCompat
+      ( maxTokensField,
+        supportsStrictMode,
+        requiresThinkingAsText,
+        thinkingFormat,
+        cacheControlFormat,
+        supportsUsageInStreaming,
+        supportsLongCacheRetention
+      ),
     defaultOpenAICompletionsCompat,
     MaxTokensField (..),
     ThinkingFormat (..),
     CacheControlFormat (..),
 
     -- * Anthropic Messages compat
-    AnthropicMessagesCompat (..),
+    AnthropicMessagesCompat
+      ( supportsLongCacheRetention,
+        supportsCacheControlOnTools,
+        sendSessionAffinityHeaders,
+        thinkingStyle
+      ),
     AnthropicThinkingStyle (..),
     defaultAnthropicMessagesCompat,
     defaultAnthropicThinkingStyle,

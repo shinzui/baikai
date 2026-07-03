@@ -7,11 +7,20 @@
 module Baikai.Interactive
   ( InteractiveProvider (..),
     InteractiveScope (..),
-    InteractiveLaunchRequest (..),
+    InteractiveLaunchRequest,
+    systemPrompt,
+    userPrompt,
+    modelId,
+    workingDir,
+    extraDirs,
+    safety,
+    extraArgs,
     InteractiveSafety (..),
     CodexSandboxMode (..),
     CodexApprovalPolicy (..),
     InteractiveLaunchResult (..),
+    interactiveLaunchRequest,
+    interactiveLaunchResult,
     _InteractiveLaunchRequest,
     _InteractiveLaunchResult,
     renderInteractiveProvider,
@@ -43,7 +52,7 @@ data InteractiveScope
 data InteractiveLaunchRequest = InteractiveLaunchRequest
   { systemPrompt :: !(Maybe Text),
     userPrompt :: !Text,
-    model :: !(Maybe Text),
+    modelId :: !(Maybe Text),
     workingDir :: !(Maybe FilePath),
     extraDirs :: ![FilePath],
     safety :: !InteractiveSafety,
@@ -80,24 +89,32 @@ data InteractiveLaunchResult = InteractiveLaunchResult
   }
   deriving stock (Eq, Show, Generic)
 
-_InteractiveLaunchRequest :: Text -> InteractiveLaunchRequest
-_InteractiveLaunchRequest prompt =
+interactiveLaunchRequest :: Text -> InteractiveLaunchRequest
+interactiveLaunchRequest prompt =
   InteractiveLaunchRequest
     { systemPrompt = Nothing,
       userPrompt = prompt,
-      model = Nothing,
+      modelId = Nothing,
       workingDir = Nothing,
       extraDirs = [],
       safety = DefaultSafety,
       extraArgs = []
     }
 
-_InteractiveLaunchResult :: InteractiveProvider -> ExitCode -> InteractiveLaunchResult
-_InteractiveLaunchResult p code =
+interactiveLaunchResult :: InteractiveProvider -> ExitCode -> InteractiveLaunchResult
+interactiveLaunchResult p code =
   InteractiveLaunchResult
     { provider = p,
       exitCode = code
     }
+
+{-# DEPRECATED _InteractiveLaunchRequest "Use interactiveLaunchRequest instead." #-}
+_InteractiveLaunchRequest :: Text -> InteractiveLaunchRequest
+_InteractiveLaunchRequest = interactiveLaunchRequest
+
+{-# DEPRECATED _InteractiveLaunchResult "Use interactiveLaunchResult instead." #-}
+_InteractiveLaunchResult :: InteractiveProvider -> ExitCode -> InteractiveLaunchResult
+_InteractiveLaunchResult = interactiveLaunchResult
 
 renderInteractiveProvider :: InteractiveProvider -> Text
 renderInteractiveProvider InteractiveClaude = "claude"

@@ -6,7 +6,9 @@
 -- batch completion provider, while this module starts the interactive
 -- terminal UI and returns only after the CLI exits.
 module Baikai.Provider.OpenAI.Interactive
-  ( CodexInteractiveConfig (..),
+  ( CodexInteractiveConfig,
+    executable,
+    extraArgs,
     defaultCodexInteractiveConfig,
     codexInteractiveCommand,
     codexInteractivePrompt,
@@ -17,25 +19,24 @@ where
 import Baikai.Interactive
   ( CodexApprovalPolicy,
     CodexSandboxMode,
-    InteractiveLaunchRequest (..),
+    InteractiveLaunchRequest,
     InteractiveLaunchResult,
     InteractiveProvider (..),
     InteractiveSafety (..),
+    interactiveLaunchResult,
     renderCodexApprovalPolicy,
     renderCodexSandboxMode,
-    _InteractiveLaunchResult,
   )
 import Baikai.Prelude
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
-import Data.Vector qualified as Vector
 import System.Process qualified as P
 
 -- | Configuration for the interactive @codex@ process.
 data CodexInteractiveConfig = CodexInteractiveConfig
   { executable :: !FilePath,
-    extraArgs :: !(Vector Text)
+    extraArgs :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -56,7 +57,7 @@ codexInteractiveCommand cfg req =
       <> workingDirArgs req
       <> extraDirArgs req
       <> safetyArgs req
-      <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+      <> fmap Text.unpack (cfg ^. #extraArgs)
       <> fmap Text.unpack (req ^. #extraArgs)
       <> ["--", Text.unpack (codexInteractivePrompt req)]
   )
@@ -82,10 +83,10 @@ launchCodexInteractive cfg req = do
             P.cwd = req ^. #workingDir
           }
   code <- P.withCreateProcess spec (\_ _ _ ph -> P.waitForProcess ph)
-  pure (_InteractiveLaunchResult InteractiveCodex code)
+  pure (interactiveLaunchResult InteractiveCodex code)
 
 modelArgs :: InteractiveLaunchRequest -> [String]
-modelArgs req = case Text.strip <$> req ^. #model of
+modelArgs req = case Text.strip <$> req ^. #modelId of
   Nothing -> []
   Just "" -> []
   Just mid -> ["--model", Text.unpack mid]

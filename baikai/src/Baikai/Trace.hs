@@ -374,7 +374,7 @@ positiveNat n = Just n
 resolvedMaxTokens :: Model -> Options -> Natural
 resolvedMaxTokens m opts = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
 
-millisBetween :: UTCTime -> UTCTime -> Integer
+millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
 
 -- ============================================================

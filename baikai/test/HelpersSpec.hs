@@ -18,7 +18,7 @@ helpersApi = Custom "baikai-helpers-test"
 
 helpersModel :: Model
 helpersModel =
-  _Model
+  emptyModel
     & #modelId
     .~ "helpers-model"
     & #api
@@ -35,9 +35,9 @@ tests =
     "Baikai helpers"
     [ testCase "runToolLoop resolves repeated tool turns and leaves final response separate" $ do
         scripted <- newScripted [toolUseResponse "call_1" "get_time", toolUseResponse "call_2" "get_time", textResponse "done"] []
-        let ctx0 = addUser "start" _Context
+        let ctx0 = addUser "start" emptyContext
             dispatcher _ = pure (toolResultText "2026-06-05T00:00:00Z")
-        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 5 dispatcher helpersModel ctx0 _Options
+        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 5 dispatcher helpersModel ctx0 emptyOptions
         calls <- scriptCalls scripted
         calls @?= 3
         responseStop resp @?= Stop
@@ -46,7 +46,7 @@ tests =
         assertResolvedExchange "call_2" "2026-06-05T00:00:00Z" (Vector.toList (ctx1 ^. #messages) !! 3) (Vector.toList (ctx1 ^. #messages) !! 4),
       testCase "runToolLoop returns a replay-valid context on budget exhaustion" $ do
         scripted <- newScripted [toolUseResponse "call_1" "get_time", toolUseResponse "call_2" "get_time", textResponse "done"] []
-        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 2 (const (pure (toolResultText "ok"))) helpersModel (addUser "start" _Context) _Options
+        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 2 (const (pure (toolResultText "ok"))) helpersModel (addUser "start" emptyContext) emptyOptions
         calls <- scriptCalls scripted
         calls @?= 2
         responseStop resp @?= ToolUse
@@ -54,8 +54,8 @@ tests =
         assertResolvedExchange "call_1" "ok" (Vector.toList (ctx1 ^. #messages) !! 1) (Vector.toList (ctx1 ^. #messages) !! 2),
       testCase "runToolLoop returns an error response without appending it" $ do
         scripted <- newScripted [errorResponse helpersModel epoch 0 (providerError "broken")] []
-        let ctx0 = addUser "start" _Context
-        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 3 (const (pure (toolResultText "unused"))) helpersModel ctx0 _Options
+        let ctx0 = addUser "start" emptyContext
+        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 3 (const (pure (toolResultText "unused"))) helpersModel ctx0 emptyOptions
         calls <- scriptCalls scripted
         calls @?= 1
         ctx1 @?= ctx0
@@ -70,8 +70,8 @@ tests =
             3
             (\_ -> Exception.throwIO (userError "boom"))
             helpersModel
-            (addUser "start" _Context)
-            _Options
+            (addUser "start" emptyContext)
+            emptyOptions
         responseStop resp @?= Stop
         case Vector.toList (ctx1 ^. #messages) of
           [_, _, ToolResultMessage ToolResultPayload {content = blocks, isError = err}] -> do
@@ -80,8 +80,8 @@ tests =
           msgs -> assertFailure ("unexpected messages: " <> show msgs),
       testCase "runToolLoop terminates a ToolUse response with no tool calls" $ do
         scripted <- newScripted [toolUseNoCallsResponse] []
-        let ctx0 = addUser "start" _Context
-        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 3 (const (pure (toolResultText "unused"))) helpersModel ctx0 _Options
+        let ctx0 = addUser "start" emptyContext
+        (ctx1, resp) <- runToolLoopWith (scriptRegistry scripted) 3 (const (pure (toolResultText "unused"))) helpersModel ctx0 emptyOptions
         calls <- scriptCalls scripted
         calls @?= 1
         responseStop resp @?= ToolUse
@@ -109,10 +109,10 @@ tests =
         let events = textEvents "stream-id" "streamed"
         scripted <- newScripted [] events
         seenRef <- newIORef []
-        resp <- streamRequestEachWith (scriptRegistry scripted) (\event -> atomicModifyIORef' seenRef (\xs -> (xs <> [event], ()))) helpersModel _Context _Options
+        resp <- streamRequestEachWith (scriptRegistry scripted) (\event -> atomicModifyIORef' seenRef (\xs -> (xs <> [event], ()))) helpersModel emptyContext emptyOptions
         seen <- readIORef seenRef
-        expected <- streamingComplete (\_ _ _ -> Stream.fromList events) helpersModel _Context _Options
-        listed <- streamRequestListWith (scriptRegistry scripted) helpersModel _Context _Options
+        expected <- streamingComplete (\_ _ _ -> Stream.fromList events) helpersModel emptyContext emptyOptions
+        listed <- streamRequestListWith (scriptRegistry scripted) helpersModel emptyContext emptyOptions
         seen @?= events
         listed @?= events
         resp @?= expected,
@@ -150,7 +150,7 @@ tests =
         reg <-
           newProviderRegistryFrom
             [oneShotProvider helpersApi "first", oneShotProvider helpersApi "second"]
-        resp <- completeRequestWith reg helpersModel _Context _Options
+        resp <- completeRequestWith reg helpersModel emptyContext emptyOptions
         flattenAssistantText (flattenAssistantBlocks resp) @?= "second",
       testCase "assertRegistered passes when all tags exist and throws for missing tags" $ do
         reg <- newProviderRegistryFrom [oneShotProvider helpersApi "ok"]
@@ -239,7 +239,7 @@ toolUseResponse :: Text -> Text -> Response
 toolUseResponse callId toolName =
   responseWith
     ToolUse
-    (Vector.singleton (AssistantToolCall (_ToolCall {id_ = callId, name = toolName, arguments = Aeson.object []})))
+    (Vector.singleton (AssistantToolCall (emptyToolCall {id_ = callId, name = toolName, arguments = Aeson.object []})))
     Nothing
 
 toolUseNoCallsResponse :: Response
@@ -252,11 +252,11 @@ textResponse body =
 
 responseWith :: StopReason -> Vector AssistantContent -> Maybe Text -> Response
 responseWith sr blocks err =
-  _Response
+  emptyResponse
     & #message
     .~ AssistantPayload
       { content = blocks,
-        usage = _Usage,
+        usage = zeroUsage,
         stopReason = sr,
         errorMessage = err,
         timestamp = Just epoch
@@ -303,7 +303,7 @@ textEvents rid body =
         AssistantMessage
           AssistantPayload
             { content = Vector.singleton (AssistantText (TextContent body)),
-              usage = _Usage,
+              usage = zeroUsage,
               stopReason = Stop,
               errorMessage = Nothing,
               timestamp = Just epoch
@@ -312,7 +312,7 @@ textEvents rid body =
         AssistantMessage
           AssistantPayload
             { content = Vector.empty,
-              usage = _Usage,
+              usage = zeroUsage,
               stopReason = Stop,
               errorMessage = Nothing,
               timestamp = Just epoch

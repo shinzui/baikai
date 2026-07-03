@@ -44,8 +44,8 @@ deepseekShapeTest =
     value <-
       shapedBody
         Models.deepseek_deepseek_chat
-        (_Options & #thinking .~ Just ThinkingHigh)
-        _Context
+        (emptyOptions & #thinking .~ Just ThinkingHigh)
+        emptyContext
     lookupTop "max_completion_tokens" value @?= Nothing
     lookupTop "max_tokens" value @?= Just (Number 8192)
     lookupTop "thinking" value
@@ -56,10 +56,10 @@ openRouterCacheControlTest :: TestTree
 openRouterCacheControlTest =
   testCase "OpenRouter cache marker lands on the system content part with ttl" $ do
     let ctx =
-          _Context
+          emptyContext
             & #systemPrompt .~ Just "cache this prefix"
             & #messages .~ Vector.singleton (user "answer")
-        opts = _Options & #cacheRetention .~ Just CacheRetentionLong
+        opts = emptyOptions & #cacheRetention .~ Just CacheRetentionLong
     value <- shapedBody Models.openrouter_openai_gpt_4o_mini opts ctx
     systemCacheControl value
       @?= Just
@@ -74,10 +74,10 @@ strictModeGateTest =
   testCase "supportsStrictMode gates response_format json_schema strict" $ do
     let schema = Aeson.object ["type" .= ("object" :: Text.Text)]
         opts =
-          _Options
+          emptyOptions
             & #responseFormat
               .~ Just (JsonSchema {name = "shape", schema = schema, strict = True})
-    value <- shapedBody Models.deepseek_deepseek_chat opts _Context
+    value <- shapedBody Models.deepseek_deepseek_chat opts emptyContext
     lookupPath ["response_format", "json_schema", "strict"] value
       @?= Nothing
 
@@ -88,7 +88,7 @@ usageStreamingGateTest =
         model =
           Models.openai_gpt_4o_mini
             & #compat .~ CompatOpenAICompletions compat
-    value <- shapedBody model _Options _Context
+    value <- shapedBody model emptyOptions emptyContext
     lookupTop "stream" value @?= Just (Bool True)
     lookupTop "stream_options" value @?= Nothing
 
@@ -96,12 +96,12 @@ zeroCapOmissionTest :: TestTree
 zeroCapOmissionTest =
   testCase "unknown zero maxOutputTokens omits max_completion_tokens" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "custom"
             & #api .~ OpenAIChatCompletions
             & #provider .~ "custom"
             & #maxOutputTokens .~ 0
-    req <- either (assertFailure . Text.unpack) pure (mapRequest model _Context _Options)
+    req <- either (assertFailure . Text.unpack) pure (mapRequest model emptyContext emptyOptions)
     lookupTop "max_completion_tokens" (Aeson.toJSON req) @?= Nothing
 
 indexlessToolDeltaTest :: TestTree

@@ -18,13 +18,13 @@
 -- separately.
 --
 -- 'cost' is always populated — providers without pricing data fill it
--- with '_Cost' (zero across all rates) rather than a 'Nothing' that
+-- with 'zeroCost' (zero across all rates) rather than a 'Nothing' that
 -- every cost-reading caller would have to handle. 'Baikai.Cost.Pricing.computeCost'
 -- depends on the token classes being disjoint so each class is billed
 -- exactly once.
-module Baikai.Usage (Usage (..), _Usage, sumUsage) where
+module Baikai.Usage (Usage (..), zeroUsage, _Usage, sumUsage) where
 
-import Baikai.Cost (Cost, _Cost)
+import Baikai.Cost (Cost, zeroCost)
 import Data.Aeson
   ( Options (fieldLabelModifier),
     ToJSON (toJSON),
@@ -63,7 +63,7 @@ data Usage = Usage
     -- 'cacheWriteTokens'.
     totalTokens :: !Natural,
     -- | Computed cost for this usage. Providers without pricing data
-    -- use '_Cost'.
+    -- use 'zeroCost'.
     cost :: !Cost
   }
   deriving stock (Eq, Show, Generic)
@@ -74,8 +74,8 @@ usageOptions = defaultOptions {fieldLabelModifier = camelTo2 '_'}
 instance ToJSON Usage where toJSON = genericToJSON usageOptions
 
 -- | Empty usage with every count and cost set to zero.
-_Usage :: Usage
-_Usage =
+zeroUsage :: Usage
+zeroUsage =
   Usage
     { inputTokens = 0,
       outputTokens = 0,
@@ -83,7 +83,7 @@ _Usage =
       cacheWriteTokens = 0,
       reasoningTokens = Nothing,
       totalTokens = 0,
-      cost = _Cost
+      cost = zeroCost
     }
 
 -- | Combine two optional reasoning-token counts. Presence wins: an
@@ -107,8 +107,12 @@ instance Semigroup Usage where
       }
 
 instance Monoid Usage where
-  mempty = _Usage
+  mempty = zeroUsage
 
 -- | Total a collection of per-call usages into one.
 sumUsage :: (Foldable f) => f Usage -> Usage
 sumUsage = foldl' (<>) mempty
+
+{-# DEPRECATED _Usage "Use zeroUsage instead." #-}
+_Usage :: Usage
+_Usage = zeroUsage

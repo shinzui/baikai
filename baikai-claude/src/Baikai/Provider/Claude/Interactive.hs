@@ -6,7 +6,9 @@
 -- batch completion provider, while this module starts the interactive
 -- terminal UI and returns only after the CLI exits.
 module Baikai.Provider.Claude.Interactive
-  ( ClaudeInteractiveConfig (..),
+  ( ClaudeInteractiveConfig,
+    executable,
+    extraArgs,
     defaultClaudeInteractiveConfig,
     claudeInteractiveCommand,
     launchClaudeInteractive,
@@ -14,22 +16,21 @@ module Baikai.Provider.Claude.Interactive
 where
 
 import Baikai.Interactive
-  ( InteractiveLaunchRequest (..),
+  ( InteractiveLaunchRequest,
     InteractiveLaunchResult,
     InteractiveProvider (..),
     InteractiveSafety (..),
-    _InteractiveLaunchResult,
+    interactiveLaunchResult,
   )
 import Baikai.Prelude
 import Cradle (addArgs, cmd, run, setWorkingDir)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
-import Data.Vector qualified as Vector
 
 -- | Configuration for the interactive @claude@ process.
 data ClaudeInteractiveConfig = ClaudeInteractiveConfig
   { executable :: !FilePath,
-    extraArgs :: !(Vector Text)
+    extraArgs :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -52,7 +53,7 @@ claudeInteractiveCommand cfg req =
       <> systemPromptArgs req
       <> extraDirArgs req
       <> safetyArgs req
-      <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+      <> fmap Text.unpack (cfg ^. #extraArgs)
       <> fmap Text.unpack (req ^. #extraArgs)
       <> ["--", Text.unpack (req ^. #userPrompt)]
   )
@@ -68,10 +69,10 @@ launchClaudeInteractive cfg req = do
       cmd exe
         & addArgs args
         & maybe id setWorkingDir (req ^. #workingDir)
-  pure (_InteractiveLaunchResult InteractiveClaude code)
+  pure (interactiveLaunchResult InteractiveClaude code)
 
 modelArgs :: InteractiveLaunchRequest -> [String]
-modelArgs req = case Text.strip <$> req ^. #model of
+modelArgs req = case Text.strip <$> req ^. #modelId of
   Nothing -> []
   Just "" -> []
   Just mid -> ["--model", Text.unpack mid]

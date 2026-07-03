@@ -28,8 +28,8 @@ tests =
         case live of
           Just "1" -> do
             OpenAI.register
-            let ctx = _Context & #messages .~ V.singleton (user "Reply with a single word.")
-                opts = _Options & #maxTokens .~ Just 16
+            let ctx = emptyContext & #messages .~ V.singleton (user "Reply with a single word.")
+                opts = emptyOptions & #maxTokens .~ Just 16
             out <-
               runEff . runBaikai $ do
                 r <- complete openai_gpt_4o_mini ctx opts

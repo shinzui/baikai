@@ -38,7 +38,7 @@ import Baikai.Error (providerUnavailable)
 import Baikai.Message (AssistantPayload (..), ToolResult, toolResultErrorText, user)
 import Baikai.Model (Model)
 import Baikai.Model qualified as Model
-import Baikai.Options (Options, _Options)
+import Baikai.Options (Options, emptyOptions)
 import Baikai.Response (Response (..), errorResponse, flattenAssistantBlocks, flattenAssistantText, responseError)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event (AssistantMessageEvent)
@@ -202,7 +202,7 @@ runToolLoopWith reg budget dispatcher model ctx0 opts =
 -- 'Baikai.Error.BaikaiError' when the response is error-shaped.
 completeText :: Model -> Text -> IO Text
 completeText model prompt = do
-  resp <- completeRequest model (contextOf [user prompt]) _Options
+  resp <- completeRequest model (contextOf [user prompt]) emptyOptions
   case responseError resp of
     Just err -> Exception.throwIO err
     Nothing -> pure (flattenAssistantText (flattenAssistantBlocks resp))

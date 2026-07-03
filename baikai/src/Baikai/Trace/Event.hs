@@ -51,7 +51,7 @@ data TraceEvent
         timestamp :: !UTCTime,
         provider :: !Text,
         model :: !Text,
-        latencyMs :: !Integer,
+        latencyMs :: !Int,
         inputTokens :: !(Maybe Natural),
         outputTokens :: !(Maybe Natural),
         usd :: !(Maybe Scientific)
@@ -61,7 +61,7 @@ data TraceEvent
         timestamp :: !UTCTime,
         provider :: !Text,
         model :: !Text,
-        latencyMs :: !Integer,
+        latencyMs :: !Int,
         errorMessage :: !Text
       }
   deriving stock (Eq, Show, Generic)

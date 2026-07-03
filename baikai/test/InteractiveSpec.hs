@@ -18,11 +18,11 @@ tests =
 
 requestDefaultTest :: TestTree
 requestDefaultTest =
-  testCase "_InteractiveLaunchRequest keeps optional launch settings empty" $ do
-    let req = _InteractiveLaunchRequest "start here"
+  testCase "interactiveLaunchRequest keeps optional launch settings empty" $ do
+    let req = interactiveLaunchRequest "start here"
     req ^. #systemPrompt @?= Nothing
     req ^. #userPrompt @?= "start here"
-    req ^. #model @?= Nothing
+    req ^. #modelId @?= Nothing
     req ^. #workingDir @?= Nothing
     req ^. #extraDirs @?= []
     req ^. #safety @?= DefaultSafety
@@ -49,7 +49,7 @@ codexSafetyRenderingTest =
 
 resultConstructorTest :: TestTree
 resultConstructorTest =
-  testCase "_InteractiveLaunchResult records provider identity and process status" $ do
-    let result = _InteractiveLaunchResult InteractiveCodex ExitSuccess
+  testCase "interactiveLaunchResult records provider identity and process status" $ do
+    let result = interactiveLaunchResult InteractiveCodex ExitSuccess
     result ^. #provider @?= InteractiveCodex
     result ^. #exitCode @?= ExitSuccess

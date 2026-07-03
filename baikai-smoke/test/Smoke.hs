@@ -104,7 +104,7 @@ apiCases =
 
 sampleContext :: Context
 sampleContext =
-  _Context
+  emptyContext
     & #systemPrompt .~ Just "You are terse."
     & #messages .~ Vector.singleton (user "Reply with the single word: pong.")
 
@@ -122,7 +122,7 @@ runApiCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
       pure False
     Just (envVar, key) -> do
       let opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 16
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
@@ -158,7 +158,7 @@ runStreamCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
     Nothing -> pure False
     Just (envVar, key) -> do
       let opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 32
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
@@ -223,7 +223,7 @@ cliCases =
       { cliLabel = "sonnet",
         cliBinary = "claude",
         cliModel =
-          _Model
+          emptyModel
             & #modelId .~ "sonnet"
             & #api .~ AnthropicMessagesCli
             & #provider .~ "anthropic"
@@ -232,7 +232,7 @@ cliCases =
       { cliLabel = "<codex-default>",
         cliBinary = "codex",
         cliModel =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ OpenAICompletionsCli
             & #provider .~ "openai"
@@ -252,7 +252,7 @@ runCliCase CliCase {cliLabel, cliBinary, cliModel} = do
           <> "."
       pure False
     Just path -> do
-      resp <- completeRequest cliModel sampleContext _Options
+      resp <- completeRequest cliModel sampleContext emptyOptions
       let blocks = flattenAssistantBlocks resp
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
@@ -300,13 +300,13 @@ runImageCase = do
             Models.anthropic_claude_haiku_4_5
               & #maxOutputTokens .~ 64
           ctx =
-            _Context
+            emptyContext
               & #systemPrompt .~ Just "Reply in one word."
               & #messages
                 .~ Vector.singleton
                   (userImage img (Just "What single colour is this image?"))
           opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 64
               & #temperature .~ Just 0.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))

@@ -91,7 +91,7 @@ data CallLogEntry = CallLogEntry
     cachedInputTokens :: !(Maybe Natural),
     reasoningTokens :: !(Maybe Natural),
     usd :: !(Maybe Scientific),
-    latencyMs :: !Integer,
+    latencyMs :: !Int,
     promptSummary :: !Text
   }
   deriving stock (Eq, Show, Generic)

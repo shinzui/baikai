@@ -2,7 +2,7 @@ module CostSpec (tests) where
 
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
-import Baikai.Context (Context (..), _Context)
+import Baikai.Context (Context (..), emptyContext)
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogConfig (..),
@@ -13,8 +13,8 @@ import Baikai.Cost.Log
   )
 import Baikai.Cost.Pricing (attachCost, computeCost)
 import Baikai.Message (AssistantPayload (..), user)
-import Baikai.Model (Model (..), ModelCost (..), _Model)
-import Baikai.Options (Options, _Options)
+import Baikai.Model (Model (..), ModelCost (..), emptyModel)
+import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
 import Baikai.Provider
   ( ApiProvider (..),
@@ -23,7 +23,7 @@ import Baikai.Provider
 import Baikai.Response (Response (..), flattenAssistantBlocks)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.Usage (Usage, _Usage)
+import Baikai.Usage (Usage, zeroUsage)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
@@ -50,7 +50,7 @@ tests =
 -- 1000*(1/1_000_000) + 500*(5/1_000_000) = 7/2000 USD.
 sampleUsage :: Usage
 sampleUsage =
-  _Usage
+  zeroUsage
     & #inputTokens
     .~ 1000
     & #outputTokens
@@ -61,7 +61,7 @@ sampleUsage =
 -- cache-read $0.10/M, cache-write $1.25/M.
 knownModel :: Model
 knownModel =
-  _Model
+  emptyModel
     & #modelId
     .~ "claude-haiku-4-5-20251001"
     & #api
@@ -78,7 +78,7 @@ knownModel =
 
 unknownModel :: Model
 unknownModel =
-  _Model
+  emptyModel
     & #modelId
     .~ "totally-fake-model"
     & #api
@@ -97,14 +97,14 @@ computeTests =
       testCase "cacheReadTokens contribute when present" $ do
         let u :: Usage
             u =
-              _Usage
+              zeroUsage
                 & #cacheReadTokens
                 .~ 1000
         Cost.usd (computeCost knownModel u) @?= 1 / 10000,
       testCase "cacheWriteTokens contribute against the known model" $ do
         let u :: Usage
             u =
-              _Usage
+              zeroUsage
                 & #cacheWriteTokens
                 .~ 1000
         Cost.usd (computeCost knownModel u) @?= 1 / 800
@@ -184,10 +184,10 @@ cannedModel :: Model
 cannedModel = knownModel & #api .~ cannedApi
 
 ctxHello :: Context
-ctxHello = _Context & #messages .~ V.fromList [user "Hello world"]
+ctxHello = emptyContext & #messages .~ V.fromList [user "Hello world"]
 
 optsZero :: Options
-optsZero = _Options
+optsZero = emptyOptions
 
 callLogTests :: TestTree
 callLogTests =

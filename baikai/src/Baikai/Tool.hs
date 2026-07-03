@@ -20,6 +20,7 @@
 module Baikai.Tool
   ( Tool (..),
     ToolChoice (..),
+    emptyTool,
     _Tool,
   )
 where
@@ -76,10 +77,14 @@ instance ToJSON ToolChoice where
   toJSON = genericToJSON toolChoiceOptions
 
 -- | An empty tool — useful as a base for record updates.
-_Tool :: Tool
-_Tool =
+emptyTool :: Tool
+emptyTool =
   Tool
     { name = Text.empty,
       description = Text.empty,
       parameters = Null
     }
+
+{-# DEPRECATED _Tool "Use emptyTool instead." #-}
+_Tool :: Tool
+_Tool = emptyTool

@@ -44,7 +44,7 @@ import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Compat (AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
-import Baikai.Cost (_Cost)
+import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Message qualified as Msg
@@ -333,7 +333,7 @@ emptyAssembler m s =
       redactedBuf = IntMap.empty,
       toolArgsBuf = IntMap.empty,
       toolMeta = IntMap.empty,
-      usage = Usage._Usage,
+      usage = Usage.zeroUsage,
       stopReason = Stop.Stop
     }
 
@@ -587,7 +587,7 @@ immediateError err = do
         Msg.AssistantMessage
           Msg.AssistantPayload
             { Msg.content = Vector.empty,
-              Msg.usage = Usage._Usage,
+              Msg.usage = Usage.zeroUsage,
               Msg.stopReason = Stop.ErrorReason,
               Msg.errorMessage = Just errText,
               Msg.timestamp = Just now
@@ -632,7 +632,7 @@ anthroUsageToBaikai u =
           Usage.cacheWriteTokens = cw,
           Usage.reasoningTokens = Nothing,
           Usage.totalTokens = i + o + cr + cw,
-          Usage.cost = _Cost
+          Usage.cost = zeroCost
         }
 
 -- ============================================================

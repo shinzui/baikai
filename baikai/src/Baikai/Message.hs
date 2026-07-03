@@ -70,7 +70,7 @@ import Baikai.Content
     UserContent (..),
   )
 import Baikai.StopReason (StopReason (..))
-import Baikai.Usage (Usage, _Usage)
+import Baikai.Usage (Usage, zeroUsage)
 import Data.Aeson (ToJSON)
 import Data.Text (Text)
 import Data.Time (UTCTime, getCurrentTime)
@@ -201,7 +201,7 @@ assistant t =
   AssistantMessage
     AssistantPayload
       { content = V.singleton (AssistantText (TextContent t)),
-        usage = _Usage,
+        usage = zeroUsage,
         stopReason = Stop,
         errorMessage = Nothing,
         timestamp = Nothing
@@ -213,7 +213,7 @@ assistantAt ts t =
   AssistantMessage
     AssistantPayload
       { content = V.singleton (AssistantText (TextContent t)),
-        usage = _Usage,
+        usage = zeroUsage,
         stopReason = Stop,
         errorMessage = Nothing,
         timestamp = Just ts

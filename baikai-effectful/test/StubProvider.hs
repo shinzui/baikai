@@ -30,7 +30,7 @@ stubApi = Custom "stub"
 -- | A hand-built 'Model' whose 'api' routes to the stub provider.
 stubModel :: Model
 stubModel =
-  _Model
+  emptyModel
     & #api
     .~ stubApi
     & #modelId
@@ -42,27 +42,27 @@ stubModel =
 
 -- | A minimal request context (one user turn).
 stubContext :: Context
-stubContext = _Context & #messages .~ V.singleton (user "ping")
+stubContext = emptyContext & #messages .~ V.singleton (user "ping")
 
 -- | Default request options.
 stubOptions :: Options
-stubOptions = _Options
+stubOptions = emptyOptions
 
 -- | A blank assistant payload with a fixed (epoch) timestamp, reused as the base
 -- for both the streaming skeleton and the terminal message so nothing varies run
--- to run. Borrowed from baikai's '_Response' fixture base.
+-- to run. Borrowed from baikai's 'emptyResponse' fixture base.
 stubPayload :: AssistantPayload
-stubPayload = _Response ^. #message
+stubPayload = emptyResponse ^. #message
 
 -- | An assistant payload carrying the given text as its single text block.
 stubPayloadWith :: Text -> AssistantPayload
 stubPayloadWith t =
-  stubPayload & #content .~ V.singleton (AssistantText (_TextContent & #text .~ t))
+  stubPayload & #content .~ V.singleton (AssistantText (emptyTextContent & #text .~ t))
 
 -- | A fixed assistant response carrying the given text as its single text block.
 stubResponse :: Text -> Response
 stubResponse t =
-  _Response
+  emptyResponse
     & #message
     .~ stubPayloadWith t
     & #model

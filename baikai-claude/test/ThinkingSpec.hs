@@ -53,7 +53,7 @@ thinkingLevels =
 neverExceedsCapTests :: [TestTree]
 neverExceedsCapTests =
   [ testCase (name <> " " <> levelName <> " stays within catalog cap") $ do
-      req <- requestFor model (_Options & #thinking .~ Just level)
+      req <- requestFor model (emptyOptions & #thinking .~ Just level)
       Messages.max_tokens req <= model ^. #maxOutputTokens
         @?= True
   | (name, model, _) <- anthropicModels,
@@ -63,7 +63,7 @@ neverExceedsCapTests =
 styleTests :: [TestTree]
 styleTests =
   [ testCase (name <> " " <> levelName <> " selects expected thinking style") $ do
-      req <- requestFor model (_Options & #thinking .~ Just level)
+      req <- requestFor model (emptyOptions & #thinking .~ Just level)
       case style of
         AnthropicThinkingBudget -> do
           let expectedBudget = thinkingTokenBudget level
@@ -85,7 +85,7 @@ explicitMaxTokensTest :: TestTree
 explicitMaxTokensTest =
   testCase "explicit maxTokens participates as visible output plus budget, then clamps" $ do
     let opts =
-          _Options
+          emptyOptions
             & #thinking .~ Just ThinkingHigh
             & #maxTokens .~ Just 60000
         budget = thinkingTokenBudget ThinkingHigh
@@ -98,14 +98,14 @@ handRolledUnclampedTest :: TestTree
 handRolledUnclampedTest =
   testCase "hand-rolled model with unknown cap is not clamped" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "custom-claude"
             & #api .~ AnthropicMessages
             & #reasoning .~ True
             & #maxOutputTokens .~ 0
             & #compat .~ CompatAnthropicMessages defaultAnthropicMessagesCompat
         opts =
-          _Options
+          emptyOptions
             & #thinking .~ Just ThinkingLow
             & #maxTokens .~ Just 100
         expected = 100 + thinkingTokenBudget ThinkingLow
@@ -118,7 +118,7 @@ tooSmallCapDropsThinkingTest =
     let model =
           anthropic_claude_haiku_4_5
             & #maxOutputTokens .~ 1000
-        opts = _Options & #thinking .~ Just ThinkingMinimal
+        opts = emptyOptions & #thinking .~ Just ThinkingMinimal
     req <- requestFor model opts
     requestThinking req @?= Nothing
     Messages.max_tokens req @?= 1000
@@ -128,7 +128,7 @@ mergedOutputConfigTest =
   testCase "adaptive effort merges with responseFormat output_config" $ do
     let schema = Aeson.object ["type" Aeson..= ("object" :: Text.Text)]
         opts =
-          _Options
+          emptyOptions
             & #thinking .~ Just ThinkingMedium
             & #responseFormat
               .~ Just (JsonSchema {name = "answer", schema = schema, strict = True})
@@ -147,13 +147,13 @@ explicitCompatOverridesDefaultTest =
         model =
           anthropic_claude_haiku_4_5
             & #compat .~ CompatAnthropicMessages compat
-        opts = _Options & #thinking .~ Just ThinkingLow
+        opts = emptyOptions & #thinking .~ Just ThinkingLow
     req <- requestFor model opts
     requestThinking req @?= Just Messages.ThinkingAdaptive
     (Messages.output_config req >>= Messages.effort) @?= Just "low"
 
 requestFor :: Model -> Options -> IO Messages.CreateMessage
-requestFor model opts = case mapRequest model _Context opts of
+requestFor model opts = case mapRequest model emptyContext opts of
   Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
   Right req -> pure req
 
@@ -196,13 +196,13 @@ streamFidelityTests =
         let (events, _) = runClaudeEvents signedAndRedactedStream
             msg = terminalMessage events
             ctx =
-              _Context
+              emptyContext
                 & #messages
                   .~ Vector.fromList
                     [ msg,
                       user "continue"
                     ]
-        req <- requestForContext anthropic_claude_haiku_4_5 ctx _Options
+        req <- requestForContext anthropic_claude_haiku_4_5 ctx emptyOptions
         case Vector.toList (requestMessages req) of
           (assistantMsg : _) ->
             BSL.toStrict (Aeson.encode (messageContent assistantMsg))
@@ -234,13 +234,13 @@ streamFidelityTests =
                               },
                           AssistantText (TextContent "visible")
                         ],
-                    usage = _Usage,
+                    usage = zeroUsage,
                     stopReason = Stop,
                     errorMessage = Nothing,
                     timestamp = Just testTime
                   }
-            ctx = _Context & #messages .~ Vector.fromList [msg]
-        req <- requestForContext anthropic_claude_haiku_4_5 ctx _Options
+            ctx = emptyContext & #messages .~ Vector.fromList [msg]
+        req <- requestForContext anthropic_claude_haiku_4_5 ctx emptyOptions
         case Vector.toList (requestMessages req) of
           [assistantMsg] ->
             BSL.toStrict (Aeson.encode (messageContent assistantMsg))

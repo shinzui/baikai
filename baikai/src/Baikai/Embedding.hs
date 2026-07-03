@@ -16,6 +16,7 @@
 -- for embeddings.
 module Baikai.Embedding
   ( EmbeddingModel (..),
+    emptyEmbeddingModel,
     _EmbeddingModel,
     openAIEmbeddingModel,
     mkEmbeddingRequest,
@@ -48,8 +49,8 @@ data EmbeddingModel = EmbeddingModel
 
 -- | A blank embedding model; a record-update target for hand-built models. Keyed
 -- on @OPENAI_API_KEY@ by default.
-_EmbeddingModel :: EmbeddingModel
-_EmbeddingModel =
+emptyEmbeddingModel :: EmbeddingModel
+emptyEmbeddingModel =
   EmbeddingModel
     { modelId = "",
       baseUrl = "",
@@ -61,7 +62,7 @@ _EmbeddingModel =
 -- dimensionality.
 openAIEmbeddingModel :: Text -> EmbeddingModel
 openAIEmbeddingModel mid =
-  _EmbeddingModel
+  emptyEmbeddingModel
     { modelId = mid,
       baseUrl = "https://api.openai.com",
       dimensions = Nothing,
@@ -103,3 +104,7 @@ urlOf :: EmbeddingModel -> Text
 urlOf m = case baseUrl m of
   "" -> "https://api.openai.com"
   u -> u
+
+{-# DEPRECATED _EmbeddingModel "Use emptyEmbeddingModel instead." #-}
+_EmbeddingModel :: EmbeddingModel
+_EmbeddingModel = emptyEmbeddingModel

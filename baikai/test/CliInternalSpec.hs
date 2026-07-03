@@ -12,11 +12,11 @@ tests =
   testGroup
     "CLI internal helpers"
     [ testCase "renderPrompt returns a single user text message verbatim" $ do
-        let ctx = _Context & #messages .~ Vector.singleton (user "hello")
+        let ctx = emptyContext & #messages .~ Vector.singleton (user "hello")
         renderPrompt ctx @?= "hello",
       testCase "renderPrompt tags multi-message contexts" $ do
         let ctx =
-              _Context
+              emptyContext
                 & #messages
                   .~ Vector.fromList
                     [ user "hello",

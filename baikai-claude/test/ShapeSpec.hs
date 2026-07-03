@@ -40,22 +40,22 @@ verbatimToolSchemaTest =
               "additionalProperties" .= False
             ]
         ctx =
-          _Context
+          emptyContext
             & #tools
               .~ Vector.singleton
-                (_Tool & #name .~ "weather" & #description .~ "Weather" & #parameters .~ schema)
-    value <- shapedBody Models.anthropic_claude_haiku_4_5 ctx _Options
+                (emptyTool & #name .~ "weather" & #description .~ "Weather" & #parameters .~ schema)
+    value <- shapedBody Models.anthropic_claude_haiku_4_5 ctx emptyOptions
     lookupPath ["tools", "0", "input_schema"] value @?= Just schema
 
 toolChoiceNoneTest :: TestTree
 toolChoiceNoneTest =
   testCase "ToolChoiceNone keeps tools and sends tool_choice none" $ do
     let ctx =
-          _Context
+          emptyContext
             & #tools
               .~ Vector.singleton
-                (_Tool & #name .~ "lookup" & #description .~ "Lookup" & #parameters .~ objectSchema)
-        opts = _Options & #toolChoice .~ Just ToolChoiceNone
+                (emptyTool & #name .~ "lookup" & #description .~ "Lookup" & #parameters .~ objectSchema)
+        opts = emptyOptions & #toolChoice .~ Just ToolChoiceNone
     value <- shapedBody Models.anthropic_claude_haiku_4_5 ctx opts
     assertBool "tools should remain present" (hasNonEmptyTools value)
     lookupPath ["tool_choice", "type"] value @?= Just (String "none")
@@ -64,13 +64,13 @@ toolCacheControlTest :: TestTree
 toolCacheControlTest =
   testCase "cache marker lands on the last tool definition with ttl" $ do
     let ctx =
-          _Context
+          emptyContext
             & #tools
               .~ Vector.fromList
-                [ _Tool & #name .~ "first" & #description .~ "First" & #parameters .~ objectSchema,
-                  _Tool & #name .~ "second" & #description .~ "Second" & #parameters .~ objectSchema
+                [ emptyTool & #name .~ "first" & #description .~ "First" & #parameters .~ objectSchema,
+                  emptyTool & #name .~ "second" & #description .~ "Second" & #parameters .~ objectSchema
                 ]
-        opts = _Options & #cacheRetention .~ Just CacheRetentionLong
+        opts = emptyOptions & #cacheRetention .~ Just CacheRetentionLong
     value <- shapedBody Models.anthropic_claude_haiku_4_5 ctx opts
     lookupPath ["tools", "0", "cache_control"] value @?= Nothing
     lookupPath ["tools", "1", "cache_control"] value
@@ -92,11 +92,11 @@ toolCacheControlCompatGateTest =
           Models.anthropic_claude_haiku_4_5
             & #compat .~ CompatAnthropicMessages compat
         ctx =
-          _Context
+          emptyContext
             & #tools
               .~ Vector.singleton
-                (_Tool & #name .~ "lookup" & #description .~ "Lookup" & #parameters .~ objectSchema)
-        opts = _Options & #cacheRetention .~ Just CacheRetentionShort
+                (emptyTool & #name .~ "lookup" & #description .~ "Lookup" & #parameters .~ objectSchema)
+        opts = emptyOptions & #cacheRetention .~ Just CacheRetentionShort
     value <- shapedBody model ctx opts
     lookupPath ["tools", "0", "cache_control"] value @?= Nothing
 

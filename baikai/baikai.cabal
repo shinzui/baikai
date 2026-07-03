@@ -147,6 +147,7 @@ test-suite baikai-test
     HelpersSpec
     InteractiveSpec
     StreamSpec
+    SurfaceSpec
     TraceSpec
     UsageSpec
 

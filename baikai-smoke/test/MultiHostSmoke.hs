@@ -73,17 +73,17 @@ runMultiHostCase = do
           let openaiModel =
                 Models.openai_gpt_4o_mini & #maxOutputTokens .~ 64
               ctx =
-                _Context
+                emptyContext
                   & #systemPrompt .~ Just "Reply in two words."
                   & #messages
                     .~ Vector.singleton (user "Say hello.")
               openaiOpts =
-                _Options
+                emptyOptions
                   & #maxTokens .~ Just 32
                   & #temperature .~ Just 0.0
                   & #apiKey .~ Just (ApiKeyLiteral (Text.pack openaiKey))
               secondOpts =
-                _Options
+                emptyOptions
                   & #maxTokens .~ Just 32
                   & #temperature .~ Just 0.0
                   & #apiKey .~ Just (ApiKeyLiteral (Text.pack secondKey))
@@ -147,7 +147,7 @@ pickSecondHost = do
             { hostLabel = "together",
               hostEnvVars = ["TOGETHER_API_KEY"],
               hostModel =
-                _Model
+                emptyModel
                   & #modelId .~ "meta-llama/Meta-Llama-3-8B-Instruct-Turbo"
                   & #name .~ "Llama 3 8B Instruct Turbo"
                   & #api .~ OpenAIChatCompletions

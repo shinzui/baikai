@@ -16,7 +16,7 @@ errApi = Custom "baikai-errinfo"
 
 errModel :: Model
 errModel =
-  _Model
+  emptyModel
     & #modelId
     .~ "err-model"
     & #api
@@ -29,7 +29,7 @@ errModel =
 errStream :: Model -> Context -> Options -> Stream.Stream IO AssistantMessageEvent
 errStream _ _ _ =
   let payload =
-        (_Response ^. #message)
+        (emptyResponse ^. #message)
           & #stopReason
           .~ ErrorReason
           & #errorMessage
@@ -62,7 +62,7 @@ tests =
     "Response.errorInfo threading"
     [ testCase "completeRequest surfaces structured errorInfo" $ do
         registerErr
-        resp <- completeRequest errModel _Context _Options
+        resp <- completeRequest errModel emptyContext emptyOptions
         case responseError resp of
           Just be -> do
             be ^. #category @?= RateLimited
@@ -70,13 +70,13 @@ tests =
           Nothing -> assertFailure "expected Response.errorInfo to be populated",
       testCase "completeRequestWith reports missing provider in-band" $ do
         reg <- newProviderRegistry
-        resp <- completeRequestWith reg errModel _Context _Options
+        resp <- completeRequestWith reg errModel emptyContext emptyOptions
         case responseError resp of
           Just be -> be ^. #category @?= ProviderUnavailable
           Nothing -> assertFailure "expected ProviderUnavailable response",
       testCase "liftCompleteToStream preserves error-shaped responses as EventError" $ do
         let stream = liftCompleteToStream errResponse
-        events <- Stream.toList (stream errModel _Context _Options)
+        events <- Stream.toList (stream errModel emptyContext emptyOptions)
         assertBool "expected exactly one terminal" (length (filter isTerminal events) == 1)
         case last events of
           EventError TerminalPayload {errorInfo = Just be} -> do
@@ -85,7 +85,7 @@ tests =
           other -> assertFailure ("expected terminal EventError, got: " <> show other),
       testCase "reassembly normalizes ErrorReason terminals without errorInfo" $ do
         let payload =
-              (_Response ^. #message)
+              (emptyResponse ^. #message)
                 & #stopReason
                 .~ ErrorReason
                 & #errorMessage

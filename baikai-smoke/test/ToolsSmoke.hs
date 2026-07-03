@@ -50,7 +50,7 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
       pure False
     Just (envVar, _key) -> do
       let getTime =
-            _Tool
+            emptyTool
               { name = "get_time",
                 description = "Return the current UTC ISO-8601 timestamp.",
                 parameters =
@@ -65,7 +65,7 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
               [user "What time is it? Use the get_time tool to find out."]
               & #tools .~ Vector.singleton getTime
           opts =
-            _Options
+            emptyOptions
               & #maxTokens .~ Just 1024
               & #temperature .~ Just 0.0
               -- Presence is checked above for skip/logging; resolution itself

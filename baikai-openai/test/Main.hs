@@ -71,7 +71,7 @@ responseFormatMappingTest :: TestTree
 responseFormatMappingTest =
   testCase "responseFormat JsonSchema maps onto OpenAI response_format" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "gpt-4o-mini"
             & #api .~ OpenAIChatCompletions
             & #provider .~ "openai"
@@ -86,9 +86,9 @@ responseFormatMappingTest =
               "required" Aeson..= (["name", "age"] :: [Text.Text]),
               "additionalProperties" Aeson..= False
             ]
-        ctx = _Context
+        ctx = emptyContext
         opts =
-          _Options
+          emptyOptions
             & #responseFormat
               .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
     case mapRequest model ctx opts of
@@ -105,18 +105,18 @@ optionsMappingTest :: TestTree
 optionsMappingTest =
   testCase "sampling Options map onto OpenAI request fields" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "gpt-4o-mini"
             & #api .~ OpenAIChatCompletions
             & #provider .~ "openai"
         opts =
-          _Options
+          emptyOptions
             & #topP .~ Just 0.9
             & #stopSequences .~ Just (Vector.fromList ["END", "STOP"])
             & #seed .~ Just 7
             & #frequencyPenalty .~ Just 0.2
             & #presencePenalty .~ Just 0.3
-    case mapRequest model _Context opts of
+    case mapRequest model emptyContext opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right req -> do
         Chat.top_p req @?= Just 0.9
@@ -201,7 +201,7 @@ normalizedUsage payload =
 
 usageCostModel :: Model
 usageCostModel =
-  _Model
+  emptyModel
     & #modelId .~ "gpt-test"
     & #api .~ OpenAIChatCompletions
     & #provider .~ "openai"
@@ -219,12 +219,12 @@ commandRenderingTest =
     let cfg =
           defaultCodexInteractiveConfig
             { executable = "/bin/codex",
-              extraArgs = Vector.fromList ["--no-alt-screen"]
+              extraArgs = ["--no-alt-screen"]
             }
         req =
-          (_InteractiveLaunchRequest "inspect the repo")
+          (interactiveLaunchRequest "inspect the repo")
             & #systemPrompt .~ Just "Be precise."
-            & #model .~ Just "gpt-5-codex"
+            & #modelId .~ Just "gpt-5-codex"
             & #workingDir .~ Just "/work/project"
             & #extraDirs .~ ["/work/shared", "/work/docs"]
             & #safety .~ CodexSandbox CodexWorkspaceWrite CodexApprovalOnRequest
@@ -254,11 +254,11 @@ batchCommandRenderingTest :: TestTree
 batchCommandRenderingTest =
   testCase "codex exec argv terminates options before a dash-leading prompt" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ OpenAICompletionsCli
             & #provider .~ "openai"
-        ctx = _Context & #messages .~ Vector.singleton (user "-begin with a dash")
+        ctx = emptyContext & #messages .~ Vector.singleton (user "-begin with a dash")
     CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx
       @?= ( "codex",
             [ "exec",
@@ -274,12 +274,12 @@ batchSystemPromptTest :: TestTree
 batchSystemPromptTest =
   testCase "codex exec argv carries system prompt in the prompt text" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ OpenAICompletionsCli
             & #provider .~ "openai"
         ctx =
-          _Context
+          emptyContext
             & #systemPrompt .~ Just "Be terse."
             & #messages .~ Vector.singleton (user "ping")
     CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx
@@ -309,12 +309,12 @@ stderrFloodTest =
     reg <- newProviderRegistry
     registerApiProviderWith reg (CodexCli.codexCliProvider CodexCli.defaultCodexCliConfig {CodexCli.executable = script})
     let model =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ OpenAICompletionsCli
             & #provider .~ "openai"
-        ctx = _Context & #messages .~ Vector.singleton (user "ping")
-    mResp <- timeout 30000000 (completeRequestWith reg model ctx _Options)
+        ctx = emptyContext & #messages .~ Vector.singleton (user "ping")
+    mResp <- timeout 30000000 (completeRequestWith reg model ctx emptyOptions)
     case mResp of
       Nothing -> assertFailure "deadlock: stderr was not drained concurrently"
       Just resp -> assistantText resp @?= "pong"
@@ -322,13 +322,13 @@ stderrFloodTest =
 promptRenderingTest :: TestTree
 promptRenderingTest =
   testCase "omits the system-instruction wrapper when no system prompt is present" $ do
-    codexInteractivePrompt (_InteractiveLaunchRequest "hello") @?= "hello"
+    codexInteractivePrompt (interactiveLaunchRequest "hello") @?= "hello"
 
 compatDetectionTest :: TestTree
 compatDetectionTest =
   testCase "OpenAI-compatible hosts auto-detect request-shaping compat flags" $ do
     let model =
-          _Model
+          emptyModel
             & #api .~ OpenAIChatCompletions
             & #baseUrl .~ "https://api.deepseek.com"
         compat = openaiCompletionsCompatFor model
@@ -340,13 +340,13 @@ rejectsImageToolResultsTest :: TestTree
 rejectsImageToolResultsTest =
   testCase "OpenAI API mapping rejects image tool-result blocks instead of dropping them" $ do
     let model =
-          _Model
+          emptyModel
             & #modelId .~ "gpt-test"
             & #api .~ OpenAIChatCompletions
             & #provider .~ "openai"
         image = ImageContent {imageData = BS8.pack "png-bytes", mimeType = "image/png"}
         ctx =
-          _Context
+          emptyContext
             & #messages
               .~ Vector.singleton
                 ( ToolResultMessage
@@ -358,7 +358,7 @@ rejectsImageToolResultsTest =
                         timestamp = Just (read "2026-06-05 00:00:00 UTC")
                       }
                 )
-    events <- Stream.toList (openaiChatStream model ctx _Options)
+    events <- Stream.toList (openaiChatStream model ctx emptyOptions)
     assertErrorContract events
     case events of
       [ EventStart StartPayload {},
@@ -374,11 +374,11 @@ noKeyStreamTest =
   testCase "missing OPENAI_API_KEY yields one terminal EventError" $
     withUnsetEnv "OPENAI_API_KEY" $ do
       let model =
-            _Model
+            emptyModel
               & #modelId .~ "gpt-test"
               & #api .~ OpenAIChatCompletions
               & #provider .~ "openai"
-      events <- Stream.toList (openaiChatStream model _Context _Options)
+      events <- Stream.toList (openaiChatStream model emptyContext emptyOptions)
       assertErrorContract events
       case last events of
         EventError TerminalPayload {errorInfo = Just be} ->
@@ -393,12 +393,12 @@ codexMissingBinaryTest =
       reg
       (CodexCli.codexCliProvider CodexCli.defaultCodexCliConfig {CodexCli.executable = "/nonexistent/codex-binary"})
     let model =
-          _Model
+          emptyModel
             & #modelId .~ ""
             & #api .~ OpenAICompletionsCli
             & #provider .~ "openai"
-        ctx = _Context & #messages .~ Vector.singleton (user "ping")
-    resp <- completeRequestWith reg model ctx _Options
+        ctx = emptyContext & #messages .~ Vector.singleton (user "ping")
+    resp <- completeRequestWith reg model ctx emptyOptions
     case responseError resp of
       Just be -> be ^. #category @?= OtherError
       Nothing -> assertFailure "expected missing binary to be returned in-band"
@@ -441,7 +441,7 @@ finishReasonTests =
 
 openaiTestModel :: Model
 openaiTestModel =
-  _Model
+  emptyModel
     & #modelId .~ "gpt-test"
     & #api .~ OpenAIChatCompletions
     & #provider .~ "openai"

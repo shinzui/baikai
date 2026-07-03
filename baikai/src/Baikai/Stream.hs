@@ -60,7 +60,7 @@ import Baikai.Stream.Event
     doneTerminal,
     errorTerminal,
   )
-import Baikai.Usage (_Usage)
+import Baikai.Usage (zeroUsage)
 import Control.Applicative ((<|>))
 import Control.Exception (fromException)
 import Control.Exception qualified
@@ -350,7 +350,7 @@ messageTimestamp = \case
 assistantPayloadTimestamp :: AssistantPayload -> Maybe UTCTime
 assistantPayloadTimestamp AssistantPayload {Msg.timestamp = ts} = ts
 
-millisBetween :: UTCTime -> UTCTime -> Integer
+millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween start end =
   max 0 (round (realToFrac (Data.Time.Clock.diffUTCTime end start) * (1000 :: Double)))
 
@@ -370,7 +370,7 @@ overrideBlocksAndReason sr msg blocks fallbackTs = case msg of
   _ ->
     AssistantPayload
       { Msg.content = blocks,
-        Msg.usage = _Usage,
+        Msg.usage = zeroUsage,
         Msg.stopReason = sr,
         Msg.errorMessage = Just "stream terminated with a non-assistant message",
         Msg.timestamp = Just fallbackTs
@@ -383,7 +383,7 @@ synthesizeTerminal now blocks =
   AssistantMessage
     AssistantPayload
       { Msg.content = blocks,
-        Msg.usage = _Usage,
+        Msg.usage = zeroUsage,
         Msg.stopReason = Stop,
         Msg.errorMessage = Just "stream ended without terminal event",
         Msg.timestamp = Just now
@@ -507,7 +507,7 @@ errorEvents e = do
         AssistantMessage
           AssistantPayload
             { Msg.content = Vector.empty,
-              Msg.usage = _Usage,
+              Msg.usage = zeroUsage,
               Msg.stopReason = ErrorReason,
               Msg.errorMessage = Just errText,
               Msg.timestamp = Just now
@@ -529,7 +529,7 @@ noProviderEvents m = do
         AssistantMessage
           AssistantPayload
             { Msg.content = Vector.empty,
-              Msg.usage = _Usage,
+              Msg.usage = zeroUsage,
               Msg.stopReason = ErrorReason,
               Msg.errorMessage = Just detail,
               Msg.timestamp = Just now

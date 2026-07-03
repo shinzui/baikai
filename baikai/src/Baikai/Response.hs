@@ -12,6 +12,7 @@
 -- accessors for the message's content blocks.
 module Baikai.Response
   ( Response (..),
+    emptyResponse,
     _Response,
     responseMessage,
     flattenAssistantBlocks,
@@ -26,10 +27,10 @@ import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError, providerError)
 import Baikai.Error qualified as Error
 import Baikai.Message (AssistantPayload (..), Message (..))
-import Baikai.Model (Model (..), _Model)
+import Baikai.Model (Model, emptyModel)
 import Baikai.Model qualified as Model
 import Baikai.StopReason (StopReason (..))
-import Baikai.Usage (_Usage)
+import Baikai.Usage (zeroUsage)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
@@ -44,7 +45,7 @@ data Response = Response
     api :: !Api,
     provider :: !Text,
     responseId :: !(Maybe Text),
-    latencyMs :: !Integer,
+    latencyMs :: !Int,
     -- | Structured error detail when the call failed in-band
     -- (@stopReason = ErrorReason@): the category, HTTP status, and any
     -- retry-after hint. Conforming providers set this to 'Just' for
@@ -58,18 +59,18 @@ data Response = Response
 -- | A blank assistant turn at epoch start. Useful as a fixture base
 -- for tests and as the default in error paths where no message was
 -- received.
-_Response :: Response
-_Response =
+emptyResponse :: Response
+emptyResponse =
   Response
     { message =
         AssistantPayload
           { content = V.empty,
-            usage = _Usage,
+            usage = zeroUsage,
             stopReason = Stop,
             errorMessage = Nothing,
             timestamp = Nothing
           },
-      model = _Model,
+      model = emptyModel,
       api = Custom "",
       provider = "",
       responseId = Nothing,
@@ -107,13 +108,13 @@ responseError Response {message = AssistantPayload {stopReason = sr, errorMessag
     fallback = maybe "call failed with no error detail" id em
 
 -- | Build a conformant error-shaped 'Response' for a failed call.
-errorResponse :: Model -> UTCTime -> Integer -> BaikaiError -> Response
+errorResponse :: Model -> UTCTime -> Int -> BaikaiError -> Response
 errorResponse m ts latency err =
   Response
     { message =
         AssistantPayload
           { content = V.empty,
-            usage = _Usage,
+            usage = zeroUsage,
             stopReason = ErrorReason,
             errorMessage = Just (Error.message err),
             timestamp = Just ts
@@ -125,3 +126,7 @@ errorResponse m ts latency err =
       latencyMs = latency,
       errorInfo = Just err
     }
+
+{-# DEPRECATED _Response "Use emptyResponse instead." #-}
+_Response :: Response
+_Response = emptyResponse

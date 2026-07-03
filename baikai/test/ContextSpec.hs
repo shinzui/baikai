@@ -24,7 +24,7 @@ monoidTests =
     "Monoid"
     [ testCase "has left and right identity" $ do
         let ctx =
-              _Context
+              emptyContext
                 { systemPrompt = Just "sys",
                   messages = V.fromList [user "one"],
                   tools = V.singleton sampleTool
@@ -33,9 +33,9 @@ monoidTests =
         ctx <> mempty @?= ctx,
       testCase "is associative and keeps the first system prompt" $ do
         let a = systemUser "a-system" "a"
-            b = addUser "b" _Context
+            b = addUser "b" emptyContext
             c =
-              _Context
+              emptyContext
                 { systemPrompt = Just "c-system",
                   messages = V.fromList [assistant "c"],
                   tools = V.singleton sampleTool
@@ -58,17 +58,17 @@ constructorTests =
         ctx ^. #messages @?= V.singleton (user "prompt"),
       testCase "addMessage, addUser, and addResponse append in order" $ do
         let resp =
-              _Response
+              emptyResponse
                 & #message
                   .~ AssistantPayload
                     { content = V.singleton (AssistantText (TextContent "response")),
-                      usage = _Usage,
+                      usage = zeroUsage,
                       stopReason = Stop,
                       errorMessage = Nothing,
                       timestamp = Nothing
                     }
             ctx =
-              _Context
+              emptyContext
                 |> addUser "first"
                 |> addMessage (assistant "second")
                 |> addResponse resp
@@ -109,7 +109,7 @@ flattenTextTests =
                       signature = Nothing,
                       redacted = False
                     },
-                AssistantToolCall _ToolCall {name = "lookup", arguments = Aeson.object []},
+                AssistantToolCall emptyToolCall {name = "lookup", arguments = Aeson.object []},
                 AssistantText (TextContent " world")
               ]
           )
@@ -118,7 +118,7 @@ flattenTextTests =
 
 sampleTool :: Tool
 sampleTool =
-  _Tool
+  emptyTool
     { name = "lookup",
       description = "Lookup a value",
       parameters = Aeson.object []
