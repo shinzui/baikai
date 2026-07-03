@@ -8,11 +8,13 @@
 -- value does not read the environment.
 module Baikai.Auth
   ( ApiKeySource (..),
+    defaultApiKeyEnvForBaseUrl,
     renderApiKeySourceForDebug,
     resolveApiKey,
   )
 where
 
+import Baikai.Compat (hostMatchesSuffix, urlHost)
 import Baikai.Error (authError)
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -39,6 +41,29 @@ instance ToJSON ApiKeySource where
       [ "source" .= ("env" :: Text),
         "name" .= name
       ]
+
+-- | Conventional API-key environment variable for a known provider
+-- host. Unknown hosts return 'Nothing' so callers can require an
+-- explicit 'ApiKeySource' instead of leaking another provider's
+-- credential.
+defaultApiKeyEnvForBaseUrl :: Text -> Maybe String
+defaultApiKeyEnvForBaseUrl baseUrl = do
+  host <- urlHost baseUrl
+  match host
+  where
+    match host
+      | hostMatchesSuffix host "api.openai.com" = Just "OPENAI_API_KEY"
+      | hostMatchesSuffix host "api.deepseek.com" = Just "DEEPSEEK_API_KEY"
+      | hostMatchesSuffix host "openrouter.ai" = Just "OPENROUTER_API_KEY"
+      | hostMatchesSuffix host "together.xyz" = Just "TOGETHER_API_KEY"
+      | hostMatchesSuffix host "together.ai" = Just "TOGETHER_API_KEY"
+      | hostMatchesSuffix host "z.ai" = Just "ZAI_API_KEY"
+      | hostMatchesSuffix host "dashscope.aliyuncs.com" = Just "DASHSCOPE_API_KEY"
+      | hostMatchesSuffix host "dashscope-intl.aliyuncs.com" = Just "DASHSCOPE_API_KEY"
+      | hostMatchesSuffix host "qwen.ai" = Just "DASHSCOPE_API_KEY"
+      | hostMatchesSuffix host "api.anthropic.com" = Just "ANTHROPIC_API_KEY"
+      | hostMatchesSuffix host "fireworks.ai" = Just "FIREWORKS_API_KEY"
+      | otherwise = Nothing
 
 -- | Render a credential source for logs, test failures, and debugging without
 -- exposing literal secret material.

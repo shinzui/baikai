@@ -41,6 +41,8 @@ module Baikai.Compat
     defaultAnthropicThinkingStyle,
 
     -- * Auto-detection from baseUrl
+    urlHost,
+    hostMatchesSuffix,
     autoDetectOpenAICompletions,
     autoDetectAnthropicMessages,
   )
@@ -111,9 +113,6 @@ data AnthropicThinkingStyle
 data OpenAICompletionsCompat = OpenAICompletionsCompat
   { -- | Where the max-output-tokens cap goes in the request body.
     maxTokensField :: !MaxTokensField,
-    -- | Whether the host accepts the @developer@ message role
-    --   (OpenAI's o-series) or only @system@.
-    supportsDeveloperRole :: !Bool,
     -- | Whether the host accepts @strict: true@ on function tool
     --   definitions. Set 'False' to drop the field on hosts that
     --   reject it.
@@ -149,7 +148,6 @@ defaultOpenAICompletionsCompat :: OpenAICompletionsCompat
 defaultOpenAICompletionsCompat =
   OpenAICompletionsCompat
     { maxTokensField = MaxCompletionTokensField,
-      supportsDeveloperRole = True,
       supportsStrictMode = True,
       requiresThinkingAsText = False,
       thinkingFormat = ThinkingFormatOpenAI,
@@ -167,10 +165,6 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     -- | Whether tool definitions accept @cache_control@ markers.
     --   Anthropic's own host does; some compatible hosts do not.
     supportsCacheControlOnTools :: !Bool,
-    -- | Whether the host supports per-tool eager input streaming
-    --   (Anthropic's @fine-grained-tool-streaming@ beta). Currently
-    --   advisory; the SDK does not expose the field directly.
-    supportsEagerToolInputStreaming :: !Bool,
     -- | Whether to add session-affinity headers on every request
     --   (Fireworks-style routing).
     sendSessionAffinityHeaders :: !Bool,
@@ -187,7 +181,6 @@ defaultAnthropicMessagesCompat =
   AnthropicMessagesCompat
     { supportsLongCacheRetention = True,
       supportsCacheControlOnTools = True,
-      supportsEagerToolInputStreaming = True,
       sendSessionAffinityHeaders = False,
       thinkingStyle = AnthropicThinkingBudget
     }
@@ -211,42 +204,41 @@ defaultAnthropicThinkingStyle modelId
 -- recognise.
 autoDetectOpenAICompletions :: Text -> OpenAICompletionsCompat
 autoDetectOpenAICompletions url
-  | hasInfix "api.openai.com" = defaultOpenAICompletionsCompat
-  | hasInfix "api.deepseek.com" =
+  | matches "api.openai.com" = defaultOpenAICompletionsCompat
+  | matches "api.deepseek.com" =
       defaultOpenAICompletionsCompat
         { thinkingFormat = ThinkingFormatDeepseek,
           requiresThinkingAsText = True,
           maxTokensField = MaxTokensField,
-          supportsStrictMode = False,
-          supportsDeveloperRole = False
+          supportsStrictMode = False
         }
-  | hasInfix "openrouter.ai" =
+  | matches "openrouter.ai" =
       defaultOpenAICompletionsCompat
         { thinkingFormat = ThinkingFormatOpenRouter,
           supportsStrictMode = False,
-          supportsDeveloperRole = False,
           cacheControlFormat = Just CacheControlFormatAnthropic
         }
-  | hasInfix "together.xyz" || hasInfix "api.together.ai" =
+  | matches "together.xyz" || matches "together.ai" =
       defaultOpenAICompletionsCompat
         { thinkingFormat = ThinkingFormatTogether,
-          supportsStrictMode = False,
-          supportsDeveloperRole = False
+          supportsStrictMode = False
         }
-  | hasInfix "z.ai" =
+  | matches "z.ai" =
       defaultOpenAICompletionsCompat
         { thinkingFormat = ThinkingFormatZai,
           supportsStrictMode = False
         }
-  | hasInfix "dashscope" || hasInfix "qwen" =
+  | matches "dashscope.aliyuncs.com"
+      || matches "dashscope-intl.aliyuncs.com"
+      || matches "qwen.ai" =
       defaultOpenAICompletionsCompat
         { thinkingFormat = ThinkingFormatQwen,
           supportsStrictMode = False
         }
   | otherwise = defaultOpenAICompletionsCompat
   where
-    hasInfix :: Text -> Bool
-    hasInfix needle = needle `Text.isInfixOf` url
+    host = urlHost url
+    matches suffix = maybe False (`hostMatchesSuffix` suffix) host
 
 -- | Pick a sensible compat record for an unknown
 -- Anthropic-compatible host based on its @baseUrl@. Falls back to
@@ -254,8 +246,8 @@ autoDetectOpenAICompletions url
 -- recognise.
 autoDetectAnthropicMessages :: Text -> AnthropicMessagesCompat
 autoDetectAnthropicMessages url
-  | hasInfix "api.anthropic.com" = defaultAnthropicMessagesCompat
-  | hasInfix "fireworks.ai" =
+  | matches "api.anthropic.com" = defaultAnthropicMessagesCompat
+  | matches "fireworks.ai" =
       defaultAnthropicMessagesCompat
         { supportsCacheControlOnTools = False,
           sendSessionAffinityHeaders = True,
@@ -263,5 +255,29 @@ autoDetectAnthropicMessages url
         }
   | otherwise = defaultAnthropicMessagesCompat
   where
-    hasInfix :: Text -> Bool
-    hasInfix needle = needle `Text.isInfixOf` url
+    host = urlHost url
+    matches suffix = maybe False (`hostMatchesSuffix` suffix) host
+
+-- | Extract a hostname from a URL-ish value. This is intentionally
+-- small and total rather than a validating URI parser: it drops an
+-- optional scheme, optional userinfo, then stops at '/', ':', '?', or
+-- '#'. Empty results return 'Nothing'.
+urlHost :: Text -> Maybe Text
+urlHost raw =
+  let noScheme = case Text.breakOn "://" raw of
+        (_, rest) | not (Text.null rest) -> Text.drop 3 rest
+        _ -> raw
+      noUser = last (Text.splitOn "@" noScheme)
+      host = Text.toLower (Text.strip (Text.takeWhile hostChar noUser))
+   in if Text.null host then Nothing else Just host
+  where
+    hostChar c = c /= '/' && c /= ':' && c /= '?' && c /= '#'
+
+-- | Match a hostname against a suffix at a label boundary.
+hostMatchesSuffix :: Text -> Text -> Bool
+hostMatchesSuffix host suffix =
+  let h = Text.toLower (Text.strip host)
+      s = Text.toLower (Text.strip suffix)
+   in not (Text.null h)
+        && not (Text.null s)
+        && (h == s || ("." <> s) `Text.isSuffixOf` h)

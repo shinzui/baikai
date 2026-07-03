@@ -21,6 +21,8 @@ import StreamSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.QuickCheck (Gen)
+import Test.Tasty.QuickCheck qualified as QC
 import TraceSpec qualified
 import UsageSpec qualified
 
@@ -168,8 +170,40 @@ tests =
             compat = openaiCompletionsCompatFor deepseek
         compat ^. #thinkingFormat @?= ThinkingFormatDeepseek
         compat ^. #maxTokensField @?= MaxTokensField
-        compat ^. #supportsStrictMode @?= False
-        compat ^. #supportsDeveloperRole @?= False,
+        compat ^. #supportsStrictMode @?= False,
+      testCase "host auto-detection is suffix-bounded" $ do
+        urlHost "http://user@openrouter.ai:8443/api" @?= Just "openrouter.ai"
+        autoDetectOpenAICompletions "https://api.xyz.ai"
+          @?= defaultOpenAICompletionsCompat
+        autoDetectOpenAICompletions "https://evil-z.ai.example.com"
+          @?= defaultOpenAICompletionsCompat
+        autoDetectOpenAICompletions "https://api.z.ai/v1"
+          ^. #thinkingFormat
+          @?= ThinkingFormatZai
+        autoDetectOpenAICompletions "https://API.DEEPSEEK.COM"
+          ^. #thinkingFormat
+          @?= ThinkingFormatDeepseek
+        autoDetectOpenAICompletions "http://user@openrouter.ai:8443/api"
+          ^. #thinkingFormat
+          @?= ThinkingFormatOpenRouter
+        autoDetectOpenAICompletions ""
+          @?= defaultOpenAICompletionsCompat,
+      QC.testProperty "unknown OpenAI host suffixes use defaults" $
+        QC.forAll unknownHostGen $ \host ->
+          QC.property $
+            autoDetectOpenAICompletions ("https://" <> Text.pack host)
+              == defaultOpenAICompletionsCompat,
+      testCase "default API-key env table matches known hosts" $ do
+        defaultApiKeyEnvForBaseUrl "https://api.deepseek.com/v1"
+          @?= Just "DEEPSEEK_API_KEY"
+        defaultApiKeyEnvForBaseUrl "http://user@openrouter.ai:8443/api"
+          @?= Just "OPENROUTER_API_KEY"
+        defaultApiKeyEnvForBaseUrl "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+          @?= Just "DASHSCOPE_API_KEY"
+        defaultApiKeyEnvForBaseUrl "https://api.xyz.ai"
+          @?= Nothing
+        defaultApiKeyEnvForBaseUrl ""
+          @?= Nothing,
       testCase "explicit OpenAI compat overrides baseUrl auto-detection" $ do
         let explicit =
               defaultOpenAICompletionsCompat
@@ -310,3 +344,8 @@ tests =
                 err @?= True
           msgs -> error ("unexpected context messages: " <> show msgs)
     ]
+
+unknownHostGen :: Gen String
+unknownHostGen = do
+  label <- QC.listOf1 (QC.elements (['a' .. 'z'] <> ['0' .. '9']))
+  pure (label <> ".example.invalid")

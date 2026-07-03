@@ -183,7 +183,6 @@ parseOpenAICompat :: Aeson.Object -> Parser OpenAICompletionsCompat
 parseOpenAICompat o = do
   let d = defaultOpenAICompletionsCompat
   mtf <- optionalField o "maxTokensField" parseMaxTokensField (maxTokensField d)
-  sdr <- o .:? "supportsDeveloperRole" .!= supportsDeveloperRole d
   sst <- o .:? "supportsStrictMode" .!= supportsStrictMode d
   rtat <- o .:? "requiresThinkingAsText" .!= requiresThinkingAsText d
   tf <- optionalField o "thinkingFormat" parseThinkingFormat (thinkingFormat d)
@@ -193,7 +192,6 @@ parseOpenAICompat o = do
   pure
     OpenAICompletionsCompat
       { maxTokensField = mtf,
-        supportsDeveloperRole = sdr,
         supportsStrictMode = sst,
         requiresThinkingAsText = rtat,
         thinkingFormat = tf,
@@ -207,14 +205,12 @@ parseAnthropicCompat o = do
   let d = defaultAnthropicMessagesCompat
   slcr <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
   scot <- o .:? "supportsCacheControlOnTools" .!= d.supportsCacheControlOnTools
-  seti <- o .:? "supportsEagerToolInputStreaming" .!= d.supportsEagerToolInputStreaming
   ssah <- o .:? "sendSessionAffinityHeaders" .!= d.sendSessionAffinityHeaders
   ts <- o .:? "thinkingStyle" .!= d.thinkingStyle
   pure
     AnthropicMessagesCompat
       { supportsLongCacheRetention = slcr,
         supportsCacheControlOnTools = scot,
-        supportsEagerToolInputStreaming = seti,
         sendSessionAffinityHeaders = ssah,
         thinkingStyle = ts
       }
@@ -486,7 +482,6 @@ renderCompat = \case
       [ "CompatOpenAICompletions",
         "        OpenAICompletionsCompat",
         "          { maxTokensField = " <> renderMaxTokensField c.maxTokensField,
-        "          , supportsDeveloperRole = " <> renderBool c.supportsDeveloperRole,
         "          , supportsStrictMode = " <> renderBool c.supportsStrictMode,
         "          , requiresThinkingAsText = " <> renderBool c.requiresThinkingAsText,
         "          , thinkingFormat = " <> renderThinkingFormat c.thinkingFormat,
@@ -502,7 +497,6 @@ renderCompat = \case
         "        AnthropicMessagesCompat",
         "          { supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
         "          , supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools,
-        "          , supportsEagerToolInputStreaming = " <> renderBool c.supportsEagerToolInputStreaming,
         "          , sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders,
         "          , thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle,
         "          }"

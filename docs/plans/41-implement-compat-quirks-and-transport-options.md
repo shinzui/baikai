@@ -66,9 +66,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] M1: hostname-suffix matching in `Baikai.Compat` (`urlHost`, `hostMatchesSuffix`) replaces bare substring detection; property/table tests added
-- [ ] M1: `supportsDeveloperRole` and `supportsEagerToolInputStreaming` deleted end-to-end (Compat.hs, GenModels.hs, regenerated catalog, tests)
-- [ ] M1: per-host API-key env table `defaultApiKeyEnvForBaseUrl` added to `Baikai.Auth` with tests
+- [x] M1: hostname-suffix matching in `Baikai.Compat` (`urlHost`, `hostMatchesSuffix`) replaces bare substring detection; property/table tests added. (2026-07-03)
+- [x] M1: `supportsDeveloperRole` and `supportsEagerToolInputStreaming` deleted end-to-end (Compat.hs, GenModels.hs, regenerated catalog, tests). (2026-07-03)
+- [x] M1: per-host API-key env table `defaultApiKeyEnvForBaseUrl` added to `Baikai.Auth` with tests. (2026-07-03)
 - [ ] M2: `shapeRequestBody` post-processor added to baikai-openai (maxTokensField rename, non-OpenAI thinkingFormat shapes, cacheControlFormat markers honoring supportsLongCacheRetention)
 - [ ] M2: `supportsStrictMode` gates `response_format` strict; `supportsUsageInStreaming` gates `stream_options`; `max_completion_tokens` omitted when resolved cap is 0
 - [ ] M2: tool-call delta keying survives missing `index` (id-based and sequential fallback)
@@ -90,13 +90,20 @@ here, even if it requires splitting a partially completed task into two ("done" 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. One pre-implementation discovery from plan research is recorded here so it
-is not lost: the claude SDK's typed `Tool`/`InputSchema` records physically cannot
-carry a verbatim JSON Schema — `Claude.V1.Tool.InputSchema` serializes only `type`,
-`properties`, `required`, and `additionalProperties`, so `$defs`, `$ref`, and top-level
-`enum` are unrepresentable in the typed path. "Build the SDK Tool value directly" is
-therefore not enough; the fix requires sending a patched raw `Aeson.Value` request
-body. See Decision Log and Milestone 3.)
+- One pre-implementation discovery from plan research is recorded here so it is not
+  lost: the claude SDK's typed `Tool`/`InputSchema` records physically cannot carry a
+  verbatim JSON Schema — `Claude.V1.Tool.InputSchema` serializes only `type`,
+  `properties`, `required`, and `additionalProperties`, so `$defs`, `$ref`, and
+  top-level `enum` are unrepresentable in the typed path. "Build the SDK Tool value
+  directly" is therefore not enough; the fix requires sending a patched raw
+  `Aeson.Value` request body. See Decision Log and Milestone 3.
+
+- Regenerating `baikai/src/Baikai/Models/Generated.hs` after deleting the two compat
+  fields produced no generated diff, confirming the current catalog only uses
+  `"compat": "auto"` and no structured compat record literals had to be migrated. A
+  code-only grep also returned no `supportsDeveloperRole` or
+  `supportsEagerToolInputStreaming` references after the deletion. (2026-07-03, M1
+  implementation)
 
 
 ## Decision Log
@@ -275,7 +282,26 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Milestone 1 completed on 2026-07-03. Host detection now extracts and suffix-matches the
+URL hostname at label boundaries, so unrelated hosts such as `api.xyz.ai` and
+`evil-z.ai.example.com` keep the default compat records. The dead
+`supportsDeveloperRole` and `supportsEagerToolInputStreaming` fields were removed from
+core records, the generator, and tests; catalog regeneration produced no generated
+diff. `Baikai.Auth.defaultApiKeyEnvForBaseUrl` now maps known host suffixes to the
+provider-specific key env var and returns `Nothing` for unknown hosts. Validation:
+
+```text
+cabal run baikai-gen-models
+Generated.hs unchanged
+
+grep -rn "supportsDeveloperRole\|supportsEagerToolInputStreaming" --include="*.hs" .
+no matches
+
+cabal test baikai baikai-claude baikai-openai --test-show-details=direct
+baikai: 119 tests passed
+baikai-claude: 102 tests passed
+baikai-openai: 41 tests passed
+```
 
 
 ## Context and Orientation

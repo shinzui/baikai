@@ -306,7 +306,6 @@ compatDetectionTest =
     compat ^. #thinkingFormat @?= ThinkingFormatDeepseek
     compat ^. #maxTokensField @?= MaxTokensField
     compat ^. #supportsStrictMode @?= False
-    compat ^. #supportsDeveloperRole @?= False
 
 rejectsImageToolResultsTest :: TestTree
 rejectsImageToolResultsTest =

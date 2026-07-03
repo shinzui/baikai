@@ -163,9 +163,10 @@ test-suite baikai-test
     , process
     , scientific
     , stm
-    , streamly-core  >=0.3 && <0.5
+    , streamly-core     >=0.3 && <0.5
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , temporary
     , text
     , time
