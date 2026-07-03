@@ -4,6 +4,7 @@ import Baikai
 import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
+import Baikai.Provider.Claude.Internal.Request (mapRequest)
 import Claude.V1.Messages qualified as Messages
 import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))

@@ -1,7 +1,7 @@
 module ErrorClassSpec (tests) where
 
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), isRetryable)
-import Baikai.Provider.OpenAI.ErrorClass
+import Baikai.Provider.OpenAI.Internal.ErrorClass
   ( classifyErrorText,
     classifyException,
     responseToError,
@@ -22,7 +22,7 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 tests :: TestTree
 tests =
   testGroup
-    "Baikai.Provider.OpenAI.ErrorClass"
+    "Baikai.Provider.OpenAI.Internal.ErrorClass"
     [ httpStatusTests,
       sdkTextTests,
       streamedErrorTests,

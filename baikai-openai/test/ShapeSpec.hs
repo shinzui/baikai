@@ -10,9 +10,9 @@ import Baikai.Provider.OpenAI.Api
     RawToolDelta (..),
     closeOpenStream,
     emptyAssembler,
-    mapRequest,
     translate,
   )
+import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (streamRequestBody)
 import Control.Lens ((&), (.~))
 import Data.Aeson (Value (..), (.=))

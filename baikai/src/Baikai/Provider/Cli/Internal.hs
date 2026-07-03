@@ -2,9 +2,10 @@
 -- and @baikai-openai@.
 --
 -- Not re-exported from "Baikai"; vendor packages import this module
--- directly. Anything exported here is considered part of the core
--- library's interface to the CLI provider packages and should not be
--- relied on by application code.
+-- directly. This is an internal interface and is not covered by PVP
+-- stability guarantees: names, types, and semantics may change in
+-- minor releases. Application code should use the public provider
+-- modules instead.
 module Baikai.Provider.Cli.Internal
   ( renderPrompt,
     wrapSystemPrompt,

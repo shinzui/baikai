@@ -4,7 +4,8 @@ module ThinkingSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated
-import Baikai.Provider.Claude.Api (Assembler, emptyAssembler, mapRequest, translate)
+import Baikai.Provider.Claude.Api (Assembler, emptyAssembler, translate)
+import Baikai.Provider.Claude.Internal.Request (mapRequest)
 import Claude.V1.Messages qualified as Messages
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson

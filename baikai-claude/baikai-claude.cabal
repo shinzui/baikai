@@ -34,8 +34,9 @@ library
   exposed-modules:
     Baikai.Provider.Claude.Api
     Baikai.Provider.Claude.Cli
-    Baikai.Provider.Claude.ErrorClass
     Baikai.Provider.Claude.Interactive
+    Baikai.Provider.Claude.Internal.ErrorClass
+    Baikai.Provider.Claude.Internal.Request
     Baikai.Provider.Claude.Shape
     Baikai.Provider.Claude.Sse
     Baikai.Provider.Claude.Transport

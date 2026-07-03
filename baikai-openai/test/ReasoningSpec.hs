@@ -8,12 +8,12 @@ import Baikai.Provider.OpenAI.Api
   ( RawChunk (..),
     closeOpenStream,
     emptyAssembler,
-    mapRequest,
     parseChunk,
     scanThinkTags,
     translate,
     _TagScanState,
   )
+import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Control.Lens ((&), (.~))
 import Data.Aeson qualified as Aeson
 import Data.Generics.Labels ()

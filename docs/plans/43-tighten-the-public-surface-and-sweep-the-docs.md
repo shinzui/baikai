@@ -73,12 +73,12 @@ Milestone 1 — constructor export policy, renames, consistency nits:
 
 Milestone 2 — internal namespacing and Prelude/umbrella policy:
 
-- [ ] Rename `Baikai.Provider.Claude.ErrorClass` → `Baikai.Provider.Claude.Internal.ErrorClass` and `Baikai.Provider.OpenAI.ErrorClass` → `Baikai.Provider.OpenAI.Internal.ErrorClass`, updating both `.cabal` files and all imports.
-- [ ] Extract `mapRequest` (and its pure helper closure) into `Baikai.Provider.Claude.Internal.Request` and `Baikai.Provider.OpenAI.Internal.Request`; stop exporting `mapRequest` from the `Api` modules; update the request-mapping tests.
-- [ ] Add no-PVP-guarantees haddock headers to all four `.Internal.*` modules and strengthen the one on `baikai/src/Baikai/Provider/Cli/Internal.hs`.
-- [ ] Document `Baikai.Prelude` as convenience-only with no PVP guarantees in `baikai/src/Baikai/Prelude.hs`.
-- [ ] State the umbrella policy (what `Baikai` deliberately omits, and the constructor-export policy) in the haddock of `baikai/src/Baikai.hs`.
-- [ ] `cabal build all --enable-tests && cabal test all` green.
+- [x] Rename `Baikai.Provider.Claude.ErrorClass` → `Baikai.Provider.Claude.Internal.ErrorClass` and `Baikai.Provider.OpenAI.ErrorClass` → `Baikai.Provider.OpenAI.Internal.ErrorClass`, updating both `.cabal` files and all imports.
+- [x] Extract `mapRequest` (and its pure helper closure) into `Baikai.Provider.Claude.Internal.Request` and `Baikai.Provider.OpenAI.Internal.Request`; stop exporting `mapRequest` from the `Api` modules; update the request-mapping tests.
+- [x] Add no-PVP-guarantees haddock headers to all four `.Internal.*` modules and strengthen the one on `baikai/src/Baikai/Provider/Cli/Internal.hs`.
+- [x] Document `Baikai.Prelude` as convenience-only with no PVP guarantees in `baikai/src/Baikai/Prelude.hs`.
+- [x] State the umbrella policy (what `Baikai` deliberately omits, and the constructor-export policy) in the haddock of `baikai/src/Baikai.hs`.
+- [x] `cabal build all --enable-tests && cabal test all` green.
 
 Milestone 3 — robustness cleanups:
 
@@ -109,6 +109,11 @@ implementation. Provide concise evidence.
   not `cabal repl baikai`: the library REPL loads the defining modules and can display
   internal constructors. `printf 'import Baikai.Options\n:t Options\n:quit\n' | cabal repl
   baikai-test` rejects term-level `Options` as expected.
+- Extracting request-shaping internals did not move all OpenAI compat lookups out of
+  `Baikai.Provider.OpenAI.Api`: streaming response handling still needs
+  `requiresThinkingAsText` while converting provider events into reasoning content.
+  Only request-building helpers moved to `Baikai.Provider.OpenAI.Internal.Request`;
+  stream-time response decoding stays in `Api`.
 
 
 ## Decision Log
@@ -254,7 +259,12 @@ implementation. Provide concise evidence.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+- Milestones 1 and 2 leave the intended public API boundary in place: evolvable records
+  construct through exported base values, provider request mappers and error
+  classifiers are now under `.Internal` module names, and the umbrella/prelude haddocks
+  state what is and is not covered by the compatibility promise. Validation for Milestone
+  2 passed with `cabal build all --enable-tests` and
+  `cabal test all --test-show-details=direct` before committing the slice.
 
 
 ## Context and Orientation

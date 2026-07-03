@@ -1,9 +1,13 @@
--- | Map failures from the OpenAI SDK onto baikai's typed 'BaikaiError'.
+-- | Internal failure classification for the OpenAI provider.
+--
+-- This module is exposed for provider tests and debugging, but it is
+-- not part of baikai's PVP-stable application surface. Names, types,
+-- and semantics here may change in minor releases.
+--
 -- 'classifyException' handles an exception thrown by the
--- @servant-client@ HTTP layer (carrying an HTTP status);
--- 'classifyErrorText' handles an error that arrives mid-stream as a
--- plain text message (the OpenAI streaming chunk's @error@ field).
-module Baikai.Provider.OpenAI.ErrorClass
+-- @servant-client@ HTTP layer; 'classifyErrorText' handles an error
+-- that arrives mid-stream as a plain text message.
+module Baikai.Provider.OpenAI.Internal.ErrorClass
   ( classifyException,
     classifyErrorText,
     -- | Exposed for testing the HTTP-status mapping without a live call.

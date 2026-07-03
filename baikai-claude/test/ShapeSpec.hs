@@ -2,7 +2,7 @@ module ShapeSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated qualified as Models
-import Baikai.Provider.Claude.Api (mapRequest)
+import Baikai.Provider.Claude.Internal.Request (mapRequest)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
 import Control.Lens ((&), (.~))
 import Data.Aeson (Value (..), (.=))

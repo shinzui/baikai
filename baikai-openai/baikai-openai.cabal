@@ -33,8 +33,9 @@ library
   exposed-modules:
     Baikai.Provider.OpenAI.Api
     Baikai.Provider.OpenAI.Cli
-    Baikai.Provider.OpenAI.ErrorClass
     Baikai.Provider.OpenAI.Interactive
+    Baikai.Provider.OpenAI.Internal.ErrorClass
+    Baikai.Provider.OpenAI.Internal.Request
     Baikai.Provider.OpenAI.Shape
     Baikai.Provider.OpenAI.Sse
     Baikai.Provider.OpenAI.Transport

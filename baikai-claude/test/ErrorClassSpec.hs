@@ -1,7 +1,7 @@
 module ErrorClassSpec (tests) where
 
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), isRetryable)
-import Baikai.Provider.Claude.ErrorClass
+import Baikai.Provider.Claude.Internal.ErrorClass
   ( classifyErrorText,
     classifyErrorValue,
     classifyException,
@@ -24,7 +24,7 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 tests :: TestTree
 tests =
   testGroup
-    "Baikai.Provider.Claude.ErrorClass"
+    "Baikai.Provider.Claude.Internal.ErrorClass"
     [ httpStatusTests,
       sdkTextTests,
       streamedErrorTests,

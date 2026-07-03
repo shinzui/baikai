@@ -1,10 +1,14 @@
--- | Map failures from the Anthropic SDK onto baikai's typed
--- 'BaikaiError'. Two entry points cover the two ways a failure reaches
--- the provider: 'classifyException' for an exception thrown by the
--- @servant-client@ HTTP layer (carrying an HTTP status), and
--- 'classifyErrorValue' for an Anthropic @error@ event that arrives
--- mid-stream as a JSON 'Value'.
-module Baikai.Provider.Claude.ErrorClass
+-- | Internal failure classification for the Anthropic provider.
+--
+-- This module is exposed for provider tests and debugging, but it is
+-- not part of baikai's PVP-stable application surface. Names, types,
+-- and semantics here may change in minor releases.
+--
+-- Two entry points cover the two ways a failure reaches the provider:
+-- 'classifyException' for an exception thrown by the @servant-client@
+-- HTTP layer, and 'classifyErrorValue' for an Anthropic @error@ event
+-- that arrives mid-stream as a JSON 'Value'.
+module Baikai.Provider.Claude.Internal.ErrorClass
   ( classifyException,
     classifyErrorText,
     classifyErrorValue,
