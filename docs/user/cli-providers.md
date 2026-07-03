@@ -208,6 +208,19 @@ are dropped from the rendered prompt, since neither CLI can
 re-ingest them through stdin. If you need multi-turn fidelity with
 tool round-trips, use the API providers.
 
+`Context.systemPrompt` is forwarded differently per CLI. The Claude
+batch provider passes it with `--system-prompt`. `codex exec` exposes no
+system-prompt flag, so the Codex batch provider prepends it to the
+prompt text as:
+
+```text
+System instructions:
+<system prompt>
+
+User request:
+<rendered prompt>
+```
+
 ## Limitations
 
 Three things the CLI providers do **not** do, even though the
@@ -258,3 +271,8 @@ generically, *don't* assume `Usage.totalTokens > 0` or that
   consume stdout to EOF before returning. Very long responses
   hold the subprocess open for the full duration — the synthetic
   stream emits its single `TextDelta` only after the CLI exits.
+- **Extra arguments and dash-leading prompts.** baikai renders
+  provider/config extra args before a `--` separator, then the prompt.
+  Prompts that start with `-` are therefore safe. Keep `extraArgs` to
+  real flags and their values; anything intended as prompt text belongs
+  in `Context.messages`.

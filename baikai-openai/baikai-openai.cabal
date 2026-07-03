@@ -72,6 +72,8 @@ test-suite baikai-openai-test
     , bytestring
     , case-insensitive
     , containers
+    , directory
+    , filepath
     , generic-lens
     , http-types
     , lens              ^>=5.3

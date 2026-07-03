@@ -4,6 +4,7 @@ import AgentAssetsSpec qualified
 import Baikai
 import Baikai.Prelude
 import CatalogSpec qualified
+import CliInternalSpec qualified
 import CostSpec qualified
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
@@ -80,6 +81,7 @@ main = do
       [ tests,
         AgentAssetsSpec.tests,
         CatalogSpec.tests,
+        CliInternalSpec.tests,
         CostSpec.tests,
         EmbeddingSpec.tests,
         ErrorInfoSpec.tests,

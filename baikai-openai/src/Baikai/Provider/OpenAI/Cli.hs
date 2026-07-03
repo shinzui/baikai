@@ -6,6 +6,8 @@
 -- 'registerWith' accepts a caller-supplied 'CodexCliConfig'.
 module Baikai.Provider.OpenAI.Cli
   ( CodexCliConfig (..),
+    codexCliCommand,
+    codexCliPrompt,
     defaultCodexCliConfig,
     register,
     registerWith,
@@ -32,7 +34,9 @@ import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (_Usage)
-import Control.Exception (bracket, throwIO)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (SomeException, throwIO, try)
 import Control.Lens ((^.))
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
@@ -45,7 +49,7 @@ import GHC.Generics (Generic)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import System.Exit (ExitCode (..))
-import System.IO (Handle, hClose)
+import System.IO (Handle)
 import System.Process qualified as P
 
 -- | Configuration for the @codex exec --json@ subprocess.
@@ -116,46 +120,60 @@ handleStream h = Stream.unfoldrM step ()
         then pure Nothing
         else pure (Just (chunk, ()))
 
+-- | The full prompt text passed to @codex exec@: the flattened
+-- conversation, wrapped with the system prompt when one is set.
+-- @codex exec --help@ exposes no system-prompt flag, so the system
+-- prompt travels in prompt text.
+codexCliPrompt :: Context -> Text
+codexCliPrompt ctx =
+  Internal.wrapSystemPrompt (ctx ^. #systemPrompt) (Internal.renderPrompt ctx)
+
+-- | Render the executable and arguments for a @codex exec --json@
+-- batch call. The prompt is preceded by @--@ so dash-leading prompts
+-- cannot be parsed as options.
+codexCliCommand :: CodexCliConfig -> Model -> Context -> (FilePath, [String])
+codexCliCommand cfg m ctx =
+  ( cfg ^. #executable,
+    ["exec"]
+      <> modelArgs m
+      <> ["--json"]
+      <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
+      <> ["--ephemeral" | cfg ^. #ephemeral]
+      <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+      <> ["--", Text.unpack (codexCliPrompt ctx)]
+  )
+
 runCodexCli :: CodexCliConfig -> Model -> Context -> Options -> IO Resp.Response
 runCodexCli cfg m ctx _opts = do
-  let prompt = Internal.renderPrompt ctx
-      baseArgs =
-        ["exec"]
-          <> modelArgs m
-          <> ["--json"]
-          <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
-          <> ["--ephemeral" | cfg ^. #ephemeral]
-          <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
-          <> [Text.unpack prompt]
+  let (exe, args) = codexCliCommand cfg m ctx
       procSpec =
-        (P.proc (cfg ^. #executable) baseArgs)
+        (P.proc exe args)
           { P.std_in = P.NoStream,
             P.std_out = P.CreatePipe,
             P.std_err = P.CreatePipe,
             P.cwd = cfg ^. #workingDir
           }
   start <- getCurrentTime
-  bracket
-    (P.createProcess procSpec)
-    cleanup
-    (consume start m)
-
-cleanup :: (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle) -> IO ()
-cleanup (_, mOut, mErr, ph) = do
-  maybe (pure ()) hClose mOut
-  maybe (pure ()) hClose mErr
-  P.terminateProcess ph
+  P.withCreateProcess procSpec (consume start m)
 
 consume ::
   UTCTime ->
   Model ->
-  (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle) ->
+  Maybe Handle ->
+  Maybe Handle ->
+  Maybe Handle ->
+  P.ProcessHandle ->
   IO Resp.Response
-consume start m (_, mOut, mErr, ph) = do
+consume start m _ mOut mErr ph = do
   hOut <- maybe (throwIO (providerError "codex: stdout handle missing")) pure mOut
   hErr <- maybe (throwIO (providerError "codex: stderr handle missing")) pure mErr
+  errVar <- newEmptyMVar
+  _ <-
+    forkIO $ do
+      result <- try (BS.hGetContents hErr) :: IO (Either SomeException BS.ByteString)
+      putMVar errVar (either (const BS.empty) id result)
   body <- Internal.parseCodexJsonlStream (handleStream hOut)
-  errBytes <- BS.hGetContents hErr
+  errBytes <- takeMVar errVar
   exitCode <- P.waitForProcess ph
   end <- getCurrentTime
   case exitCode of

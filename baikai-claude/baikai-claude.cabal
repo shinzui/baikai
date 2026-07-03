@@ -77,6 +77,8 @@ test-suite baikai-claude-test
     , case-insensitive
     , claude
     , containers
+    , directory
+    , filepath
     , generic-lens
     , http-types
     , lens              ^>=5.3

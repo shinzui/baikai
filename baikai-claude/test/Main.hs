@@ -2,6 +2,7 @@ module Main (main) where
 
 import Baikai
 import Baikai.Provider.Claude.Api
+import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
 import Claude.V1.Messages qualified as Messages
 import Control.Lens ((&), (.~), (^.))
@@ -12,6 +13,9 @@ import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
 import Streamly.Data.Stream qualified as Stream
+import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
+import System.FilePath ((</>))
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -21,6 +25,8 @@ main =
     testGroup
       "Baikai.Provider.Claude"
       [ commandRenderingTest,
+        batchCommandRenderingTest,
+        stderrFloodTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
         responseFormatMappingTest,
@@ -92,9 +98,70 @@ commandRenderingTest =
               "--debug",
               "--permission-mode",
               "plan",
+              "--",
               "inspect the repo"
             ]
           )
+
+batchCommandRenderingTest :: TestTree
+batchCommandRenderingTest =
+  testCase "claude -p argv terminates options before a dash-leading prompt" $ do
+    let cfg =
+          ClaudeCli.defaultClaudeCliConfig
+            { ClaudeCli.executable = "/bin/claude",
+              ClaudeCli.extraArgs = Vector.fromList ["--allowedTools", "Read"]
+            }
+        model =
+          _Model
+            & #modelId .~ "sonnet"
+            & #api .~ AnthropicMessagesCli
+            & #provider .~ "anthropic"
+        ctx =
+          _Context
+            & #systemPrompt .~ Just "Be terse."
+            & #messages .~ Vector.singleton (user "-begin with a dash")
+    ClaudeCli.claudeCliCommand cfg model ctx
+      @?= ( "/bin/claude",
+            [ "-p",
+              "--model",
+              "sonnet",
+              "--output-format",
+              "json",
+              "--no-session-persistence",
+              "--system-prompt",
+              "Be terse.",
+              "--allowedTools",
+              "Read",
+              "--",
+              "-begin with a dash"
+            ]
+          )
+
+stderrFloodTest :: TestTree
+stderrFloodTest =
+  testCase "claude batch provider survives a 1MiB stderr flood without deadlock" $ do
+    dir <- getTemporaryDirectory
+    let script = dir </> "baikai-claude-stderr-flood.sh"
+    writeFile script $
+      unlines
+        [ "#!/bin/sh",
+          "head -c 1048576 /dev/zero | tr '\\0' 'e' >&2",
+          "printf '{\"result\":\"pong\",\"is_error\":false}\\n'"
+        ]
+    perms <- getPermissions script
+    setPermissions script (setOwnerExecutable True perms)
+    reg <- newProviderRegistry
+    ClaudeCli.registerWithRegistryAndConfig reg ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = script}
+    let model =
+          _Model
+            & #modelId .~ ""
+            & #api .~ AnthropicMessagesCli
+            & #provider .~ "anthropic"
+        ctx = _Context & #messages .~ Vector.singleton (user "ping")
+    mResp <- timeout 30000000 (completeRequestWith reg model ctx _Options)
+    case mResp of
+      Nothing -> assertFailure "deadlock: stderr was not drained concurrently"
+      Just resp -> assistantText resp @?= "pong"
 
 compatDetectionTest :: TestTree
 compatDetectionTest =
@@ -137,3 +204,10 @@ rejectsImageToolResultsTest =
           ("expected ToolResultImage error, got: " <> Text.unpack msg)
           ("ToolResultImage" `Text.isInfixOf` msg)
       other -> error ("expected one EventError; got: " <> show other)
+
+assistantText :: Response -> Text.Text
+assistantText resp =
+  Text.concat
+    [ t
+    | AssistantText (TextContent t) <- Vector.toList (resp ^. #message ^. #content)
+    ]

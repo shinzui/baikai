@@ -14,6 +14,7 @@
 -- reasoning.
 module Baikai.Provider.Claude.Cli
   ( ClaudeCliConfig (..),
+    claudeCliCommand,
     defaultClaudeCliConfig,
     register,
     registerWith,
@@ -120,6 +121,20 @@ registerWithRegistryAndConfig reg cfg =
         complete = runClaudeCli cfg
       }
 
+-- | Render the executable and arguments for a @claude -p@ batch call.
+-- The prompt is preceded by @--@ so dash-leading prompts and variadic
+-- flags in 'extraArgs' cannot be parsed as options.
+claudeCliCommand :: ClaudeCliConfig -> Model -> Context -> (FilePath, [String])
+claudeCliCommand cfg m ctx =
+  ( cfg ^. #executable,
+    ["-p"]
+      <> modelArgs m
+      <> ["--output-format", "json", "--no-session-persistence"]
+      <> systemPromptArgs ctx
+      <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
+      <> ["--", Text.unpack (Internal.renderPrompt ctx)]
+  )
+
 -- | The shape of @claude -p --output-format json@ stdout.
 data ClaudeCliResult = ClaudeCliResult
   { result :: !Text,
@@ -162,18 +177,11 @@ findResultEvent = Vector.find isResult
 
 runClaudeCli :: ClaudeCliConfig -> Model -> Context -> Options -> IO Resp.Response
 runClaudeCli cfg m ctx _opts = do
-  let prompt = Internal.renderPrompt ctx
-      args =
-        ["-p"]
-          <> modelArgs m
-          <> ["--output-format", "json", "--no-session-persistence"]
-          <> systemPromptArgs ctx
-          <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
-          <> [Text.unpack prompt]
+  let (exe, args) = claudeCliCommand cfg m ctx
   start <- getCurrentTime
   (exitCode, StdoutRaw out, StderrRaw err) <-
     run $
-      cmd (cfg ^. #executable)
+      cmd exe
         & addArgs args
         & setNoStdin
         & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir

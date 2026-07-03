@@ -26,6 +26,7 @@ import Baikai.Interactive
     _InteractiveLaunchResult,
   )
 import Baikai.Prelude
+import Baikai.Provider.Cli.Internal qualified as Internal
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
@@ -57,23 +58,15 @@ codexInteractiveCommand cfg req =
       <> safetyArgs req
       <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
       <> fmap Text.unpack (req ^. #extraArgs)
-      <> [Text.unpack (codexInteractivePrompt req)]
+      <> ["--", Text.unpack (codexInteractivePrompt req)]
   )
 
 -- | Codex does not currently expose a top-level interactive
 -- system-prompt flag. Preserve Baikai's request shape by placing the
 -- system prompt before the user prompt in the initial prompt text.
 codexInteractivePrompt :: InteractiveLaunchRequest -> Text
-codexInteractivePrompt req = case Text.strip <$> req ^. #systemPrompt of
-  Nothing -> req ^. #userPrompt
-  Just "" -> req ^. #userPrompt
-  Just prompt ->
-    Text.concat
-      [ "System instructions:\n",
-        prompt,
-        "\n\nUser request:\n",
-        req ^. #userPrompt
-      ]
+codexInteractivePrompt req =
+  Internal.wrapSystemPrompt (req ^. #systemPrompt) (req ^. #userPrompt)
 
 -- | Launch Codex with inherited stdin, stdout, and stderr so the
 -- local CLI owns the interactive terminal experience.
@@ -88,8 +81,7 @@ launchCodexInteractive cfg req = do
             P.std_err = P.Inherit,
             P.cwd = req ^. #workingDir
           }
-  (_, _, _, ph) <- P.createProcess spec
-  code <- P.waitForProcess ph
+  code <- P.withCreateProcess spec (\_ _ _ ph -> P.waitForProcess ph)
   pure (_InteractiveLaunchResult InteractiveCodex code)
 
 modelArgs :: InteractiveLaunchRequest -> [String]

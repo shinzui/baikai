@@ -37,8 +37,9 @@ main = do
 `claudeInteractiveCommand` is the pure command builder used by tests and
 callers that need to inspect or log the launch. It renders the request
 to `claude` arguments including `--model`, `--system-prompt`,
-`--add-dir`, and `--allowedTools`. `launchClaudeInteractive` runs that
-command with inherited stdin, stdout, and stderr.
+`--add-dir`, and `--allowedTools`, then `--`, then the initial prompt.
+`launchClaudeInteractive` runs that command with inherited stdin,
+stdout, and stderr.
 
 ## Codex
 
@@ -67,7 +68,8 @@ main = do
 `--model`, `--cd`, `--add-dir`, `--sandbox`, and `--ask-for-approval`.
 The installed Codex CLI exposes no top-level interactive system-prompt
 flag, so `codexInteractivePrompt` preserves `systemPrompt` by placing it
-before the user prompt in the initial prompt text.
+before the user prompt in the initial prompt text. The builder renders
+`--` immediately before that prompt.
 
 ## Extra Arguments
 
@@ -76,7 +78,10 @@ Both launch config records have `executable` and `extraArgs` fields. Use
 provider defaults your application always wants. Each
 `InteractiveLaunchRequest` also has `extraArgs` for per-launch flags.
 The command builders render config extra args first, then request extra
-args, then the initial prompt.
+args, then `--`, then the initial prompt. That separator keeps prompts
+that start with `-` from being parsed as provider flags and stops
+variadic flags such as Claude's `--allowedTools` from swallowing the
+prompt.
 
 ## Smoke Checks
 

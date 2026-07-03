@@ -2,6 +2,7 @@ module Main (main) where
 
 import Baikai
 import Baikai.Provider.OpenAI.Api
+import Baikai.Provider.OpenAI.Cli qualified as CodexCli
 import Baikai.Provider.OpenAI.Interactive
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -13,6 +14,9 @@ import ErrorClassSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import Streamly.Data.Stream qualified as Stream
+import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
+import System.FilePath ((</>))
+import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -22,6 +26,9 @@ main =
     testGroup
       "Baikai.Provider.OpenAI"
       [ commandRenderingTest,
+        batchCommandRenderingTest,
+        batchSystemPromptTest,
+        stderrFloodTest,
         promptRenderingTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
@@ -99,9 +106,79 @@ commandRenderingTest =
               "on-request",
               "--no-alt-screen",
               "--search",
+              "--",
               "System instructions:\nBe precise.\n\nUser request:\ninspect the repo"
             ]
           )
+
+batchCommandRenderingTest :: TestTree
+batchCommandRenderingTest =
+  testCase "codex exec argv terminates options before a dash-leading prompt" $ do
+    let model =
+          _Model
+            & #modelId .~ ""
+            & #api .~ OpenAICompletionsCli
+            & #provider .~ "openai"
+        ctx = _Context & #messages .~ Vector.singleton (user "-begin with a dash")
+    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx
+      @?= ( "codex",
+            [ "exec",
+              "--json",
+              "--skip-git-repo-check",
+              "--ephemeral",
+              "--",
+              "-begin with a dash"
+            ]
+          )
+
+batchSystemPromptTest :: TestTree
+batchSystemPromptTest =
+  testCase "codex exec argv carries system prompt in the prompt text" $ do
+    let model =
+          _Model
+            & #modelId .~ ""
+            & #api .~ OpenAICompletionsCli
+            & #provider .~ "openai"
+        ctx =
+          _Context
+            & #systemPrompt .~ Just "Be terse."
+            & #messages .~ Vector.singleton (user "ping")
+    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx
+      @?= ( "codex",
+            [ "exec",
+              "--json",
+              "--skip-git-repo-check",
+              "--ephemeral",
+              "--",
+              "System instructions:\nBe terse.\n\nUser request:\nping"
+            ]
+          )
+
+stderrFloodTest :: TestTree
+stderrFloodTest =
+  testCase "codex batch provider survives a 1MiB stderr flood without deadlock" $ do
+    dir <- getTemporaryDirectory
+    let script = dir </> "baikai-codex-stderr-flood.sh"
+    writeFile script $
+      unlines
+        [ "#!/bin/sh",
+          "head -c 1048576 /dev/zero | tr '\\0' 'e' >&2",
+          "printf '{\"type\":\"agent_message\",\"message\":\"pong\"}\\n'"
+        ]
+    perms <- getPermissions script
+    setPermissions script (setOwnerExecutable True perms)
+    reg <- newProviderRegistry
+    CodexCli.registerWithRegistryAndConfig reg CodexCli.defaultCodexCliConfig {CodexCli.executable = script}
+    let model =
+          _Model
+            & #modelId .~ ""
+            & #api .~ OpenAICompletionsCli
+            & #provider .~ "openai"
+        ctx = _Context & #messages .~ Vector.singleton (user "ping")
+    mResp <- timeout 30000000 (completeRequestWith reg model ctx _Options)
+    case mResp of
+      Nothing -> assertFailure "deadlock: stderr was not drained concurrently"
+      Just resp -> assistantText resp @?= "pong"
 
 promptRenderingTest :: TestTree
 promptRenderingTest =
@@ -150,3 +227,10 @@ rejectsImageToolResultsTest =
           ("expected ToolResultImage error, got: " <> Text.unpack msg)
           ("ToolResultImage" `Text.isInfixOf` msg)
       other -> error ("expected one EventError; got: " <> show other)
+
+assistantText :: Response -> Text.Text
+assistantText resp =
+  Text.concat
+    [ t
+    | AssistantText (TextContent t) <- Vector.toList (resp ^. #message ^. #content)
+    ]

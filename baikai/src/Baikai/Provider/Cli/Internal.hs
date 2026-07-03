@@ -7,6 +7,7 @@
 -- relied on by application code.
 module Baikai.Provider.Cli.Internal
   ( renderPrompt,
+    wrapSystemPrompt,
     maybeApply,
     decodeUtf8Lenient,
     extractAgentMessage,
@@ -92,6 +93,23 @@ renderPrompt ctx =
       where
         pickT (ToolResultText (TextContent t)) = Just t
         pickT _ = Nothing
+
+-- | Wrap a rendered prompt with a system-instruction preamble for
+-- CLIs that expose no native system-prompt flag. 'Nothing' and
+-- blank system prompts return the body unchanged. The textual
+-- format is shared by the codex batch provider and the codex
+-- interactive launcher.
+wrapSystemPrompt :: Maybe Text -> Text -> Text
+wrapSystemPrompt msp body = case Text.strip <$> msp of
+  Nothing -> body
+  Just "" -> body
+  Just sp ->
+    Text.concat
+      [ "System instructions:\n",
+        sp,
+        "\n\nUser request:\n",
+        body
+      ]
 
 -- | @maybeApply ma f x@ applies @f a x@ when @ma = Just a@,
 -- otherwise returns @x@. Useful for threading optional configuration

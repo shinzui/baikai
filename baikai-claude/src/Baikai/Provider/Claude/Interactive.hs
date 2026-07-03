@@ -42,7 +42,8 @@ defaultClaudeInteractiveConfig =
 
 -- | Render the executable and arguments for an interactive Claude
 -- Code launch. The final positional argument is the initial user
--- prompt.
+-- prompt. The prompt is preceded by @--@ because Claude's
+-- @--allowedTools@ and @--add-dir@ flags are variadic.
 claudeInteractiveCommand ::
   ClaudeInteractiveConfig -> InteractiveLaunchRequest -> (FilePath, [String])
 claudeInteractiveCommand cfg req =
@@ -53,7 +54,7 @@ claudeInteractiveCommand cfg req =
       <> safetyArgs req
       <> fmap Text.unpack (Vector.toList (cfg ^. #extraArgs))
       <> fmap Text.unpack (req ^. #extraArgs)
-      <> [Text.unpack (req ^. #userPrompt)]
+      <> ["--", Text.unpack (req ^. #userPrompt)]
   )
 
 -- | Launch Claude Code with inherited stdin, stdout, and stderr so
