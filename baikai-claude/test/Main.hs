@@ -5,6 +5,7 @@ import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
 import Claude.V1.Messages qualified as Messages
+import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
@@ -12,8 +13,10 @@ import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
+import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -29,8 +32,11 @@ main =
         stderrFloodTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
+        noKeyStreamTest,
+        cliMissingBinaryTest,
         responseFormatMappingTest,
-        ErrorClassSpec.tests
+        ErrorClassSpec.tests,
+        SseSpec.tests
       ]
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto Anthropic's
@@ -206,6 +212,49 @@ rejectsImageToolResultsTest =
             ("expected ToolResultImage error, got: " <> Text.unpack msg)
             ("ToolResultImage" `Text.isInfixOf` msg)
       other -> error ("expected EventStart then EventError; got: " <> show other)
+
+noKeyStreamTest :: TestTree
+noKeyStreamTest =
+  testCase "missing ANTHROPIC_API_KEY yields one terminal EventError" $
+    withUnsetEnv "ANTHROPIC_API_KEY" $ do
+      let model =
+            _Model
+              & #modelId .~ "claude-test"
+              & #api .~ AnthropicMessages
+              & #provider .~ "anthropic"
+      events <- Stream.toList (claudeMessagesStream model _Context _Options)
+      length (filter isTerminal events) @?= 1
+      case last events of
+        EventError TerminalPayload {errorInfo = Just be} ->
+          be ^. #category @?= AuthError
+        other -> assertFailure ("expected terminal EventError with AuthError, got: " <> show other)
+
+cliMissingBinaryTest :: TestTree
+cliMissingBinaryTest =
+  testCase "claude CLI missing binary returns an error-shaped Response" $ do
+    reg <- newProviderRegistry
+    ClaudeCli.registerWithRegistryAndConfig
+      reg
+      ClaudeCli.defaultClaudeCliConfig {ClaudeCli.executable = "/nonexistent/claude-binary"}
+    let model =
+          _Model
+            & #modelId .~ ""
+            & #api .~ AnthropicMessagesCli
+            & #provider .~ "anthropic"
+        ctx = _Context & #messages .~ Vector.singleton (user "ping")
+    resp <- completeRequestWith reg model ctx _Options
+    case responseError resp of
+      Just be -> be ^. #category @?= OtherError
+      Nothing -> assertFailure "expected missing binary to be returned in-band"
+
+withUnsetEnv :: String -> IO a -> IO a
+withUnsetEnv name action =
+  bracket
+    (lookupEnv name)
+    restore
+    (const (unsetEnv name >> action))
+  where
+    restore = maybe (unsetEnv name) (setEnv name)
 
 assistantText :: Response -> Text.Text
 assistantText resp =

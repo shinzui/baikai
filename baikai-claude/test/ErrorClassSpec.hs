@@ -1,8 +1,9 @@
 module ErrorClassSpec (tests) where
 
-import Baikai.Error (BaikaiError (..), ErrorCategory (..))
+import Baikai.Error (BaikaiError (..), ErrorCategory (..), isRetryable)
 import Baikai.Provider.Claude.ErrorClass
-  ( classifyErrorValue,
+  ( classifyErrorText,
+    classifyErrorValue,
     classifyException,
     responseToError,
   )
@@ -13,6 +14,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
+import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
 import Servant.Client (ResponseF (..))
@@ -24,6 +26,7 @@ tests =
   testGroup
     "Baikai.Provider.Claude.ErrorClass"
     [ httpStatusTests,
+      sdkTextTests,
       streamedErrorTests,
       fallbackTests
     ]
@@ -93,11 +96,46 @@ fallbackTests :: TestTree
 fallbackTests =
   testGroup
     "classifyException fallback"
-    [ testCase "non-ClientError exception -> OtherError, text preserved" $ do
+    [ testCase "http-client connection failures are transient" $ do
+        let e =
+              classifyException $
+                toException $
+                  HTTP.HttpExceptionRequest
+                    HTTP.defaultRequest
+                    (HTTP.ConnectionFailure (toException (userError "reset")))
+        category e @?= TransientError
+        assertBool "connection failure is retryable" (isRetryable e),
+      testCase "http-client response timeouts are transient" $ do
+        let e =
+              classifyException $
+                toException $
+                  HTTP.HttpExceptionRequest
+                    HTTP.defaultRequest
+                    HTTP.ResponseTimeout
+        category e @?= TransientError
+        assertBool "response timeout is retryable" (isRetryable e),
+      testCase "non-ClientError exception -> OtherError, text preserved" $ do
         let e = classifyException (toException (userError "weird failure"))
         category e @?= OtherError
         assertBool "message keeps the original text" $
           "weird failure" `Text.isInfixOf` message e
+    ]
+
+sdkTextTests :: TestTree
+sdkTextTests =
+  testGroup
+    "classifyErrorText (SDK HTTP text)"
+    [ testCase "429 text -> RateLimited" $ do
+        let parsed =
+              classifyErrorText
+                "HTTP error 429 Too Many Requests: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow\"}}"
+        fmap category parsed @?= Just RateLimited
+        fmap httpStatus parsed @?= Just (Just 429),
+      testCase "529 text -> TransientError" $
+        fmap category (classifyErrorText "HTTP error 529 ")
+          @?= Just TransientError,
+      testCase "non-matching text -> Nothing" $
+        classifyErrorText "ordinary stream error" @?= Nothing
     ]
 
 -- | The inner error object Anthropic streams as the @error@ field.

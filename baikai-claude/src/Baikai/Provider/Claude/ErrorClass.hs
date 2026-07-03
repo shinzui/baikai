@@ -6,6 +6,7 @@
 -- mid-stream as a JSON 'Value'.
 module Baikai.Provider.Claude.ErrorClass
   ( classifyException,
+    classifyErrorText,
     classifyErrorValue,
     -- | Exposed for testing the HTTP-status mapping without a live call.
     responseToError,
@@ -16,8 +17,10 @@ import Baikai.Error
   ( BaikaiError (..),
     ErrorCategory (..),
     bodyIndicatesOverflow,
-    classifyHttpStatusWithBody,
     decodeError,
+    httpError,
+    invalidRequest,
+    parseRetryAfterSeconds,
     providerError,
   )
 import Control.Exception (SomeException, displayException, fromException)
@@ -32,19 +35,21 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
+import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Status (statusCode)
 import Servant.Client (ClientError, ResponseF (..))
 import Servant.Client qualified as Servant
 import Text.Read (readMaybe)
 
 -- | Convert any exception caught from the Anthropic SDK into a
--- categorised 'BaikaiError'. Recognises @servant-client@ 'ClientError';
--- anything else degrades to a generic provider error carrying the
--- displayed exception text.
+-- categorised 'BaikaiError'. Recognises @servant-client@ 'ClientError'
+-- and raw @http-client@ 'HttpException'; anything else degrades to a
+-- generic provider error carrying the displayed exception text.
 classifyException :: SomeException -> BaikaiError
-classifyException ex = case fromException ex of
-  Just clientErr -> fromClientError clientErr
-  Nothing -> providerError (Text.pack (displayException ex))
+classifyException ex
+  | Just clientErr <- fromException ex = fromClientError clientErr
+  | Just httpEx <- fromException ex = fromHttpException httpEx
+  | otherwise = providerError (Text.pack (displayException ex))
 
 fromClientError :: ClientError -> BaikaiError
 fromClientError clientErr = case clientErr of
@@ -61,30 +66,46 @@ fromClientError clientErr = case clientErr of
 -- @Retry-After@ header (when integer-valued), and a snippet of the body
 -- (which also feeds context-overflow detection).
 responseToError :: ResponseF LBS.ByteString -> BaikaiError
-responseToError resp =
-  BaikaiError
-    { category = classifyHttpStatusWithBody status retryAfter body,
-      message = msg,
-      httpStatus = Just status,
-      retryAfterSeconds = retryAfter,
-      exitCode = Nothing
-    }
+responseToError resp = httpError status retryAfter body
   where
     status = statusCode (responseStatusCode resp)
     body = decodeLenient (LBS.toStrict (responseBody resp))
     retryAfter = parseRetryAfter (responseHeaders resp)
-    snippet = Text.take 300 (Text.strip body)
-    msg =
-      "HTTP "
-        <> Text.pack (show status)
-        <> (if Text.null snippet then "" else ": " <> snippet)
 
 -- | Look up an integer @Retry-After@ header value (seconds). The HTTP
 -- date form is not parsed and yields 'Nothing'.
 parseRetryAfter :: Seq (CI.CI ByteString, ByteString) -> Maybe Int
 parseRetryAfter headers = do
   raw <- lookup (CI.mk "Retry-After") (toList headers)
-  readMaybe (Text.unpack (Text.strip (decodeLenient raw)))
+  parseRetryAfterSeconds (decodeLenient raw)
+
+fromHttpException :: HTTP.HttpException -> BaikaiError
+fromHttpException = \case
+  HTTP.InvalidUrlException url reason ->
+    invalidRequest (Text.pack (url <> ": " <> reason))
+  HTTP.HttpExceptionRequest _ content -> fromHttpExceptionContent content
+
+fromHttpExceptionContent :: HTTP.HttpExceptionContent -> BaikaiError
+fromHttpExceptionContent = \case
+  HTTP.StatusCodeException resp body ->
+    httpError
+      (statusCode (HTTP.responseStatus resp))
+      (parseRetryAfterHttp (HTTP.responseHeaders resp))
+      (decodeLenient body)
+  HTTP.ConnectionFailure e -> transient (Text.pack (displayException e))
+  HTTP.ConnectionTimeout -> transient "connection timeout"
+  HTTP.ResponseTimeout -> transient "response timeout"
+  HTTP.ConnectionClosed -> transient "connection closed"
+  HTTP.NoResponseDataReceived -> transient "no response data received"
+  HTTP.IncompleteHeaders -> transient "incomplete response headers"
+  other -> providerError (Text.pack (show other))
+  where
+    transient t = (providerError ("connection error: " <> t)) {category = TransientError}
+
+parseRetryAfterHttp :: [(CI.CI ByteString, ByteString)] -> Maybe Int
+parseRetryAfterHttp headers = do
+  raw <- lookup (CI.mk "Retry-After") headers
+  parseRetryAfterSeconds (decodeLenient raw)
 
 decodeLenient :: ByteString -> Text
 decodeLenient = Text.decodeUtf8With Text.lenientDecode
@@ -108,6 +129,20 @@ classifyErrorValue v = do
     stringField k o = case KeyMap.lookup k o of
       Just (String t) -> Just t
       _ -> Nothing
+
+-- | Recover HTTP classification from the text shape emitted by the
+-- upstream SDK's non-2xx path. The local SSE transport preserves
+-- headers and should be preferred; this is a defense-in-depth parser.
+classifyErrorText :: Text -> Maybe BaikaiError
+classifyErrorText raw = do
+  rest <- Text.stripPrefix "HTTP error " raw
+  let (codeText, afterCode) = Text.breakOn " " rest
+  code <- readMaybe (Text.unpack codeText)
+  let body = case Text.breakOn ": " afterCode of
+        (_, sepBody)
+          | not (Text.null sepBody) -> Text.drop 2 sepBody
+        _ -> ""
+  pure (httpError code Nothing body)
 
 -- | Map an Anthropic error @type@ string (plus its message, for the
 -- overflow special case) to a category.

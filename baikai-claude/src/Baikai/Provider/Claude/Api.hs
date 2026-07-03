@@ -14,10 +14,11 @@
 --
 -- EP-3 promotes streaming to the primary entry point. The handler
 -- exposes a 'streamly' 'Stream' of 'AssistantMessageEvent' values
--- bridged from the upstream SDK's typed 'createMessageStreamTyped'
--- callback. The synchronous 'complete' field is derived via
--- 'streamingComplete', so callers that drain the stream get the
--- same fully-assembled 'Response' they had before.
+-- bridged from a local SSE transport that preserves HTTP status,
+-- headers, and body for error classification. The synchronous
+-- 'complete' field is derived via 'streamingComplete', so callers
+-- that drain the stream get the same fully-assembled 'Response' they
+-- had before.
 module Baikai.Provider.Claude.Api
   ( register,
     registerWithRegistry,
@@ -39,6 +40,7 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Claude.ErrorClass (classifyErrorValue, classifyException)
+import Baikai.Provider.Claude.Sse (claudeSseStream)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -67,7 +69,7 @@ import Claude.V1.Messages qualified as Messages
 import Claude.V1.Tool qualified as ClaudeTool
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeAsyncException (..), SomeException, fromException, throwIO, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value, (.=))
 import Data.Aeson qualified as Aeson
@@ -86,6 +88,7 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
+import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 
@@ -109,11 +112,11 @@ registerWithRegistry reg =
 -- | Streaming producer for the Anthropic Messages API.
 --
 -- Forks one worker thread per call that drives
--- 'Claude.createMessageStreamTyped'; the worker pushes typed
--- 'Messages.MessageStreamEvent' values onto a bounded 'Chan'
--- terminated by 'Nothing'. The returned 'Stream' is a translator:
--- it pulls raw events from the channel and emits zero or more
--- 'AssistantMessageEvent' values per upstream event, terminating
+-- the local Claude SSE transport; the worker pushes classified
+-- errors or typed 'Messages.MessageStreamEvent' values onto a bounded
+-- 'Chan' terminated by 'Nothing'. The returned 'Stream' is a
+-- translator: it pulls raw events from the channel and emits zero or
+-- more 'AssistantMessageEvent' values per upstream event, terminating
 -- with exactly one 'EventDone' or 'EventError'.
 --
 -- Producer-side exceptions (HTTP failure, decode failure inside the
@@ -124,14 +127,14 @@ claudeMessagesStream ::
   Model -> Context -> Options -> Stream IO AssistantMessageEvent
 claudeMessagesStream m ctx opts =
   Stream.concatEffect $ do
-    setup <- prepareCall m ctx opts
+    setupResult <- trySync (prepareCall m ctx opts)
+    let setup = either (Left . exceptionToError) id setupResult
     case setup of
       Left err -> Stream.fromList <$> immediateError err
       Right call -> do
-        ch <- newChan :: IO (Chan (Maybe Messages.MessageStreamEvent))
+        ch <- newChan :: IO (Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)))
         tref <- newIORef False
-        eref <- newIORef Nothing
-        _ <- forkIO (worker call ch eref)
+        _ <- forkIO (worker call ch)
         startTime <- getCurrentTime
         let initialState =
               ProducerState
@@ -139,32 +142,32 @@ claudeMessagesStream m ctx opts =
                   pending = [],
                   assembler = emptyAssembler m startTime,
                   finished = False,
-                  terminalRef = tref,
-                  errInfoRef = eref
+                  terminalRef = tref
                 }
         pure (Stream.unfoldrM step initialState)
 
 -- | Per-call prepared values: the typed SDK request, plus the
 -- methods record to invoke the streaming endpoint.
 data ClaudeCall = ClaudeCall
-  { methods :: !Claude.Methods,
+  { clientEnv :: !Client.ClientEnv,
+    apiKey :: !Text,
+    anthropicVersion :: !(Maybe Text),
     request :: !Messages.CreateMessage
   }
   deriving stock (Generic)
 
 prepareCall ::
-  Model -> Context -> Options -> IO (Either Text ClaudeCall)
+  Model -> Context -> Options -> IO (Either BaikaiError ClaudeCall)
 prepareCall m ctx opts = do
   case mapRequest m ctx opts of
-    Left e -> pure (Left e)
+    Left e -> pure (Left (invalidRequest e))
     Right req -> do
       key <- resolveKey opts
       let url = case m ^. #baseUrl of
             "" -> "https://api.anthropic.com"
             u -> u
       env <- Claude.getClientEnv url
-      let mtds = Claude.makeMethods env key (Just "2023-06-01")
-      pure (Right ClaudeCall {methods = mtds, request = req})
+      pure (Right ClaudeCall {clientEnv = env, apiKey = key, anthropicVersion = Just "2023-06-01", request = req})
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
@@ -178,38 +181,29 @@ resolveKey opts = case opts ^. #apiKey of
 -- handled failure) we close the channel with 'Nothing'.
 worker ::
   ClaudeCall ->
-  Chan (Maybe Messages.MessageStreamEvent) ->
-  IORef (Maybe BaikaiError) ->
+  Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)) ->
   IO ()
-worker call ch errInfoRef = do
-  let Claude.Methods {Claude.createMessageStreamTyped = stream'} = call ^. #methods
+worker call ch = do
   r <-
-    try @SomeException $
-      stream' (call ^. #request) $ \case
-        Left errText -> writeChan ch (Just (errorEvent errText))
-        Right ev -> writeChan ch (Just ev)
+    trySync $
+      claudeSseStream
+        (call ^. #clientEnv)
+        (call ^. #apiKey)
+        (call ^. #anthropicVersion)
+        (call ^. #request)
+        (writeChan ch . Just)
   case r of
     Right () -> pure ()
-    -- An HTTP-level exception carries an HTTP status; classify it and
-    -- stash the structured error. The worker writes no terminal event,
-    -- so the consumer reaches its end-of-stream recovery path, which
-    -- reads this ref. (See 'step' / 'unexpectedEoS'.)
-    Left e -> writeIORef errInfoRef (Just (classifyException e))
+    Left e -> writeChan ch (Just (Left (exceptionToError e)))
   writeChan ch Nothing
-  where
-    errorEvent :: Text -> Messages.MessageStreamEvent
-    errorEvent t = Messages.Error {Messages.error = Aeson.String t}
 
 -- | The streaming 'Stream' state.
 data ProducerState = ProducerState
-  { chan :: !(Chan (Maybe Messages.MessageStreamEvent)),
+  { chan :: !(Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent))),
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
-    terminalRef :: !(IORef Bool),
-    -- | Set by the worker when an HTTP-level exception is caught, so the
-    -- end-of-stream recovery path can surface a categorised error.
-    errInfoRef :: !(IORef (Maybe BaikaiError))
+    terminalRef :: !(IORef Bool)
   }
   deriving stock (Generic)
 
@@ -235,8 +229,7 @@ step s
             then pure Nothing
             else do
               now <- getCurrentTime
-              mErr <- readIORef (s ^. #errInfoRef)
-              let (ev, ass') = unexpectedEoS now mErr (s ^. #assembler)
+              let (ev, ass') = unexpectedEoS now (s ^. #assembler)
               writeTerminal s ev
               pure
                 ( Just
@@ -272,18 +265,13 @@ terminal = \case
   EventError {} -> True
   _ -> False
 
--- | The recovery path: channel closed before any terminal event. When
--- the worker stored a classified HTTP error ('Just be'), surface it as a
--- structured 'EventError'; otherwise report the unexpected end of stream.
+-- | The recovery path: channel closed before any terminal event.
 unexpectedEoS ::
-  UTCTime -> Maybe BaikaiError -> Assembler -> (AssistantMessageEvent, Assembler)
-unexpectedEoS now mErr ass =
-  let errText = case mErr of
-        Just be -> be ^. #message
-        Nothing -> "claude stream ended without message_stop"
+  UTCTime -> Assembler -> (AssistantMessageEvent, Assembler)
+unexpectedEoS now ass =
+  let errText = "claude stream ended without message_stop"
       msg = finalMessageOnError ass now errText
-      err = fromMaybe (providerError errText) mErr
-   in (EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg err), ass)
+   in (EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg (providerError errText)), ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
@@ -318,11 +306,22 @@ emptyAssembler m s =
     }
 
 translate ::
-  Messages.MessageStreamEvent ->
+  Either BaikaiError Messages.MessageStreamEvent ->
   Assembler ->
   UTCTime ->
   ([AssistantMessageEvent], Assembler)
 translate raw ass now = case raw of
+  Left be ->
+    let msg = finalMessageOnError ass now (be ^. #message)
+     in ([EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg be)], ass)
+  Right ev -> translateEvent ev ass now
+
+translateEvent ::
+  Messages.MessageStreamEvent ->
+  Assembler ->
+  UTCTime ->
+  ([AssistantMessageEvent], Assembler)
+translateEvent raw ass now = case raw of
   Messages.Ping -> ([], ass)
   Messages.Message_Start {Messages.message = mr} ->
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
@@ -346,8 +345,17 @@ translate raw ass now = case raw of
               .~ ((u ^. #inputTokens) + outputTokensFinal + (u ^. #cacheReadTokens) + (u ^. #cacheWriteTokens))
      in ([], ass & #stopReason .~ stopR & #usage .~ u')
   Messages.Message_Stop ->
-    let msg = finalMessage ass now
-     in ([EventDone (doneTerminal (ass ^. #responseId) (ass ^. #stopReason) msg)], ass)
+    let reason = ass ^. #stopReason
+        refusal = providerError "Anthropic refused to generate a response (stop_reason=refusal)"
+        msg =
+          if reason == Stop.ErrorReason
+            then finalMessageOnError ass now (refusal ^. #message)
+            else finalMessage ass now
+        terminalEvent =
+          if reason == Stop.ErrorReason
+            then EventError (errorTerminal (ass ^. #responseId) reason msg refusal)
+            else EventDone (doneTerminal (ass ^. #responseId) reason msg)
+     in ([terminalEvent], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
         mErr = classifyErrorValue errVal
@@ -511,9 +519,10 @@ blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 -- | The immediate "request invalid" stream — emitted when
 -- 'mapRequest' fails or 'prepareCall' is otherwise unable to build
 -- a valid SDK request.
-immediateError :: Text -> IO [AssistantMessageEvent]
-immediateError errText = do
+immediateError :: BaikaiError -> IO [AssistantMessageEvent]
+immediateError err = do
   now <- getCurrentTime
+  let errText = err ^. #message
   let msg =
         Msg.AssistantMessage
           Msg.AssistantPayload
@@ -525,8 +534,21 @@ immediateError errText = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Stop.ErrorReason msg (invalidRequest errText))
+      EventError (errorTerminal Nothing Stop.ErrorReason msg err)
     ]
+
+trySync :: IO a -> IO (Either SomeException a)
+trySync action = do
+  r <- try action
+  case r of
+    Left e
+      | Just (SomeAsyncException _) <- (fromException e :: Maybe SomeAsyncException) ->
+          throwIO e
+      | otherwise -> pure (Left e)
+    Right a -> pure (Right a)
+
+exceptionToError :: SomeException -> BaikaiError
+exceptionToError e = fromMaybe (classifyException e) (fromException e)
 
 renderAnthropicError :: Value -> Text
 renderAnthropicError v = case v of

@@ -36,6 +36,7 @@ library
     Baikai.Provider.Claude.Cli
     Baikai.Provider.Claude.ErrorClass
     Baikai.Provider.Claude.Interactive
+    Baikai.Provider.Claude.Sse
 
   build-depends:
     , aeson
@@ -64,7 +65,9 @@ test-suite baikai-claude-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Main.hs
-  other-modules:  ErrorClassSpec
+  other-modules:
+    ErrorClassSpec
+    SseSpec
 
   -- cradle (used by Baikai.Provider.Claude.Interactive) requires the threaded RTS.
   ghc-options:    -threaded -with-rtsopts=-N
@@ -80,6 +83,7 @@ test-suite baikai-claude-test
     , directory
     , filepath
     , generic-lens
+    , http-client
     , http-types
     , lens              ^>=5.3
     , servant-client

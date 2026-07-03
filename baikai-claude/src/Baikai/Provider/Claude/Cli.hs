@@ -10,7 +10,8 @@
 -- assistant message carries zero token counts (and therefore zero
 -- cost): the @claude@ CLI runs under a flat subscription, so
 -- per-token billing does not apply. CLI providers do not participate
--- in tool calling — the masterplan's Decision Log records the
+-- in tool calling. Provider failures are returned in-band as
+-- error-shaped responses; the masterplan's Decision Log records the
 -- reasoning.
 module Baikai.Provider.Claude.Cli
   ( ClaudeCliConfig (..),
@@ -26,7 +27,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..))
-import Baikai.Error (decodeError, processError, providerError)
+import Baikai.Error (BaikaiError, decodeError, processError, providerError)
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -41,7 +42,7 @@ import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (_Usage)
-import Control.Exception (throwIO)
+import Control.Exception (SomeAsyncException (..), SomeException, displayException, fromException, throwIO, try)
 import Control.Lens ((^.))
 import Cradle
   ( ExitCode (..),
@@ -60,6 +61,7 @@ import Data.Aeson.Types (parseEither, parseJSON)
 import Data.ByteString (ByteString)
 import Data.Function ((&))
 import Data.Generics.Labels ()
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
@@ -154,18 +156,18 @@ modelArgs m = case Text.strip (m ^. #modelId) of
   "" -> []
   mid -> ["--model", Text.unpack mid]
 
-decodeResult :: ByteString -> IO ClaudeCliResult
+decodeResult :: ByteString -> Either BaikaiError ClaudeCliResult
 decodeResult bs = case eitherDecodeStrict bs of
-  Left err -> throwIO (decodeError (Text.pack err))
+  Left err -> Left (decodeError (Text.pack err))
   Right (Aeson.Array events) -> case findResultEvent events of
-    Nothing -> throwIO (decodeError "claude -p: no result event in stdout array")
+    Nothing -> Left (decodeError "claude -p: no result event in stdout array")
     Just ev -> case parseEither parseJSON ev of
-      Left err -> throwIO (decodeError (Text.pack err))
-      Right r -> pure r
+      Left err -> Left (decodeError (Text.pack err))
+      Right r -> Right r
   Right v@(Aeson.Object _) -> case parseEither parseJSON v of
-    Left err -> throwIO (decodeError (Text.pack err))
-    Right r -> pure r
-  Right _ -> throwIO (decodeError "claude -p: expected JSON object or array")
+    Left err -> Left (decodeError (Text.pack err))
+    Right r -> Right r
+  Right _ -> Left (decodeError "claude -p: expected JSON object or array")
 
 findResultEvent :: Vector Value -> Maybe Value
 findResultEvent = Vector.find isResult
@@ -179,20 +181,24 @@ runClaudeCli :: ClaudeCliConfig -> Model -> Context -> Options -> IO Resp.Respon
 runClaudeCli cfg m ctx _opts = do
   let (exe, args) = claudeCliCommand cfg m ctx
   start <- getCurrentTime
-  (exitCode, StdoutRaw out, StderrRaw err) <-
-    run $
-      cmd exe
-        & addArgs args
-        & setNoStdin
-        & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
+  executed <-
+    trySync $
+      run $
+        cmd exe
+          & addArgs args
+          & setNoStdin
+          & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
   end <- getCurrentTime
-  case exitCode of
-    ExitFailure n -> throwIO (processError n (Internal.decodeUtf8Lenient err))
-    ExitSuccess -> do
-      r <- decodeResult out
-      if is_error r
-        then throwIO (providerError (result r))
-        else pure (mkResponse m start end (result r))
+  case executed of
+    Left ex -> pure (Resp.errorResponse m end (millisBetween start end) (exceptionToError ex))
+    Right (exitCode, StdoutRaw out, StderrRaw err) -> case exitCode of
+      ExitFailure n -> pure (Resp.errorResponse m end (millisBetween start end) (processError n (Internal.decodeUtf8Lenient err)))
+      ExitSuccess -> case decodeResult out of
+        Left e -> pure (Resp.errorResponse m end (millisBetween start end) e)
+        Right r ->
+          if is_error r
+            then pure (Resp.errorResponse m end (millisBetween start end) (providerError (result r)))
+            else pure (mkResponse m start end (result r))
 
 mkResponse :: Model -> UTCTime -> UTCTime -> Text -> Resp.Response
 mkResponse m start end body =
@@ -215,3 +221,16 @@ mkResponse m start end body =
 
 millisBetween :: UTCTime -> UTCTime -> Integer
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
+
+trySync :: IO a -> IO (Either SomeException a)
+trySync action = do
+  r <- try action
+  case r of
+    Left e
+      | Just (SomeAsyncException _) <- (fromException e :: Maybe SomeAsyncException) ->
+          throwIO e
+      | otherwise -> pure (Left e)
+    Right a -> pure (Right a)
+
+exceptionToError :: SomeException -> BaikaiError
+exceptionToError e = fromMaybe (providerError (Text.pack (displayException e))) (fromException e)

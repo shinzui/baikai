@@ -77,12 +77,12 @@ Milestone 1 — core contract:
 
 Milestone 2 — Claude classification goes live:
 
-- [ ] `Baikai.Provider.Claude.Sse` local SSE transport added; non-2xx yields a classified `BaikaiError` with status, `Retry-After`, and body.
-- [ ] `classifyException` in `baikai-claude/src/Baikai/Provider/Claude/ErrorClass.hs` recognizes `HttpException`; `classifyErrorText` fallback parser for the SDK's `"HTTP error <code> ..."` text added.
-- [ ] `prepareCall` failures (missing key, bad base URL) caught and emitted as a classified terminal `EventError` — no mid-iteration throw.
-- [ ] `Message_Stop` with a refusal stop reason emits `EventError` with `errorInfo`, not `EventDone`.
-- [ ] `runClaudeCli` in `baikai-claude/src/Baikai/Provider/Claude/Cli.hs` reports in-band; no `throwIO` on the request path.
-- [ ] Claude tests feed the real shapes (raw HTTP responses, `HttpException` values, the exact SDK error text); `cabal test baikai-claude` green.
+- [x] `Baikai.Provider.Claude.Sse` local SSE transport added; non-2xx yields a classified `BaikaiError` with status, `Retry-After`, and body. (2026-07-03)
+- [x] `classifyException` in `baikai-claude/src/Baikai/Provider/Claude/ErrorClass.hs` recognizes `HttpException`; `classifyErrorText` fallback parser for the SDK's `"HTTP error <code> ..."` text added. (2026-07-03)
+- [x] `prepareCall` failures (missing key, bad base URL) caught and emitted as a classified terminal `EventError` — no mid-iteration throw. (2026-07-03)
+- [x] `Message_Stop` with a refusal stop reason emits `EventError` with `errorInfo`, not `EventDone`. (2026-07-03)
+- [x] `runClaudeCli` in `baikai-claude/src/Baikai/Provider/Claude/Cli.hs` reports in-band; no `throwIO` on the request path. (2026-07-03)
+- [x] Claude tests feed the real shapes (raw HTTP responses, `HttpException` values, the exact SDK error text); `cabal test baikai-claude` green. (2026-07-03)
 
 Milestone 3 — OpenAI classification goes live:
 
