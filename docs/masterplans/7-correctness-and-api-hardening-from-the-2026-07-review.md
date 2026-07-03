@@ -103,7 +103,7 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | 4 | Correct usage and cost accounting | docs/plans/37-correct-usage-and-cost-accounting.md | None | None | Complete |
 | 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | Complete |
 | 6 | Unify the error contract and revive error classification | docs/plans/39-unify-the-error-contract-and-revive-error-classification.md | EP-5 | None | Complete |
-| 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | In Progress |
+| 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | Complete |
 | 8 | Implement compat quirks and transport options | docs/plans/41-implement-compat-quirks-and-transport-options.md | None | EP-6, EP-7 | Not Started |
 | 9 | Add core ergonomic helpers before the API freeze | docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md | None | EP-6 | Not Started |
 | 10 | Tighten the public surface and sweep the docs | docs/plans/43-tighten-the-public-surface-and-sweep-the-docs.md | EP-9 | EP-1..EP-8 | Not Started |
@@ -218,7 +218,7 @@ EP-10 relocate them if needed.
 - [x] EP-7 M1: Claude cap-safe `max_tokens` and per-generation thinking style
 - [x] EP-7 M2: Claude stream fidelity and verbatim replay (signature, redacted, phantom tool calls)
 - [x] EP-7 M3: OpenAI-compatible reasoning extraction
-- [ ] EP-7 M4: live proof and validation sweep
+- [x] EP-7 M4: live proof and validation sweep
 - [ ] EP-8 M1: core groundwork — honest host detection, flag deletions, key-env table
 - [ ] EP-8 M2: OpenAI request shaping (every kept flag on the wire, zero-cap, delta keying)
 - [ ] EP-8 M3: Claude raw streaming path — verbatim tool schemas, tool_choice none, cache markers
@@ -295,6 +295,11 @@ EP-10 relocate them if needed.
   EP-10's documentation sweep should describe provider-specific replay behavior:
   Anthropic can replay signed/redacted thinking; OpenAI-compatible providers keep only
   visible assistant text and tool calls. (2026-07-03, EP-7 implementation)
+- EP-7's final smoke module is present and the full build/test sweep passed, but this
+  environment lacked Anthropic and DeepSeek API keys. The new live thinking cases
+  therefore skipped explicitly; a later keyed run should still be used to verify the
+  Anthropic adaptive/budget table against the current provider API. (2026-07-03, EP-7
+  implementation)
 
 
 ## Decision Log

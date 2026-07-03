@@ -24,6 +24,7 @@ import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
+import ThinkingSmoke qualified
 import ToolsSmoke qualified
 
 main :: IO ()
@@ -40,6 +41,7 @@ main = do
   hadTools <- mapM runToolCase apiCases
   hadStructured <- mapM runStructuredCase apiCases
   hadMultiHost <- MultiHostSmoke.runMultiHostCase
+  hadThinking <- ThinkingSmoke.runThinkingCases
   unless
     ( or hadApi
         || or hadStream
@@ -49,6 +51,7 @@ main = do
         || or hadTools
         || or hadStructured
         || hadMultiHost
+        || hadThinking
     )
     $ hPutStrLn
       stderr

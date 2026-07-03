@@ -89,10 +89,11 @@ This section must always reflect the actual current state of the work.
       (2026-07-03)
 - [x] M3: stream-assembly unit tests in `baikai-openai/test/ReasoningSpec.hs`.
       (2026-07-03)
-- [ ] M4: live smoke cases (Anthropic budget model, Anthropic adaptive model,
-      deepseek-reasoner) in `baikai-smoke/test/`, skipped without keys.
-- [ ] M4: full validation sweep (`cabal build all --enable-tests`, all test suites,
+- [x] M4: live smoke cases (Anthropic budget model, Anthropic adaptive model,
+      deepseek-reasoner) in `baikai-smoke/test/`, skipped without keys. (2026-07-03)
+- [x] M4: full validation sweep (`cabal build all --enable-tests`, all test suites,
       smoke with keys); record evidence here and in Outcomes & Retrospective.
+      (2026-07-03; Anthropic/DeepSeek live cases skipped because keys were absent)
 
 
 ## Surprises & Discoveries
@@ -119,6 +120,12 @@ implementation. Provide concise evidence.
   replay and keeps only visible text and tool calls. Validation evidence: `cabal test
   baikai baikai-openai --test-show-details=direct` passed with `baikai` 116 tests and
   `baikai-openai` 41 tests. (2026-07-03, M3 implementation)
+- The M4 validation environment had `OPENAI_API_KEY` plus local `claude`/`codex` CLI
+  binaries, but no `ANTHROPIC_KEY`/`ANTHROPIC_API_KEY` and no
+  `DEEPSEEK_KEY`/`DEEPSEEK_API_KEY`. The new thinking smoke cases therefore proved
+  compile-time integration and explicit skip behavior, not live Anthropic/DeepSeek
+  acceptance. A live keyed run remains useful to verify the adaptive model table against
+  the current Anthropic API. (2026-07-03, M4 implementation)
 
 
 ## Decision Log
@@ -283,6 +290,27 @@ requires text-based thinking extraction. OpenAI-compatible replay now omits
 cabal test baikai baikai-openai --test-show-details=direct
 baikai-openai: 41 tests passed
 baikai: 116 tests passed
+```
+
+Milestone 4 completed on 2026-07-03. `baikai-smoke/test/ThinkingSmoke.hs` now exercises
+the three live cases from this plan: Claude Sonnet 4.5 budget thinking with signed
+replay, Claude Opus 4.6 adaptive thinking with signed replay, and DeepSeek Reasoner
+reasoning extraction. In this environment the Anthropic and DeepSeek keys were absent,
+so those cases printed explicit skips; the smoke suite still ran the available OpenAI
+and CLI cases successfully. Final validation:
+
+```text
+cabal build all --enable-tests
+passed
+
+cabal test all --test-show-details=direct
+baikai: 116 tests passed
+baikai-claude: 102 tests passed
+baikai-openai: 41 tests passed
+baikai-kit: 29 tests passed
+baikai-effectful: 4 tests passed
+baikai-trace-otel: 3 tests passed
+baikai-smoke: passed; new Anthropic/DeepSeek thinking cases skipped without keys
 ```
 
 
@@ -942,4 +970,7 @@ Surprises & Discoveries, and Outcomes & Retrospective sections with the cap-safe
 thinking request-shaping work, the generator coupling discovered during validation, and
 the focused `baikai`/`baikai-claude` test evidence. Milestone 2 then updated the same
 living sections with Claude stream/replay fidelity, redacted payload preservation, the
-phantom-block regression, and the focused `baikai-claude` test evidence.
+phantom-block regression, and the focused `baikai-claude` test evidence. Milestones 3
+and 4 then recorded OpenAI-compatible reasoning extraction, OpenAI-compatible replay
+dropping, the new thinking smoke module, and the final build/test sweep with
+Anthropic/DeepSeek live cases skipped because keys were absent.
