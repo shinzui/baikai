@@ -19,7 +19,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
-import Baikai.Error (processError, providerError)
+import Baikai.Error (BaikaiError, processError, providerError)
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -36,10 +36,11 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (_Usage)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, throwIO, try)
+import Control.Exception (SomeAsyncException (..), SomeException, displayException, fromException, throwIO, try)
 import Control.Lens ((^.))
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
@@ -154,7 +155,12 @@ runCodexCli cfg m ctx _opts = do
             P.cwd = cfg ^. #workingDir
           }
   start <- getCurrentTime
-  P.withCreateProcess procSpec (consume start m)
+  result <- trySync (P.withCreateProcess procSpec (consume start m))
+  case result of
+    Right resp -> pure resp
+    Left ex -> do
+      end <- getCurrentTime
+      pure (Resp.errorResponse m end (millisBetween start end) (exceptionToError ex))
 
 consume ::
   UTCTime ->
@@ -165,38 +171,57 @@ consume ::
   P.ProcessHandle ->
   IO Resp.Response
 consume start m _ mOut mErr ph = do
-  hOut <- maybe (throwIO (providerError "codex: stdout handle missing")) pure mOut
-  hErr <- maybe (throwIO (providerError "codex: stderr handle missing")) pure mErr
-  errVar <- newEmptyMVar
-  _ <-
-    forkIO $ do
-      result <- try (BS.hGetContents hErr) :: IO (Either SomeException BS.ByteString)
-      putMVar errVar (either (const BS.empty) id result)
-  body <- Internal.parseCodexJsonlStream (handleStream hOut)
-  errBytes <- takeMVar errVar
-  exitCode <- P.waitForProcess ph
-  end <- getCurrentTime
-  case exitCode of
-    ExitFailure n -> throwIO (processError n (Internal.decodeUtf8Lenient errBytes))
-    ExitSuccess ->
-      pure
-        Resp.Response
-          { Resp.message =
-              AssistantPayload
-                { content =
-                    Vector.singleton (AssistantText (TextContent (Text.strip body))),
-                  usage = _Usage,
-                  stopReason = Stop,
-                  errorMessage = Nothing,
-                  timestamp = end
-                },
-            Resp.model = m,
-            Resp.api = OpenAICompletionsCli,
-            Resp.provider = m ^. #provider,
-            Resp.responseId = Nothing,
-            Resp.latencyMs = millisBetween start end,
-            Resp.errorInfo = Nothing
-          }
+  case (mOut, mErr) of
+    (Nothing, _) -> errorNow (providerError "codex: stdout handle missing")
+    (_, Nothing) -> errorNow (providerError "codex: stderr handle missing")
+    (Just hOut, Just hErr) -> do
+      errVar <- newEmptyMVar
+      _ <-
+        forkIO $ do
+          result <- try (BS.hGetContents hErr) :: IO (Either SomeException BS.ByteString)
+          putMVar errVar (either (const BS.empty) id result)
+      body <- Internal.parseCodexJsonlStream (handleStream hOut)
+      errBytes <- takeMVar errVar
+      exitCode <- P.waitForProcess ph
+      end <- getCurrentTime
+      case exitCode of
+        ExitFailure n -> pure (Resp.errorResponse m end (millisBetween start end) (processError n (Internal.decodeUtf8Lenient errBytes)))
+        ExitSuccess ->
+          pure
+            Resp.Response
+              { Resp.message =
+                  AssistantPayload
+                    { content =
+                        Vector.singleton (AssistantText (TextContent (Text.strip body))),
+                      usage = _Usage,
+                      stopReason = Stop,
+                      errorMessage = Nothing,
+                      timestamp = end
+                    },
+                Resp.model = m,
+                Resp.api = OpenAICompletionsCli,
+                Resp.provider = m ^. #provider,
+                Resp.responseId = Nothing,
+                Resp.latencyMs = millisBetween start end,
+                Resp.errorInfo = Nothing
+              }
+  where
+    errorNow err = do
+      end <- getCurrentTime
+      pure (Resp.errorResponse m end (millisBetween start end) err)
 
 millisBetween :: UTCTime -> UTCTime -> Integer
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
+
+trySync :: IO a -> IO (Either SomeException a)
+trySync action = do
+  r <- try action
+  case r of
+    Left e
+      | Just (SomeAsyncException _) <- (fromException e :: Maybe SomeAsyncException) ->
+          throwIO e
+      | otherwise -> pure (Left e)
+    Right a -> pure (Right a)
+
+exceptionToError :: SomeException -> BaikaiError
+exceptionToError e = fromMaybe (providerError (Text.pack (displayException e))) (fromException e)

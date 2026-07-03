@@ -97,7 +97,9 @@ data UserPayload = UserPayload
 -- | Model output: the assistant content blocks ('AssistantText',
 -- 'AssistantThinking', 'AssistantToolCall'), the call's 'Usage' (which
 -- embeds 'Cost' in-place), the reported 'StopReason', an optional
--- 'errorMessage', and a creation timestamp.
+-- 'errorMessage' (failure text or a non-fatal provider diagnostic;
+-- use 'stopReason'/'Response.errorInfo' to detect failures), and a
+-- creation timestamp.
 data AssistantPayload = AssistantPayload
   { content :: !(Vector AssistantContent),
     usage :: !Usage,

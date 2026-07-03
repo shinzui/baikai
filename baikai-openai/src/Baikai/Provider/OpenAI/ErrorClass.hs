@@ -15,8 +15,10 @@ import Baikai.Error
   ( BaikaiError (..),
     ErrorCategory (..),
     bodyIndicatesOverflow,
-    classifyHttpStatusWithBody,
     decodeError,
+    httpError,
+    invalidRequest,
+    parseRetryAfterSeconds,
     providerError,
   )
 import Control.Exception (SomeException, displayException, fromException)
@@ -29,19 +31,21 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
+import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Status (statusCode)
 import Servant.Client (ClientError, ResponseF (..))
 import Servant.Client qualified as Servant
 import Text.Read (readMaybe)
 
 -- | Convert any exception caught from the OpenAI SDK into a categorised
--- 'BaikaiError'. Recognises @servant-client@ 'ClientError'; anything
--- else degrades to a generic provider error carrying the displayed
--- exception text.
+-- 'BaikaiError'. Recognises @servant-client@ 'ClientError' and raw
+-- @http-client@ 'HttpException'; anything else degrades to a generic
+-- provider error carrying the displayed exception text.
 classifyException :: SomeException -> BaikaiError
-classifyException ex = case fromException ex of
-  Just clientErr -> fromClientError clientErr
-  Nothing -> providerError (Text.pack (displayException ex))
+classifyException ex
+  | Just clientErr <- fromException ex = fromClientError clientErr
+  | Just httpEx <- fromException ex = fromHttpException httpEx
+  | otherwise = providerError (Text.pack (displayException ex))
 
 fromClientError :: ClientError -> BaikaiError
 fromClientError clientErr = case clientErr of
@@ -55,28 +59,44 @@ fromClientError clientErr = case clientErr of
       }
 
 responseToError :: ResponseF LBS.ByteString -> BaikaiError
-responseToError resp =
-  BaikaiError
-    { category = classifyHttpStatusWithBody status retryAfter body,
-      message = msg,
-      httpStatus = Just status,
-      retryAfterSeconds = retryAfter,
-      exitCode = Nothing
-    }
+responseToError resp = httpError status retryAfter body
   where
     status = statusCode (responseStatusCode resp)
     body = decodeLenient (LBS.toStrict (responseBody resp))
     retryAfter = parseRetryAfter (responseHeaders resp)
-    snippet = Text.take 300 (Text.strip body)
-    msg =
-      "HTTP "
-        <> Text.pack (show status)
-        <> (if Text.null snippet then "" else ": " <> snippet)
 
 parseRetryAfter :: Seq (CI.CI ByteString, ByteString) -> Maybe Int
 parseRetryAfter headers = do
   raw <- lookup (CI.mk "Retry-After") (toList headers)
-  readMaybe (Text.unpack (Text.strip (decodeLenient raw)))
+  parseRetryAfterSeconds (decodeLenient raw)
+
+fromHttpException :: HTTP.HttpException -> BaikaiError
+fromHttpException = \case
+  HTTP.InvalidUrlException url reason ->
+    invalidRequest (Text.pack (url <> ": " <> reason))
+  HTTP.HttpExceptionRequest _ content -> fromHttpExceptionContent content
+
+fromHttpExceptionContent :: HTTP.HttpExceptionContent -> BaikaiError
+fromHttpExceptionContent = \case
+  HTTP.StatusCodeException resp body ->
+    httpError
+      (statusCode (HTTP.responseStatus resp))
+      (parseRetryAfterHttp (HTTP.responseHeaders resp))
+      (decodeLenient body)
+  HTTP.ConnectionFailure e -> transient (Text.pack (displayException e))
+  HTTP.ConnectionTimeout -> transient "connection timeout"
+  HTTP.ResponseTimeout -> transient "response timeout"
+  HTTP.ConnectionClosed -> transient "connection closed"
+  HTTP.NoResponseDataReceived -> transient "no response data received"
+  HTTP.IncompleteHeaders -> transient "incomplete response headers"
+  other -> providerError (Text.pack (show other))
+  where
+    transient t = (providerError ("connection error: " <> t)) {category = TransientError}
+
+parseRetryAfterHttp :: [(CI.CI ByteString, ByteString)] -> Maybe Int
+parseRetryAfterHttp headers = do
+  raw <- lookup (CI.mk "Retry-After") headers
+  parseRetryAfterSeconds (decodeLenient raw)
 
 decodeLenient :: ByteString -> Text
 decodeLenient = Text.decodeUtf8With Text.lenientDecode
@@ -87,6 +107,7 @@ decodeLenient = Text.decodeUtf8With Text.lenientDecode
 -- stays absent).
 classifyErrorText :: Text -> Maybe BaikaiError
 classifyErrorText t
+  | Just e <- classifySdkHttpText t = Just e
   | Text.null (Text.strip t) = Nothing
   | otherwise = Just (providerError t) {category = cat}
   where
@@ -102,3 +123,14 @@ classifyErrorText t
           || has "invalid_api_key" =
           AuthError
       | otherwise = OtherError
+
+classifySdkHttpText :: Text -> Maybe BaikaiError
+classifySdkHttpText raw = do
+  rest <- Text.stripPrefix "HTTP error " raw
+  let (codeText, afterCode) = Text.breakOn " " rest
+  code <- readMaybe (Text.unpack codeText)
+  let body = case Text.breakOn ": " afterCode of
+        (_, sepBody)
+          | not (Text.null sepBody) -> Text.drop 2 sepBody
+        _ -> ""
+  pure (httpError code Nothing body)

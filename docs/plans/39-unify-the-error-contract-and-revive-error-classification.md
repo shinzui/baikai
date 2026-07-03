@@ -86,12 +86,12 @@ Milestone 2 — Claude classification goes live:
 
 Milestone 3 — OpenAI classification goes live:
 
-- [ ] `Baikai.Provider.OpenAI.Sse` local SSE transport added (with `[DONE]` handling).
-- [ ] `classifyException` recognizes `HttpException`; `classifyErrorText` in `baikai-openai/src/Baikai/Provider/OpenAI/ErrorClass.hs` parses the SDK's `"HTTP error <code> ..."` text before phrase-sniffing.
-- [ ] `prepareCall` failures caught and emitted as classified terminal `EventError`.
-- [ ] `finish_reason = "content_filter"` terminates as `EventError` with `errorInfo`; unknown finish reasons carried as a diagnostic.
-- [ ] `runCodexCli` in `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` reports in-band; no `throwIO` on the request path.
-- [ ] OpenAI tests feed the real shapes; `cabal test baikai-openai` green.
+- [x] `Baikai.Provider.OpenAI.Sse` local SSE transport added (with `[DONE]` handling). (2026-07-03)
+- [x] `classifyException` recognizes `HttpException`; `classifyErrorText` in `baikai-openai/src/Baikai/Provider/OpenAI/ErrorClass.hs` parses the SDK's `"HTTP error <code> ..."` text before phrase-sniffing. (2026-07-03)
+- [x] `prepareCall` failures caught and emitted as classified terminal `EventError`. (2026-07-03)
+- [x] `finish_reason = "content_filter"` terminates as `EventError` with `errorInfo`; unknown finish reasons carried as a diagnostic. (2026-07-03)
+- [x] `runCodexCli` in `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` reports in-band; no `throwIO` on the request path. (2026-07-03)
+- [x] OpenAI tests feed the real shapes; `cabal test baikai-openai` green. (2026-07-03)
 
 Milestone 4 — conformance sweep, docs, and changelog:
 

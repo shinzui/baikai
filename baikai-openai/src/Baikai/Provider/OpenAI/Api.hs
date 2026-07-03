@@ -31,6 +31,12 @@ module Baikai.Provider.OpenAI.Api
     registerWithRegistry,
     openaiChatStream,
     mapRequest,
+    RawChunk (..),
+    RawToolDelta (..),
+    Assembler (..),
+    emptyAssembler,
+    translate,
+    closeOpenStream,
 
     -- * Usage mapping
 
@@ -55,7 +61,8 @@ import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
-import Baikai.Provider.OpenAI.ErrorClass (classifyErrorText, classifyException)
+import Baikai.Provider.OpenAI.ErrorClass (classifyException)
+import Baikai.Provider.OpenAI.Sse (openaiSseStream)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -80,9 +87,10 @@ import Baikai.ThinkingLevel
   )
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
+import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeAsyncException (..), SomeException, fromException, throwIO, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value (..), (.:?))
 import Data.Aeson qualified as Aeson
@@ -110,6 +118,7 @@ import OpenAI.V1.Models qualified as OpenAIModels
 import OpenAI.V1.ResponseFormat qualified as RF
 import OpenAI.V1.Tool qualified as OpenAITool
 import OpenAI.V1.ToolCall qualified as ToolCall
+import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 
@@ -141,14 +150,14 @@ openaiChatStream ::
   Model -> Context -> Options -> Stream IO AssistantMessageEvent
 openaiChatStream m ctx opts =
   Stream.concatEffect $ do
-    setup <- prepareCall m ctx opts
+    setupResult <- trySync (prepareCall m ctx opts)
+    let setup = either (Left . exceptionToError) id setupResult
     case setup of
       Left err -> Stream.fromList <$> immediateError err
       Right call -> do
-        ch <- newChan :: IO (Chan (Maybe RawChunk))
+        ch <- newChan :: IO (Chan (Maybe (Either BaikaiError RawChunk)))
         tref <- newIORef False
-        eref <- newIORef Nothing
-        _ <- forkIO (worker call ch eref)
+        _ <- forkIO (worker call ch)
         startTime <- getCurrentTime
         let initialState =
               ProducerState
@@ -156,8 +165,7 @@ openaiChatStream m ctx opts =
                   pending = [EventStart StartPayload {partial = skeletonStart m startTime, responseId = Nothing}],
                   assembler = emptyAssembler m startTime,
                   finished = False,
-                  terminalRef = tref,
-                  errInfoRef = eref
+                  terminalRef = tref
                 }
         pure (Stream.unfoldrM step initialState)
 
@@ -174,22 +182,22 @@ skeletonStart _m start =
 
 -- | Per-call prepared values.
 data OpenAICall = OpenAICall
-  { methods :: !OpenAI.Methods,
+  { clientEnv :: !Client.ClientEnv,
+    apiKey :: !Text,
     request :: !Chat.CreateChatCompletion
   }
   deriving stock (Generic)
 
-prepareCall :: Model -> Context -> Options -> IO (Either Text OpenAICall)
+prepareCall :: Model -> Context -> Options -> IO (Either BaikaiError OpenAICall)
 prepareCall m ctx opts = case mapRequest m ctx opts of
-  Left e -> pure (Left e)
+  Left e -> pure (Left (invalidRequest e))
   Right req -> do
     key <- resolveKey opts
     let url = case m ^. #baseUrl of
           "" -> "https://api.openai.com"
           u -> u
     env <- OpenAI.getClientEnv url
-    let mtds = OpenAI.makeMethods env key Nothing Nothing
-        req' =
+    let req' =
           req
             { Chat.stream = Just True,
               Chat.stream_options =
@@ -198,7 +206,7 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
                     { Chat.include_usage = Just True
                     }
             }
-    pure (Right OpenAICall {methods = mtds, request = req'})
+    pure (Right OpenAICall {clientEnv = env, apiKey = key, request = req'})
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
@@ -213,8 +221,7 @@ data RawChunk = RawChunk
   { contentDelta :: !(Maybe Text),
     finishReason :: !(Maybe Text),
     toolDeltas :: ![RawToolDelta],
-    usage :: !(Maybe RawUsage),
-    error :: !(Maybe Text)
+    usage :: !(Maybe RawUsage)
   }
   deriving stock (Show, Generic)
 
@@ -235,33 +242,19 @@ data RawUsage = RawUsage
   deriving stock (Show, Generic)
 
 worker ::
-  OpenAICall -> Chan (Maybe RawChunk) -> IORef (Maybe BaikaiError) -> IO ()
-worker call ch errInfoRef = do
-  let OpenAI.Methods {OpenAI.createChatCompletionStream = stream'} = call ^. #methods
+  OpenAICall -> Chan (Maybe (Either BaikaiError RawChunk)) -> IO ()
+worker call ch = do
   r <-
-    try @SomeException $
-      stream' (call ^. #request) $ \case
-        Left errText -> writeChan ch (Just (errorChunk errText))
+    trySync $
+      openaiSseStream (call ^. #clientEnv) (call ^. #apiKey) (call ^. #request) $ \case
+        Left be -> writeChan ch (Just (Left be))
         Right val -> case parseChunk val of
-          Left err -> writeChan ch (Just (errorChunk (Text.pack err)))
-          Right chunk -> writeChan ch (Just chunk)
+          Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
+          Right chunk -> writeChan ch (Just (Right chunk))
   case r of
     Right () -> pure ()
-    -- An HTTP-level exception carries an HTTP status; classify it and
-    -- stash the structured error for the end-of-stream recovery path
-    -- (see 'step' / 'closeOpenStream'). No terminal chunk is written.
-    Left e -> writeIORef errInfoRef (Just (classifyException e))
+    Left e -> writeChan ch (Just (Left (exceptionToError e)))
   writeChan ch Nothing
-
-errorChunk :: Text -> RawChunk
-errorChunk t =
-  RawChunk
-    { contentDelta = Nothing,
-      finishReason = Nothing,
-      toolDeltas = [],
-      usage = Nothing,
-      error = Just t
-    }
 
 -- | Aeson parser tolerant of partial tool-call fields.
 parseChunk :: Value -> Either String RawChunk
@@ -297,8 +290,7 @@ parseChunk = Aeson.parseEither $ Aeson.withObject "ChatCompletionChunk" $ \o -> 
       { contentDelta = contentDelta,
         finishReason = finishR,
         toolDeltas = toolDeltas,
-        usage = ru,
-        error = Nothing
+        usage = ru
       }
 
 parseToolCallDeltas :: Maybe Value -> [RawToolDelta]
@@ -373,14 +365,11 @@ fromInt = \case
 -- ============================================================
 
 data ProducerState = ProducerState
-  { chan :: !(Chan (Maybe RawChunk)),
+  { chan :: !(Chan (Maybe (Either BaikaiError RawChunk))),
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
-    terminalRef :: !(IORef Bool),
-    -- | Set by the worker when an HTTP-level exception is caught, so the
-    -- end-of-stream recovery path can surface a categorised error.
-    errInfoRef :: !(IORef (Maybe BaikaiError))
+    terminalRef :: !(IORef Bool)
   }
   deriving stock (Generic)
 
@@ -406,8 +395,7 @@ step s
             then pure Nothing
             else do
               now <- getCurrentTime
-              mErr <- readIORef (s ^. #errInfoRef)
-              let (events, ass') = closeOpenStream now mErr (s ^. #assembler)
+              let (events, ass') = closeOpenStream now Nothing (s ^. #assembler)
               case events of
                 [] -> pure Nothing
                 (e : rest) -> do
@@ -478,7 +466,8 @@ data Assembler = Assembler
     -- the post-@finish_reason@ usage chunk (when @include_usage@ is
     -- enabled) has a chance to land.
     finishSeen :: !Bool,
-    errorMsg :: !(Maybe Text)
+    pendingError :: !(Maybe BaikaiError),
+    finishNote :: !(Maybe Text)
   }
   deriving stock (Generic)
 
@@ -498,33 +487,31 @@ emptyAssembler m s =
       usage = Usage._Usage,
       stopReason = Stop.Stop,
       finishSeen = False,
-      errorMsg = Nothing
+      pendingError = Nothing,
+      finishNote = Nothing
     }
 
 translate ::
-  RawChunk ->
+  Either BaikaiError RawChunk ->
   Assembler ->
   UTCTime ->
   ([AssistantMessageEvent], Assembler)
 translate chunk ass now
-  | Just errMsg <- chunk ^. #error =
-      let msg = finalMessage ass now (Just errMsg) Stop.ErrorReason
-          errInfo = fromMaybe (providerError errMsg) (classifyErrorText errMsg)
-       in ( [EventError (errorTerminal Nothing Stop.ErrorReason msg errInfo)],
-            ass & #errorMsg .~ Just errMsg
-          )
-  | otherwise =
+  | Left be <- chunk =
+      let msg = finalMessage ass now (Just (be ^. #message)) Stop.ErrorReason
+       in ([EventError (errorTerminal Nothing Stop.ErrorReason msg be)], ass)
+  | Right raw <- chunk =
       let -- 1. Apply content delta (open text block if needed).
-          (textEvents, ass1) = applyContentDelta (chunk ^. #contentDelta) ass
+          (textEvents, ass1) = applyContentDelta (raw ^. #contentDelta) ass
           -- 2. Apply tool-call deltas.
-          (toolEvents, ass2) = applyToolDeltas (chunk ^. #toolDeltas) ass1
+          (toolEvents, ass2) = applyToolDeltas (raw ^. #toolDeltas) ass1
           -- 3. Apply usage chunk if present.
-          ass3 = applyUsage (chunk ^. #usage) ass2
+          ass3 = applyUsage (raw ^. #usage) ass2
           -- 4. If finish_reason is set, close any open text/tool
           --    blocks and stash the reason. EventDone is deferred
           --    to channel close so the post-finish_reason usage
           --    chunk has a chance to land.
-          (closeEvents, ass4) = case chunk ^. #finishReason of
+          (closeEvents, ass4) = case raw ^. #finishReason of
             Just fr -> closeOnFinish fr ass3
             Nothing -> ([], ass3)
        in (textEvents <> toolEvents <> closeEvents, ass4)
@@ -630,8 +617,17 @@ closeOnFinish ::
 closeOnFinish finishReason ass =
   let (closeText, ass1) = closeOpenText ass
       (closeTools, ass2) = closeOpenTools ass1
-      reason = mapFinishReason finishReason
-      ass3 = ass2 & #stopReason .~ reason & #finishSeen .~ True
+      (reason, note) = mapFinishReason finishReason
+      pending =
+        if reason == Stop.ErrorReason
+          then Just (providerError ("provider stopped the response: finish_reason=" <> finishReason))
+          else Nothing
+      ass3 =
+        ass2
+          & #stopReason .~ reason
+          & #finishSeen .~ True
+          & #pendingError .~ pending
+          & #finishNote .~ note
    in (closeText <> closeTools, ass3)
 
 -- | Close the open text block, if any, by emitting a 'TextEnd' and
@@ -681,11 +677,18 @@ closeOpenStream ::
   UTCTime -> Maybe BaikaiError -> Assembler -> ([AssistantMessageEvent], Assembler)
 closeOpenStream now mErr ass
   | ass ^. #finishSeen =
-      -- Channel closed cleanly after finish_reason. Emit
-      -- EventDone with the accumulated content + usage.
+      -- Channel closed cleanly after finish_reason.
       let reason = ass ^. #stopReason
-          msg = finalMessage ass now Nothing reason
-       in ([EventDone (doneTerminal Nothing reason msg)], ass)
+          terminalErr =
+            (ass ^. #pendingError)
+              <|> if reason == Stop.ErrorReason
+                then Just (providerError "provider stopped the response with an error finish_reason")
+                else Nothing
+          msg = finalMessage ass now (fmap (^. #message) terminalErr) reason
+          terminalEvent = case terminalErr of
+            Just be -> EventError (errorTerminal Nothing reason msg be)
+            Nothing -> EventDone (doneTerminal Nothing reason msg)
+       in ([terminalEvent], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
       -- still-open blocks and emit EventError. When the worker stored a
@@ -715,7 +718,7 @@ finalMessage ass now errMsg sr =
           { Msg.content = blocks,
             Msg.usage = usage',
             Msg.stopReason = sr,
-            Msg.errorMessage = errMsg,
+            Msg.errorMessage = errMsg <|> (ass ^. #finishNote),
             Msg.timestamp = now
           }
 
@@ -724,9 +727,10 @@ blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 
 -- | Immediate error stream emitted when the request itself could not
 -- be built (e.g. message mapping failed).
-immediateError :: Text -> IO [AssistantMessageEvent]
-immediateError errText = do
+immediateError :: BaikaiError -> IO [AssistantMessageEvent]
+immediateError err = do
   now <- getCurrentTime
+  let errText = err ^. #message
   let msg =
         Msg.AssistantMessage
           Msg.AssistantPayload
@@ -738,7 +742,7 @@ immediateError errText = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Stop.ErrorReason msg (invalidRequest errText))
+      EventError (errorTerminal Nothing Stop.ErrorReason msg err)
     ]
 
 -- ============================================================
@@ -964,11 +968,24 @@ collectToolResultText =
       Content.ToolResultImage _ ->
         Left "OpenAI Chat Completions cannot encode ToolResultImage blocks in tool-result messages"
 
-mapFinishReason :: Text -> Stop.StopReason
+mapFinishReason :: Text -> (Stop.StopReason, Maybe Text)
 mapFinishReason r = case r of
-  "stop" -> Stop.Stop
-  "length" -> Stop.Length
-  "tool_calls" -> Stop.ToolUse
-  "function_call" -> Stop.ToolUse
-  "content_filter" -> Stop.ErrorReason
-  _ -> Stop.Stop
+  "stop" -> (Stop.Stop, Nothing)
+  "length" -> (Stop.Length, Nothing)
+  "tool_calls" -> (Stop.ToolUse, Nothing)
+  "function_call" -> (Stop.ToolUse, Nothing)
+  "content_filter" -> (Stop.ErrorReason, Nothing)
+  _ -> (Stop.Stop, Just ("unrecognized finish_reason: " <> r))
+
+trySync :: IO a -> IO (Either SomeException a)
+trySync action = do
+  r <- try action
+  case r of
+    Left e
+      | Just (SomeAsyncException _) <- (fromException e :: Maybe SomeAsyncException) ->
+          throwIO e
+      | otherwise -> pure (Left e)
+    Right a -> pure (Right a)
+
+exceptionToError :: SomeException -> BaikaiError
+exceptionToError e = fromMaybe (classifyException e) (fromException e)

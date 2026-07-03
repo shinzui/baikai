@@ -35,6 +35,7 @@ library
     Baikai.Provider.OpenAI.Cli
     Baikai.Provider.OpenAI.ErrorClass
     Baikai.Provider.OpenAI.Interactive
+    Baikai.Provider.OpenAI.Sse
 
   build-depends:
     , aeson
@@ -63,7 +64,10 @@ test-suite baikai-openai-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Main.hs
-  other-modules:  ErrorClassSpec
+  other-modules:
+    ErrorClassSpec
+    SseSpec
+
   build-depends:
     , aeson
     , baikai            ^>=0.2.0
@@ -75,6 +79,7 @@ test-suite baikai-openai-test
     , directory
     , filepath
     , generic-lens
+    , http-client
     , http-types
     , lens              ^>=5.3
     , openai

@@ -213,7 +213,7 @@ EP-10 relocate them if needed.
 - [x] EP-5 M4: validation, hand-off contract, living sections
 - [x] EP-6 M1: one error contract in core (`responseError`, non-throwing dispatch, in-band lift)
 - [x] EP-6 M2: Claude live classification via local SSE transport
-- [ ] EP-6 M3: OpenAI live classification, `content_filter`, codex CLI in-band
+- [x] EP-6 M3: OpenAI live classification, `content_filter`, codex CLI in-band
 - [ ] EP-6 M4: conformance sweep, documentation, changelog
 - [ ] EP-7 M1: Claude cap-safe `max_tokens` and per-generation thinking style
 - [ ] EP-7 M2: Claude stream fidelity and verbatim replay (signature, redacted, phantom tool calls)

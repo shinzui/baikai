@@ -3,11 +3,22 @@ module Main (main) where
 import Baikai
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Pricing (computeCost)
-import Baikai.Provider.OpenAI.Api (mapRequest, openaiChatStream, parseUsage, rawUsageToUsage)
+import Baikai.Provider.OpenAI.Api
+  ( RawChunk (..),
+    closeOpenStream,
+    emptyAssembler,
+    mapRequest,
+    openaiChatStream,
+    parseUsage,
+    rawUsageToUsage,
+    translate,
+  )
 import Baikai.Provider.OpenAI.Cli qualified as CodexCli
 import Baikai.Provider.OpenAI.Interactive
+import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Types qualified as AesonTypes
 import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
@@ -15,8 +26,10 @@ import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
+import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -35,8 +48,12 @@ main =
         promptRenderingTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
+        noKeyStreamTest,
+        codexMissingBinaryTest,
+        finishReasonTests,
         responseFormatMappingTest,
-        ErrorClassSpec.tests
+        ErrorClassSpec.tests,
+        SseSpec.tests
       ]
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto the
@@ -139,6 +156,7 @@ uncachedUsagePayload =
       "total_tokens" Aeson..= (150 :: Int)
     ]
 
+usageObject :: [AesonTypes.Pair] -> Aeson.Object
 usageObject pairs =
   case Aeson.object pairs of
     Aeson.Object o -> o
@@ -319,6 +337,90 @@ rejectsImageToolResultsTest =
             ("expected ToolResultImage error, got: " <> Text.unpack msg)
             ("ToolResultImage" `Text.isInfixOf` msg)
       other -> error ("expected EventStart then EventError; got: " <> show other)
+
+noKeyStreamTest :: TestTree
+noKeyStreamTest =
+  testCase "missing OPENAI_API_KEY yields one terminal EventError" $
+    withUnsetEnv "OPENAI_API_KEY" $ do
+      let model =
+            _Model
+              & #modelId .~ "gpt-test"
+              & #api .~ OpenAIChatCompletions
+              & #provider .~ "openai"
+      events <- Stream.toList (openaiChatStream model _Context _Options)
+      length (filter isTerminal events) @?= 1
+      case last events of
+        EventError TerminalPayload {errorInfo = Just be} ->
+          be ^. #category @?= AuthError
+        other -> assertFailure ("expected terminal EventError with AuthError, got: " <> show other)
+
+codexMissingBinaryTest :: TestTree
+codexMissingBinaryTest =
+  testCase "codex CLI missing binary returns an error-shaped Response" $ do
+    reg <- newProviderRegistry
+    CodexCli.registerWithRegistryAndConfig
+      reg
+      CodexCli.defaultCodexCliConfig {CodexCli.executable = "/nonexistent/codex-binary"}
+    let model =
+          _Model
+            & #modelId .~ ""
+            & #api .~ OpenAICompletionsCli
+            & #provider .~ "openai"
+        ctx = _Context & #messages .~ Vector.singleton (user "ping")
+    resp <- completeRequestWith reg model ctx _Options
+    case responseError resp of
+      Just be -> be ^. #category @?= OtherError
+      Nothing -> assertFailure "expected missing binary to be returned in-band"
+
+finishReasonTests :: TestTree
+finishReasonTests =
+  testGroup
+    "finish_reason handling"
+    [ testCase "content_filter terminates as EventError" $ do
+        let (_events1, ass1) =
+              translate
+                (Right RawChunk {contentDelta = Just "partial", finishReason = Nothing, toolDeltas = [], usage = Nothing})
+                (emptyAssembler openaiTestModel (read "2026-06-05 00:00:00 UTC"))
+                (read "2026-06-05 00:00:01 UTC")
+            (events2, ass2) =
+              translate
+                (Right RawChunk {contentDelta = Nothing, finishReason = Just "content_filter", toolDeltas = [], usage = Nothing})
+                ass1
+                (read "2026-06-05 00:00:02 UTC")
+            (events3, _) = closeOpenStream (read "2026-06-05 00:00:03 UTC") Nothing ass2
+        case last (events2 <> events3) of
+          EventError TerminalPayload {errorInfo = Just be} -> do
+            be ^. #category @?= OtherError
+            assertBool "message mentions content_filter" ("content_filter" `Text.isInfixOf` (be ^. #message))
+          other -> assertFailure ("expected EventError for content_filter, got: " <> show other),
+      testCase "unknown finish_reason is a successful diagnostic" $ do
+        let (_events, ass1) =
+              translate
+                (Right RawChunk {contentDelta = Nothing, finishReason = Just "mystery", toolDeltas = [], usage = Nothing})
+                (emptyAssembler openaiTestModel (read "2026-06-05 00:00:00 UTC"))
+                (read "2026-06-05 00:00:01 UTC")
+            (terminalEvents, _) = closeOpenStream (read "2026-06-05 00:00:02 UTC") Nothing ass1
+        case terminalEvents of
+          [EventDone TerminalPayload {message = AssistantMessage AssistantPayload {stopReason = Stop, errorMessage = Just msg}}] ->
+            msg @?= "unrecognized finish_reason: mystery"
+          other -> assertFailure ("expected successful diagnostic EventDone, got: " <> show other)
+    ]
+
+openaiTestModel :: Model
+openaiTestModel =
+  _Model
+    & #modelId .~ "gpt-test"
+    & #api .~ OpenAIChatCompletions
+    & #provider .~ "openai"
+
+withUnsetEnv :: String -> IO a -> IO a
+withUnsetEnv name action =
+  bracket
+    (lookupEnv name)
+    restore
+    (const (unsetEnv name >> action))
+  where
+    restore = maybe (unsetEnv name) (setEnv name)
 
 assistantText :: Response -> Text.Text
 assistantText resp =
