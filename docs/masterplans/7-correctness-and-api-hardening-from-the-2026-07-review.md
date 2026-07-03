@@ -104,8 +104,8 @@ above exist; each wave is at most five plans and waves 2–4 are two plans or fe
 | 5 | Carry full fidelity through the streaming event protocol | docs/plans/38-carry-full-fidelity-through-the-streaming-event-protocol.md | None | None | Complete |
 | 6 | Unify the error contract and revive error classification | docs/plans/39-unify-the-error-contract-and-revive-error-classification.md | EP-5 | None | Complete |
 | 7 | Fix extended thinking and reasoning across providers | docs/plans/40-fix-extended-thinking-and-reasoning-across-providers.md | EP-5 | EP-6 | Complete |
-| 8 | Implement compat quirks and transport options | docs/plans/41-implement-compat-quirks-and-transport-options.md | None | EP-6, EP-7 | Not Started |
-| 9 | Add core ergonomic helpers before the API freeze | docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md | None | EP-6 | Not Started |
+| 8 | Implement compat quirks and transport options | docs/plans/41-implement-compat-quirks-and-transport-options.md | None | EP-6, EP-7 | Complete |
+| 9 | Add core ergonomic helpers before the API freeze | docs/plans/42-add-core-ergonomic-helpers-before-the-api-freeze.md | None | EP-6 | Complete |
 | 10 | Tighten the public surface and sweep the docs | docs/plans/43-tighten-the-public-surface-and-sweep-the-docs.md | EP-9 | EP-1..EP-8 | Not Started |
 
 

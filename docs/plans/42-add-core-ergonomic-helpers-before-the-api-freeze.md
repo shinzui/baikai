@@ -107,7 +107,7 @@ into "done" and "remaining" at every stopping point.
 - [x] M4: `docs/user/tools.md` gains a short `runToolLoop` section;
       `docs/user/getting-started.md` shows `completeText` and the now-real
       `flattenAssistantText`.
-- [ ] Final: `cabal build all --enable-tests` clean;
+- [x] Final: `cabal build all --enable-tests` clean;
       `cabal test baikai baikai-claude baikai-openai baikai-effectful` green;
       Outcomes & Retrospective written.
 
@@ -342,6 +342,13 @@ completion, comparing the result against the Purpose section.
   --enable-tests` and `cabal test baikai-smoke --test-show-details=direct`; the
   OpenAI live tool round-trip ran and succeeded, while Anthropic-dependent cases
   skipped due missing keys.
+- 2026-07-03 Final: EP-9 delivered the intended ergonomic layer without adding
+  new modules: honest optional message timestamps, lawful/pure context helpers,
+  text flattening, tool-loop and streaming conveniences, auth/model/registry
+  helpers, first-class provider values, and missing request options. Final
+  validation passed with `cabal build all --enable-tests`, `cabal test baikai
+  baikai-claude baikai-openai baikai-effectful --test-show-details=direct`, and
+  `cabal test baikai-smoke --test-show-details=direct`.
 
 
 ## Context and Orientation
