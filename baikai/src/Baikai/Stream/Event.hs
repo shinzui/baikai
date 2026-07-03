@@ -178,10 +178,9 @@ data TerminalPayload = TerminalPayload
     -- | The provider's message id when known by stream end. Consumers
     -- should prefer this over 'StartPayload.responseId'.
     responseId :: !(Maybe Text),
-    -- | Structured error detail for an 'EventError' terminal: the
-    -- category, HTTP status, and any retry-after hint a caller needs to
-    -- decide retry policy. 'Nothing' for a successful 'EventDone'
-    -- terminal and for error terminals a provider could not classify.
+    -- | Structured error detail. Always 'Nothing' on 'EventDone' and
+    -- always 'Just' on 'EventError'; use 'errorTerminal' to enforce the
+    -- error-side invariant at construction sites.
     errorInfo :: !(Maybe BaikaiError)
   }
   deriving stock (Eq, Show, Generic)
@@ -194,11 +193,12 @@ doneTerminal :: Maybe Text -> StopReason -> Message -> TerminalPayload
 doneTerminal rid r m =
   TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = Nothing}
 
--- | Build an error terminal payload carrying optional structured error
--- detail. Prefer this over the raw 'TerminalPayload' constructor.
-errorTerminal :: Maybe Text -> StopReason -> Message -> Maybe BaikaiError -> TerminalPayload
+-- | Build an error terminal payload carrying structured error detail.
+-- Prefer this over the raw 'TerminalPayload' constructor so an
+-- 'EventError' cannot be constructed without 'errorInfo'.
+errorTerminal :: Maybe Text -> StopReason -> Message -> BaikaiError -> TerminalPayload
 errorTerminal rid r m e =
-  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = e}
+  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = Just e}
 
 -- | 'True' when the event terminates the stream — exactly one
 -- 'EventDone' or 'EventError' is emitted per call.

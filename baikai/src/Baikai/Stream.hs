@@ -31,7 +31,7 @@ import Baikai.Content
   )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context)
-import Baikai.Error (BaikaiError, providerUnavailable)
+import Baikai.Error (BaikaiError, providerError, providerUnavailable)
 import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
@@ -42,7 +42,7 @@ import Baikai.Provider.Registry
     globalProviderRegistry,
     lookupApiProviderWith,
   )
-import Baikai.Response (Response (..), responseMessage)
+import Baikai.Response (Response (..), responseError, responseMessage)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event
   ( AssistantMessageEvent (..),
@@ -217,6 +217,9 @@ finalizeState s = do
             (msg, r, ei, failed', True)
           Nothing -> (synthesizeTerminal now assembled, Stop, Nothing, False, False)
       terminalContent = messageContent terminalMsg
+      normalizedError = case (terminalReason, terminalError) of
+        (ErrorReason, Nothing) -> Just (providerError (messageErrorText terminalMsg))
+        _ -> terminalError
       finalContent
         | not sawTerminal = assembled
         | Vector.null terminalContent = assembled
@@ -235,7 +238,7 @@ finalizeState s = do
         provider = m ^. #provider,
         responseId = s ^. #responseId,
         latencyMs = latency,
-        errorInfo = terminalError
+        errorInfo = normalizedError
       }
 
 -- | Project the event-assembled content in 'contentIndex' order,
@@ -285,6 +288,11 @@ messageContent = \case
   AssistantMessage AssistantPayload {Msg.content = c} -> c
   _ -> Vector.empty
 
+messageErrorText :: Message -> Text
+messageErrorText = \case
+  AssistantMessage AssistantPayload {Msg.errorMessage = Just em} -> em
+  _ -> "call failed with no error detail"
+
 -- | Replace the content vector and stop reason of an assistant
 -- message, preserving usage, errorMessage, and timestamp.
 overrideBlocksAndReason ::
@@ -333,7 +341,9 @@ synthesizeTerminal now blocks =
 --   matching @_Start@ / @_Delta@ / @_End@ trio. Text blocks emit
 --   one 'TextDelta' with the whole text; tool calls emit one
 --   'ToolCallDelta' with the JSON-encoded arguments.
--- * 'EventDone' carrying the fully assembled assistant message.
+-- * 'EventDone' carrying the fully assembled assistant message, or
+--   'EventError' when the response is error-shaped according to
+--   'responseError'.
 --
 -- A synchronous exception from @complete@ becomes a synthetic
 -- 'EventStart' followed by 'EventError' with @stopReason = ErrorReason@
@@ -393,9 +403,13 @@ eventsFor startTs resp =
           | (i, b) <- zip [0 ..] blocks
           ]
       reason = payload ^. #stopReason
-   in [EventStart StartPayload {partial = skeleton, responseId = resp ^. #responseId}]
+      rid = resp ^. #responseId
+      terminalEvent = case responseError resp of
+        Just be -> EventError (errorTerminal rid reason msg be)
+        Nothing -> EventDone (doneTerminal rid reason msg)
+   in [EventStart StartPayload {partial = skeleton, responseId = rid}]
         <> blockEvents
-        <> [EventDone (doneTerminal (resp ^. #responseId) reason msg)]
+        <> [terminalEvent]
 
 blockEvent :: Int -> AssistantContent -> [AssistantMessageEvent]
 blockEvent i = \case
@@ -437,9 +451,10 @@ errorEvents e = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = now
             }
+      err = maybe (providerError errText) id mErr
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing ErrorReason msg mErr)
+      EventError (errorTerminal Nothing ErrorReason msg err)
     ]
 
 -- | The synthetic error stream used when no provider is registered for
@@ -460,5 +475,5 @@ noProviderEvents m = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing ErrorReason msg (Just be))
+      EventError (errorTerminal Nothing ErrorReason msg be)
     ]

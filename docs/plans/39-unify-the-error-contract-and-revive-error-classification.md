@@ -66,14 +66,14 @@ even if it requires splitting a partially completed task into two ("done" vs. "r
 
 Milestone 1 — core contract:
 
-- [ ] `responseError` and `errorResponse` added to `baikai/src/Baikai/Response.hs` and exported from the `Baikai` umbrella.
-- [ ] `httpError` and `parseRetryAfterSeconds` pure helpers added to `baikai/src/Baikai/Error.hs`.
-- [ ] `errorTerminal` in `baikai/src/Baikai/Stream/Event.hs` now requires a `BaikaiError` (non-Maybe); all core call sites updated.
-- [ ] `completeRequestWith` in `baikai/src/Baikai/Provider/Registry.hs` returns an error-shaped `Response` instead of throwing; haddock updated.
-- [ ] `liftCompleteToStream` in `baikai/src/Baikai/Stream.hs` emits `EventError` for error-shaped responses.
-- [ ] Reassembly (`finalizeState`) normalizes `ErrorReason`-without-`errorInfo` terminals.
-- [ ] `baikai-effectful/src/Baikai/Effectful.hs` haddock corrected to describe the in-band contract.
-- [ ] Core tests updated/added (`baikai/test/ErrorInfoSpec.hs`, `baikai/test/ErrorSpec.hs`); `cabal test baikai baikai-effectful` green.
+- [x] `responseError` and `errorResponse` added to `baikai/src/Baikai/Response.hs` and exported from the `Baikai` umbrella. (2026-07-03)
+- [x] `httpError` and `parseRetryAfterSeconds` pure helpers added to `baikai/src/Baikai/Error.hs`. (2026-07-03)
+- [x] `errorTerminal` in `baikai/src/Baikai/Stream/Event.hs` now requires a `BaikaiError` (non-Maybe); all core call sites updated. (2026-07-03)
+- [x] `completeRequestWith` in `baikai/src/Baikai/Provider/Registry.hs` returns an error-shaped `Response` instead of throwing; haddock updated. (2026-07-03)
+- [x] `liftCompleteToStream` in `baikai/src/Baikai/Stream.hs` emits `EventError` for error-shaped responses. (2026-07-03)
+- [x] Reassembly (`finalizeState`) normalizes `ErrorReason`-without-`errorInfo` terminals. (2026-07-03)
+- [x] `baikai-effectful/src/Baikai/Effectful.hs` haddock corrected to describe the in-band contract. (2026-07-03)
+- [x] Core tests updated/added (`baikai/test/ErrorInfoSpec.hs`, `baikai/test/ErrorSpec.hs`); `cabal test baikai baikai-effectful` green. (2026-07-03)
 
 Milestone 2 — Claude classification goes live:
 
@@ -206,9 +206,10 @@ whole plan; implementation-time discoveries should be appended below them.
   providers do not rely on the normalization.
   Date: 2026-07-01
 - Decision: change `errorTerminal` in `baikai/src/Baikai/Stream/Event.hs` from
-  `StopReason -> Message -> Maybe BaikaiError -> TerminalPayload` to
-  `StopReason -> Message -> BaikaiError -> TerminalPayload` (the payload field stays
-  `Maybe BaikaiError` because it is shared with `EventDone`).
+  `Maybe Text -> StopReason -> Message -> Maybe BaikaiError -> TerminalPayload` to
+  `Maybe Text -> StopReason -> Message -> BaikaiError -> TerminalPayload` (the first
+  argument is the response id added by EP-5; the payload field stays `Maybe BaikaiError`
+  because it is shared with `EventDone`).
   Rationale: every construction site of an error terminal is forced to supply a
   classified error — the compiler enforces half the invariant. Call sites that today pass
   `Nothing` all have error text in hand and synthesize `providerError text`. This is an
@@ -430,8 +431,9 @@ the `Baikai` umbrella in `baikai/src/Baikai.hs` (the umbrella re-exports
 Third, tighten `errorTerminal` in `baikai/src/Baikai/Stream/Event.hs`:
 
 ```haskell
-errorTerminal :: StopReason -> Message -> BaikaiError -> TerminalPayload
-errorTerminal r m e = TerminalPayload {reason = r, message = m, errorInfo = Just e}
+errorTerminal :: Maybe Text -> StopReason -> Message -> BaikaiError -> TerminalPayload
+errorTerminal rid r m e =
+  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = Just e}
 ```
 
 Fix every call site in core: `noProviderEvent` and `errorEvent` in
@@ -472,16 +474,17 @@ Fifth, fix `liftCompleteToStream` in `baikai/src/Baikai/Stream.hs`. In `eventsFo
 
 ```haskell
 terminalEvent = case responseError resp of
-  Just be -> EventError (errorTerminal reason msg be)
-  Nothing -> EventDone (doneTerminal reason msg)
+  Just be -> EventError (errorTerminal rid reason msg be)
+  Nothing -> EventDone (doneTerminal rid reason msg)
 ```
 
-where `reason = payload ^. #stopReason` as today. Because `responseError` synthesizes an
-error for `ErrorReason`-without-`errorInfo`, an error-shaped response from any `complete`
-handler now always lifts to `EventError`, and `Baikai.Trace` (which pattern-matches the
-terminal constructor at `baikai/src/Baikai/Trace.hs:211-239`) logs `CallFailed` with no
-further change. Also update `liftCompleteToStream`'s haddock (the bullet list at lines
-277-290) to document the `EventError` case. Keep emitting the block events before the
+where `reason = payload ^. #stopReason` as today and `rid = resp ^. #responseId`.
+Because `responseError` synthesizes an error for `ErrorReason`-without-`errorInfo`, an
+error-shaped response from any `complete` handler now always lifts to `EventError`, and
+`Baikai.Trace` (which pattern-matches the terminal constructor at
+`baikai/src/Baikai/Trace.hs:211-239`) logs `CallFailed` with no further change. Also
+update `liftCompleteToStream`'s haddock (the bullet list at lines 277-290) to document
+the `EventError` case. Keep emitting the block events before the
 terminal — partial content on an error-shaped response remains recoverable. **Reconcile
 with EP-5**: EP-5 rewrites this function's emitted sequence (EventStart-first invariant,
 sync-only catch replacing `tryAny`); apply this terminal-selection logic to EP-5's landed
@@ -614,7 +617,8 @@ Rewire `baikai-claude/src/Baikai/Provider/Claude/Api.hs`:
   `fromException ex :: Maybe BaikaiError` (the `resolveApiKey` throw, already
   `AuthError`) or else `classifyException ex` — and return the one-event error stream.
   Replace `immediateError` (lines 511-523) with a variant that takes the `BaikaiError`
-  (it already builds the error message; have it call the now-strict `errorTerminal err`).
+  (it already builds the error message; have it call the now-strict
+  `errorTerminal Nothing Stop.ErrorReason msg err`).
   **Reconcile with EP-5**: if EP-5 decided lone error streams must open with
   `EventStart`, emit `EventStart` + `EventError` here (and in the OpenAI twin) to match;
   use EP-5's sync-only catch helper rather than a bare `try @SomeException`.
@@ -627,14 +631,14 @@ Rewire `baikai-claude/src/Baikai/Provider/Claude/Api.hs`:
   hack that killed classification). The worker's exception handler stays but
   `classifyException` now understands `HttpException` (below).
 - `translate` (lines 318-353): the `Left be` channel element emits
-  `EventError (errorTerminal Stop.ErrorReason msg be)` with
+  `EventError (errorTerminal rid Stop.ErrorReason msg be)` with
   `msg = finalMessageOnError ass now (be ^. #message)`. The `Messages.Error` branch
   (lines 349-353) — now only reachable for genuine mid-stream Anthropic error events,
   which are JSON objects — keeps `classifyErrorValue` but falls back to
   `providerError errText` when it returns `Nothing`, satisfying the strict
   `errorTerminal`. `Messages.Message_Stop` (lines 346-348) checks the accumulated stop
   reason: when it is `Stop.ErrorReason` (Anthropic's `Refusal`), emit
-  `EventError (errorTerminal Stop.ErrorReason msg (providerError "Anthropic refused to
+  `EventError (errorTerminal rid Stop.ErrorReason msg (providerError "Anthropic refused to
   generate a response (stop_reason=refusal)"))` with the message built by
   `finalMessageOnError`; otherwise `EventDone` as today.
 - `unexpectedEoS` (lines 277-284): `mErr` still comes from the worker ref; synthesize
@@ -764,7 +768,7 @@ Rewire `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`:
   `Left (decodeError (Text.pack err))`. Delete `errorChunk` and the
   `RawChunk.error` field (its only producer was the Left-text path); `translate`'s
   error branch (lines 502-507) moves to the channel-`Left` case in `step`, emitting
-  `EventError (errorTerminal Stop.ErrorReason msg be)` — no more
+  `EventError (errorTerminal rid Stop.ErrorReason msg be)` — no more
   `classifyErrorText` sniffing of already-classified errors. Keep `classifyErrorText`
   (extended below) for any host that returns 200 and then streams a textual error.
 - `content_filter` and refusal-shaped finishes: add a field
@@ -773,7 +777,7 @@ Rewire `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`:
   `pendingError = Just (providerError ("provider stopped the response: finish_reason="
   <> fr))` (category `OtherError` per the Decision Log). In `closeOpenStream`'s
   `finishSeen` branch (lines 659-665), when the stashed `stopReason` is
-  `Stop.ErrorReason`, emit `EventError (errorTerminal reason msg err)` (with `err` from
+  `Stop.ErrorReason`, emit `EventError (errorTerminal rid reason msg err)` (with `err` from
   `pendingError`, synthesizing if absent) instead of `EventDone` — this fixes review
   finding 1.7 / openai `Api.hs:946`. In `mapFinishReason` (lines 940-947), replace the
   silent `_ -> Stop.Stop` collapse: return the reason plus a diagnostic — change the
@@ -1027,7 +1031,7 @@ Baikai.Error.httpError :: Int -> Maybe Int -> Text -> BaikaiError
 Baikai.Error.parseRetryAfterSeconds :: Text -> Maybe Int
 Baikai.Response.responseError :: Response -> Maybe BaikaiError
 Baikai.Response.errorResponse :: Model -> UTCTime -> Integer -> BaikaiError -> Response
-Baikai.Stream.Event.errorTerminal :: StopReason -> Message -> BaikaiError -> TerminalPayload
+Baikai.Stream.Event.errorTerminal :: Maybe Text -> StopReason -> Message -> BaikaiError -> TerminalPayload
 -- unchanged but re-documented:
 Baikai.Provider.Registry.completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response
 ```

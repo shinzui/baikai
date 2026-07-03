@@ -6,8 +6,10 @@ import Baikai.Error
     classifyHttpStatus,
     classifyHttpStatusWithBody,
     decodeError,
+    httpError,
     invalidRequest,
     isRetryable,
+    parseRetryAfterSeconds,
     processError,
     rateLimited,
   )
@@ -20,8 +22,27 @@ tests =
     "Baikai.Error"
     [ classifyTests,
       bodyClassifyTests,
+      httpHelperTests,
       retryTests,
       constructorTests
+    ]
+
+httpHelperTests :: TestTree
+httpHelperTests =
+  testGroup
+    "httpError / parseRetryAfterSeconds"
+    [ testCase "429 + retry-after -> RateLimited with hint" $ do
+        let e = httpError 429 (Just 12) "slow down"
+        category e @?= RateLimited
+        httpStatus e @?= Just 429
+        retryAfterSeconds e @?= Just 12,
+      testCase "400 + overflow body -> ContextOverflow" $
+        category (httpError 400 Nothing "maximum context length exceeded")
+          @?= ContextOverflow,
+      testCase "integer Retry-After parses as seconds" $
+        parseRetryAfterSeconds "12" @?= Just 12,
+      testCase "HTTP-date Retry-After is ignored" $
+        parseRetryAfterSeconds "Wed, 21 Oct 2026 07:28:00 GMT" @?= Nothing
     ]
 
 bodyClassifyTests :: TestTree

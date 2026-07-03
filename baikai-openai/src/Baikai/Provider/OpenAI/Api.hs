@@ -51,7 +51,7 @@ import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
-import Baikai.Error (BaikaiError, invalidRequest)
+import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
@@ -509,7 +509,8 @@ translate ::
 translate chunk ass now
   | Just errMsg <- chunk ^. #error =
       let msg = finalMessage ass now (Just errMsg) Stop.ErrorReason
-       in ( [EventError (errorTerminal Nothing Stop.ErrorReason msg (classifyErrorText errMsg))],
+          errInfo = fromMaybe (providerError errMsg) (classifyErrorText errMsg)
+       in ( [EventError (errorTerminal Nothing Stop.ErrorReason msg errInfo)],
             ass & #errorMsg .~ Just errMsg
           )
   | otherwise =
@@ -697,7 +698,8 @@ closeOpenStream now mErr ass
             Just be -> be ^. #message
             Nothing -> "openai stream ended without finish_reason"
           msg = finalMessage ass2 now (Just errText) reason
-          errEv = EventError (errorTerminal Nothing reason msg mErr)
+          errInfo = fromMaybe (providerError errText) mErr
+          errEv = EventError (errorTerminal Nothing reason msg errInfo)
        in (closeText <> closeTools <> [errEv], ass2)
 
 finalMessage ::
@@ -736,7 +738,7 @@ immediateError errText = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText)))
+      EventError (errorTerminal Nothing Stop.ErrorReason msg (invalidRequest errText))
     ]
 
 -- ============================================================

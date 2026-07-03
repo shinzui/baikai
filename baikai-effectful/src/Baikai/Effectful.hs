@@ -9,7 +9,8 @@
 -- baikai's transport functions, plus two interpreters that run those operations
 -- against a real (global) or isolated provider registry. It carries NO policy:
 -- failures propagate exactly as baikai produces them — the blocking path
--- ('complete') throws 'Baikai.Error.BaikaiError'; the streaming paths
+-- ('complete') returns an error-shaped 'Response' whose
+-- 'Baikai.responseError' is populated; the streaming paths
 -- ('streamCollect', 'streamEach') surface baikai's terminal @EventError@ in-band.
 -- Retries, caching, budgets, rate limiting, and error remapping belong one layer
 -- up, in terms of this effect.
@@ -46,8 +47,8 @@ import Streamly.Data.Stream qualified as Stream
 -- | The provider-neutral baikai transport effect. Operations mirror baikai's
 -- transport functions; the interpreter selects the provider registry.
 data Baikai :: Effect where
-  -- | A blocking completion. Mirrors 'Baikai.completeRequest' — throws
-  -- 'Baikai.Error.BaikaiError' on failure.
+  -- | A blocking completion. Mirrors 'Baikai.completeRequest' — failures
+  -- are returned in-band as an error-shaped 'Response'.
   Complete :: Model -> Context -> Options -> Baikai m Response
   -- | A streaming completion materialized into the full event list. Mirrors
   -- 'Baikai.streamRequest' drained to a list; a terminal @EventError@ appears
@@ -59,8 +60,8 @@ data Baikai :: Effect where
 
 type instance DispatchOf Baikai = 'Dynamic
 
--- | Issue a blocking completion. Throws baikai's 'Baikai.Error.BaikaiError' on
--- failure, just like 'Baikai.completeRequest' — this binding does not catch it.
+-- | Issue a blocking completion. Provider failures are returned in-band
+-- as an error-shaped 'Response', just like 'Baikai.completeRequest'.
 complete :: (Baikai :> es) => Model -> Context -> Options -> Eff es Response
 complete m c o = send (Complete m c o)
 

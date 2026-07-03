@@ -34,7 +34,7 @@ import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
 import Baikai.Cost.Pricing qualified as Pricing
-import Baikai.Error (BaikaiError, invalidRequest)
+import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
@@ -282,7 +282,8 @@ unexpectedEoS now mErr ass =
         Just be -> be ^. #message
         Nothing -> "claude stream ended without message_stop"
       msg = finalMessageOnError ass now errText
-   in (EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg mErr), ass)
+      err = fromMaybe (providerError errText) mErr
+   in (EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg err), ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
@@ -351,7 +352,8 @@ translate raw ass now = case raw of
     let errText = renderAnthropicError errVal
         mErr = classifyErrorValue errVal
         msg = finalMessageOnError ass now errText
-     in ([EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg mErr)], ass)
+        errInfo = fromMaybe (providerError errText) mErr
+     in ([EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg errInfo)], ass)
 
 handleBlockStart ::
   Int ->
@@ -523,7 +525,7 @@ immediateError errText = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Stop.ErrorReason msg (Just (invalidRequest errText)))
+      EventError (errorTerminal Nothing Stop.ErrorReason msg (invalidRequest errText))
     ]
 
 renderAnthropicError :: Value -> Text

@@ -152,6 +152,14 @@ reading this plan's diff.
   construction sites included — to make an explicit choice; that is the whole point of
   the smart constructors per their haddock.
   Date: 2026-07-02
+- Decision: EP-6 tightened `errorTerminal`'s final argument from `Maybe BaikaiError`
+  to `BaikaiError`; the response-id argument added by this plan remains first, so the
+  final signature is `Maybe Text -> StopReason -> Message -> BaikaiError ->
+  TerminalPayload`.
+  Rationale: this is an EP-6-owned invariant change, but it changes the event algebra
+  hand-off contract this plan created. Recording it here keeps the contract copyable for
+  EP-7 and later providers.
+  Date: 2026-07-03
 - Decision: content resolution in `finalizeState` is: (1) terminal missing → use the
   event-assembled blocks (recovery); (2) `EventDone` terminal → use the terminal
   message's content when non-empty, else the event-assembled blocks; (3) `EventError`
@@ -254,7 +262,7 @@ Interfaces and Dependencies section: `ThinkingEnd ThinkingEndPayload`,
 `StartPayload { partial, responseId }`,
 `TerminalPayload { reason, message, responseId, errorInfo }`,
 `doneTerminal :: Maybe Text -> StopReason -> Message -> TerminalPayload`, and
-`errorTerminal :: Maybe Text -> StopReason -> Message -> Maybe BaikaiError ->
+`errorTerminal :: Maybe Text -> StopReason -> Message -> BaikaiError ->
 TerminalPayload`.
 
 Validation completed:
@@ -903,7 +911,7 @@ data TerminalPayload = TerminalPayload
   deriving anyclass (ToJSON)
 
 doneTerminal :: Maybe Text -> StopReason -> Message -> TerminalPayload
-errorTerminal :: Maybe Text -> StopReason -> Message -> Maybe BaikaiError -> TerminalPayload
+errorTerminal :: Maybe Text -> StopReason -> Message -> BaikaiError -> TerminalPayload
 ```
 
 (`IndexPayload`, `DeltaPayload`, `BlockEndPayload`, `ToolCallEndPayload`, and

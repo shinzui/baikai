@@ -9,9 +9,9 @@
 -- sets, or use the global convenience registry for simple scripts.
 --
 -- 'completeRequest' looks the handler up by the 'Model'\'s 'Api'
--- tag and dispatches; it throws a 'Baikai.Error.BaikaiError' in the
--- 'Baikai.Error.ProviderUnavailable' category when no handler is
--- registered for that tag.
+-- tag and dispatches; when no handler is registered it returns an
+-- error-shaped 'Response' in the 'Baikai.Error.ProviderUnavailable'
+-- category.
 module Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -31,12 +31,12 @@ import Baikai.Context (Context)
 import Baikai.Error (providerUnavailable)
 import Baikai.Model (Model (..))
 import Baikai.Options (Options)
-import Baikai.Response (Response)
+import Baikai.Response (Response, errorResponse)
 import Baikai.Stream.Event (AssistantMessageEvent)
-import Control.Exception (throwIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Time (getCurrentTime)
 import Streamly.Data.Stream (Stream)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -88,16 +88,21 @@ lookupApiProvider :: Api -> IO (Maybe ApiProvider)
 lookupApiProvider = lookupApiProviderWith globalProviderRegistry
 
 -- | Dispatch a synchronous request through the registered handler
--- for the model's 'Api' tag. Throws a 'ProviderUnavailable' error when no handler
--- is registered for that tag.
+-- for the model's 'Api' tag. Returns an error-shaped 'Response' when
+-- no handler is registered for that tag.
 completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response
 completeRequestWith reg m ctx opts = do
   mProvider <- lookupApiProviderWith reg (api m)
   case mProvider of
     Just p -> complete p m ctx opts
-    Nothing ->
-      throwIO $
-        providerUnavailable ("No provider registered for API: " <> renderApi (api m))
+    Nothing -> do
+      now <- getCurrentTime
+      pure $
+        errorResponse
+          m
+          now
+          0
+          (providerUnavailable ("No provider registered for API: " <> renderApi (api m)))
 
 -- | Dispatch a synchronous request through the process-global registry.
 completeRequest :: Model -> Context -> Options -> IO Response

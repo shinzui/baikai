@@ -15,6 +15,8 @@ module Baikai.Error
     isRetryable,
 
     -- * Pure classification helpers for provider packages
+    httpError,
+    parseRetryAfterSeconds,
     classifyHttpStatus,
     classifyHttpStatusWithBody,
     bodyIndicatesOverflow,
@@ -34,6 +36,7 @@ import Data.Aeson
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Generics (Generic)
+import Text.Read (readMaybe)
 
 -- | A provider-neutral category for a failed call. Callers switch on
 -- this to decide policy (retry, surface to user, abort). The set is
@@ -162,6 +165,28 @@ isRetryable e = case category e of
   RateLimited -> True
   TransientError -> True
   _ -> False
+
+-- | Parse an integer-valued @Retry-After@ header as seconds. HTTP-date
+-- values and malformed values yield 'Nothing'.
+parseRetryAfterSeconds :: Text -> Maybe Int
+parseRetryAfterSeconds raw = do
+  n <- readMaybe (Text.unpack (Text.strip raw))
+  if n >= 0 then Just n else Nothing
+
+-- | Build a classified error from an HTTP failure's status, optional
+-- parsed @Retry-After@ seconds, and response body text.
+httpError :: Int -> Maybe Int -> Text -> BaikaiError
+httpError status retryAfter body =
+  (baseError (classifyHttpStatusWithBody status retryAfter body) msg)
+    { httpStatus = Just status,
+      retryAfterSeconds = retryAfter
+    }
+  where
+    snippet = Text.take 300 body
+    msg =
+      "HTTP "
+        <> Text.pack (show status)
+        <> if Text.null snippet then "" else ": " <> snippet
 
 -- | Map an HTTP status code (and an optional already-parsed
 -- retry-after-seconds value) to a category. Pure and network-free so it

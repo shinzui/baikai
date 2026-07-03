@@ -9,7 +9,7 @@ import Baikai
 import Baikai.Prelude
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 errApi :: Api
 errApi = Custom "baikai-errinfo"
@@ -39,8 +39,13 @@ errStream _ _ _ =
           Nothing
           ErrorReason
           (AssistantMessage payload)
-          (Just (rateLimited (Just 5) "rate limited, slow down"))
-   in Stream.fromList [EventError term]
+          (rateLimited (Just 5) "rate limited, slow down")
+      start = EventStart StartPayload {partial = AssistantMessage payload, responseId = Nothing}
+   in Stream.fromList [start, EventError term]
+
+errResponse :: Model -> Context -> Options -> IO Response
+errResponse m _ _ =
+  pure (errorResponse m (read "2026-06-05 00:00:00 UTC") 0 (rateLimited (Just 5) "rate limited, slow down"))
 
 registerErr :: IO ()
 registerErr =
@@ -58,9 +63,46 @@ tests =
     [ testCase "completeRequest surfaces structured errorInfo" $ do
         registerErr
         resp <- completeRequest errModel _Context _Options
-        case resp ^. #errorInfo of
+        case responseError resp of
           Just be -> do
             be ^. #category @?= RateLimited
             be ^. #retryAfterSeconds @?= Just 5
-          Nothing -> assertFailure "expected Response.errorInfo to be populated"
+          Nothing -> assertFailure "expected Response.errorInfo to be populated",
+      testCase "completeRequestWith reports missing provider in-band" $ do
+        reg <- newProviderRegistry
+        resp <- completeRequestWith reg errModel _Context _Options
+        case responseError resp of
+          Just be -> be ^. #category @?= ProviderUnavailable
+          Nothing -> assertFailure "expected ProviderUnavailable response",
+      testCase "liftCompleteToStream preserves error-shaped responses as EventError" $ do
+        let stream = liftCompleteToStream errResponse
+        events <- Stream.toList (stream errModel _Context _Options)
+        assertBool "expected exactly one terminal" (length (filter isTerminal events) == 1)
+        case last events of
+          EventError TerminalPayload {errorInfo = Just be} -> do
+            be ^. #category @?= RateLimited
+            be ^. #retryAfterSeconds @?= Just 5
+          other -> assertFailure ("expected terminal EventError, got: " <> show other),
+      testCase "reassembly normalizes ErrorReason terminals without errorInfo" $ do
+        let payload =
+              (_Response ^. #message)
+                & #stopReason
+                .~ ErrorReason
+                & #errorMessage
+                .~ Just "legacy unclassified failure"
+            terminal =
+              doneTerminal
+                Nothing
+                ErrorReason
+                (AssistantMessage payload)
+            events =
+              [ EventStart StartPayload {partial = AssistantMessage payload, responseId = Nothing},
+                EventDone terminal
+              ]
+        resp <- Stream.fold (reassembleResponse errModel) (Stream.fromList events)
+        case responseError resp of
+          Just be -> do
+            be ^. #category @?= OtherError
+            be ^. #message @?= "legacy unclassified failure"
+          Nothing -> assertFailure "expected synthesized errorInfo"
     ]
