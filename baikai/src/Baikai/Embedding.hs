@@ -20,12 +20,15 @@ module Baikai.Embedding
     _EmbeddingModel,
     openAIEmbeddingModel,
     mkEmbeddingRequest,
+    firstEmbedding,
     embed,
     embedOne,
   )
 where
 
 import Baikai.Auth (ApiKeySource (..), resolveApiKey)
+import Baikai.Error (BaikaiError, decodeError)
+import Control.Exception (throwIO)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -79,6 +82,18 @@ mkEmbeddingRequest m t =
       Emb.dimensions = dimensions m
     }
 
+-- | Extract the first embedding vector from an SDK response. OpenAI's
+-- embeddings endpoint normally returns one item per input, but a malformed or
+-- compatible endpoint can return an empty @data@ array. Treat that as a typed
+-- decode failure instead of indexing the empty vector.
+firstEmbedding :: Vector Emb.EmbeddingObject -> Either BaikaiError (Vector Double)
+firstEmbedding objs =
+  case V.uncons objs of
+    Nothing ->
+      Left (decodeError "embeddings response contained no data")
+    Just (obj, _) ->
+      Right (Emb.embedding obj)
+
 -- | Embed a batch of texts: one vector per input text, in input order. The SDK's
 -- @CreateEmbeddings.input@ is a single 'Text', so this loops one call per text. The
 -- transport exception (a Servant client error) is let propagate — error remapping
@@ -93,11 +108,15 @@ embed m texts = do
   where
     embedText create t = do
       objs <- create (mkEmbeddingRequest m t)
-      pure (Emb.embedding (V.head objs))
+      either throwIO pure (firstEmbedding objs)
 
 -- | Embed a single text.
 embedOne :: EmbeddingModel -> Text -> IO (Vector Double)
-embedOne m t = V.head <$> embed m [t]
+embedOne m t = do
+  vs <- embed m [t]
+  case V.uncons vs of
+    Just (v, _) -> pure v
+    Nothing -> throwIO (decodeError "embedding batch unexpectedly returned no vectors")
 
 -- | Substitute the OpenAI default for an empty base URL (as the chat provider does).
 urlOf :: EmbeddingModel -> Text

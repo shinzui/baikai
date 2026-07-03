@@ -7,7 +7,8 @@
 -- default run stays offline.
 module EmbeddingSpec (tests) where
 
-import Baikai.Embedding (embedOne, mkEmbeddingRequest, openAIEmbeddingModel)
+import Baikai.Embedding (embedOne, firstEmbedding, mkEmbeddingRequest, openAIEmbeddingModel)
+import Baikai.Error (decodeError)
 import Data.Vector qualified as V
 import OpenAI.V1.Embeddings qualified as Emb
 import OpenAI.V1.Models qualified as OpenAIModels
@@ -24,6 +25,17 @@ tests =
         Emb.input req @?= "hello"
         OpenAIModels.text (Emb.model req) @?= "text-embedding-3-small"
         Emb.dimensions req @?= Nothing,
+      testCase "firstEmbedding reports an empty data array as a typed decode error" $ do
+        firstEmbedding V.empty @?= Left (decodeError "embeddings response contained no data"),
+      testCase "firstEmbedding extracts the first vector" $ do
+        let vec = V.fromList [0.1, 0.2, 0.3]
+            obj =
+              Emb.EmbbeddingObject
+                { Emb.index = 0,
+                  Emb.embedding = vec,
+                  Emb.object = "embedding"
+                }
+        firstEmbedding (V.singleton obj) @?= Right vec,
       testCase "live embedding returns a 1536-length vector" $ do
         live <- lookupEnv "BAIKAI_EMBEDDING_LIVE"
         case live of

@@ -91,6 +91,7 @@ executable baikai-gen-models
   import:         common-options
   hs-source-dirs: gen
   main-is:        GenModels.hs
+  other-modules:  GenModelsCore
   build-depends:
     , aeson
     , baikai
@@ -131,7 +132,7 @@ executable baikai-fetch-models
 test-suite baikai-test
   import:             common-options
   type:               exitcode-stdio-1.0
-  hs-source-dirs:     test fetch
+  hs-source-dirs:     test fetch gen
   main-is:            Main.hs
   other-modules:
     AgentAssetsSpec
@@ -144,6 +145,8 @@ test-suite baikai-test
     ErrorSpec
     FetchModelsCore
     FetchModelsSpec
+    GenModelsCore
+    GenModelsSpec
     HelpersSpec
     InteractiveSpec
     StreamSpec

@@ -6,16 +6,20 @@ module FetchModelsSpec (tests) where
 
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Scientific (Scientific)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
+import Data.Vector qualified as V
 import FetchModelsCore
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 -- | Path to the fixture, relative to the @baikai@ package directory
 -- (tests run with that as the working directory, as 'CatalogSpec'
@@ -104,6 +108,41 @@ tests =
         assertBool
           "output 15 renders as 15.0"
           ("\"output\": 15.0" `Text.isInfixOf` rendered),
+      testCase "renderCatalog escapes control characters as valid JSON strings" $ do
+        let modelIdWithControls = "model-\n-tab\t-quote\"-slash\\"
+            nameWithControls = "Name with \r carriage return"
+            catalog =
+              Catalog
+                { provider = "openai",
+                  baseUrl = "https://api.openai.com",
+                  api = "openai-chat-completions",
+                  models =
+                    [ CatalogModel
+                        { modelId = modelIdWithControls,
+                          name = nameWithControls,
+                          reasoning = False,
+                          input = [InputText],
+                          cost = CatalogCost 0 0 0 0,
+                          contextWindow = 1,
+                          maxOutputTokens = 1
+                        }
+                    ]
+                }
+            rendered = renderText catalog
+            raw = BSL.fromStrict (renderCatalog catalog)
+            decoded = Aeson.eitherDecode raw :: Either String Aeson.Value
+        case decoded of
+          Left err -> assertFailure ("decode failed: " <> err)
+          Right (Aeson.Object root) ->
+            case KeyMap.lookup "models" root of
+              Just (Aeson.Array models)
+                | Just (Aeson.Object model) <- models V.!? 0 -> do
+                    KeyMap.lookup "id" model @?= Just (Aeson.String modelIdWithControls)
+                    KeyMap.lookup "name" model @?= Just (Aeson.String nameWithControls)
+              _ -> assertFailure "decoded catalog did not contain a model object"
+          Right other -> assertFailure ("decoded catalog was not an object: " <> show other)
+        assertBool "newline escaped" ("\\n" `Text.isInfixOf` rendered)
+        assertBool "tab escaped" ("\\t" `Text.isInfixOf` rendered),
       testCase "Anthropic curation keeps exactly the one fixture model" $ do
         upstream <- loadUpstream
         let ids = map (^. #modelId) (catalogFor upstream anthropicSpec ^. #models)
@@ -119,14 +158,14 @@ tests =
         -- pins it to the published 0.5.
         let normalized = catalogFor upstream anthropicSpec
             corrected = applyOverrides overrides normalized
-        opusCacheRead normalized @?= 1.5
-        opusCacheRead corrected @?= 0.5
+        opusCacheRead normalized @?= Just 1.5
+        opusCacheRead corrected @?= Just 0.5
     ]
 
 -- | The @claude-opus-4-5@ cacheRead cost in an Anthropic catalog.
-opusCacheRead :: Catalog -> Scientific
+opusCacheRead :: Catalog -> Maybe Scientific
 opusCacheRead cat =
-  head
+  listToMaybe
     [ m ^. #cost . #cacheReadCost
     | m <- cat ^. #models,
       m ^. #modelId == "claude-opus-4-5"

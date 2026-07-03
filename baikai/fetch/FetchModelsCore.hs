@@ -64,10 +64,11 @@ where
 
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
-import Data.Aeson (eitherDecode, withObject, (.!=), (.:), (.:?))
+import Data.Aeson (Value (String), eitherDecode, encode, withObject, (.!=), (.:), (.:?))
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as BSL
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
@@ -77,7 +78,7 @@ import Data.Scientific (FPFormat (Fixed), Scientific, formatScientific)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
-import Data.Text.Encoding (encodeUtf8)
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 
 -- * Upstream shape ----------------------------------------------------
 
@@ -517,8 +518,7 @@ jsonBool False = "false"
 renderNum :: Scientific -> Text
 renderNum = Text.pack . formatScientific Fixed Nothing
 
--- | Render a 'Text' as a JSON string literal, escaping backslashes and
--- double quotes (sufficient for model ids and display names).
+-- | Render a 'Text' as a JSON string literal. Delegate escaping to aeson so
+-- control characters, quotes, and backslashes follow the JSON encoder exactly.
 jsonString :: Text -> Text
-jsonString t =
-  "\"" <> Text.replace "\"" "\\\"" (Text.replace "\\" "\\\\" t) <> "\""
+jsonString = decodeUtf8 . LBS.toStrict . encode . String

@@ -82,10 +82,10 @@ Milestone 2 — internal namespacing and Prelude/umbrella policy:
 
 Milestone 3 — robustness cleanups:
 
-- [ ] Replace the partial `V.head` in `baikai/src/Baikai/Embedding.hs` with a total, typed-error path (`firstEmbedding`) and test the empty-vector case in `baikai/test/EmbeddingSpec.hs`.
-- [ ] Replace the hand-rolled `jsonString` in `baikai/fetch/FetchModelsCore.hs` with aeson-backed escaping and add a control-character round-trip test in `baikai/test/FetchModelsSpec.hs`.
-- [ ] Extract the pure generator core into `baikai/gen/GenModelsCore.hs` (fields renamed to drop the `gen` prefixes), add `checkIdentifierCollisions`, wire it into the generator `main`, and unit-test the collision case.
-- [ ] `cabal test all` green; `cabal run baikai-gen-models` produces an unchanged catalog.
+- [x] Replace the partial `V.head` in `baikai/src/Baikai/Embedding.hs` with a total, typed-error path (`firstEmbedding`) and test the empty-vector case in `baikai/test/EmbeddingSpec.hs`.
+- [x] Replace the hand-rolled `jsonString` in `baikai/fetch/FetchModelsCore.hs` with aeson-backed escaping and add a control-character round-trip test in `baikai/test/FetchModelsSpec.hs`.
+- [x] Extract the pure generator core into `baikai/gen/GenModelsCore.hs` (fields renamed to drop the `gen` prefixes), add `checkIdentifierCollisions`, wire it into the generator `main`, and unit-test the collision case.
+- [x] `cabal test all` green; `cabal run baikai-gen-models` produces an unchanged catalog.
 
 Milestone 4 — documentation sweep, CHANGELOG, version bumps:
 
@@ -114,6 +114,10 @@ implementation. Provide concise evidence.
   `requiresThinkingAsText` while converting provider events into reasoning content.
   Only request-building helpers moved to `Baikai.Provider.OpenAI.Internal.Request`;
   stream-time response decoding stays in `Api`.
+- Moving generator records from `genIdent`-style fields to unprefixed fields made
+  `CatalogFile` and `GeneratedEntry` share selector names (`provider`, `api`, `baseUrl`,
+  `compat`). The pure core uses `OverloadedRecordDot` (`c.provider`, `g.ident`) where
+  needed so duplicate-record selectors remain explicit and warning-free.
 
 
 ## Decision Log
@@ -265,6 +269,12 @@ Compare the result against the original purpose.
   state what is and is not covered by the compatibility promise. Validation for Milestone
   2 passed with `cabal build all --enable-tests` and
   `cabal test all --test-show-details=direct` before committing the slice.
+- Milestone 3 removes three crash/drift hazards: embeddings now report an empty provider
+  `data` array as `decodeError`, catalog JSON string escaping comes from aeson and
+  round-trips control characters, and the model generator refuses sanitized Haskell
+  binding collisions before rendering. Validation passed with
+  `cabal build all --enable-tests`, `cabal run baikai-gen-models` with no
+  `Baikai.Models.Generated` diff, and `cabal test all --test-show-details=direct`.
 
 
 ## Context and Orientation

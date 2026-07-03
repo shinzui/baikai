@@ -17,6 +17,7 @@ import EmbeddingSpec qualified
 import ErrorInfoSpec qualified
 import ErrorSpec qualified
 import FetchModelsSpec qualified
+import GenModelsSpec qualified
 import HelpersSpec qualified
 import InteractiveSpec qualified
 import StreamSpec qualified
@@ -95,6 +96,7 @@ main = do
         ErrorInfoSpec.tests,
         ErrorSpec.tests,
         FetchModelsSpec.tests,
+        GenModelsSpec.tests,
         HelpersSpec.tests,
         InteractiveSpec.tests,
         StreamSpec.tests,
