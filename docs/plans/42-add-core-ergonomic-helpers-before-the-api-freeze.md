@@ -80,12 +80,12 @@ into "done" and "remaining" at every stopping point.
 - [x] M1: `flattenAssistantText` added and exported from `baikai/src/Baikai/Response.hs`.
 - [x] M1: `baikai/test/ContextSpec.hs` created (Monoid laws + constructor behavior)
       and wired into `baikai/test/Main.hs` and `baikai/baikai.cabal`.
-- [ ] M2: `runToolLoop`/`runToolLoopWith` and `completeText` added to
+- [x] M2: `runToolLoop`/`runToolLoopWith` and `completeText` added to
       `baikai/src/Baikai/Provider/Registry.hs`, re-exported from
       `baikai/src/Baikai/Provider.hs`.
-- [ ] M2: `streamRequestEach`/`streamRequestEachWith`/`streamRequestList`/
+- [x] M2: `streamRequestEach`/`streamRequestEachWith`/`streamRequestList`/
       `streamRequestListWith` added to `baikai/src/Baikai/Stream.hs`.
-- [ ] M2: `baikai/test/HelpersSpec.hs` created with a scripted stub provider in an
+- [x] M2: `baikai/test/HelpersSpec.hs` created with a scripted stub provider in an
       isolated `ProviderRegistry`; loop termination, budget-exhaustion, error-response,
       dispatcher-exception, `completeText`, and streaming-helper cases pass.
 - [ ] M3: `ApiKeyEnvChain` constructor added to `baikai/src/Baikai/Auth.hs` with
@@ -322,6 +322,13 @@ completion, comparing the result against the Purpose section.
   smoke/effectful copies. Validation passed with `cabal build all --enable-tests`
   and `cabal test baikai baikai-claude baikai-openai baikai-effectful
   --test-show-details=direct`.
+- 2026-07-03 M2: `runToolLoop`/`runToolLoopWith`, `completeText`, and
+  streamly-free stream callback/list helpers are implemented and re-exported.
+  `HelpersSpec` covers tool-loop success, replay-valid budget exhaustion,
+  error termination, synchronous dispatcher exception conversion, zero-tool-call
+  defense, `completeText` success/error behavior, and stream wrapper behavior.
+  Validation passed with `cabal build all --enable-tests` and `cabal test baikai
+  baikai-claude baikai-openai baikai-effectful --test-show-details=direct`.
 
 
 ## Context and Orientation

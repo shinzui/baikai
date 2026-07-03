@@ -17,6 +17,7 @@ import EmbeddingSpec qualified
 import ErrorInfoSpec qualified
 import ErrorSpec qualified
 import FetchModelsSpec qualified
+import HelpersSpec qualified
 import InteractiveSpec qualified
 import StreamSpec qualified
 import Streamly.Data.Stream qualified as Stream
@@ -93,6 +94,7 @@ main = do
         ErrorInfoSpec.tests,
         ErrorSpec.tests,
         FetchModelsSpec.tests,
+        HelpersSpec.tests,
         InteractiveSpec.tests,
         StreamSpec.tests,
         TraceSpec.tests,

@@ -144,6 +144,7 @@ test-suite baikai-test
     ErrorSpec
     FetchModelsCore
     FetchModelsSpec
+    HelpersSpec
     InteractiveSpec
     StreamSpec
     TraceSpec

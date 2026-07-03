@@ -17,6 +17,10 @@
 module Baikai.Stream
   ( streamRequest,
     streamRequestWith,
+    streamRequestEach,
+    streamRequestEachWith,
+    streamRequestList,
+    streamRequestListWith,
     streamingComplete,
     reassembleResponse,
     liftCompleteToStream,
@@ -99,6 +103,52 @@ streamRequestWith reg m ctx opts =
     case mProvider of
       Just p -> pure (stream p m ctx opts)
       Nothing -> Stream.fromList <$> noProviderEvents m
+
+-- | Stream a request through the process-global registry, invoking the
+-- callback once per event, then return the same reassembled 'Response'
+-- that 'streamingComplete' would produce. Callback exceptions propagate.
+streamRequestEach ::
+  (AssistantMessageEvent -> IO ()) ->
+  Model ->
+  Context ->
+  Options ->
+  IO Response
+streamRequestEach = streamRequestEachWith globalProviderRegistry
+
+-- | Stream a request through an explicit registry, invoking the callback once
+-- per event. The underlying event protocol is the same as 'streamRequest':
+-- provider streams emit exactly one terminal event.
+streamRequestEachWith ::
+  ProviderRegistry ->
+  (AssistantMessageEvent -> IO ()) ->
+  Model ->
+  Context ->
+  Options ->
+  IO Response
+streamRequestEachWith reg callback m ctx opts =
+  Stream.fold
+    (reassembleResponse m)
+    ( Stream.mapM
+        ( \event -> do
+            callback event
+            pure event
+        )
+        (streamRequestWith reg m ctx opts)
+    )
+
+-- | Collect the event stream from the process-global registry into a list.
+streamRequestList :: Model -> Context -> Options -> IO [AssistantMessageEvent]
+streamRequestList = streamRequestListWith globalProviderRegistry
+
+-- | Collect the event stream from an explicit registry into a list.
+streamRequestListWith ::
+  ProviderRegistry ->
+  Model ->
+  Context ->
+  Options ->
+  IO [AssistantMessageEvent]
+streamRequestListWith reg m ctx opts =
+  Stream.toList (streamRequestWith reg m ctx opts)
 
 -- | Drain an event stream into a 'Response' by folding events into
 -- the assembled message.

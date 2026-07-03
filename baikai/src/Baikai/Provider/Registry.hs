@@ -23,20 +23,31 @@ module Baikai.Provider.Registry
     lookupApiProvider,
     completeRequestWith,
     completeRequest,
+    runToolLoopWith,
+    runToolLoop,
+    completeText,
   )
 where
 
 import Baikai.Api (Api, renderApi)
-import Baikai.Context (Context)
+import Baikai.Content (AssistantContent (..), ToolCall)
+import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
-import Baikai.Model (Model (..))
-import Baikai.Options (Options)
-import Baikai.Response (Response, errorResponse)
+import Baikai.Message (AssistantPayload (..), ToolResult, toolResultErrorText, user)
+import Baikai.Model (Model)
+import Baikai.Model qualified as Model
+import Baikai.Options (Options, _Options)
+import Baikai.Response (Response (..), errorResponse, flattenAssistantBlocks, flattenAssistantText, responseError)
+import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event (AssistantMessageEvent)
+import Control.Exception qualified as Exception
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time (getCurrentTime)
+import Data.Vector qualified as Vector
 import Streamly.Data.Stream (Stream)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -92,7 +103,7 @@ lookupApiProvider = lookupApiProviderWith globalProviderRegistry
 -- no handler is registered for that tag.
 completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response
 completeRequestWith reg m ctx opts = do
-  mProvider <- lookupApiProviderWith reg (api m)
+  mProvider <- lookupApiProviderWith reg (Model.api m)
   case mProvider of
     Just p -> complete p m ctx opts
     Nothing -> do
@@ -102,8 +113,93 @@ completeRequestWith reg m ctx opts = do
           m
           now
           0
-          (providerUnavailable ("No provider registered for API: " <> renderApi (api m)))
+          (providerUnavailable ("No provider registered for API: " <> renderApi (Model.api m)))
 
 -- | Dispatch a synchronous request through the process-global registry.
 completeRequest :: Model -> Context -> Options -> IO Response
 completeRequest = completeRequestWith globalProviderRegistry
+
+-- | Drive a tool-using conversation through the process-global registry.
+--
+-- The returned 'Context' contains the input context plus only fully resolved
+-- assistant/tool-result exchanges, so it is always valid to replay. The final
+-- 'Response' is not appended; callers that want the full transcript can use
+-- 'Baikai.Context.addResponse'. 'Options' is passed unchanged each turn, so
+-- forcing tools in options can exhaust the budget; loops should usually let
+-- the provider choose tools automatically.
+runToolLoop ::
+  Int ->
+  (ToolCall -> IO ToolResult) ->
+  Model ->
+  Context ->
+  Options ->
+  IO (Context, Response)
+runToolLoop = runToolLoopWith globalProviderRegistry
+
+-- | Drive a tool-using conversation through an explicit registry.
+--
+-- The turn budget is clamped to at least one model call. Synchronous dispatcher
+-- exceptions become error tool results so the model can recover; asynchronous
+-- exceptions are rethrown. Dispatchers should return 'toolResultErrorText' for
+-- unknown tool names rather than throwing.
+runToolLoopWith ::
+  ProviderRegistry ->
+  Int ->
+  (ToolCall -> IO ToolResult) ->
+  Model ->
+  Context ->
+  Options ->
+  IO (Context, Response)
+runToolLoopWith reg budget dispatcher model ctx0 opts =
+  go (max 1 budget) ctx0
+  where
+    go remaining ctx = do
+      resp <- completeRequestWith reg model ctx opts
+      if shouldStop remaining resp
+        then pure (ctx, resp)
+        else do
+          ctx' <- appendToolResult ctx resp (safeDispatcher dispatcher)
+          go (remaining - 1) ctx'
+
+    shouldStop remaining resp =
+      responseError resp /= Nothing
+        || responseStopReason resp /= ToolUse
+        || Vector.null (responseToolCalls resp)
+        || remaining <= 1
+
+-- | One-shot text completion through the global registry. Throws the
+-- 'Baikai.Error.BaikaiError' when the response is error-shaped.
+completeText :: Model -> Text -> IO Text
+completeText model prompt = do
+  resp <- completeRequest model (contextOf [user prompt]) _Options
+  case responseError resp of
+    Just err -> Exception.throwIO err
+    Nothing -> pure (flattenAssistantText (flattenAssistantBlocks resp))
+
+safeDispatcher :: (ToolCall -> IO ToolResult) -> ToolCall -> IO ToolResult
+safeDispatcher dispatcher tc = do
+  result <- trySync (dispatcher tc)
+  case result of
+    Right ok -> pure ok
+    Left e -> pure (toolResultErrorText (Text.pack (Exception.displayException e)))
+
+trySync :: IO a -> IO (Either Exception.SomeException a)
+trySync action = do
+  result <- Exception.try action
+  case result of
+    Left e
+      | Just (Exception.SomeAsyncException _) <-
+          (Exception.fromException e :: Maybe Exception.SomeAsyncException) ->
+          Exception.throwIO e
+      | otherwise -> pure (Left e)
+    Right a -> pure (Right a)
+
+responseStopReason :: Response -> StopReason
+responseStopReason Response {message = AssistantPayload {stopReason = sr}} = sr
+
+responseToolCalls :: Response -> Vector.Vector ToolCall
+responseToolCalls Response {message = AssistantPayload {content = blocks}} =
+  Vector.mapMaybe toolCallOf blocks
+  where
+    toolCallOf (AssistantToolCall tc) = Just tc
+    toolCallOf _ = Nothing

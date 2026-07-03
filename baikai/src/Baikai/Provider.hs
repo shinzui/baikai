@@ -20,6 +20,9 @@ module Baikai.Provider
     lookupApiProvider,
     completeRequestWith,
     completeRequest,
+    runToolLoopWith,
+    runToolLoop,
+    completeText,
   )
 where
 
@@ -28,10 +31,13 @@ import Baikai.Provider.Registry
     ProviderRegistry,
     completeRequest,
     completeRequestWith,
+    completeText,
     globalProviderRegistry,
     lookupApiProvider,
     lookupApiProviderWith,
     newProviderRegistry,
     registerApiProvider,
     registerApiProviderWith,
+    runToolLoop,
+    runToolLoopWith,
   )
