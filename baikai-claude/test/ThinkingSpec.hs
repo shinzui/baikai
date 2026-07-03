@@ -4,12 +4,16 @@ module ThinkingSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated
-import Baikai.Provider.Claude.Api (mapRequest)
+import Baikai.Provider.Claude.Api (Assembler, emptyAssembler, mapRequest, translate)
 import Claude.V1.Messages qualified as Messages
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
+import Data.IntMap.Strict qualified as IntMap
 import Data.Text qualified as Text
+import Data.Time.Clock (UTCTime)
+import Data.Vector qualified as Vector
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -22,7 +26,8 @@ tests =
       handRolledUnclampedTest,
       tooSmallCapDropsThinkingTest,
       mergedOutputConfigTest,
-      explicitCompatOverridesDefaultTest
+      explicitCompatOverridesDefaultTest,
+      streamFidelityTests
     ]
 
 anthropicModels :: [(String, Model, AnthropicThinkingStyle)]
@@ -161,3 +166,212 @@ adaptiveEffort = \case
   ThinkingLow -> Just "low"
   ThinkingMedium -> Just "medium"
   ThinkingHigh -> Nothing
+
+streamFidelityTests :: TestTree
+streamFidelityTests =
+  testGroup
+    "stream fidelity and replay"
+    [ testCase "thinking and redacted blocks close with full ThinkingContent" $ do
+        let (events, _) = runClaudeEvents signedAndRedactedStream
+            expectedSigned =
+              ThinkingContent
+                { thinking = "because therefore",
+                  signature = Just "sig-final",
+                  redacted = False
+                }
+            expectedRedacted =
+              ThinkingContent
+                { thinking = "ENCRYPTED==",
+                  signature = Nothing,
+                  redacted = True
+                }
+        thinkingEnds events
+          @?= [expectedSigned, expectedRedacted]
+        assistantContentFromTerminal events
+          @?= Vector.fromList
+            [ AssistantThinking expectedSigned,
+              AssistantThinking expectedRedacted
+            ],
+      testCase "assembled thinking blocks replay signature and redacted payload verbatim" $ do
+        let (events, _) = runClaudeEvents signedAndRedactedStream
+            msg = terminalMessage events
+            ctx =
+              _Context
+                & #messages
+                  .~ Vector.fromList
+                    [ msg,
+                      user "continue"
+                    ]
+        req <- requestForContext anthropic_claude_haiku_4_5 ctx _Options
+        case Vector.toList (requestMessages req) of
+          (assistantMsg : _) ->
+            BSL.toStrict (Aeson.encode (messageContent assistantMsg))
+              @?= BSL.toStrict
+                ( Aeson.encode
+                    ( Vector.fromList
+                        [ Messages.Content_Thinking
+                            { Messages.thinking = "because therefore",
+                              Messages.signature = "sig-final"
+                            },
+                          Messages.Content_Redacted_Thinking
+                            { Messages.data_ = "ENCRYPTED=="
+                            }
+                        ]
+                    )
+                )
+          _ -> assertFailure "mapped request contained no assistant message",
+      testCase "signature-less non-redacted thinking is omitted on replay" $ do
+        let msg =
+              AssistantMessage
+                AssistantPayload
+                  { content =
+                      Vector.fromList
+                        [ AssistantThinking
+                            ThinkingContent
+                              { thinking = "draft",
+                                signature = Nothing,
+                                redacted = False
+                              },
+                          AssistantText (TextContent "visible")
+                        ],
+                    usage = _Usage,
+                    stopReason = Stop,
+                    errorMessage = Nothing,
+                    timestamp = testTime
+                  }
+            ctx = _Context & #messages .~ Vector.fromList [msg]
+        req <- requestForContext anthropic_claude_haiku_4_5 ctx _Options
+        case Vector.toList (requestMessages req) of
+          [assistantMsg] ->
+            BSL.toStrict (Aeson.encode (messageContent assistantMsg))
+              @?= BSL.toStrict
+                ( Aeson.encode
+                    ( Vector.singleton
+                        Messages.Content_Text
+                          { Messages.text = "visible",
+                            Messages.cache_control = Nothing
+                          }
+                    )
+                )
+          _ -> assertFailure "expected exactly one mapped assistant message",
+      testCase "unopened block deltas do not fabricate events or closed blocks" $ do
+        let (events, ass) =
+              runClaudeEvents
+                [ Messages.Content_Block_Delta
+                    { Messages.index = 7,
+                      Messages.delta = Messages.Delta_Thinking_Delta {Messages.thinking = "ghost"}
+                    },
+                  Messages.Content_Block_Delta
+                    { Messages.index = 8,
+                      Messages.delta = Messages.Delta_Input_Json_Delta {Messages.partial_json = "{\"x\""}
+                    },
+                  Messages.Content_Block_Stop {Messages.index = 8}
+                ]
+        events @?= []
+        IntMap.null (ass ^. #closed) @?= True
+        IntMap.null (ass ^. #toolArgsBuf) @?= True
+    ]
+
+signedAndRedactedStream :: [Messages.MessageStreamEvent]
+signedAndRedactedStream =
+  [ messageStart,
+    Messages.Content_Block_Start
+      { Messages.index = 0,
+        Messages.content_block = Messages.ContentBlock_Thinking {Messages.thinking = "", Messages.signature = ""}
+      },
+    Messages.Content_Block_Delta
+      { Messages.index = 0,
+        Messages.delta = Messages.Delta_Thinking_Delta {Messages.thinking = "because "}
+      },
+    Messages.Content_Block_Delta
+      { Messages.index = 0,
+        Messages.delta = Messages.Delta_Thinking_Delta {Messages.thinking = "therefore"}
+      },
+    Messages.Content_Block_Delta
+      { Messages.index = 0,
+        Messages.delta = Messages.Delta_Signature_Delta {Messages.signature = "sig-"}
+      },
+    Messages.Content_Block_Delta
+      { Messages.index = 0,
+        Messages.delta = Messages.Delta_Signature_Delta {Messages.signature = "final"}
+      },
+    Messages.Content_Block_Stop {Messages.index = 0},
+    Messages.Content_Block_Start
+      { Messages.index = 1,
+        Messages.content_block = Messages.ContentBlock_Redacted_Thinking {Messages.data_ = "ENCRYPTED=="}
+      },
+    Messages.Content_Block_Stop {Messages.index = 1},
+    Messages.Message_Delta
+      { Messages.message_delta =
+          Messages.MessageDelta
+            { Messages.stop_reason = Just Messages.End_Turn,
+              Messages.stop_sequence = Nothing
+            },
+        Messages.usage = Messages.StreamUsage {Messages.output_tokens = 12}
+      },
+    Messages.Message_Stop
+  ]
+
+messageStart :: Messages.MessageStreamEvent
+messageStart =
+  Messages.Message_Start
+    { Messages.message =
+        Messages.MessageResponse
+          { Messages.id = "msg_test",
+            Messages.type_ = "message",
+            Messages.role = Messages.Assistant,
+            Messages.content = Vector.empty,
+            Messages.model = "claude-haiku-4-5",
+            Messages.stop_reason = Nothing,
+            Messages.stop_sequence = Nothing,
+            Messages.usage =
+              Messages.Usage
+                { Messages.input_tokens = 10,
+                  Messages.output_tokens = 0,
+                  Messages.cache_creation_input_tokens = Nothing,
+                  Messages.cache_read_input_tokens = Nothing,
+                  Messages.server_tool_use = Nothing
+                },
+            Messages.container = Nothing
+          }
+    }
+
+runClaudeEvents :: [Messages.MessageStreamEvent] -> ([AssistantMessageEvent], Assembler)
+runClaudeEvents =
+  foldl'
+    ( \(events, ass) ev ->
+        let (newEvents, ass') = translate (Right ev) ass testTime
+         in (events <> newEvents, ass')
+    )
+    ([], emptyAssembler anthropic_claude_haiku_4_5 testTime)
+
+thinkingEnds :: [AssistantMessageEvent] -> [ThinkingContent]
+thinkingEnds events =
+  [th | ThinkingEnd ThinkingEndPayload {content = th} <- events]
+
+assistantContentFromTerminal :: [AssistantMessageEvent] -> Vector.Vector AssistantContent
+assistantContentFromTerminal events =
+  case terminalMessage events of
+    AssistantMessage AssistantPayload {content = blocks} -> blocks
+    _ -> Vector.empty
+
+terminalMessage :: [AssistantMessageEvent] -> Message
+terminalMessage events =
+  case last events of
+    EventDone TerminalPayload {message = msg} -> msg
+    EventError TerminalPayload {message = msg} -> msg
+    _ -> error "last event was not terminal"
+
+requestForContext :: Model -> Context -> Options -> IO Messages.CreateMessage
+requestForContext model ctx opts = case mapRequest model ctx opts of
+  Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
+  Right req -> pure req
+
+requestMessages :: Messages.CreateMessage -> Vector.Vector Messages.Message
+requestMessages Messages.CreateMessage {Messages.messages = msgs} = msgs
+
+messageContent :: Messages.Message -> Vector.Vector Messages.Content
+messageContent Messages.Message {Messages.content = blocks} = blocks
+
+testTime :: UTCTime
+testTime = read "2026-07-03 12:00:00 UTC"

@@ -75,11 +75,12 @@ This section must always reflect the actual current state of the work.
       adaptive effort merged into `output_config`). (2026-07-03)
 - [x] M1: request-mapping unit tests in `baikai-claude/test/ThinkingSpec.hs` covering
       every Anthropic catalog model. (2026-07-03)
-- [ ] M2: capture redacted `data_` at block start, close thinking blocks with full
-      fidelity, add opened-index tracking to the Claude block state machine.
-- [ ] M2: replay signatures and redacted payloads verbatim in
-      `assistantContentToBlock`; omit signature-less thinking blocks.
-- [ ] M2: round-trip tests (stream events → assembled message → `mapRequest` output).
+- [x] M2: capture redacted `data_` at block start, close thinking blocks with full
+      fidelity, add opened-index tracking to the Claude block state machine. (2026-07-03)
+- [x] M2: replay signatures and redacted payloads verbatim in
+      `assistantContentToBlock`; omit signature-less thinking blocks. (2026-07-03)
+- [x] M2: round-trip tests (stream events → assembled message → `mapRequest` output).
+      (2026-07-03)
 - [ ] M3: parse `reasoning_content`/`reasoning` deltas and the message-object shape in
       `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`; thinking-block lifecycle in the
       OpenAI assembler.
@@ -103,6 +104,12 @@ implementation. Provide concise evidence.
   field. Validation evidence after the fix: `cabal test baikai baikai-claude
   --test-show-details=direct` passed with `baikai` 116 tests and `baikai-claude` 98
   tests. (2026-07-03, M1 implementation)
+- The Claude assembler already emitted EP-5's full `ThinkingEndPayload` for non-redacted
+  thinking, so the signature fix was mostly preserving the existing closed
+  `ThinkingContent` through replay. The missing piece was redacted block state: a
+  separate `redactedBuf` lets redacted payloads close without pretending to be readable
+  thinking text. Validation evidence: `cabal test baikai-claude --test-show-details=direct`
+  passed with 102 tests. (2026-07-03, M2 implementation)
 
 
 ## Decision Log
@@ -236,6 +243,16 @@ merges adaptive effort into an existing `output_config`. The focused validation 
 cabal test baikai baikai-claude --test-show-details=direct
 baikai: 116 tests passed
 baikai-claude: 98 tests passed
+```
+
+Milestone 2 completed on 2026-07-03. Claude streaming now preserves signed thinking and
+redacted thinking as full `ThinkingContent` values, replay emits signed thinking and
+redacted payloads verbatim while omitting unsigned hand-built thinking, and unopened
+deltas no longer fabricate phantom tool calls. Focused validation:
+
+```text
+cabal test baikai-claude --test-show-details=direct
+baikai-claude: 102 tests passed
 ```
 
 
@@ -893,4 +910,6 @@ Decision Log entries in both plans and in the MasterPlan.
 Revision note (2026-07-03): Milestone 1 implementation updated the Progress,
 Surprises & Discoveries, and Outcomes & Retrospective sections with the cap-safe Claude
 thinking request-shaping work, the generator coupling discovered during validation, and
-the focused `baikai`/`baikai-claude` test evidence.
+the focused `baikai`/`baikai-claude` test evidence. Milestone 2 then updated the same
+living sections with Claude stream/replay fidelity, redacted payload preservation, the
+phantom-block regression, and the focused `baikai-claude` test evidence.

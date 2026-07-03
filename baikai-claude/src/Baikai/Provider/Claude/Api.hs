@@ -24,6 +24,9 @@ module Baikai.Provider.Claude.Api
     registerWithRegistry,
     claudeMessagesStream,
     mapRequest,
+    Assembler (..),
+    emptyAssembler,
+    translate,
     ThinkingPlan (..),
     computeThinking,
   )
@@ -285,6 +288,7 @@ data Assembler = Assembler
     textBuf :: !(IntMap Text),
     thinkBuf :: !(IntMap Text),
     thinkSig :: !(IntMap Text),
+    redactedBuf :: !(IntMap Text),
     toolArgsBuf :: !(IntMap Text),
     toolMeta :: !(IntMap (Text, Text)),
     usage :: !Usage.Usage,
@@ -302,6 +306,7 @@ emptyAssembler m s =
       textBuf = IntMap.empty,
       thinkBuf = IntMap.empty,
       thinkSig = IntMap.empty,
+      redactedBuf = IntMap.empty,
       toolArgsBuf = IntMap.empty,
       toolMeta = IntMap.empty,
       usage = Usage._Usage,
@@ -380,9 +385,9 @@ handleBlockStart i block ass = case block of
     ( [ThinkingStart IndexPayload {contentIndex = i}],
       ass & #thinkBuf %~ IntMap.insert i Text.empty
     )
-  Messages.ContentBlock_Redacted_Thinking {} ->
+  Messages.ContentBlock_Redacted_Thinking {Messages.data_ = payload} ->
     ( [ThinkingStart IndexPayload {contentIndex = i}],
-      ass & #thinkBuf %~ IntMap.insert i Text.empty
+      ass & #redactedBuf %~ IntMap.insert i payload
     )
   Messages.ContentBlock_Tool_Use {Messages.id = tid, Messages.name = tn} ->
     ( [ToolCallStart IndexPayload {contentIndex = i}],
@@ -401,24 +406,36 @@ handleBlockDelta ::
   ([AssistantMessageEvent], Assembler)
 handleBlockDelta i d ass = case d of
   Messages.Delta_Text_Delta {Messages.text = t} ->
-    ( [TextDelta DeltaPayload {contentIndex = i, delta = t}],
-      ass & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i t
-    )
+    if IntMap.member i (ass ^. #textBuf)
+      then
+        ( [TextDelta DeltaPayload {contentIndex = i, delta = t}],
+          ass & #textBuf %~ IntMap.adjust (<> t) i
+        )
+      else ([], ass)
   Messages.Delta_Thinking_Delta {Messages.thinking = t} ->
-    ( [ThinkingDelta DeltaPayload {contentIndex = i, delta = t}],
-      ass & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i t
-    )
+    if IntMap.member i (ass ^. #thinkBuf)
+      then
+        ( [ThinkingDelta DeltaPayload {contentIndex = i, delta = t}],
+          ass & #thinkBuf %~ IntMap.adjust (<> t) i
+        )
+      else ([], ass)
   Messages.Delta_Signature_Delta {Messages.signature = sig} ->
     -- Signatures are tail-end metadata on thinking blocks; they
     -- attach to the ThinkingEnd event's content build, not a public
     -- delta event.
-    ( [],
-      ass & #thinkSig %~ IntMap.insertWith (\new old -> old <> new) i sig
-    )
+    if IntMap.member i (ass ^. #thinkBuf)
+      then
+        ( [],
+          ass & #thinkSig %~ IntMap.insertWith (\new old -> old <> new) i sig
+        )
+      else ([], ass)
   Messages.Delta_Input_Json_Delta {Messages.partial_json = j} ->
-    ( [ToolCallDelta DeltaPayload {contentIndex = i, delta = j}],
-      ass & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i j
-    )
+    if IntMap.member i (ass ^. #toolArgsBuf)
+      then
+        ( [ToolCallDelta DeltaPayload {contentIndex = i, delta = j}],
+          ass & #toolArgsBuf %~ IntMap.adjust (<> j) i
+        )
+      else ([], ass)
 
 handleBlockStop ::
   Int -> Assembler -> ([AssistantMessageEvent], Assembler)
@@ -429,6 +446,19 @@ handleBlockStop i ass
             ass
               & #closed %~ IntMap.insert i block
               & #textBuf %~ IntMap.delete i
+          )
+  | Just payload <- IntMap.lookup i (ass ^. #redactedBuf) =
+      let thinkingContent =
+            Content.ThinkingContent
+              { Content.thinking = payload,
+                Content.signature = Nothing,
+                Content.redacted = True
+              }
+          block = Content.AssistantThinking thinkingContent
+       in ( [ThinkingEnd ThinkingEndPayload {contentIndex = i, content = thinkingContent}],
+            ass
+              & #closed %~ IntMap.insert i block
+              & #redactedBuf %~ IntMap.delete i
           )
   | Just body <- IntMap.lookup i (ass ^. #thinkBuf) =
       let sig = IntMap.lookup i (ass ^. #thinkSig)
@@ -446,7 +476,10 @@ handleBlockStop i ass
               & #thinkSig %~ IntMap.delete i
           )
   | Just argsText <- IntMap.lookup i (ass ^. #toolArgsBuf) =
-      let (tid, tn) = fromMaybe ("", "") (IntMap.lookup i (ass ^. #toolMeta))
+      let (tid, tn) =
+            -- A tool args buffer is opened together with metadata in
+            -- handleBlockStart; the fallback is defensive only.
+            fromMaybe ("", "") (IntMap.lookup i (ass ^. #toolMeta))
           decoded :: Value
           decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 argsText) of
             Right v -> v
@@ -836,11 +869,16 @@ assistantContentToBlock = \case
   Content.AssistantText (Content.TextContent t) ->
     Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
   Content.AssistantThinking th ->
-    Just
-      Messages.Content_Thinking
-        { Messages.thinking = Content.thinking th,
-          Messages.signature = fromMaybe "" (Content.signature th)
-        }
+    if Content.redacted th
+      then Just Messages.Content_Redacted_Thinking {Messages.data_ = Content.thinking th}
+      else case Content.signature th of
+        Just sig ->
+          Just
+            Messages.Content_Thinking
+              { Messages.thinking = Content.thinking th,
+                Messages.signature = sig
+              }
+        Nothing -> Nothing
   Content.AssistantToolCall tc ->
     Just
       Messages.Content_Tool_Use

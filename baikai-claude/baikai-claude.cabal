@@ -92,4 +92,5 @@ test-suite baikai-claude-test
     , tasty
     , tasty-hunit
     , text              ^>=2.1
+    , time
     , vector

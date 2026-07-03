@@ -70,7 +70,9 @@ newtype TextContent = TextContent
 -- provider; it must be threaded back into the next request unchanged for
 -- the model to resume from the same state. @redacted@ is 'True' when the
 -- provider hid the underlying content (Anthropic flags this when its
--- safety system removes a thinking block from the wire response).
+-- safety system removes a thinking block from the wire response). When
+-- @redacted@ is 'True', @thinking@ holds the provider's opaque encrypted
+-- payload verbatim; callers must not display or edit it.
 data ThinkingContent = ThinkingContent
   { thinking :: !Text,
     signature :: !(Maybe Text),

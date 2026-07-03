@@ -216,7 +216,7 @@ EP-10 relocate them if needed.
 - [x] EP-6 M3: OpenAI live classification, `content_filter`, codex CLI in-band
 - [x] EP-6 M4: conformance sweep, documentation, changelog
 - [x] EP-7 M1: Claude cap-safe `max_tokens` and per-generation thinking style
-- [ ] EP-7 M2: Claude stream fidelity and verbatim replay (signature, redacted, phantom tool calls)
+- [x] EP-7 M2: Claude stream fidelity and verbatim replay (signature, redacted, phantom tool calls)
 - [ ] EP-7 M3: OpenAI-compatible reasoning extraction
 - [ ] EP-7 M4: live proof and validation sweep
 - [ ] EP-8 M1: core groundwork — honest host detection, flag deletions, key-env table
