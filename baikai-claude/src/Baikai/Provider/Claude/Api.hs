@@ -24,13 +24,15 @@ module Baikai.Provider.Claude.Api
     registerWithRegistry,
     claudeMessagesStream,
     mapRequest,
+    ThinkingPlan (..),
+    computeThinking,
   )
 where
 
 import Baikai.Api (Api (..))
 import Baikai.Auth qualified as Auth
 import Baikai.CacheRetention (CacheRetention (..))
-import Baikai.Compat (AnthropicMessagesCompat (..))
+import Baikai.Compat (AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (_Cost)
@@ -61,7 +63,7 @@ import Baikai.Stream.Event
     doneTerminal,
     errorTerminal,
   )
-import Baikai.ThinkingLevel (ThinkingLevel, thinkingTokenBudget)
+import Baikai.ThinkingLevel (ThinkingLevel (..), thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Baikai.Usage qualified as Usage
 import Claude.V1 qualified as Claude
@@ -88,6 +90,7 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
+import Numeric.Natural (Natural)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -584,15 +587,18 @@ mapRequest :: Model -> Context -> Options -> Either Text Messages.CreateMessage
 mapRequest m ctx opts = do
   msgs <- traverse mapMessage (Vector.toList (ctx ^. #messages))
   let compat = anthropicMessagesCompatFor m
-      baseTokens = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
-      thinkingField = computeThinking m (opts ^. #thinking)
-      -- When extended thinking is enabled, Anthropic requires that
-      -- max_tokens be large enough to cover both the visible
-      -- response and the thinking budget. Bump the cap by the
-      -- requested budget so callers do not have to do the math.
-      maxTokensField_ = case thinkingField of
-        Just (Messages.ThinkingEnabled budget) -> baseTokens + budget
-        _ -> baseTokens
+      cap = m ^. #maxOutputTokens
+      baseTokens = fromMaybe cap (opts ^. #maxTokens)
+      clamp n = if cap == 0 then n else min n cap
+      plan0 = computeThinking compat m (opts ^. #thinking)
+      requested = clamp (baseTokens + fromMaybe 0 (budget plan0))
+      plan = case budget plan0 of
+        Just b
+          | requested <= b -> emptyThinkingPlan
+        _ -> plan0
+      maxTokensField_ = case budget plan of
+        Just b -> clamp (baseTokens + b)
+        Nothing -> clamp baseTokens
       cacheControlField = computeCacheControl compat (opts ^. #cacheRetention)
       -- `ToolChoiceNone` is not a first-class Anthropic value; the
       -- standard way to disable tool use on a per-call basis is to
@@ -610,7 +616,7 @@ mapRequest m ctx opts = do
         Just Tool.ToolChoiceNone -> Nothing
         Just tc -> Just (mkAnthropicToolChoice tc)
         Nothing -> Nothing
-      outputConfigField = fmap mkAnthropicOutputConfig (opts ^. #responseFormat)
+      outputConfigField = mergeEffort (effort plan) (fmap mkAnthropicOutputConfig (opts ^. #responseFormat))
   pure
     Messages._CreateMessage
       { Messages.model = m ^. #modelId,
@@ -621,9 +627,14 @@ mapRequest m ctx opts = do
         Messages.tools = toolsField,
         Messages.tool_choice = toolChoiceField,
         Messages.cache_control = cacheControlField,
-        Messages.thinking = thinkingField,
+        Messages.thinking = field plan,
         Messages.output_config = outputConfigField
       }
+
+mergeEffort :: Maybe Text -> Maybe Messages.OutputConfig -> Maybe Messages.OutputConfig
+mergeEffort Nothing cfg = cfg
+mergeEffort (Just e) Nothing = Just (Messages.effortConfig e)
+mergeEffort (Just e) (Just cfg) = Just cfg {Messages.effort = Just e}
 
 -- | Map a baikai 'ResponseFormat' onto the upstream Anthropic
 -- 'Messages.OutputConfig'. 'JsonSchema' forwards the schema
@@ -675,12 +686,49 @@ computeCacheControl compat (Just CacheRetentionLong)
 -- that asked for thinking on a non-reasoning model get the request
 -- shaped without it (the request still succeeds and returns a normal
 -- response).
-computeThinking :: Model -> Maybe ThinkingLevel -> Maybe Messages.Thinking
-computeThinking _ Nothing = Nothing
-computeThinking m (Just lvl)
-  | m ^. #reasoning =
-      Just Messages.ThinkingEnabled {Messages.budget_tokens = thinkingTokenBudget lvl}
-  | otherwise = Nothing
+data ThinkingPlan = ThinkingPlan
+  { field :: !(Maybe Messages.Thinking),
+    effort :: !(Maybe Text),
+    budget :: !(Maybe Natural)
+  }
+  deriving stock (Eq, Show, Generic)
+
+emptyThinkingPlan :: ThinkingPlan
+emptyThinkingPlan =
+  ThinkingPlan
+    { field = Nothing,
+      effort = Nothing,
+      budget = Nothing
+    }
+
+computeThinking ::
+  AnthropicMessagesCompat ->
+  Model ->
+  Maybe ThinkingLevel ->
+  ThinkingPlan
+computeThinking _ _ Nothing = emptyThinkingPlan
+computeThinking compat m (Just lvl)
+  | not (m ^. #reasoning) = emptyThinkingPlan
+  | thinkingStyle compat == AnthropicThinkingAdaptive =
+      ThinkingPlan
+        { field = Just Messages.ThinkingAdaptive,
+          effort = adaptiveEffort lvl,
+          budget = Nothing
+        }
+  | otherwise =
+      let b = thinkingTokenBudget lvl
+       in ThinkingPlan
+            { field = Just Messages.ThinkingEnabled {Messages.budget_tokens = b},
+              effort = Nothing,
+              budget = Just b
+            }
+
+adaptiveEffort :: ThinkingLevel -> Maybe Text
+adaptiveEffort = \case
+  ThinkingMinimal -> Just "low"
+  ThinkingLow -> Just "low"
+  ThinkingMedium -> Just "medium"
+  ThinkingHigh -> Nothing
 
 -- | Map a baikai 'Tool.Tool' into the upstream Anthropic
 -- 'ClaudeTool.ToolDefinition'. The JSON Schema is passed through

@@ -21,6 +21,7 @@ import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import ThinkingSpec qualified
 
 main :: IO ()
 main =
@@ -36,7 +37,8 @@ main =
         cliMissingBinaryTest,
         responseFormatMappingTest,
         ErrorClassSpec.tests,
-        SseSpec.tests
+        SseSpec.tests,
+        ThinkingSpec.tests
       ]
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto Anthropic's

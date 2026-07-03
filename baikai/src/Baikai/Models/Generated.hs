@@ -9,6 +9,7 @@ module Baikai.Models.Generated where
 import Baikai.Api (Api (..))
 import Baikai.Compat
   ( AnthropicMessagesCompat (..)
+  , AnthropicThinkingStyle (..)
   , CacheControlFormat (..)
   , MaxTokensField (..)
   , OpenAICompletionsCompat (..)

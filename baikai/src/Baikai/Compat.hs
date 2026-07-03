@@ -36,7 +36,9 @@ module Baikai.Compat
 
     -- * Anthropic Messages compat
     AnthropicMessagesCompat (..),
+    AnthropicThinkingStyle (..),
     defaultAnthropicMessagesCompat,
+    defaultAnthropicThinkingStyle,
 
     -- * Auto-detection from baseUrl
     autoDetectOpenAICompletions,
@@ -88,6 +90,16 @@ data ThinkingFormat
 -- markers. Only Anthropic's @cache_control@ markers are known; the
 -- field is 'Nothing' on hosts that do not advertise prompt caching.
 data CacheControlFormat = CacheControlFormatAnthropic
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- | Which request shape an Anthropic-compatible host/model accepts
+-- for extended thinking. Budget-era models take
+-- @{"type":"enabled","budget_tokens":N}@; adaptive-era models take
+-- @{"type":"adaptive"}@ with depth guided by @output_config.effort@.
+data AnthropicThinkingStyle
+  = AnthropicThinkingBudget
+  | AnthropicThinkingAdaptive
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
@@ -160,7 +172,10 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     supportsEagerToolInputStreaming :: !Bool,
     -- | Whether to add session-affinity headers on every request
     --   (Fireworks-style routing).
-    sendSessionAffinityHeaders :: !Bool
+    sendSessionAffinityHeaders :: !Bool,
+    -- | Which extended-thinking request shape to send for the
+    --   selected model generation.
+    thinkingStyle :: !AnthropicThinkingStyle
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -172,8 +187,22 @@ defaultAnthropicMessagesCompat =
     { supportsLongCacheRetention = True,
       supportsCacheControlOnTools = True,
       supportsEagerToolInputStreaming = True,
-      sendSessionAffinityHeaders = False
+      sendSessionAffinityHeaders = False,
+      thinkingStyle = AnthropicThinkingBudget
     }
+
+-- | The thinking style a first-party Anthropic model id defaults to
+-- when the model carries no explicit compat record. Unknown ids
+-- default to the budget style used by earlier model generations.
+defaultAnthropicThinkingStyle :: Text -> AnthropicThinkingStyle
+defaultAnthropicThinkingStyle modelId
+  | adaptive "claude-opus-4-6" = AnthropicThinkingAdaptive
+  | adaptive "claude-opus-4-7" = AnthropicThinkingAdaptive
+  | adaptive "claude-opus-4-8" = AnthropicThinkingAdaptive
+  | adaptive "claude-fable-5" = AnthropicThinkingAdaptive
+  | otherwise = AnthropicThinkingBudget
+  where
+    adaptive prefix = prefix `Text.isPrefixOf` modelId
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
 -- host based on its @baseUrl@. Falls back to

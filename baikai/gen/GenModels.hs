@@ -32,6 +32,7 @@ module Main (main) where
 import Baikai.Api (Api (..), parseApi)
 import Baikai.Compat
   ( AnthropicMessagesCompat (..),
+    AnthropicThinkingStyle (..),
     CacheControlFormat (..),
     MaxTokensField (..),
     OpenAICompletionsCompat (..),
@@ -208,12 +209,14 @@ parseAnthropicCompat o = do
   scot <- o .:? "supportsCacheControlOnTools" .!= d.supportsCacheControlOnTools
   seti <- o .:? "supportsEagerToolInputStreaming" .!= d.supportsEagerToolInputStreaming
   ssah <- o .:? "sendSessionAffinityHeaders" .!= d.sendSessionAffinityHeaders
+  ts <- o .:? "thinkingStyle" .!= d.thinkingStyle
   pure
     AnthropicMessagesCompat
       { supportsLongCacheRetention = slcr,
         supportsCacheControlOnTools = scot,
         supportsEagerToolInputStreaming = seti,
-        sendSessionAffinityHeaders = ssah
+        sendSessionAffinityHeaders = ssah,
+        thinkingStyle = ts
       }
 
 parseMaxTokensField :: Text -> Parser MaxTokensField
@@ -395,6 +398,7 @@ renderModule entries =
         "import Baikai.Api (Api (..))",
         "import Baikai.Compat",
         "  ( AnthropicMessagesCompat (..)",
+        "  , AnthropicThinkingStyle (..)",
         "  , CacheControlFormat (..)",
         "  , MaxTokensField (..)",
         "  , OpenAICompletionsCompat (..)",
@@ -500,6 +504,7 @@ renderCompat = \case
         "          , supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools,
         "          , supportsEagerToolInputStreaming = " <> renderBool c.supportsEagerToolInputStreaming,
         "          , sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders,
+        "          , thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle,
         "          }"
       ]
 
@@ -517,6 +522,11 @@ renderThinkingFormat = \case
   ThinkingFormatZai -> "ThinkingFormatZai"
   ThinkingFormatQwen -> "ThinkingFormatQwen"
   ThinkingFormatNone -> "ThinkingFormatNone"
+
+renderAnthropicThinkingStyle :: AnthropicThinkingStyle -> Text
+renderAnthropicThinkingStyle = \case
+  AnthropicThinkingBudget -> "AnthropicThinkingBudget"
+  AnthropicThinkingAdaptive -> "AnthropicThinkingAdaptive"
 
 renderMaybeCacheControl :: Maybe CacheControlFormat -> Text
 renderMaybeCacheControl = \case

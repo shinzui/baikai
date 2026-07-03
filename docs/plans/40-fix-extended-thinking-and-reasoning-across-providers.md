@@ -62,18 +62,19 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Verify EP-5 (`docs/plans/38-...md`) has landed; reconcile the payload-type names
+- [x] Verify EP-5 (`docs/plans/38-...md`) has landed; reconcile the payload-type names
       assumed in this plan against its Decision Log and update this plan if they differ.
-- [ ] M1: add `AnthropicThinkingStyle` and the `thinkingStyle` field to
+      (2026-07-03)
+- [x] M1: add `AnthropicThinkingStyle` and the `thinkingStyle` field to
       `AnthropicMessagesCompat` in `baikai/src/Baikai/Compat.hs`, with the
-      model-generation default table `defaultAnthropicThinkingStyle`.
-- [ ] M1: apply the model-generation default in `anthropicMessagesCompatFor`
-      (`baikai/src/Baikai/Model.hs`).
-- [ ] M1: rewrite the `max_tokens`/thinking region of `mapRequest` and `computeThinking`
+      model-generation default table `defaultAnthropicThinkingStyle`. (2026-07-03)
+- [x] M1: apply the model-generation default in `anthropicMessagesCompatFor`
+      (`baikai/src/Baikai/Model.hs`). (2026-07-03)
+- [x] M1: rewrite the `max_tokens`/thinking region of `mapRequest` and `computeThinking`
       in `baikai-claude/src/Baikai/Provider/Claude/Api.hs` (cap clamp, style selection,
-      adaptive effort merged into `output_config`).
-- [ ] M1: request-mapping unit tests in `baikai-claude/test/ThinkingSpec.hs` covering
-      every Anthropic catalog model.
+      adaptive effort merged into `output_config`). (2026-07-03)
+- [x] M1: request-mapping unit tests in `baikai-claude/test/ThinkingSpec.hs` covering
+      every Anthropic catalog model. (2026-07-03)
 - [ ] M2: capture redacted `data_` at block start, close thinking blocks with full
       fidelity, add opened-index tracking to the Claude block state machine.
 - [ ] M2: replay signatures and redacted payloads verbatim in
@@ -96,7 +97,12 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Adding `AnthropicMessagesCompat.thinkingStyle` also required updating
+  `baikai/gen/GenModels.hs`; `baikai`'s catalog regression test compiles and runs the
+  generator and failed until the generator's parser/rendered import list learned the new
+  field. Validation evidence after the fix: `cabal test baikai baikai-claude
+  --test-show-details=direct` passed with `baikai` 116 tests and `baikai-claude` 98
+  tests. (2026-07-03, M1 implementation)
 
 
 ## Decision Log
@@ -220,7 +226,17 @@ implementation. Provide concise evidence.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Milestone 1 completed on 2026-07-03. Claude request shaping now selects
+budget-style or adaptive thinking from `AnthropicMessagesCompat.thinkingStyle`, applies
+model-generation defaults for first-party Anthropic models, clamps `max_tokens` to the
+catalog cap, drops invalid budget requests when no visible-output room remains, and
+merges adaptive effort into an existing `output_config`. The focused validation was:
+
+```text
+cabal test baikai baikai-claude --test-show-details=direct
+baikai: 116 tests passed
+baikai-claude: 98 tests passed
+```
 
 
 ## Context and Orientation
@@ -870,3 +886,11 @@ tools/`cache_control`/headers in the same function, runs after this plan, and mu
 delete `requiresThinkingAsText` or `thinkingStyle` as "unused" — both are consumed by
 code this plan adds. Any change either plan needs in the other's region requires
 Decision Log entries in both plans and in the MasterPlan.
+
+
+---
+
+Revision note (2026-07-03): Milestone 1 implementation updated the Progress,
+Surprises & Discoveries, and Outcomes & Retrospective sections with the cap-safe Claude
+thinking request-shaping work, the generator coupling discovered during validation, and
+the focused `baikai`/`baikai-claude` test evidence.

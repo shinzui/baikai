@@ -68,6 +68,7 @@ test-suite baikai-claude-test
   other-modules:
     ErrorClassSpec
     SseSpec
+    ThinkingSpec
 
   -- cradle (used by Baikai.Provider.Claude.Interactive) requires the threaded RTS.
   ghc-options:    -threaded -with-rtsopts=-N

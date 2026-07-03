@@ -31,10 +31,11 @@ where
 
 import Baikai.Api (Api (..))
 import Baikai.Compat
-  ( AnthropicMessagesCompat,
+  ( AnthropicMessagesCompat (..),
     OpenAICompletionsCompat,
     autoDetectAnthropicMessages,
     autoDetectOpenAICompletions,
+    defaultAnthropicThinkingStyle,
   )
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map.Strict (Map)
@@ -90,7 +91,10 @@ openaiCompletionsCompatFor m = case compat m of
 anthropicMessagesCompatFor :: Model -> AnthropicMessagesCompat
 anthropicMessagesCompatFor m = case compat m of
   CompatAnthropicMessages c -> c
-  _ -> autoDetectAnthropicMessages (baseUrl m)
+  _ ->
+    (autoDetectAnthropicMessages (baseUrl m))
+      { thinkingStyle = defaultAnthropicThinkingStyle (modelId m)
+      }
 
 -- | The data record baikai dispatches on.
 data Model = Model

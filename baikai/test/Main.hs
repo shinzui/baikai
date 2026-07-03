@@ -2,6 +2,7 @@ module Main (main) where
 
 import AgentAssetsSpec qualified
 import Baikai
+import Baikai.Models.Generated
 import Baikai.Prelude
 import CatalogSpec qualified
 import CliInternalSpec qualified
@@ -196,7 +197,33 @@ tests =
             compat = anthropicMessagesCompatFor fireworks
         compat ^. #supportsCacheControlOnTools @?= False
         compat ^. #sendSessionAffinityHeaders @?= True
-        compat ^. #supportsLongCacheRetention @?= False,
+        compat ^. #supportsLongCacheRetention @?= False
+        compat ^. #thinkingStyle @?= AnthropicThinkingBudget,
+      testCase "Anthropic compat defaults thinking style by model generation" $ do
+        anthropicMessagesCompatFor anthropic_claude_opus_4_6
+          ^. #thinkingStyle
+          @?= AnthropicThinkingAdaptive
+        anthropicMessagesCompatFor anthropic_claude_opus_4_7
+          ^. #thinkingStyle
+          @?= AnthropicThinkingAdaptive
+        anthropicMessagesCompatFor anthropic_claude_opus_4_8
+          ^. #thinkingStyle
+          @?= AnthropicThinkingAdaptive
+        anthropicMessagesCompatFor anthropic_claude_fable_5
+          ^. #thinkingStyle
+          @?= AnthropicThinkingAdaptive
+        anthropicMessagesCompatFor anthropic_claude_haiku_4_5
+          ^. #thinkingStyle
+          @?= AnthropicThinkingBudget
+        anthropicMessagesCompatFor anthropic_claude_opus_4_5
+          ^. #thinkingStyle
+          @?= AnthropicThinkingBudget
+        anthropicMessagesCompatFor anthropic_claude_sonnet_4_5
+          ^. #thinkingStyle
+          @?= AnthropicThinkingBudget
+        anthropicMessagesCompatFor anthropic_claude_sonnet_4_6
+          ^. #thinkingStyle
+          @?= AnthropicThinkingBudget,
       testCase "user smart constructor produces a UserMessage" $ do
         let ts = read "2026-06-05 01:02:03 UTC"
         case userAt ts "hello" of
