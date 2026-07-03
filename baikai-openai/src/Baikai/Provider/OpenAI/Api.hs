@@ -66,7 +66,8 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.OpenAI.ErrorClass (classifyException)
-import Baikai.Provider.OpenAI.Sse (openaiSseStream)
+import Baikai.Provider.OpenAI.Shape (streamRequestBody)
+import Baikai.Provider.OpenAI.Sse (openaiSseStreamValue)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -108,6 +109,8 @@ import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -189,7 +192,7 @@ skeletonStart _m start =
 data OpenAICall = OpenAICall
   { clientEnv :: !Client.ClientEnv,
     apiKey :: !Text,
-    request :: !Chat.CreateChatCompletion
+    requestBody :: !Aeson.Value
   }
   deriving stock (Generic)
 
@@ -202,16 +205,9 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
           "" -> "https://api.openai.com"
           u -> u
     env <- OpenAI.getClientEnv url
-    let req' =
-          req
-            { Chat.stream = Just True,
-              Chat.stream_options =
-                Just
-                  Chat._ChatCompletionStreamOptions
-                    { Chat.include_usage = Just True
-                    }
-            }
-    pure (Right OpenAICall {clientEnv = env, apiKey = key, request = req'})
+    let compat = openaiCompletionsCompatFor m
+        body = streamRequestBody compat opts req
+    pure (Right OpenAICall {clientEnv = env, apiKey = key, requestBody = body})
 
 resolveKey :: Options -> IO Text
 resolveKey opts = case opts ^. #apiKey of
@@ -232,7 +228,7 @@ data RawChunk = RawChunk
   deriving stock (Show, Generic)
 
 data RawToolDelta = RawToolDelta
-  { index :: !Int,
+  { index :: !(Maybe Int),
     id_ :: !(Maybe Text),
     name :: !(Maybe Text),
     args :: !(Maybe Text)
@@ -252,7 +248,7 @@ worker ::
 worker call ch = do
   r <-
     trySync $
-      openaiSseStream (call ^. #clientEnv) (call ^. #apiKey) (call ^. #request) $ \case
+      openaiSseStreamValue (call ^. #clientEnv) (call ^. #apiKey) (call ^. #requestBody) $ \case
         Left be -> writeChan ch (Just (Left be))
         Right val -> case parseChunk val of
           Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
@@ -333,7 +329,7 @@ parseToolCallDeltas = \case
             getArgs = funcObj >>= lookupText "arguments"
          in Just
               RawToolDelta
-                { index = maybe 0 fromInt (lookupField "index" o),
+                { index = fromInt <$> lookupField "index" o,
                   id_ = lookupText "id" o,
                   name = getName,
                   args = getArgs
@@ -573,6 +569,8 @@ data Assembler = Assembler
     -- | Maps OpenAI's per-call tool-call index to baikai's
     -- 'contentIndex'.
     toolIndexMap :: !(IntMap Int),
+    toolIdMap :: !(Map Text Int),
+    lastToolIdx :: !(Maybe Int),
     -- | baikai contentIndex → (id, name).
     toolMeta :: !(IntMap (Text, Text)),
     -- | baikai contentIndex → accumulated arguments JSON.
@@ -603,6 +601,8 @@ emptyAssembler m s =
       reasoningAccum = Text.empty,
       tagScanState = _TagScanState,
       toolIndexMap = IntMap.empty,
+      toolIdMap = Map.empty,
+      lastToolIdx = Nothing,
       toolMeta = IntMap.empty,
       toolArgs = IntMap.empty,
       closed = IntMap.empty,
@@ -720,14 +720,29 @@ applyToolDeltas deltas ass =
 applyOneToolDelta ::
   RawToolDelta -> Assembler -> ([AssistantMessageEvent], Assembler)
 applyOneToolDelta d ass =
-  let openaiIdx = d ^. #index
-      (baikaiIdx, ass1, opened) = case IntMap.lookup openaiIdx (ass ^. #toolIndexMap) of
-        Just i -> (i, ass, False)
+  let mOpenaiIdx = d ^. #index
+      mToolId = d ^. #id_
+      byIndex = mOpenaiIdx >>= \idx -> IntMap.lookup idx (ass ^. #toolIndexMap)
+      byId = mToolId >>= \tid -> Map.lookup tid (ass ^. #toolIdMap)
+      byLast =
+        case (mOpenaiIdx, mToolId) of
+          (Nothing, Nothing) -> ass ^. #lastToolIdx
+          _ -> Nothing
+      (baikaiIdx, ass1, opened) = case byIndex <|> byId <|> byLast of
+        Just i ->
+          ( i,
+            ass
+              & #toolIdMap %~ maybe id (`Map.insert` i) mToolId
+              & #lastToolIdx .~ Just i,
+            False
+          )
         Nothing ->
           let i = ass ^. #nextContentIndex
               ass' =
                 ass
-                  & #toolIndexMap %~ IntMap.insert openaiIdx i
+                  & #toolIndexMap %~ maybe id (`IntMap.insert` i) mOpenaiIdx
+                  & #toolIdMap %~ maybe id (`Map.insert` i) mToolId
+                  & #lastToolIdx .~ Just i
                   & #toolMeta %~ IntMap.insert i ("", "")
                   & #toolArgs %~ IntMap.insert i Text.empty
                   & #nextContentIndex .~ (i + 1)
@@ -875,6 +890,8 @@ closeOpenTools ass =
               & #closed %~ IntMap.insert i block
               & #toolArgs %~ IntMap.delete i
               & #toolMeta %~ IntMap.delete i
+              & #toolIdMap %~ (if Text.null tid then id else Map.delete tid)
+              & #lastToolIdx .~ Nothing
           )
 
 closeOpenStream ::
@@ -969,6 +986,8 @@ mapRequest m ctx opts = do
               }
           ]
       mt = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens)
+      maxTokensField =
+        if mt == 0 then Nothing else Just mt
       toolsField =
         if Vector.null (ctx ^. #tools)
           then Nothing
@@ -977,12 +996,12 @@ mapRequest m ctx opts = do
       reasoningEffortField =
         applyThinkingFormat compat (opts ^. #thinking)
       responseFormatField =
-        fmap mkOpenAIResponseFormat (opts ^. #responseFormat)
+        fmap (mkOpenAIResponseFormat compat) (opts ^. #responseFormat)
   pure
     Chat._CreateChatCompletion
       { Chat.messages = Vector.fromList (prefix <> body),
         Chat.model = OpenAIModels.Model (m ^. #modelId),
-        Chat.max_completion_tokens = Just mt,
+        Chat.max_completion_tokens = maxTokensField,
         Chat.temperature = opts ^. #temperature,
         Chat.tools = toolsField,
         Chat.tool_choice = toolChoiceField,
@@ -994,19 +1013,18 @@ mapRequest m ctx opts = do
 -- 'RF.ResponseFormat'. 'JsonObject' becomes plain-JSON mode;
 -- 'JsonSchema' becomes a named, optionally-strict schema. The
 -- schema 'Value' is forwarded verbatim.
-mkOpenAIResponseFormat :: ResponseFormat -> RF.ResponseFormat
-mkOpenAIResponseFormat = \case
-  JsonObject -> RF.JSON_Object
-  JsonSchema {name = n, schema = s, strict = st} ->
-    RF.JSON_Schema
-      { RF.json_schema =
-          RF.JSONSchema
-            { RF.description = Nothing,
-              RF.name = n,
-              RF.schema = Just s,
-              RF.strict = Just st
-            }
-      }
+mkOpenAIResponseFormat :: OpenAICompletionsCompat -> ResponseFormat -> RF.ResponseFormat
+mkOpenAIResponseFormat _ JsonObject = RF.JSON_Object
+mkOpenAIResponseFormat compat JsonSchema {name = n, schema = s, strict = st} =
+  RF.JSON_Schema
+    { RF.json_schema =
+        RF.JSONSchema
+          { RF.description = Nothing,
+            RF.name = n,
+            RF.schema = Just s,
+            RF.strict = if supportsStrictMode compat then Just st else Nothing
+          }
+    }
 
 -- | Map a 'Baikai.ThinkingLevel.ThinkingLevel' onto the OpenAI SDK's
 -- 'Chat.ReasoningEffort' enum. Returns 'Nothing' when the caller did

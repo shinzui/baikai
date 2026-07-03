@@ -3,6 +3,7 @@
 -- | Local SSE transport for OpenAI Chat Completions streams.
 module Baikai.Provider.OpenAI.Sse
   ( openaiSseStream,
+    openaiSseStreamValue,
     sseFromResponse,
   )
 where
@@ -32,7 +33,16 @@ openaiSseStream ::
   Chat.CreateChatCompletion ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
-openaiSseStream env apiKey req onEvent = do
+openaiSseStream env apiKey req =
+  openaiSseStreamValue env apiKey (Aeson.toJSON req)
+
+openaiSseStreamValue ::
+  Client.ClientEnv ->
+  Text ->
+  Aeson.Value ->
+  (Either BaikaiError Aeson.Value -> IO ()) ->
+  IO ()
+openaiSseStreamValue env apiKey requestBody onEvent = do
   let base = Client.baseUrl env
       secure = case Client.baseUrlScheme base of
         Client.Http -> False
@@ -49,7 +59,7 @@ openaiSseStream env apiKey req onEvent = do
                 ("Accept", "text/event-stream"),
                 ("Content-Type", "application/json")
               ],
-            HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode req),
+            HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
             -- EP-8 wires Options.timeoutMs through this local transport.
             HTTP.responseTimeout = HTTP.responseTimeoutNone
           }

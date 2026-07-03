@@ -27,6 +27,7 @@ import ErrorClassSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import ReasoningSpec qualified
+import ShapeSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
@@ -55,6 +56,7 @@ main =
         responseFormatMappingTest,
         ErrorClassSpec.tests,
         ReasoningSpec.tests,
+        ShapeSpec.tests,
         SseSpec.tests
       ]
 

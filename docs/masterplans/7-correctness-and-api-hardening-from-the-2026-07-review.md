@@ -220,7 +220,7 @@ EP-10 relocate them if needed.
 - [x] EP-7 M3: OpenAI-compatible reasoning extraction
 - [x] EP-7 M4: live proof and validation sweep
 - [x] EP-8 M1: core groundwork — honest host detection, flag deletions, key-env table
-- [ ] EP-8 M2: OpenAI request shaping (every kept flag on the wire, zero-cap, delta keying)
+- [x] EP-8 M2: OpenAI request shaping (every kept flag on the wire, zero-cap, delta keying)
 - [ ] EP-8 M3: Claude raw streaming path — verbatim tool schemas, tool_choice none, cache markers
 - [ ] EP-8 M4: transport options — manager cache, headers, timeout, per-host keys
 - [ ] EP-8 M5: truth pass and live evidence

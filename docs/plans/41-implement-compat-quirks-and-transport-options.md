@@ -69,9 +69,9 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M1: hostname-suffix matching in `Baikai.Compat` (`urlHost`, `hostMatchesSuffix`) replaces bare substring detection; property/table tests added. (2026-07-03)
 - [x] M1: `supportsDeveloperRole` and `supportsEagerToolInputStreaming` deleted end-to-end (Compat.hs, GenModels.hs, regenerated catalog, tests). (2026-07-03)
 - [x] M1: per-host API-key env table `defaultApiKeyEnvForBaseUrl` added to `Baikai.Auth` with tests. (2026-07-03)
-- [ ] M2: `shapeRequestBody` post-processor added to baikai-openai (maxTokensField rename, non-OpenAI thinkingFormat shapes, cacheControlFormat markers honoring supportsLongCacheRetention)
-- [ ] M2: `supportsStrictMode` gates `response_format` strict; `supportsUsageInStreaming` gates `stream_options`; `max_completion_tokens` omitted when resolved cap is 0
-- [ ] M2: tool-call delta keying survives missing `index` (id-based and sequential fallback)
+- [x] M2: `shapeRequestBody` post-processor added to baikai-openai (maxTokensField rename, non-OpenAI thinkingFormat shapes, cacheControlFormat markers honoring supportsLongCacheRetention). (2026-07-03)
+- [x] M2: `supportsStrictMode` gates `response_format` strict; `supportsUsageInStreaming` gates `stream_options`; `max_completion_tokens` omitted when resolved cap is 0. (2026-07-03)
+- [x] M2: tool-call delta keying survives missing `index` (id-based and sequential fallback). (2026-07-03)
 - [ ] M3: local SSE raw-value send path (`Baikai.Provider.Claude.Sse`) in baikai-claude
 - [ ] M3: verbatim tool `input_schema` patch (including no-`properties` schemas) with round-trip tests
 - [ ] M3: `ToolChoiceNone` keeps `tools` and sends `tool_choice {"type":"none"}`
@@ -104,6 +104,17 @@ implementation. Provide concise evidence.
   code-only grep also returned no `supportsDeveloperRole` or
   `supportsEagerToolInputStreaming` references after the deletion. (2026-07-03, M1
   implementation)
+- EP-6 had already moved OpenAI streaming to the local
+  `Baikai.Provider.OpenAI.Sse` transport, so M2 did not use the drafted SDK middleware
+  seam. Instead, `Baikai.Provider.OpenAI.Shape.streamRequestBody` builds the exact
+  `Aeson.Value` sent by `openaiSseStreamValue`, immediately before the local transport
+  encodes the request. This preserves EP-6's classified SSE error path while making the
+  compat shaper testable as pure JSON. (2026-07-03, M2 implementation)
+- The upstream OpenAI SDK's nested `ResponseFormat.JSONSchema` encoder serializes
+  `strict = Nothing` as `"strict": null`, not as an omitted key. Because the compat
+  contract for `supportsStrictMode = False` is "do not send strict", the M2 shaper
+  deletes `response_format.json_schema.strict` on those hosts after typed request
+  encoding. (2026-07-03, M2 implementation)
 
 
 ## Decision Log
@@ -301,6 +312,20 @@ cabal test baikai baikai-claude baikai-openai --test-show-details=direct
 baikai: 119 tests passed
 baikai-claude: 102 tests passed
 baikai-openai: 41 tests passed
+```
+
+Milestone 2 completed on 2026-07-03. OpenAI-compatible requests now pass through a pure
+JSON shaper before the local SSE transport sends them: DeepSeek receives `max_tokens`
+plus its thinking keys, OpenRouter cache-control markers land on the cache breakpoint
+with the long-retention TTL when supported, unsupported JSON-schema `strict` is omitted
+from the wire, usage streaming can be disabled, and hand-rolled zero-cap models omit
+the max-token field. Tool-call deltas with no `index` now resolve by explicit index,
+then id, then sequential fallback, so id-bearing parallel calls no longer merge into
+content index 0. Validation:
+
+```text
+cabal test baikai-openai --test-show-details=direct
+baikai-openai: 47 tests passed
 ```
 
 

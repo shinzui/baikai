@@ -35,6 +35,7 @@ library
     Baikai.Provider.OpenAI.Cli
     Baikai.Provider.OpenAI.ErrorClass
     Baikai.Provider.OpenAI.Interactive
+    Baikai.Provider.OpenAI.Shape
     Baikai.Provider.OpenAI.Sse
 
   build-depends:
@@ -67,6 +68,7 @@ test-suite baikai-openai-test
   other-modules:
     ErrorClassSpec
     ReasoningSpec
+    ShapeSpec
     SseSpec
 
   build-depends:
