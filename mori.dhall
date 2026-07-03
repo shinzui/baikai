@@ -117,5 +117,30 @@ in  Schema.Project::{
             "Driving claude -p and codex exec as subprocess providers: when to use them, configuration, response shape, and limitations."
         , location = Schema.DocLocation.LocalFile "docs/user/cli-providers.md"
         }
+      , Schema.DocRef::{
+        , key = "interactive-launches"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Launching a local interactive agent CLI (Claude Code, Codex) that owns the terminal, tool loop, and session, versus the batch CLI providers."
+        , location =
+            Schema.DocLocation.LocalFile "docs/user/interactive-launches.md"
+        }
+      , Schema.DocRef::{
+        , key = "agent-assets"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Baikai.AgentAssets: pure provider-native path rules for local agent assets like skills and custom agents."
+        , location = Schema.DocLocation.LocalFile "docs/user/agent-assets.md"
+        }
+      , Schema.DocRef::{
+        , key = "kit"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "baikai-kit: the shared installer lifecycle for git-hosted kits of agent skills and subagents — clone/update, manifest parsing, install/uninstall, status, and session directories."
+        , location = Schema.DocLocation.LocalFile "docs/user/kit.md"
+        }
       ]
     }
