@@ -211,6 +211,8 @@ cover — see [Models & Providers](models-and-providers.md).
   pattern.
 - [Models & Providers](models-and-providers.md) — the generated
   catalog, hand-built models, multi-host OpenAI-compat targets.
+- [Prompt Caching](prompt-caching.md) — the `cacheRetention` knob and
+  reading the cache token/cost split back from `Usage`.
 - [CLI Providers](cli-providers.md) — driving `claude -p` and
   `codex exec` as subprocess providers (use your existing Claude
   Max / ChatGPT Plus subscription instead of an API key).

@@ -142,5 +142,13 @@ in  Schema.Project::{
             "baikai-kit: the shared installer lifecycle for git-hosted kits of agent skills and subagents — clone/update, manifest parsing, install/uninstall, status, and session directories."
         , location = Schema.DocLocation.LocalFile "docs/user/kit.md"
         }
+      , Schema.DocRef::{
+        , key = "prompt-caching"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "The CacheRetention preference, host-aware long/short downgrade, and reading the cache read/write token and cost split back from Usage."
+        , location = Schema.DocLocation.LocalFile "docs/user/prompt-caching.md"
+        }
       ]
     }

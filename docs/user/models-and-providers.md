@@ -298,3 +298,8 @@ data Usage = Usage
 (`ModelCost.inputCost`, `outputCost`, `cacheReadCost`,
 `cacheWriteCost`) and the token counts. CLI providers populate
 everything with zero — they don't expose token usage.
+
+`cacheReadTokens` and `cacheWriteTokens` are populated when you request
+prompt caching via `Options.cacheRetention`. See
+[Prompt Caching](prompt-caching.md) for the request-side preference, the
+host-aware long/short downgrade, and a worked write-then-read example.
