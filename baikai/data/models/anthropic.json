@@ -105,7 +105,7 @@
         "cacheRead": 0.3,
         "cacheWrite": 3.75
       },
-      "contextWindow": 200000,
+      "contextWindow": 1000000,
       "maxOutputTokens": 64000,
       "enabled": true
     },
@@ -121,7 +121,22 @@
         "cacheWrite": 3.75
       },
       "contextWindow": 1000000,
-      "maxOutputTokens": 64000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
       "enabled": true
     }
   ]

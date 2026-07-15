@@ -192,7 +192,7 @@ anthropic_claude_sonnet_4_5 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
-      contextWindow = 200000,
+      contextWindow = 1000000,
       maxOutputTokens = 64000,
       headers = Map.empty,
       compat = CompatNone
@@ -216,7 +216,30 @@ anthropic_claude_sonnet_4_6 =
             cacheWriteCost = 15 % 4
           },
       contextWindow = 1000000,
-      maxOutputTokens = 64000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat = CompatNone
+    }
+
+anthropic_claude_sonnet_5 :: Model
+anthropic_claude_sonnet_5 =
+  emptyModel
+    { modelId = "claude-sonnet-5",
+      name = "Claude Sonnet 5",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 2 % 1,
+            outputCost = 10 % 1,
+            cacheReadCost = 1 % 5,
+            cacheWriteCost = 5 % 2
+          },
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
       headers = Map.empty,
       compat = CompatNone
     }
