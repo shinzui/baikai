@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          baikai-kit
-version:       0.1.0.1
+version:       0.1.0.2
 synopsis:      Shared kit installer for AI-agent skills and subagents
 description:
   Shared implementation of kit listing, installation, update, uninstall,

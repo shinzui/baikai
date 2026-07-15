@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            baikai-effectful
-version:         0.3.0.0
+version:         0.3.0.1
 synopsis:        effectful binding for the baikai AI-provider transport
 description:
   A thin, policy-free effectful binding over baikai's transport. Provides the dynamic

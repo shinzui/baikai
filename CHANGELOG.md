@@ -7,13 +7,57 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.3.1.0] - 2026-07-15
+
+### Added
+
+- Added `claude-sonnet-5` to the Anthropic model catalog (1M context window,
+  128k max output, `tool_call` + reasoning).
+- Added the `gpt-5.6` family — `gpt-5.6`, `gpt-5.6-luna`, `gpt-5.6-sol`, and
+  `gpt-5.6-terra` — to the OpenAI model catalog (chat-completions with
+  `tool_call` support).
+
+### Changed
+
+- Corrected `claude-sonnet-4-5` context window to 1M tokens and
+  `claude-sonnet-4-6` max output to 128k tokens in the catalog.
+- Added PVP-compliant upper bounds to all previously-unbounded library and
+  executable dependencies.
+
+## [baikai-claude 0.3.0.1] - 2026-07-15
+
 ### Changed
 
 - Added PVP-compliant upper bounds to all previously-unbounded library and
-  executable dependencies across every package (`baikai`, `baikai-claude`,
-  `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`), so
-  the next release resolves against explicit version ranges. No version bump on
-  its own — these fold into whatever the next release bumps.
+  executable dependencies.
+
+## [baikai-openai 0.3.0.1] - 2026-07-15
+
+### Changed
+
+- Added PVP-compliant upper bounds to all previously-unbounded library and
+  executable dependencies.
+
+## [baikai-trace-otel 0.3.0.1] - 2026-07-15
+
+### Changed
+
+- Added PVP-compliant upper bounds to all previously-unbounded library and
+  executable dependencies.
+
+## [baikai-effectful 0.3.0.1] - 2026-07-15
+
+### Changed
+
+- Added PVP-compliant upper bounds to all previously-unbounded library and
+  executable dependencies.
+
+## [baikai-kit 0.1.0.2] - 2026-07-15
+
+### Changed
+
+- Added PVP-compliant upper bounds to all previously-unbounded library and
+  executable dependencies.
 
 ## [baikai 0.3.0.0] - 2026-07-03
 
