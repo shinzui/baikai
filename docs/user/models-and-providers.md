@@ -147,6 +147,43 @@ may require new fields or enum constructors in later versions, and
 record updates keep those changes easier to absorb than spelling out
 every field manually.
 
+## Reasoning effort
+
+API callers select a provider-neutral reasoning preference through
+`Options.thinking`:
+
+```haskell
+let opts = emptyOptions & #thinking .~ Just ThinkingXHigh
+```
+
+`ThinkingLevel` has six ordered values: `ThinkingMinimal`,
+`ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`, `ThinkingXHigh`, and
+`ThinkingMax`. Their canonical spellings are `minimal`, `low`,
+`medium`, `high`, `xhigh`, and `max`. Leaving `thinking = Nothing`
+omits the reasoning control and lets the provider use its default.
+
+Providers translate this shared vocabulary according to the request
+shape selected by the model's compatibility record:
+
+| Destination | Mapping |
+|-------------|---------|
+| Native OpenAI | Preserves all six canonical spellings in the final JSON request. |
+| Anthropic adaptive thinking | Maps `minimal` to `low`, sends `low`, `medium`, `xhigh`, and `max` explicitly, and omits `high` because it is the provider default. |
+| Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |
+| DeepSeek, OpenRouter, and Together | Maps `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
+| Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
+| `ThinkingFormatNone` | Omits the control. |
+
+The chosen model must still support reasoning, and a host may reject a
+level that its particular model does not accept. Anthropic omits the
+thinking shape entirely for models whose catalog entry does not
+advertise reasoning support.
+
+The batch `claude -p` and `codex exec` providers ignore
+`Options.thinking`. Interactive Claude Code and Codex launches instead
+use `InteractiveLaunchRequest.effort`; see
+[Interactive Launches](interactive-launches.md#model-and-reasoning-effort).
+
 ## Multi-host on `openai-completions`
 
 The same `Baikai.Provider.OpenAI.Api` handler serves every host

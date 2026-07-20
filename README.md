@@ -43,8 +43,9 @@ flow regardless of which provider is on the other side.
   `codex exec` as subprocesses through the same surface — useful when you
   pay a flat-rate Claude Max / ChatGPT subscription instead of per token.
 - **Interactive launches & agent assets.** Provider-neutral helpers for
-  opening a real Claude Code / Codex terminal session, and pure
-  layout/path helpers for provider-native skills and custom agents.
+  opening a real Claude Code / Codex terminal session with explicit
+  model and reasoning-effort controls, and pure layout/path helpers for
+  provider-native skills and custom agents.
 - **Pluggable observability.** A `TraceSink` interface with an optional
   OpenTelemetry adapter that emits one span per provider call.
 - **Custom providers.** Register your own handler under a `Custom` tag
@@ -62,7 +63,7 @@ shared registry and re-exports nothing of its own.
 | **`baikai-claude`**  | not yet    | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
 | **`baikai-openai`**  | not yet    | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
 | **`baikai-trace-otel`** | not yet | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
-| `baikai-smoke`       | internal   | Live smoke tests across every shipped provider (skips, never fails, when API keys are absent). Not published — useful as worked examples. |
+| `baikai-smoke`       | internal   | Live smoke tests across every shipped provider. API cases skip when their keys are absent; batch CLI cases run whenever `claude` or `codex` is on `PATH`. Not published — useful as worked examples. |
 
 Packages version independently and will publish in dependency order,
 `baikai` first.
@@ -157,7 +158,8 @@ build-depends:
   providers, first blocking and streaming calls.
 - [Models & Providers](docs/user/models-and-providers.md) — the
   generated catalog, hand-rolled models, multi-host OpenAI-compat
-  targets, the registry, custom providers, usage & cost.
+  targets, reasoning effort, the registry, custom providers, usage &
+  cost.
 - [Streaming](docs/user/streaming.md) — the `AssistantMessageEvent`
   algebra, event stability policy, fold patterns, and partial output
   recovery.
@@ -181,10 +183,16 @@ default extensions `DeriveAnyClass`, `DuplicateRecordFields`,
 ```bash
 nix develop          # or: direnv allow, if you use direnv
 cabal build all
-cabal test all       # smoke tests skip when API keys are absent
+cabal test all       # includes live smoke cases when credentials or CLIs are available
 nix fmt              # fourmolu + cabal-fmt + nixpkgs-fmt
 nix flake check
 ```
+
+`baikai-smoke` has two independent live gates: API cases require their
+provider keys, while batch CLI cases run whenever the corresponding
+`claude` or `codex` executable is discoverable on `PATH` and use its
+ambient authentication. Account for both when you need a fully offline
+test run.
 
 ### Refreshing the model catalog
 
