@@ -23,6 +23,7 @@ import Baikai.Interactive
     interactiveLaunchResult,
   )
 import Baikai.Prelude
+import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Cradle (addArgs, cmd, run, setWorkingDir)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
@@ -50,6 +51,7 @@ claudeInteractiveCommand ::
 claudeInteractiveCommand cfg req =
   ( cfg ^. #executable,
     modelArgs req
+      <> effortArgs req
       <> systemPromptArgs req
       <> extraDirArgs req
       <> safetyArgs req
@@ -76,6 +78,17 @@ modelArgs req = case Text.strip <$> req ^. #modelId of
   Nothing -> []
   Just "" -> []
   Just mid -> ["--model", Text.unpack mid]
+
+-- | Claude's @--effort@ accepts @low|medium|high|xhigh|max@, but
+-- not @minimal@, so the lowest Baikai level maps up to @low@.
+effortArgs :: InteractiveLaunchRequest -> [String]
+effortArgs req = case req ^. #effort of
+  Nothing -> []
+  Just lvl -> ["--effort", Text.unpack (claudeEffortValue lvl)]
+
+claudeEffortValue :: ThinkingLevel -> Text
+claudeEffortValue ThinkingMinimal = "low"
+claudeEffortValue lvl = renderThinkingLevel lvl
 
 systemPromptArgs :: InteractiveLaunchRequest -> [String]
 systemPromptArgs req = case Text.strip <$> req ^. #systemPrompt of

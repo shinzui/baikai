@@ -15,6 +15,7 @@ module Baikai.Interactive
     extraDirs,
     safety,
     extraArgs,
+    effort,
     InteractiveSafety (..),
     CodexSandboxMode (..),
     CodexApprovalPolicy (..),
@@ -31,6 +32,7 @@ module Baikai.Interactive
 where
 
 import Baikai.Prelude
+import Baikai.ThinkingLevel (ThinkingLevel)
 import System.Exit (ExitCode)
 
 -- | Local interactive provider families that Baikai knows how to
@@ -56,7 +58,8 @@ data InteractiveLaunchRequest = InteractiveLaunchRequest
     workingDir :: !(Maybe FilePath),
     extraDirs :: ![FilePath],
     safety :: !InteractiveSafety,
-    extraArgs :: ![Text]
+    extraArgs :: ![Text],
+    effort :: !(Maybe ThinkingLevel)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -98,7 +101,8 @@ interactiveLaunchRequest prompt =
       workingDir = Nothing,
       extraDirs = [],
       safety = DefaultSafety,
-      extraArgs = []
+      extraArgs = [],
+      effort = Nothing
     }
 
 interactiveLaunchResult :: InteractiveProvider -> ExitCode -> InteractiveLaunchResult

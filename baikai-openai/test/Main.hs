@@ -44,6 +44,7 @@ main =
     testGroup
       "Baikai.Provider.OpenAI"
       [ commandRenderingTest,
+        effortRenderingTests,
         batchCommandRenderingTest,
         batchSystemPromptTest,
         stderrFloodTest,
@@ -249,6 +250,26 @@ commandRenderingTest =
               "System instructions:\nBe precise.\n\nUser request:\ninspect the repo"
             ]
           )
+
+effortRenderingTests :: TestTree
+effortRenderingTests =
+  testGroup
+    "renders interactive reasoning effort"
+    [ testCase name $ do
+        let req = interactiveLaunchRequest "prompt" & #effort .~ Just level
+        codexInteractiveCommand defaultCodexInteractiveConfig req
+          @?= ( "codex",
+                ["-c", "model_reasoning_effort=" <> expected, "--", "prompt"]
+              )
+    | (name, level, expected) <-
+        [ ("minimal", ThinkingMinimal, "minimal"),
+          ("low", ThinkingLow, "low"),
+          ("medium", ThinkingMedium, "medium"),
+          ("high", ThinkingHigh, "high"),
+          ("xhigh", ThinkingXHigh, "xhigh"),
+          ("max", ThinkingMax, "max")
+        ]
+    ]
 
 batchCommandRenderingTest :: TestTree
 batchCommandRenderingTest =

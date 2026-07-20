@@ -29,6 +29,7 @@ import Baikai.Interactive
   )
 import Baikai.Prelude
 import Baikai.Provider.Cli.Internal qualified as Internal
+import Baikai.ThinkingLevel (renderThinkingLevel)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import System.Process qualified as P
@@ -54,6 +55,7 @@ codexInteractiveCommand ::
 codexInteractiveCommand cfg req =
   ( cfg ^. #executable,
     modelArgs req
+      <> effortArgs req
       <> workingDirArgs req
       <> extraDirArgs req
       <> safetyArgs req
@@ -90,6 +92,15 @@ modelArgs req = case Text.strip <$> req ^. #modelId of
   Nothing -> []
   Just "" -> []
   Just mid -> ["--model", Text.unpack mid]
+
+-- | Codex receives reasoning effort through a config override. The
+-- provider-only @none@ and @ultra@ values remain available through
+-- raw extra arguments.
+effortArgs :: InteractiveLaunchRequest -> [String]
+effortArgs req = case req ^. #effort of
+  Nothing -> []
+  Just lvl ->
+    ["-c", "model_reasoning_effort=" <> Text.unpack (renderThinkingLevel lvl)]
 
 workingDirArgs :: InteractiveLaunchRequest -> [String]
 workingDirArgs req = case req ^. #workingDir of

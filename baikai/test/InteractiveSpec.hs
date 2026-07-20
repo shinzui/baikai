@@ -27,6 +27,7 @@ requestDefaultTest =
     req ^. #extraDirs @?= []
     req ^. #safety @?= DefaultSafety
     req ^. #extraArgs @?= []
+    req ^. #effort @?= Nothing
 
 providerRenderingTest :: TestTree
 providerRenderingTest =

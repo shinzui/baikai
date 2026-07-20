@@ -89,9 +89,12 @@ This section must always reflect the actual current state of the work.
   the typed-SDK and compatible-host clamps; added unit coverage. `cabal build all` passed
   without incomplete-pattern warnings, and the affected suites passed 157 core, 147 Claude,
   and 55 OpenAI tests.
-- [ ] Milestone 2: Add `effort :: Maybe ThinkingLevel` to `InteractiveLaunchRequest` and
-  translate it in both vendor launchers (`--effort` for Claude, `-c model_reasoning_effort=`
-  for Codex). Add argv unit tests. `effort = Nothing` leaves argv byte-identical to today.
+- [x] 2026-07-20 16:19Z: Milestone 2: Added `effort :: Maybe ThinkingLevel` to
+  `InteractiveLaunchRequest` and translated it in both vendor launchers (`--effort` for
+  Claude, `-c model_reasoning_effort=` for Codex). Exact argv tests cover all six levels,
+  and the unchanged existing command tests prove `effort = Nothing` preserves prior argv.
+  The affected suites passed 157 core, 153 Claude, and 61 OpenAI tests; pure REPL checks
+  rendered `--effort high` and `model_reasoning_effort=max` as expected.
 - [ ] Milestone 3: Update `docs/user/interactive-launches.md`, the single root
   `CHANGELOG.md`, and the parent MasterPlan; record the coordinated PVP release set; run
   formatting, full build/test, and flake validation.
@@ -248,6 +251,13 @@ Native OpenAI JSON and Anthropic adaptive requests preserve `xhigh` and `max`; t
 SDK staging type and non-native compatibility formats clamp explicitly. The new maximum
 manual Anthropic budget remains below the 64000-token catalog cap, leaving visible-output
 room. `cabal build all` and all three affected suites passed.
+
+2026-07-20 Milestone 2 outcome: callers can now set one provider-neutral `effort` field on
+an interactive request. Claude emits `--effort` and maps only `minimal` up to `low`; Codex
+emits a `model_reasoning_effort` config override with the canonical name. Exact whole-argv
+tests cover all mappings and preserve raw `extraArgs` as the later override. Pure REPL checks
+produced `["--effort","high","--","hi"]` and
+`["-c","model_reasoning_effort=max","--","hi"]`.
 
 
 ## Context and Orientation

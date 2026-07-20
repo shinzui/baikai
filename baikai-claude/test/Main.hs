@@ -32,6 +32,7 @@ main =
     testGroup
       "Baikai.Provider.Claude"
       [ commandRenderingTest,
+        effortRenderingTests,
         batchCommandRenderingTest,
         stderrFloodTest,
         compatDetectionTest,
@@ -137,6 +138,24 @@ commandRenderingTest =
               "inspect the repo"
             ]
           )
+
+effortRenderingTests :: TestTree
+effortRenderingTests =
+  testGroup
+    "renders interactive reasoning effort"
+    [ testCase name $ do
+        let req = interactiveLaunchRequest "prompt" & #effort .~ Just level
+        claudeInteractiveCommand defaultClaudeInteractiveConfig req
+          @?= ("claude", ["--effort", expected, "--", "prompt"])
+    | (name, level, expected) <-
+        [ ("minimal as low", ThinkingMinimal, "low"),
+          ("low", ThinkingLow, "low"),
+          ("medium", ThinkingMedium, "medium"),
+          ("high", ThinkingHigh, "high"),
+          ("xhigh", ThinkingXHigh, "xhigh"),
+          ("max", ThinkingMax, "max")
+        ]
+    ]
 
 batchCommandRenderingTest :: TestTree
 batchCommandRenderingTest =
