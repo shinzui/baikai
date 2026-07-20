@@ -841,3 +841,43 @@ openrouter_openai_gpt_4o_mini =
       headers = Map.empty,
       compat = CompatNone
     }
+
+-- | Every model in the generated catalog, in declaration order.
+allModels :: [Model]
+allModels =
+  [ anthropic_claude_fable_5,
+    anthropic_claude_haiku_4_5,
+    anthropic_claude_opus_4_5,
+    anthropic_claude_opus_4_6,
+    anthropic_claude_opus_4_7,
+    anthropic_claude_opus_4_8,
+    anthropic_claude_sonnet_4_5,
+    anthropic_claude_sonnet_4_6,
+    anthropic_claude_sonnet_5,
+    deepseek_deepseek_chat,
+    deepseek_deepseek_reasoner,
+    openai_gpt_4_1,
+    openai_gpt_4_1_mini,
+    openai_gpt_4_1_nano,
+    openai_gpt_4o,
+    openai_gpt_4o_mini,
+    openai_gpt_5,
+    openai_gpt_5_1,
+    openai_gpt_5_2,
+    openai_gpt_5_4,
+    openai_gpt_5_4_mini,
+    openai_gpt_5_4_nano,
+    openai_gpt_5_5,
+    openai_gpt_5_6,
+    openai_gpt_5_6_luna,
+    openai_gpt_5_6_sol,
+    openai_gpt_5_6_terra,
+    openai_gpt_5_mini,
+    openai_gpt_5_nano,
+    openai_o1,
+    openai_o3,
+    openai_o3_mini,
+    openai_o4_mini,
+    openrouter_anthropic_claude_sonnet_4,
+    openrouter_openai_gpt_4o_mini
+  ]

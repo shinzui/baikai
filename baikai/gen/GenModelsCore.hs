@@ -322,6 +322,7 @@ renderModule entries =
     dropTrailingEmpty
       ( header
           ++ concatMap (renderEntry . snd) entries
+          ++ renderAllModels (map (ident . snd) entries)
       )
   where
     dropTrailingEmpty = \case
@@ -371,6 +372,25 @@ renderModule entries =
         "import Data.Ratio ((%))",
         ""
       ]
+
+-- | Render the @allModels@ binding: every generated model in one list, in the
+-- same (identifier-sorted) order as the declarations above. Consumers can fold
+-- or filter this instead of hand-listing bindings, so a catalog change flows
+-- through automatically.
+renderAllModels :: [Text] -> [Text]
+renderAllModels idents =
+  "-- | Every model in the generated catalog, in declaration order."
+    : "allModels :: [Model]"
+    : "allModels ="
+    : case idents of
+      [] -> ["  []"]
+      _ ->
+        [ "  " <> prefix <> ident <> suffix
+        | (position, ident) <- zip [0 :: Int ..] idents,
+          let prefix = if position == 0 then "[ " else "  ",
+          let suffix = if position == length idents - 1 then "" else ","
+        ]
+          ++ ["  ]"]
 
 renderEntry :: GeneratedEntry -> [Text]
 renderEntry g =
