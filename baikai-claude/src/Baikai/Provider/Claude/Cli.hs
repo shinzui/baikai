@@ -45,6 +45,7 @@ import Baikai.Provider.Registry
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
+import Baikai.ThinkingLevel (ThinkingLevel (ThinkingMinimal), renderThinkingLevel)
 import Baikai.Usage (zeroUsage)
 import Control.Exception (SomeAsyncException (..), SomeException, displayException, fromException, throwIO, try)
 import Control.Lens ((^.))
@@ -138,16 +139,29 @@ registerWithRegistryAndConfig reg cfg =
 -- | Render the executable and arguments for a @claude -p@ batch call.
 -- The prompt is preceded by @--@ so dash-leading prompts and variadic
 -- flags in 'extraArgs' cannot be parsed as options.
-claudeCliCommand :: ClaudeCliConfig -> Model -> Context -> (FilePath, [String])
-claudeCliCommand cfg m ctx =
+claudeCliCommand :: ClaudeCliConfig -> Model -> Context -> Options -> (FilePath, [String])
+claudeCliCommand cfg m ctx opts =
   ( cfg ^. #executable,
     ["-p"]
       <> modelArgs m
       <> ["--output-format", "json", "--no-session-persistence"]
       <> systemPromptArgs ctx
+      <> effortArgs opts
       <> fmap Text.unpack (cfg ^. #extraArgs)
       <> ["--", Text.unpack (Internal.renderPrompt ctx)]
   )
+
+-- | Render @--effort@ from 'Options.thinking'. Claude's @--effort@ has
+-- no @minimal@, so the lowest Baikai level collapses to @low@; when
+-- 'thinking' is unset, no effort flag is emitted.
+effortArgs :: Options -> [String]
+effortArgs opts = case opts ^. #thinking of
+  Nothing -> []
+  Just lvl -> ["--effort", Text.unpack (claudeEffortValue lvl)]
+
+claudeEffortValue :: ThinkingLevel -> Text
+claudeEffortValue ThinkingMinimal = "low"
+claudeEffortValue lvl = renderThinkingLevel lvl
 
 -- | The shape of @claude -p --output-format json@ stdout.
 data ClaudeCliResult = ClaudeCliResult
@@ -190,8 +204,8 @@ findResultEvent = Vector.find isResult
     isResult _ = False
 
 runClaudeCli :: ClaudeCliConfig -> Model -> Context -> Options -> IO Resp.Response
-runClaudeCli cfg m ctx _opts = do
-  let (exe, args) = claudeCliCommand cfg m ctx
+runClaudeCli cfg m ctx opts = do
+  let (exe, args) = claudeCliCommand cfg m ctx opts
   start <- getCurrentTime
   executed <-
     trySync $

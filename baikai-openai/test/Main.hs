@@ -46,6 +46,7 @@ main =
       [ commandRenderingTest,
         effortRenderingTests,
         batchCommandRenderingTest,
+        batchEffortRenderingTest,
         batchSystemPromptTest,
         stderrFloodTest,
         usageMappingTests,
@@ -280,7 +281,7 @@ batchCommandRenderingTest =
             & #api .~ OpenAICompletionsCli
             & #provider .~ "openai"
         ctx = emptyContext & #messages .~ Vector.singleton (user "-begin with a dash")
-    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx
+    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx emptyOptions
       @?= ( "codex",
             [ "exec",
               "--json",
@@ -288,6 +289,29 @@ batchCommandRenderingTest =
               "--ephemeral",
               "--",
               "-begin with a dash"
+            ]
+          )
+
+batchEffortRenderingTest :: TestTree
+batchEffortRenderingTest =
+  testCase "codex exec argv renders reasoning effort before the prompt terminator" $ do
+    let model =
+          emptyModel
+            & #modelId .~ ""
+            & #api .~ OpenAICompletionsCli
+            & #provider .~ "openai"
+        ctx = emptyContext & #messages .~ Vector.singleton (user "ping")
+        opts = emptyOptions & #thinking .~ Just ThinkingXHigh
+    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx opts
+      @?= ( "codex",
+            [ "exec",
+              "--json",
+              "--skip-git-repo-check",
+              "--ephemeral",
+              "-c",
+              "model_reasoning_effort=xhigh",
+              "--",
+              "ping"
             ]
           )
 
@@ -303,7 +327,7 @@ batchSystemPromptTest =
           emptyContext
             & #systemPrompt .~ Just "Be terse."
             & #messages .~ Vector.singleton (user "ping")
-    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx
+    CodexCli.codexCliCommand CodexCli.defaultCodexCliConfig model ctx emptyOptions
       @?= ( "codex",
             [ "exec",
               "--json",

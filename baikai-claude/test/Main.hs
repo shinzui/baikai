@@ -34,6 +34,7 @@ main =
       [ commandRenderingTest,
         effortRenderingTests,
         batchCommandRenderingTest,
+        batchEffortRenderingTests,
         stderrFloodTest,
         compatDetectionTest,
         rejectsImageToolResultsTest,
@@ -174,7 +175,7 @@ batchCommandRenderingTest =
           emptyContext
             & #systemPrompt .~ Just "Be terse."
             & #messages .~ Vector.singleton (user "-begin with a dash")
-    ClaudeCli.claudeCliCommand cfg model ctx
+    ClaudeCli.claudeCliCommand cfg model ctx emptyOptions
       @?= ( "/bin/claude",
             [ "-p",
               "--model",
@@ -190,6 +191,50 @@ batchCommandRenderingTest =
               "-begin with a dash"
             ]
           )
+
+batchEffortRenderingTests :: TestTree
+batchEffortRenderingTests =
+  testGroup
+    "claude -p argv renders reasoning effort between the system prompt and extra args"
+    [ testCase name $ do
+        let cfg =
+              ClaudeCli.defaultClaudeCliConfig
+                { ClaudeCli.executable = "/bin/claude",
+                  ClaudeCli.extraArgs = ["--allowedTools", "Read"]
+                }
+            model =
+              emptyModel
+                & #modelId .~ "sonnet"
+                & #api .~ AnthropicMessagesCli
+                & #provider .~ "anthropic"
+            ctx =
+              emptyContext
+                & #systemPrompt .~ Just "Be terse."
+                & #messages .~ Vector.singleton (user "ping")
+            opts = emptyOptions & #thinking .~ Just level
+        ClaudeCli.claudeCliCommand cfg model ctx opts
+          @?= ( "/bin/claude",
+                [ "-p",
+                  "--model",
+                  "sonnet",
+                  "--output-format",
+                  "json",
+                  "--no-session-persistence",
+                  "--system-prompt",
+                  "Be terse.",
+                  "--effort",
+                  expected,
+                  "--allowedTools",
+                  "Read",
+                  "--",
+                  "ping"
+                ]
+              )
+    | (name, level, expected) <-
+        [ ("minimal as low", ThinkingMinimal, "low"),
+          ("max", ThinkingMax, "max")
+        ]
+    ]
 
 stderrFloodTest :: TestTree
 stderrFloodTest =

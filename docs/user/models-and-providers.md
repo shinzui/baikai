@@ -179,9 +179,14 @@ level that its particular model does not accept. Anthropic omits the
 thinking shape entirely for models whose catalog entry does not
 advertise reasoning support.
 
-The batch `claude -p` and `codex exec` providers ignore
-`Options.thinking`. Interactive Claude Code and Codex launches instead
-use `InteractiveLaunchRequest.effort`; see
+The batch `claude -p` and `codex exec` providers forward
+`Options.thinking` as the app's reasoning-effort flag: `claude -p`
+receives `--effort <level>` (mapping `minimal` to `low`, since the
+`claude` CLI has no `minimal`) and `codex exec` receives `-c
+model_reasoning_effort=<level>` for all six levels. Leaving `thinking =
+Nothing` emits no effort flag. Interactive Claude Code and Codex
+launches carry the same preference through
+`InteractiveLaunchRequest.effort`; see
 [Interactive Launches](interactive-launches.md#model-and-reasoning-effort).
 
 ## Multi-host on `openai-completions`

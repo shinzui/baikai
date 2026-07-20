@@ -39,6 +39,7 @@ import Baikai.Provider.Registry
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
+import Baikai.ThinkingLevel (renderThinkingLevel)
 import Baikai.Usage (zeroUsage)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
@@ -145,21 +146,30 @@ codexCliPrompt ctx =
 -- | Render the executable and arguments for a @codex exec --json@
 -- batch call. The prompt is preceded by @--@ so dash-leading prompts
 -- cannot be parsed as options.
-codexCliCommand :: CodexCliConfig -> Model -> Context -> (FilePath, [String])
-codexCliCommand cfg m ctx =
+codexCliCommand :: CodexCliConfig -> Model -> Context -> Options -> (FilePath, [String])
+codexCliCommand cfg m ctx opts =
   ( cfg ^. #executable,
     ["exec"]
       <> modelArgs m
       <> ["--json"]
       <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
       <> ["--ephemeral" | cfg ^. #ephemeral]
+      <> effortArgs opts
       <> fmap Text.unpack (cfg ^. #extraArgs)
       <> ["--", Text.unpack (codexCliPrompt ctx)]
   )
 
+-- | Render Codex's reasoning-effort config override from
+-- 'Options.thinking'. Codex accepts all six Baikai levels verbatim;
+-- when 'thinking' is unset, no override is emitted.
+effortArgs :: Options -> [String]
+effortArgs opts = case opts ^. #thinking of
+  Nothing -> []
+  Just lvl -> ["-c", "model_reasoning_effort=" <> Text.unpack (renderThinkingLevel lvl)]
+
 runCodexCli :: CodexCliConfig -> Model -> Context -> Options -> IO Resp.Response
-runCodexCli cfg m ctx _opts = do
-  let (exe, args) = codexCliCommand cfg m ctx
+runCodexCli cfg m ctx opts = do
+  let (exe, args) = codexCliCommand cfg m ctx opts
       procSpec =
         (P.proc exe args)
           { P.std_in = P.NoStream,

@@ -245,10 +245,16 @@ types compile:
    image bytes via stdin.
 3. **Most `Options` fields are ignored.** `maxTokens`,
    `temperature`, `apiKey`, `timeoutMs`, `headers`, `metadata`,
-   `cacheRetention`, `thinking` — none of these are forwarded.
-   `Options` is accepted to keep the dispatch signature uniform,
-   not because the CLI providers consume it. Pass `emptyOptions` and
-   move on.
+   `cacheRetention` — none of these are forwarded. `Options` is
+   accepted to keep the dispatch signature uniform, not because the
+   CLI providers consume most of it. The one exception is
+   `Options.thinking`: the batch providers forward it as the app's
+   reasoning-effort flag — `claude -p` receives `--effort <level>`
+   (with `minimal` collapsed to `low`, since the `claude` CLI has no
+   `minimal`) and `codex exec` receives `-c
+   model_reasoning_effort=<level>` (all six levels verbatim). Leaving
+   `thinking = Nothing` emits no effort flag. Every other field can be
+   left at `emptyOptions`.
 
 If your code needs to handle both API and CLI providers
 generically, *don't* assume `Usage.totalTokens > 0` or that
