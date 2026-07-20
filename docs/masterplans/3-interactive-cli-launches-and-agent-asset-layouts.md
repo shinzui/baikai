@@ -42,7 +42,7 @@ Alternatives considered and rejected: extending `ApiProvider` with an optional i
 | EP-1 | Add interactive launch core abstraction | docs/plans/13-add-interactive-launch-core-abstraction.md | None | None | Complete |
 | EP-2 | Implement Claude and Codex interactive launchers | docs/plans/14-implement-claude-and-codex-interactive-launchers.md | EP-1 | None | Complete |
 | EP-3 | Add agent asset layout helpers for kits | docs/plans/15-add-agent-asset-layout-helpers-for-kits.md | EP-1 | EP-2 | Complete |
-| EP-4 | Add reasoning-effort control to interactive CLI launches | docs/plans/44-add-reasoning-effort-control-to-interactive-cli-launches.md | EP-2 | None | In Progress |
+| EP-4 | Add reasoning-effort control to interactive CLI launches | docs/plans/44-add-reasoning-effort-control-to-interactive-cli-launches.md | EP-2 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -56,22 +56,22 @@ EP-2 hard-depends on EP-1 because the Claude and Codex launchers should implemen
 
 EP-3 hard-depends on EP-1 because provider identity and scope terminology should be shared with the interactive surface. EP-3 has a soft dependency on EP-2 because the final documentation is clearer once the concrete launchers exist, but most of the path helper work can proceed after EP-1.
 
-EP-4 hard-depends on EP-2 because it extends the request and pure command builders delivered by EP-1 and EP-2. Its dependency is already satisfied. The recommended implementation order for the original work was EP-1, then EP-2, then EP-3; the later EP-4 follow-up can proceed independently now that all three are complete.
+EP-4 hard-depends on EP-2 because it extends the request and pure command builders delivered by EP-1 and EP-2. Its dependency was already satisfied, so the follow-up proceeded after the original EP-1, EP-2, EP-3 sequence and is now complete.
 
 
 ## Integration Points
 
-`baikai/src/Baikai/Interactive.hs` is owned by EP-1 and consumed by EP-2 and EP-3. It should expose the provider-neutral interactive request and result types. Later plans should import these types rather than redefining prompt, working directory, model, or extra-directory fields.
+`baikai/src/Baikai/Interactive.hs` is owned by EP-1 and consumed by EP-2, EP-3, and EP-4. It exposes the provider-neutral interactive request and result types. Later work should import these types rather than redefining prompt, working directory, model, effort, or extra-directory fields.
 
-`Baikai.Provider.Claude.Interactive` is owned by EP-2 in `baikai-claude`. It should expose Claude-specific configuration and a launcher function that consumes the EP-1 request type. It must not replace `Baikai.Provider.Claude.Cli`, which remains the `claude -p` batch provider.
+`Baikai.Provider.Claude.Interactive` is owned by EP-2 in `baikai-claude`. It exposes Claude-specific configuration and a launcher function that consumes the EP-1 request type. It does not replace `Baikai.Provider.Claude.Cli`, which remains the `claude -p` batch provider.
 
-`Baikai.Provider.OpenAI.Interactive` or `Baikai.Provider.Codex.Interactive` is owned by EP-2 in `baikai-openai`. The module name should be chosen during implementation and recorded in the child plan. It must not replace `Baikai.Provider.OpenAI.Cli`, which remains the `codex exec` batch provider.
+`Baikai.Provider.OpenAI.Interactive` is owned by EP-2 in `baikai-openai`. It exposes Codex-specific configuration and a launcher function that consumes the EP-1 request type. It does not replace `Baikai.Provider.OpenAI.Cli`, which remains the `codex exec` batch provider.
 
-`Baikai.ThinkingLevel` and the `InteractiveLaunchRequest` fields in `baikai/src/Baikai/Interactive.hs` are extended by EP-4. EP-4 also updates the Claude and OpenAI interactive modules owned by EP-2 so each translates the shared effort setting into its own CLI syntax. The batch/API request shapers consume the same six-level vocabulary and must preserve native higher effort values while keeping compatibility clamps explicit.
+`Baikai.ThinkingLevel` and the `InteractiveLaunchRequest` fields in `baikai/src/Baikai/Interactive.hs` were extended by EP-4. EP-4 also updated the Claude and OpenAI interactive modules owned by EP-2 so each translates the shared effort setting into its own CLI syntax. The batch/API request shapers consume the same six-level vocabulary, preserve native higher effort values, and keep compatibility clamps explicit.
 
-`baikai/src/Baikai/AgentAssets.hs` is owned by EP-3. It should expose provider-native layout helpers for skills and agents. Consumers such as Seihou can use these helpers in their kit installer, but Baikai should not own copying, updating, or deleting kit files.
+`baikai/src/Baikai/AgentAssets.hs` is owned by EP-3. It exposes provider-native layout helpers for skills and agents. Consumers such as Seihou can use these helpers in their kit installer, but Baikai does not own copying, updating, or deleting kit files.
 
-Documentation is shared across all three plans. EP-1 should document the conceptual split between batch completions and interactive launches. EP-2 should document concrete launcher configuration. EP-3 should document how kit installers consume layout helpers and why debug-mode launch validation is not proof of provider skill loading.
+Documentation is shared across all four plans. EP-1 documents the conceptual split between batch completions and interactive launches. EP-2 documents concrete launcher configuration. EP-3 documents how kit installers consume layout helpers and why debug-mode launch validation is not proof of provider skill loading. EP-4 documents the six shared effort levels, vendor CLI translations, default semantics, and provider-specific compatibility clamps.
 
 
 ## Progress
@@ -85,7 +85,7 @@ Documentation is shared across all three plans. EP-1 should document the concept
 - [x] EP-3: Add provider-native skill and custom-agent layout helpers for Claude Code and Codex.
 - [x] EP-3: Document how kit installers should consume layout helpers while retaining ownership of filesystem lifecycle.
 - [x] EP-3: Add tests for all user/project layout paths and Codex custom-agent TOML generation if that helper is included.
-- [ ] EP-4: Add six-level reasoning-effort control to the shared request, API mappings, and both interactive launchers; document and validate the coordinated change.
+- [x] EP-4: Add six-level reasoning-effort control to the shared request, API mappings, and both interactive launchers; document and validate the coordinated change.
 
 
 ## Surprises & Discoveries
@@ -109,6 +109,8 @@ interactions between child plans. Provide concise evidence.
 
 - The completed initiative needed to reopen for EP-4 because downstream interactive-launch consumers require deterministic reasoning-effort selection, while the original request exposed model selection but only raw vendor-specific `extraArgs` for effort. Evidence: `docs/plans/44-add-reasoning-effort-control-to-interactive-cli-launches.md` defines the shared field and both pure argv translations.
 
+- Key-scrubbing alone does not make the full smoke suite offline: its batch CLI completion cases run whenever `claude` or `codex` is on `PATH`. EP-4's final acceptance therefore also filtered the two CLI directories, after which all live smoke cases reported skips. Evidence: `baikai-smoke/test/Smoke.hs` gates `runCliCase` with `findExecutable`, independently of provider API-key variables.
+
 
 ## Decision Log
 
@@ -128,14 +130,20 @@ interactions between child plans. Provide concise evidence.
   Rationale: The follow-up extends the exact shared request and vendor launchers established here, so keeping it under this MasterPlan preserves ownership and integration history rather than treating the feature as unrelated work.
   Date: 2026-07-20
 
+- Decision: Treat EP-4 as complete only after a full test run with provider keys removed and locally authenticated CLI binaries hidden from `PATH`.
+  Rationale: This preserves the initiative's no-live-session validation boundary even though the smoke suite has independently gated batch CLI completion cases.
+  Date: 2026-07-20
+
 
 ## Outcomes & Retrospective
 
-The original three-plan initiative completed with a provider-neutral interactive launch vocabulary in `Baikai.Interactive`, vendor interactive launchers in `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive`, and provider-native asset layout helpers in `Baikai.AgentAssets`. The initiative is temporarily reopened while EP-4 adds reasoning-effort control to that surface.
+The four-plan initiative is complete. Baikai has a provider-neutral interactive launch vocabulary in `Baikai.Interactive`, vendor interactive launchers in `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive`, and provider-native asset layout helpers in `Baikai.AgentAssets`. EP-4 extended the shared vocabulary with six reasoning-effort levels and added a defaulted interactive `effort` field translated to each vendor's CLI syntax.
 
 The existing batch completion registry remains intact. `Baikai.Provider.Claude.Cli` still drives `claude -p` through `completeRequest` / `streamRequest`, and `Baikai.Provider.OpenAI.Cli` still drives `codex exec`. The new interactive launch modules start real terminal sessions and return an `InteractiveLaunchResult` after the CLI exits.
 
 Asset layout support stayed intentionally pure. Baikai computes and documents where Claude Code and Codex expect skills and custom agents, including Codex TOML rendering, but does not own kit manifests or filesystem lifecycle operations. Consumers such as Seihou can now replace duplicated layout constants with Baikai helpers while retaining application-specific install, update, status, and uninstall behavior.
+
+EP-4 also preserves `xhigh` and `max` on native OpenAI and Anthropic API requests while documenting compatible-host clamps. Exact pure argv and request-shape tests cover the feature; formatting, the full build, all Cabal tests in a provider-key- and CLI-binary-scrubbed environment, and both flake checks passed. The coordinated PVP release remains a separate manual follow-up.
 
 
 ## Revision Note
@@ -145,3 +153,5 @@ Asset layout support stayed intentionally pure. Baikai computes and documents wh
 2026-05-24: Marked EP-3 complete after adding `Baikai.AgentAssets`, path and TOML tests, and asset-layout documentation. Filled the MasterPlan retrospective because all child plans are complete.
 
 2026-07-20: Reopened the initiative to register EP-4, a follow-up that adds provider-neutral reasoning-effort control to the shared interactive request and both vendor launchers.
+
+2026-07-20: Marked EP-4 complete after adding the six-level shared vocabulary, native API mappings, interactive launcher translations, exhaustive tests, user documentation, changelog entries, and full offline validation. Recorded the smoke-suite CLI gating discovery for future plan authors.

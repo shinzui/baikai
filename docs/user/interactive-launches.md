@@ -71,6 +71,40 @@ flag, so `codexInteractivePrompt` preserves `systemPrompt` by placing it
 before the user prompt in the initial prompt text. The builder renders
 `--` immediately before that prompt.
 
+## Reasoning Effort
+
+Set `effort` on an interactive request when the launch should use an
+explicit reasoning-effort level instead of the CLI's ambient default:
+
+```haskell
+import Baikai (ThinkingLevel (..))
+import Baikai.Interactive
+
+request :: InteractiveLaunchRequest
+request =
+  (interactiveLaunchRequest "Analyze the failing tests.")
+    { effort = Just ThinkingXHigh
+    }
+```
+
+Baikai provides six levels: `ThinkingMinimal`, `ThinkingLow`,
+`ThinkingMedium`, `ThinkingHigh`, `ThinkingXHigh`, and `ThinkingMax`.
+Claude Code receives `--effort low` for both `ThinkingMinimal` and
+`ThinkingLow`, because its CLI has no `minimal` value; the other four
+levels become `medium`, `high`, `xhigh`, and `max`. Codex receives all
+six canonical names through `-c model_reasoning_effort=<level>`.
+
+The default is `effort = Nothing`, which emits no effort argument and
+leaves the CLI default unchanged. It does not mean Codex's explicit
+`none` mode. Provider- and model-specific Codex values such as `none`
+or `ultra` remain available through `extraArgs`.
+
+The same `ThinkingLevel` type is used by API requests through
+`Options.thinking`. Native OpenAI and Anthropic request paths preserve
+`xhigh` and `max` when supported. DeepSeek, OpenRouter, and Together use
+their existing OpenAI-compatible request shapes and clamp those two
+higher levels to `high`.
+
 ## Extra Arguments
 
 Both launch config records have `executable` and `extraArgs` fields. Use
@@ -82,6 +116,10 @@ args, then `--`, then the initial prompt. That separator keeps prompts
 that start with `-` from being parsed as provider flags and stops
 variadic flags such as Claude's `--allowedTools` from swallowing the
 prompt.
+
+Structured effort arguments are rendered before both extra-argument
+lists. A raw config or request argument can therefore remain the final
+provider-specific override when needed.
 
 ## Smoke Checks
 

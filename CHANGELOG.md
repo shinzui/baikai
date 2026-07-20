@@ -7,6 +7,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **baikai:** Added `ThinkingXHigh` and `ThinkingMax` to the exported
+  `ThinkingLevel` vocabulary and added a defaulted
+  `InteractiveLaunchRequest.effort` field. Extending the closed sum type is a
+  PVP-major API change for downstream exhaustive matches.
+- **baikai-claude:** Added `--effort` rendering to interactive Claude Code
+  launches and preserved `xhigh` / `max` on native adaptive Anthropic API
+  requests, with larger fixed budgets for manual-thinking models.
+- **baikai-openai:** Added `model_reasoning_effort` overrides to interactive
+  Codex launches and preserved `xhigh` / `max` in native OpenAI request JSON;
+  non-native OpenAI-compatible request shapes continue to clamp them to
+  `high`.
+
 ## [baikai 0.3.1.0] - 2026-07-15
 
 ### Added

@@ -95,9 +95,11 @@ This section must always reflect the actual current state of the work.
   and the unchanged existing command tests prove `effort = Nothing` preserves prior argv.
   The affected suites passed 157 core, 153 Claude, and 61 OpenAI tests; pure REPL checks
   rendered `--effort high` and `model_reasoning_effort=max` as expected.
-- [ ] Milestone 3: Update `docs/user/interactive-launches.md`, the single root
-  `CHANGELOG.md`, and the parent MasterPlan; record the coordinated PVP release set; run
-  formatting, full build/test, and flake validation.
+- [x] 2026-07-20 16:25Z: Milestone 3: Updated `docs/user/interactive-launches.md`, the
+  single root `CHANGELOG.md`, and the parent MasterPlan; recorded the coordinated PVP release
+  set; and passed `nix fmt`, `git diff --check`, `cabal build all`, a provider-key- and
+  CLI-binary-scrubbed `cabal test all`, and `nix flake check`. Installed CLI help still
+  reports Claude Code 2.1.215 with `--effort` and Codex CLI 0.144.6 with `-c key=value`.
 
 
 ## Surprises & Discoveries
@@ -139,16 +141,26 @@ implementation. Provide concise evidence.
   Evidence: `agents/skills/release/SKILL.md` lists the six publishable packages and the
   internal-bound rule; all five dependents currently use `baikai ^>=0.3.0`.
 
-- Discovery: The child plan points at
+- Discovery: At implementation start, the child plan pointed at
   `docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md`, but that
-  MasterPlan is currently marked complete and does not register this follow-up as EP-4.
-  The implementation must add the child and reopen the parent progress before later marking
-  the follow-up complete.
+  MasterPlan was marked complete and did not register this follow-up as EP-4. Implementation
+  added the child, reopened the parent progress, and later marked the follow-up complete.
 
 - Discovery: Current Codex documentation includes a model-dependent `ultra` reasoning mode,
   while installed `codex-cli 0.144.6` validation previously reported values only through
   `max`. This plan remains deliberately scoped to adding the two shared higher levels
   requested by the interactive-launch consumers; provider-only modes remain raw overrides.
+
+- Discovery: Removing provider API-key environment variables does not make `cabal test all`
+  entirely offline when `claude` or `codex` is on `PATH`. The `baikai-smoke` suite's
+  `runCliCase` gates its batch CLI completion cases only with `findExecutable`, so the first
+  key-only validation run made one locally authenticated Claude completion and one locally
+  authenticated Codex completion. The final acceptance run removed both CLI directories
+  from `PATH` as well as removing provider keys and reported explicit skips for every live
+  case.
+  Evidence: `baikai-smoke/test/Smoke.hs` calls `completeRequest` at line 258 whenever each
+  binary is found; the first run logged `sonnet ok` and `<codex-default> ok`, while the final
+  run logged both binaries as not on `PATH` and `skipping all cases`.
 
 
 ## Decision Log
@@ -232,6 +244,14 @@ Record every decision made while working on the plan.
   unchanged would make its registry inaccurate.
   Date: 2026-07-20
 
+- Decision: Make the final full-suite acceptance environment hide installed Claude and
+  Codex binaries in addition to removing provider API keys.
+  Rationale: The smoke suite treats binary availability as authorization to run its batch
+  CLI completion cases, independently of API-key environment variables. Filtering only the
+  two CLI directories preserves the active Cabal/GHC toolchain while ensuring the final
+  acceptance command itself performs no authenticated model request.
+  Date: 2026-07-20
+
 
 ## Outcomes & Retrospective
 
@@ -258,6 +278,15 @@ emits a `model_reasoning_effort` config override with the canonical name. Exact 
 tests cover all mappings and preserve raw `extraArgs` as the later override. Pure REPL checks
 produced `["--effort","high","--","hi"]` and
 `["-c","model_reasoning_effort=max","--","hi"]`.
+
+2026-07-20 final outcome: the requested provider-neutral interactive control is complete.
+All six effort levels are covered from the core renderers through native API request shaping
+and exact Claude/Codex argv construction; default requests remain unchanged. User guidance,
+the root changelog, and the parent MasterPlan are synchronized. Formatting, the full build,
+all seven Cabal test components, and both flake checks passed. The only remaining work is the
+deliberately separate coordinated PVP release: core `baikai` needs its `0.4.0.0` major, both
+provider packages need feature releases, and the three bound-only dependents need patch
+releases before Seihou can update its bounds and pins.
 
 
 ## Context and Orientation
@@ -435,10 +464,9 @@ five dependents; only the provider packages have feature code, while the other t
 least bound-only patch releases. `baikai-smoke` is internal and is never published.
 
 Finally, frontmatter names
-`docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md` as the parent, but
-that MasterPlan currently contains only completed EP-1 through EP-3. Implementation must add
-this plan as EP-4 with status In Progress before work, update its progress/discoveries, and
-mark EP-4 Complete only after this plan's acceptance criteria pass.
+`docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md` as the parent. At
+implementation start that MasterPlan contained only completed EP-1 through EP-3; it now
+registers this plan as completed EP-4 and records the follow-up's progress and discoveries.
 
 
 ## Plan of Work
@@ -732,13 +760,15 @@ Scope: document the new capability, record the API change, and validate the whol
 
 5. Validation: run the formatter, affected tests, full workspace build/test, and flake check.
    The test suite named `baikai-smoke` performs live network calls when provider key
-   environment variables are present, so explicitly remove those variables from the full
-   test command below. Do not launch an authenticated CLI merely to validate argv construction.
+   environment variables are present and also runs authenticated batch CLI completions when
+   `claude` or `codex` is on `PATH`. Explicitly remove the keys and filter the two CLI
+   directories from the full test command below. Do not launch an authenticated CLI merely
+   to validate argv construction.
 
 Acceptance: the user guide and root changelog describe the feature accurately; the parent
 MasterPlan registers completed EP-4; `nix fmt` leaves no unintended diff; `cabal build all`,
-the key-scrubbed `cabal test all`, and `nix flake check` are green; exact command-builder
-tests and provider wire-shape tests prove the behavior without a live session.
+the credential- and CLI-scrubbed `cabal test all`, and `nix flake check` are green; exact
+command-builder tests and provider wire-shape tests prove the behavior without a live session.
 
 
 ## Concrete Steps
@@ -812,24 +842,28 @@ Do not use an invalid `codex exec` or `claude -p` request as a routine smoke tes
 commands cross the authenticated provider boundary. The pure argv and wire-shape tests are
 the acceptance evidence.
 
-Full validation after Milestone 3:
+Full validation after Milestone 3 uses zsh's `path` array to retain the active toolchain while
+removing the two directories that contain the locally authenticated provider CLIs:
 
-```bash
+```zsh
 nix fmt
 git diff --check
 cabal build all
+baikai_test_path=(${path:#/Users/shinzui/.local/bin})
+baikai_test_path=(${baikai_test_path:#/opt/homebrew/bin})
 env -u ANTHROPIC_KEY -u ANTHROPIC_API_KEY \
   -u OPENAI_KEY -u OPENAI_API_KEY \
   -u DEEPSEEK_KEY -u DEEPSEEK_API_KEY \
   -u OPENROUTER_API_KEY -u TOGETHER_API_KEY \
-  -u BAIKAI_EMBEDDING_LIVE \
+  -u BAIKAI_EMBEDDING_LIVE PATH="${(j/:/)baikai_test_path}" \
   cabal test all
 nix flake check
 ```
 
 Expected: formatting completes without unrelated rewrites, `git diff --check` prints
-nothing, every Cabal component builds, all tests either pass or the credential-gated smoke
-cases report their documented skips, and the flake check succeeds.
+nothing, every Cabal component builds, all tests pass, the smoke suite reports that provider
+keys and both CLI binaries are unavailable and skips all live cases, and the flake check
+succeeds.
 
 
 ## Validation and Acceptance
@@ -860,9 +894,9 @@ Accepted when all hold:
    `docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md` registers EP-4 as
    complete; the coordinated release follow-up covers every internal dependent.
 
-6. `nix fmt`, `git diff --check`, `cabal build all`, the key-scrubbed `cabal test all`, and
-   `nix flake check` succeed. No authenticated provider request or interactive launch is part
-   of acceptance.
+6. `nix fmt`, `git diff --check`, `cabal build all`, the provider-key- and
+   CLI-binary-scrubbed `cabal test all`, and `nix flake check` succeed. No authenticated
+   provider request or interactive launch is part of the final acceptance run.
 
 
 ## Idempotence and Recovery
@@ -929,3 +963,8 @@ repository release workflow, and the parent MasterPlan. Revised the API work so 
 OpenAI and Anthropic requests preserve `xhigh`/`max`; added missing test-module and exhaustive
 test coverage; corrected the single-changelog and six-package release workflow; scoped
 provider-only `none`/`ultra`; added parent-plan synchronization and full repository gates.
+
+2026-07-20: Completed all three milestones. Corrected the final validation command after
+discovering that API-key removal alone does not gate batch CLI smoke completions; the final
+acceptance run now also hides installed Claude and Codex binaries while preserving the active
+Cabal/GHC toolchain.
