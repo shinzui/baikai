@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          baikai-trace-otel
-version:       0.3.0.1
+version:       0.3.0.2
 synopsis:      OpenTelemetry TraceSink for baikai.
 description:
   Provides an opt-in OpenTelemetry adapter for the baikai 'TraceSink'
@@ -35,7 +35,7 @@ library
   hs-source-dirs:  src
   exposed-modules: Baikai.Trace.Sink.OpenTelemetry
   build-depends:
-    , baikai                                 ^>=0.3.0
+    , baikai                                 ^>=0.4.0
     , base                                   >=4.20   && <5
     , containers                             ^>=0.7
     , hs-opentelemetry-api                   >=1.0    && <1.1
@@ -53,7 +53,7 @@ test-suite baikai-trace-otel-test
   main-is:        Main.hs
   ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
-    , baikai                               ^>=0.3.0
+    , baikai                               ^>=0.4.0
     , baikai-trace-otel
     , base
     , generic-lens

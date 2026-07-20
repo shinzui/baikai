@@ -7,19 +7,61 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.4.0.0] - 2026-07-20
+
 ### Added
 
-- **baikai:** Added `ThinkingXHigh` and `ThinkingMax` to the exported
-  `ThinkingLevel` vocabulary and added a defaulted
-  `InteractiveLaunchRequest.effort` field. Extending the closed sum type is a
-  PVP-major API change for downstream exhaustive matches.
-- **baikai-claude:** Added `--effort` rendering to interactive Claude Code
-  launches and preserved `xhigh` / `max` on native adaptive Anthropic API
-  requests, with larger fixed budgets for manual-thinking models.
-- **baikai-openai:** Added `model_reasoning_effort` overrides to interactive
-  Codex launches and preserved `xhigh` / `max` in native OpenAI request JSON;
-  non-native OpenAI-compatible request shapes continue to clamp them to
-  `high`.
+- Added `ThinkingXHigh` and `ThinkingMax` to the exported `ThinkingLevel`
+  vocabulary and added a defaulted `InteractiveLaunchRequest.effort` field.
+  Extending the closed sum type is a PVP-major API change for downstream
+  exhaustive matches.
+
+## [baikai-claude 0.3.0.2] - 2026-07-20
+
+### Added
+
+- Added `--effort` rendering to interactive Claude Code launches and preserved
+  `xhigh` / `max` on native adaptive Anthropic API requests, with larger fixed
+  budgets for manual-thinking models.
+
+### Changed
+
+- Bumped the internal `baikai` dependency bound to `^>=0.4.0` for the
+  baikai 0.4.0.0 release.
+
+## [baikai-openai 0.3.0.2] - 2026-07-20
+
+### Added
+
+- Added `model_reasoning_effort` overrides to interactive Codex launches and
+  preserved `xhigh` / `max` in native OpenAI request JSON; non-native
+  OpenAI-compatible request shapes continue to clamp them to `high`.
+
+### Changed
+
+- Bumped the internal `baikai` dependency bound to `^>=0.4.0` for the
+  baikai 0.4.0.0 release.
+
+## [baikai-trace-otel 0.3.0.2] - 2026-07-20
+
+### Changed
+
+- Bumped the internal `baikai` dependency bound to `^>=0.4.0` for the
+  baikai 0.4.0.0 release. No API changes.
+
+## [baikai-effectful 0.3.0.2] - 2026-07-20
+
+### Changed
+
+- Bumped the internal `baikai` dependency bound to `^>=0.4.0` for the
+  baikai 0.4.0.0 release. No API changes.
+
+## [baikai-kit 0.1.0.3] - 2026-07-20
+
+### Changed
+
+- Bumped the internal `baikai` dependency bound to `^>=0.4.0` for the
+  baikai 0.4.0.0 release. No API changes.
 
 ## [baikai 0.3.1.0] - 2026-07-15
 
