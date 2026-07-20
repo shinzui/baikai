@@ -26,7 +26,7 @@ import Baikai.Compat
     ThinkingFormat (..),
   )
 import Baikai.Options (Options, cacheRetention, thinking)
-import Baikai.ThinkingLevel (ThinkingLevel (..))
+import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
@@ -92,15 +92,16 @@ injectThinkingShape compat opts body =
   case thinking opts of
     Nothing -> body
     Just lvl -> case thinkingFormat compat of
-      ThinkingFormatOpenAI -> body
+      ThinkingFormatOpenAI ->
+        insertTop "reasoning_effort" (String (renderThinkingLevel lvl)) body
       ThinkingFormatNone -> body
       ThinkingFormatOpenRouter ->
-        insertTop "reasoning" (Aeson.object ["effort" .= effort lvl]) body
+        insertTop "reasoning" (Aeson.object ["effort" .= compatibleEffort lvl]) body
       ThinkingFormatDeepseek ->
-        insertTop "reasoning_effort" (String (effort lvl)) $
+        insertTop "reasoning_effort" (String (compatibleEffort lvl)) $
           insertTop "thinking" (Aeson.object ["type" .= ("enabled" :: Text)]) body
       ThinkingFormatTogether ->
-        insertTop "reasoning_effort" (String (effort lvl)) $
+        insertTop "reasoning_effort" (String (compatibleEffort lvl)) $
           insertTop "reasoning" (Aeson.object ["enabled" .= True]) body
       ThinkingFormatZai ->
         insertTop "enable_thinking" (Bool True) body
@@ -208,9 +209,13 @@ adjustKey k f obj =
 key :: Text -> AesonKey.Key
 key = AesonKey.fromText
 
-effort :: ThinkingLevel -> Text
-effort = \case
+-- | Common effort vocabulary supported by the non-native
+-- OpenAI-compatible request shapes above.
+compatibleEffort :: ThinkingLevel -> Text
+compatibleEffort = \case
   ThinkingMinimal -> "low"
   ThinkingLow -> "low"
   ThinkingMedium -> "medium"
   ThinkingHigh -> "high"
+  ThinkingXHigh -> "high"
+  ThinkingMax -> "high"

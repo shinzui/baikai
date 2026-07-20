@@ -27,9 +27,11 @@ re-learn each vendor's flag spelling.
 
 After this change, a caller sets one provider-neutral field on the interactive request and
 Baikai translates it to the right vendor flag. Concretely, Baikai's `ThinkingLevel` — the
-existing four-bucket effort preference already used on the batch/API path — gains two higher
-buckets (`ThinkingXHigh`, `ThinkingMax`) so it can express the full range both CLIs accept,
-and the interactive request gains an `effort :: Maybe ThinkingLevel` field.
+existing four-bucket effort preference already used on the batch/API path — gains the two
+higher levels shared by current Claude Code and Codex launches (`ThinkingXHigh`,
+`ThinkingMax`), and the interactive request gains an `effort :: Maybe ThinkingLevel` field.
+This produces one six-level Baikai vocabulary from `minimal` through `max`; it does not claim
+to model every provider-only mode.
 
 **Term definitions (used throughout, defined once):**
 
@@ -46,6 +48,13 @@ and the interactive request gains an `effort :: Maybe ThinkingLevel` field.
   the operating system when it spawns the CLI. The pure functions that build it are
   `claudeInteractiveCommand` and `codexInteractiveCommand`; both are exported and unit-tested,
   so we can verify the new behavior without launching a real session.
+- **SDK and wire value** — an SDK (software development kit) is the typed Haskell dependency
+  used to construct a request. A wire value is the final JSON value Baikai actually sends
+  over HTTP after request shaping; the two can differ because Baikai deliberately rewrites
+  serialized SDK requests for newer or provider-compatible fields.
+- **PVP** — the Haskell Package Versioning Policy. It treats the first two components of an
+  `A.B.C.D` package version as the major version and requires a major bump for breaking
+  exported API changes such as adding constructors to a public sum type.
 
 **The observable outcome**, verifiable with pure unit tests and no authenticated session:
 given an interactive request whose `effort` is `Just ThinkingHigh`,
@@ -53,7 +62,9 @@ given an interactive request whose `effort` is `Just ThinkingHigh`,
 `codexInteractiveCommand` produces one containing `["-c","model_reasoning_effort=high"]`.
 With `effort = Nothing` (the default), neither flag appears, so existing behavior is
 unchanged. The higher buckets map through too: `ThinkingMax` yields `--effort max` for
-Claude and `model_reasoning_effort=max` for Codex.
+Claude and `model_reasoning_effort=max` for Codex. Codex-only `none` and the newer
+model-dependent `ultra` mode remain available through `extraArgs`; `Nothing` means "leave
+the CLI default alone" and is deliberately not treated as an explicit `none`.
 
 This unblocks downstream callers such as Seihou, which want deterministic, explicit
 reasoning-effort selection per agent command rather than inheriting whatever effort the
@@ -66,15 +77,24 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Extend `ThinkingLevel` with `ThinkingXHigh` and `ThinkingMax` in
-  `baikai/src/Baikai/ThinkingLevel.hs`; make every existing pattern-match total with the
-  documented clamps; add unit coverage. `baikai`, `baikai-claude`, `baikai-openai` all build
-  and their test suites pass unchanged.
+- [x] 2026-07-20: Revalidated this plan against the current repository, the dependency
+  sources located through Mori, Hackage releases, installed CLI help, and current vendor
+  documentation. Corrected the API wire mappings, test wiring, changelog convention,
+  parent-plan synchronization, and coordinated-release scope.
+- [x] 2026-07-20 16:12Z: Registered this follow-up as in-progress EP-4 in the parent
+  MasterPlan and reopened the parent's progress, coordination notes, and retrospective.
+- [x] 2026-07-20 16:16Z: Milestone 1: Extended `ThinkingLevel` with `ThinkingXHigh` and `ThinkingMax` in
+  `baikai/src/Baikai/ThinkingLevel.hs`; made every source and test pattern-match total;
+  preserved `xhigh`/`max` on native OpenAI and Anthropic wire requests while documenting
+  the typed-SDK and compatible-host clamps; added unit coverage. `cabal build all` passed
+  without incomplete-pattern warnings, and the affected suites passed 157 core, 147 Claude,
+  and 55 OpenAI tests.
 - [ ] Milestone 2: Add `effort :: Maybe ThinkingLevel` to `InteractiveLaunchRequest` and
   translate it in both vendor launchers (`--effort` for Claude, `-c model_reasoning_effort=`
   for Codex). Add argv unit tests. `effort = Nothing` leaves argv byte-identical to today.
-- [ ] Milestone 3: Documentation, per-package CHANGELOG entries, version-bump note, full
-  test + smoke run.
+- [ ] Milestone 3: Update `docs/user/interactive-launches.md`, the single root
+  `CHANGELOG.md`, and the parent MasterPlan; record the coordinated PVP release set; run
+  formatting, full build/test, and flake validation.
 
 
 ## Surprises & Discoveries
@@ -82,7 +102,50 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- Discovery: The `openai-2.5.3` Haskell dependency still exposes only
+  `ReasoningEffort_Minimal | Low | Medium | High`, but Baikai does not send that typed value
+  directly. `Baikai.Provider.OpenAI.Api.prepareCall` serializes it and then passes the JSON
+  through `streamRequestBody`, so `ThinkingFormatOpenAI` can replace the staging `high` with
+  the requested `xhigh` or `max` before the HTTP request is sent.
+  Evidence: `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` constructs `requestBody` from
+  `streamRequestBody`; the dependency source found by Mori at
+  `/Users/shinzui/Keikaku/hub/haskell/openai-project/openai` stops its Chat Completions enum
+  at `High`; Hackage lists `openai-2.5.3` as the current release.
+
+- Discovery: The registered dependency checkouts match the current Hackage releases:
+  `openai-2.5.3` and `claude-1.4.0`. Their authoritative upstream Git repositories expose no
+  version tags through `git ls-remote --tags`, so Hackage is the release-version source of
+  truth rather than an inferred Git tag.
+
+- Discovery: Anthropic's current API accepts `low`, `medium`, `high`, `xhigh`, and `max` in
+  `output_config.effort`, and the local `claude-1.4.0` dependency represents that field as
+  `Maybe Text`. Therefore clamping adaptive `ThinkingXHigh`/`ThinkingMax` to `Nothing` would
+  lose caller intent; only `ThinkingHigh` may use `Nothing`, because Anthropic documents an
+  omitted effort as exactly equivalent to `high`.
+  Evidence: `Claude.V1.Messages.OutputConfig.effort` is `Maybe Text`, and the current
+  Anthropic effort guide documents all five values plus `high`-when-omitted semantics.
+
+- Discovery: `baikai/test/ThinkingLevelSpec.hs` will be a new test module, so adding it only
+  to `baikai/test/Main.hs` is insufficient; Cabal also requires it in the `other-modules`
+  list in `baikai/baikai.cabal`. The existing duplicate `adaptiveEffort` expectation in
+  `baikai-claude/test/ThinkingSpec.hs` is another constructor match that must become total.
+
+- Discovery: This repository has one root `CHANGELOG.md`, not one changelog per package,
+  and a core PVP-major release forces bound-only patch releases of `baikai-trace-otel`,
+  `baikai-effectful`, and `baikai-kit` as well as releases of the two provider packages.
+  Evidence: `agents/skills/release/SKILL.md` lists the six publishable packages and the
+  internal-bound rule; all five dependents currently use `baikai ^>=0.3.0`.
+
+- Discovery: The child plan points at
+  `docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md`, but that
+  MasterPlan is currently marked complete and does not register this follow-up as EP-4.
+  The implementation must add the child and reopen the parent progress before later marking
+  the follow-up complete.
+
+- Discovery: Current Codex documentation includes a model-dependent `ultra` reasoning mode,
+  while installed `codex-cli 0.144.6` validation previously reported values only through
+  `max`. This plan remains deliberately scoped to adding the two shared higher levels
+  requested by the interactive-launch consumers; provider-only modes remain raw overrides.
 
 
 ## Decision Log
@@ -93,26 +156,32 @@ Record every decision made while working on the plan.
   `ThinkingLevel` type** with two new constructors, `ThinkingXHigh` and `ThinkingMax`,
   rather than introducing a separate interactive-only effort enum.
   Rationale: One effort vocabulary across the API and interactive surfaces is simpler for
-  callers and keeps `Baikai.ThinkingLevel` the single source of truth. The cost — API
-  providers that cannot express the two new levels must clamp — is small and localized to
-  three mapping functions, and is documented at each site.
+  callers and keeps `Baikai.ThinkingLevel` the single source of truth. Provider/model support
+  is not uniform, so each boundary must either preserve the canonical value or document its
+  compatibility clamp explicitly.
   Date: 2026-07-20
 
-- Decision: For the **OpenAI Chat Completions API path**, clamp `ThinkingXHigh` and
-  `ThinkingMax` to `high`. The upstream `openai` Haskell SDK enum
-  `OpenAI.V1.Chat.Completions.ReasoningEffort` only has `Minimal | Low | Medium | High`
-  (verified in the SDK source), so `high` is the strongest value it can send.
-  Rationale: Clamping preserves a valid request instead of failing or inventing a wire
-  value the SDK/endpoint would reject.
+- Decision: For the native **OpenAI Chat Completions wire path**, preserve `xhigh` and `max`
+  by having `injectThinkingShape` write the canonical string into the serialized request for
+  `ThinkingFormatOpenAI`. Keep `toReasoningEffort` total by mapping the two new constructors
+  to the SDK's `ReasoningEffort_High` only as an intermediate value. Continue clamping the
+  non-native DeepSeek/OpenRouter/Together compatibility shapes to `high`, because their
+  current common mapping exposes only `low | medium | high`.
+  Rationale: The installed `openai-2.5.3` type stops at `High`, but Baikai's actual transport
+  sends the post-shaped `Aeson.Value`. Using that existing raw-JSON seam preserves caller
+  intent for current native OpenAI models without inventing unsupported values for other
+  compatible hosts.
   Date: 2026-07-20
 
-- Decision: For the **Anthropic API path**, `ThinkingXHigh`/`ThinkingMax` behave like the
-  current top of the scale: in *adaptive* mode `adaptiveEffort` returns `Nothing` (the same
-  as `ThinkingHigh`, meaning "let adaptive use its highest effort"); in *budget* mode
-  `thinkingTokenBudget` returns larger token budgets (`ThinkingXHigh -> 24576`,
-  `ThinkingMax -> 32768`) that continue the existing doubling-ish progression.
-  Rationale: Anthropic has no `xhigh`/`max` primitive; mapping them to the strongest
-  available behavior is the faithful interpretation.
+- Decision: For the **Anthropic API path**, adaptive mode maps `ThinkingXHigh` to
+  `Just "xhigh"` and `ThinkingMax` to `Just "max"`; `ThinkingHigh` remains `Nothing` because
+  Anthropic documents omission as equivalent to `high`. Budget mode uses
+  `ThinkingXHigh -> 24576` and `ThinkingMax -> 32768` through `thinkingTokenBudget`.
+  Rationale: Current Anthropic APIs have native `xhigh`/`max` effort values and the local SDK
+  can carry them as text. The fixed budgets remain necessary for catalog entries still using
+  manual thinking; keeping the highest budget at 32768 leaves visible-output room below the
+  current 64000-token caps instead of causing `mapRequest` to drop thinking when the budget
+  consumes the whole cap.
   Date: 2026-07-20
 
 - Decision: Each vendor launcher owns its effort→string mapping, matching how each already
@@ -126,11 +195,38 @@ Record every decision made while working on the plan.
 
 - Decision: Repurpose the core `renderThinkingLevel` as the **canonical** level renderer
   (`minimal | low | medium | high | xhigh | max`) rather than an OpenAI-wire-only renderer.
-  It has no call sites in `baikai`/vendor source today (only the API request builders use
-  `toReasoningEffort`/`effort`, which stay clamped), so widening it is purely additive for
-  existing values and lets the Codex launcher reuse it.
-  Rationale: One canonical string function avoids a second near-duplicate; the API-specific
-  clamps remain in the API-specific mappers where they belong.
+  It has no current source call sites, so widening it is behavior-preserving for existing
+  values and lets both the Codex launcher and native OpenAI JSON shaper reuse it.
+  Rationale: One canonical string function avoids duplicate renderers; provider-specific
+  exceptions remain at their boundaries.
+  Date: 2026-07-20
+
+- Decision: Do not add `ThinkingNone` or `ThinkingUltra` in this plan.
+  Rationale: `Nothing` must continue to mean "do not override the provider default," which
+  is distinct from Codex's explicit `none`; current `ultra` is provider- and model-specific.
+  Both remain expressible through interactive `extraArgs`, while the six named
+  `ThinkingLevel` values cover the existing shared abstraction plus the two requested higher
+  levels.
+  Date: 2026-07-20
+
+- Decision: Treat the core change as PVP-major but the provider changes as
+  backwards-compatible additions. The future release should move `baikai` from in-tree
+  `0.3.2.0` to `0.4.0.0`; the two provider packages need minor bumps for new behavior, while
+  `baikai-trace-otel`, `baikai-effectful`, and `baikai-kit` need at least patch bumps because
+  their `baikai` dependency bounds must change. Defer exact dependent versions and all
+  publishing to `agents/skills/release/SKILL.md`.
+  Rationale: Adding constructors to the exported closed `ThinkingLevel` sum can break
+  exhaustive downstream matches. Adding a field to `InteractiveLaunchRequest` is not by
+  itself breaking here: its constructor is hidden and callers use the exported
+  `interactiveLaunchRequest` base plus record updates specifically so fields can be added.
+  The provider function signatures remain unchanged.
+  Date: 2026-07-20
+
+- Decision: Keep this as EP-4 of the interactive-launch MasterPlan and synchronize the parent
+  registry and living sections during implementation.
+  Rationale: The work extends the exact launch abstraction owned by that initiative; removing
+  the relationship would hide the integration history, while leaving the completed parent
+  unchanged would make its registry inaccurate.
   Date: 2026-07-20
 
 
@@ -139,7 +235,19 @@ Record every decision made while working on the plan.
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+2026-07-20 plan-validation outcome: the design remains feasible, but the original draft would
+have discarded supported `xhigh`/`max` values on native API requests and described an
+incomplete release workflow. The revised milestones preserve native wire values, cover every
+constructor match and Cabal test-module registration, use the repository's single changelog,
+and account for every internal dependent. As a baseline check, `cabal build all` succeeded
+and `cabal test baikai-test baikai-claude-test baikai-openai-test` passed 145, 112, and 52
+tests respectively. No product code has been implemented yet.
+
+2026-07-20 Milestone 1 outcome: Baikai now has a tested six-level reasoning vocabulary.
+Native OpenAI JSON and Anthropic adaptive requests preserve `xhigh` and `max`; the OpenAI
+SDK staging type and non-native compatibility formats clamp explicitly. The new maximum
+manual Anthropic budget remains below the 64000-token catalog cap, leaving visible-output
+room. `cabal build all` and all three affected suites passed.
 
 
 ## Context and Orientation
@@ -184,15 +292,16 @@ It is re-exported from the umbrella module `baikai/src/Baikai.hs` (which has
 `module Baikai.ThinkingLevel` in its export list), so downstream code imports it as
 `Baikai.ThinkingLevel` or via `import Baikai`.
 
-Every place that pattern-matches a `ThinkingLevel` constructor (found by grepping the three
-packages) — these are the sites that must become total when we add `ThinkingXHigh`/
-`ThinkingMax`:
+Every source or test place that pattern-matches a `ThinkingLevel` constructor (found by
+grepping the whole workspace) must become total when `ThinkingXHigh`/`ThinkingMax` are added:
 
 1. `baikai/src/Baikai/ThinkingLevel.hs`:
    - `renderThinkingLevel` (`\case` over all four constructors).
    - `thinkingTokenBudget` (`\case` over all four).
-2. `baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs`, function `effort :: ThinkingLevel -> Text`
-   (around line 211), currently: `Minimal->"low", Low->"low", Medium->"medium", High->"high"`.
+2. `baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs`, function
+   `effort :: ThinkingLevel -> Text` (around line 211), currently:
+   `Minimal->"low", Low->"low", Medium->"medium", High->"high"`. It shapes non-native
+   OpenAI-compatible hosts and should be renamed or documented as their clamped mapping.
 3. `baikai-openai/src/Baikai/Provider/OpenAI/Internal/Request.hs`, function
    `toReasoningEffort :: ThinkingLevel -> Chat.ReasoningEffort` (around line 124), mapping onto
    the upstream SDK enum `OpenAI.V1.Chat.Completions.ReasoningEffort`
@@ -201,9 +310,30 @@ packages) — these are the sites that must become total when we add `ThinkingXH
    `adaptiveEffort :: ThinkingLevel -> Maybe Text` (around line 181), currently:
    `Minimal->Just "low", Low->Just "low", Medium->Just "medium", High->Nothing`. It is called
    from `computeThinking`; the budget branch of `computeThinking` uses `thinkingTokenBudget`.
+5. `baikai-claude/test/ThinkingSpec.hs`, which has both a `thinkingLevels` case table and a
+   test-local `adaptiveEffort` expectation with the same four-constructor match. Extend both,
+   otherwise the new cases either go untested or make the test helper partial.
 
-There are no other constructor matches in the packages. The `effectful`-flavored package
-(`baikai-effectful`) does not pattern-match `ThinkingLevel`.
+There are no other constructor matches in Haskell source. `baikai-smoke/test/ThinkingSmoke.hs`
+uses selected levels but does not exhaustively match them, and `baikai-effectful` does not
+pattern-match `ThinkingLevel`.
+
+The OpenAI provider has two layers that must not be confused. `mapRequest` first constructs
+the dependency's typed `Chat.CreateChatCompletion`, whose `ReasoningEffort` enum stops at
+`High`. `Baikai.Provider.OpenAI.Api.prepareCall` then serializes that value and calls
+`streamRequestBody`; this is the actual JSON body sent by the Server-Sent Events (SSE)
+streaming HTTP transport. Therefore
+`toReasoningEffort` must clamp the new levels merely to make the typed intermediate total,
+while `injectThinkingShape` must overwrite `reasoning_effort` with `"xhigh"` or `"max"` for
+`ThinkingFormatOpenAI`. DeepSeek, OpenRouter, and Together keep their existing compatibility
+mapping and clamp the new levels to `"high"`.
+
+The Anthropic dependency does not impose the same restriction. Its
+`Claude.V1.Messages.OutputConfig.effort` field is `Maybe Text`, and current Anthropic API
+documentation defines `low`, `medium`, `high`, `xhigh`, and `max`. In adaptive mode,
+`adaptiveEffort` should therefore preserve `xhigh` and `max`; only `high` remains omitted,
+because omission is documented as exactly equivalent to `high`. Manual-thinking catalog
+entries continue to use `thinkingTokenBudget` instead.
 
 ### The interactive launch surface
 
@@ -222,8 +352,8 @@ data InteractiveLaunchRequest = InteractiveLaunchRequest
   deriving stock (Eq, Show, Generic)
 ```
 
-The module exports the *type* and each field accessor by name (so field selectors are on),
-plus the smart constructor:
+The module exports the *type* without its data constructor and exports each field accessor by
+name, plus the smart constructor:
 
 ```haskell
 interactiveLaunchRequest :: Text -> InteractiveLaunchRequest
@@ -236,7 +366,9 @@ Callers build a request with `interactiveLaunchRequest prompt` and then set fiel
 record-update using the exported selectors (e.g. Seihou does
 `(interactiveLaunchRequest p) { modelId = m, systemPrompt = Just s, … }`). Vendor launchers
 read fields via `generic-lens` labels (`req ^. #modelId`), enabled by the `Generic`
-derivation, so they do not import the selectors directly.
+derivation, so they do not import the selectors directly. This hidden-constructor/base-value
+design is intentionally evolvable: adding a defaulted field does not break ordinary
+downstream construction or record updates.
 
 The two vendor launchers each expose a pure argv builder and an `IO` launcher:
 
@@ -258,19 +390,45 @@ whose `requestDefaultTest` asserts every default field value of
 
 ### Verified CLI facts (the flags this plan targets)
 
-These were confirmed live against the installed CLIs (`claude` 2.1.215, `codex` 0.144.6):
+These were confirmed from installed CLI help (`claude` 2.1.215, `codex-cli` 0.144.6) and
+current vendor documentation:
 
 - Claude: `--effort <level>`. Passing an unknown value prints
   `Valid values: low, medium, high, xhigh, max.` — note there is **no** `minimal`.
 - Codex: no dedicated flag; use its generic config override
-  `-c model_reasoning_effort=<value>`. The backend validates the enum and reports the full
-  accepted set: `none, minimal, low, medium, high, xhigh, max`. Setting
-  `-c model_reasoning_effort=low` was observed to change the session header from the default
-  `xhigh` to `low`.
+  `-c model_reasoning_effort=<value>`. Installed help documents `-c key=value` and its TOML
+  parsing/fallback-to-string behavior. The installed backend validation previously reported
+  `none, minimal, low, medium, high, xhigh, max`; the current Codex manual additionally
+  documents model-dependent `ultra`.
 
-`ThinkingLevel` has no `none` constructor and this plan does not add one: `effort = Nothing`
-already means "do not pass any effort flag; let the CLI use its own default", which is the
-useful distinction. A caller that explicitly wants Codex's `none` can still use `extraArgs`.
+`ThinkingLevel` has no `none` or `ultra` constructor and this plan does not add either.
+`effort = Nothing` means "do not pass any effort flag; let the CLI use its own default," not
+"disable reasoning." A caller that explicitly wants a Codex-only value can still use
+`extraArgs`, which is rendered after the structured effort arguments and therefore remains
+the last raw override.
+
+### Packaging, changelog, and parent-plan context
+
+The repository has one root `CHANGELOG.md` covering every package. There are no
+`baikai-claude/CHANGELOG.md` or `baikai-openai/CHANGELOG.md` files. Implementation work adds
+package-scoped bullets under the root `[Unreleased]` section; the manual release workflow in
+`agents/skills/release/SKILL.md` later moves those bullets into dated version sections.
+
+The in-tree versions are `baikai-0.3.2.0`, `baikai-claude-0.3.0.1`, and
+`baikai-openai-0.3.0.1`. Hackage currently lists `baikai-0.3.1.0` and the two provider
+packages at `0.3.0.1`; the local `baikai-0.3.2.0` tag exists but has not yet appeared in the
+local Hackage index. Adding exported `ThinkingLevel` constructors requires the next core
+PVP-major (`0.4.0.0`). Every publishable internal dependent — `baikai-claude`,
+`baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, and `baikai-kit` — currently has a
+`baikai ^>=0.3.0` bound. The release workflow must update all five bounds and release all
+five dependents; only the provider packages have feature code, while the other three need at
+least bound-only patch releases. `baikai-smoke` is internal and is never published.
+
+Finally, frontmatter names
+`docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md` as the parent, but
+that MasterPlan currently contains only completed EP-1 through EP-3. Implementation must add
+this plan as EP-4 with status In Progress before work, update its progress/discoveries, and
+mark EP-4 Complete only after this plan's acceptance criteria pass.
 
 
 ## Plan of Work
@@ -282,9 +440,10 @@ Milestone 3 documents and validates end-to-end.
 
 ### Milestone 1 — Extend `ThinkingLevel` and keep every mapping total
 
-Scope: add the two constructors and update the four mapping sites with documented clamps. At
-the end, `cabal build all` is clean and every existing test still passes, plus new unit tests
-pin the new levels' behavior.
+Scope: add the two constructors and update every source and test mapping. Preserve higher
+levels on native OpenAI and Anthropic wire requests, while keeping unavoidable staging or
+compatible-host clamps explicit. At the end, `cabal build all` is clean and unit tests pin
+the six-level rendering, budgets, and provider request shapes.
 
 Edit `baikai/src/Baikai/ThinkingLevel.hs`:
 
@@ -302,9 +461,8 @@ Edit `baikai/src/Baikai/ThinkingLevel.hs`:
      deriving anyclass (FromJSON, ToJSON)
    ```
 
-2. Widen `renderThinkingLevel` to the canonical names and update its Haddock to say it
-   returns the canonical level name (a superset of what OpenAI's Chat Completions endpoint
-   accepts; API-specific mappers clamp):
+2. Widen `renderThinkingLevel` to the canonical Baikai names and update its Haddock to stop
+   describing it as an OpenAI-only wire renderer:
 
    ```haskell
    renderThinkingLevel = \case
@@ -316,7 +474,9 @@ Edit `baikai/src/Baikai/ThinkingLevel.hs`:
      ThinkingMax     -> "max"
    ```
 
-3. Extend `thinkingTokenBudget` (continue the progression):
+3. Extend `thinkingTokenBudget`. Use 24576 and 32768 rather than another pair of doublings:
+   current manual-thinking models have 64000-token output caps, and `mapRequest` requires
+   room above the thinking budget for visible output.
 
    ```haskell
    thinkingTokenBudget = \case
@@ -328,22 +488,36 @@ Edit `baikai/src/Baikai/ThinkingLevel.hs`:
      ThinkingMax     -> 32768
    ```
 
-Edit `baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs`, function `effort` — clamp the two
-new levels to `"high"`:
+Edit `baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs` in two coordinated ways. First,
+make the `ThinkingFormatOpenAI` branch of `injectThinkingShape` insert the canonical value
+after the SDK request is serialized:
 
 ```haskell
-effort = \case
+ThinkingFormatOpenAI ->
+  insertTop "reasoning_effort" (String (renderThinkingLevel lvl)) body
+```
+
+Import `renderThinkingLevel` along with `ThinkingLevel (..)`. Second, keep the existing
+helper for non-native OpenAI-compatible shapes total, preferably renaming it to make its
+scope clear:
+
+```haskell
+compatibleEffort = \case
   ThinkingMinimal -> "low"
   ThinkingLow     -> "low"
   ThinkingMedium  -> "medium"
   ThinkingHigh    -> "high"
-  ThinkingXHigh   -> "high"   -- Chat Completions has no higher level
+  ThinkingXHigh   -> "high"
   ThinkingMax     -> "high"
 ```
 
+Use `compatibleEffort` only in the OpenRouter, DeepSeek, and Together branches. Native
+OpenAI requests must keep `xhigh`/`max`; the compatible-host branches retain their current
+three-level common denominator.
+
 Edit `baikai-openai/src/Baikai/Provider/OpenAI/Internal/Request.hs`, function
-`toReasoningEffort` — clamp to `Chat.ReasoningEffort_High`, with a comment referencing this
-plan:
+`toReasoningEffort` — clamp to `Chat.ReasoningEffort_High` only for the typed staging value,
+with a comment pointing readers to `Shape.injectThinkingShape` for the final wire override:
 
 ```haskell
 toReasoningEffort = \case
@@ -351,13 +525,14 @@ toReasoningEffort = \case
   ThinkingLow     -> Chat.ReasoningEffort_Low
   ThinkingMedium  -> Chat.ReasoningEffort_Medium
   ThinkingHigh    -> Chat.ReasoningEffort_High
-  ThinkingXHigh   -> Chat.ReasoningEffort_High  -- SDK enum stops at High; clamp
+  -- The SDK enum stops at High. Shape.injectThinkingShape restores the
+  -- canonical xhigh/max string in the serialized native OpenAI body.
+  ThinkingXHigh   -> Chat.ReasoningEffort_High
   ThinkingMax     -> Chat.ReasoningEffort_High
 ```
 
 Edit `baikai-claude/src/Baikai/Provider/Claude/Internal/Request.hs`, function
-`adaptiveEffort` — treat the two new levels like `ThinkingHigh` (return `Nothing`, i.e. let
-adaptive use its top effort):
+`adaptiveEffort` — preserve the two new native Anthropic values:
 
 ```haskell
 adaptiveEffort = \case
@@ -365,21 +540,30 @@ adaptiveEffort = \case
   ThinkingLow     -> Just "low"
   ThinkingMedium  -> Just "medium"
   ThinkingHigh    -> Nothing
-  ThinkingXHigh   -> Nothing
-  ThinkingMax     -> Nothing
+  ThinkingXHigh   -> Just "xhigh"
+  ThinkingMax     -> Just "max"
 ```
 
-Tests for Milestone 1: add cases to `baikai`'s test suite (there is a suitable spec for
-core; if none targets `ThinkingLevel`, add `renderThinkingLevel`/`thinkingTokenBudget` cases
-to `baikai/test/InteractiveSpec.hs` is *not* appropriate — instead add a small
-`ThinkingLevelSpec` module and wire it into `baikai/test/Main.hs`). Assert:
-`renderThinkingLevel ThinkingXHigh == "xhigh"`, `renderThinkingLevel ThinkingMax == "max"`,
-`thinkingTokenBudget ThinkingMax == 32768`. Optionally assert the clamps in
-`baikai-openai`/`baikai-claude` where those functions are already tested (e.g.
-`baikai-openai/test/ReasoningSpec.hs` and `baikai-claude/test/ThinkingSpec.hs`) — add a case
-that a request built with `ThinkingMax` produces a `high`/top-budget shaped request.
+Tests for Milestone 1 are mandatory at all three layers:
 
-Acceptance: `cabal build all` clean; `cabal test all` green with the new cases named.
+1. Create `baikai/test/ThinkingLevelSpec.hs` with table-driven assertions for all six
+   `renderThinkingLevel` outputs and all six budgets. Add `ThinkingLevelSpec` to
+   `baikai/baikai.cabal`'s `baikai-test` `other-modules`, import it qualified in
+   `baikai/test/Main.hs`, and add `ThinkingLevelSpec.tests` to the root test group.
+2. In `baikai-openai/test/ShapeSpec.hs`, shape `Models.openai_gpt_5_6_terra` requests with
+   `ThinkingXHigh` and `ThinkingMax` and assert the final JSON has
+   `reasoning_effort = "xhigh"` / `"max"`. Also add at least one compatible-host case proving
+   the new higher values still clamp to `"high"`. If a direct `mapRequest` assertion is
+   added, name it as an SDK-staging clamp so it cannot be mistaken for the final wire value.
+3. In `baikai-claude/test/ThinkingSpec.hs`, extend `thinkingLevels` and the test-local
+   `adaptiveEffort` helper. Assert `anthropic_claude_opus_4_7` requests built with
+   `ThinkingXHigh`/`ThinkingMax` have `Messages.output_config.effort = Just "xhigh"` /
+   `Just "max"`, and assert an `anthropic_claude_haiku_4_5` request built with `ThinkingMax`
+   uses 32768 budget tokens while retaining visible-output room.
+
+Acceptance: `cabal build all` emits no incomplete-pattern warning; `cabal test baikai-test
+baikai-claude-test baikai-openai-test` passes with named tests proving the native wire values
+and compatibility clamps.
 
 ### Milestone 2 — Add the `effort` field and translate it in both launchers
 
@@ -406,8 +590,8 @@ Edit `baikai/src/Baikai/Interactive.hs`:
    ```
 
 2. Add `effort` to the module export list (next to the other accessors), and add
-   `import Baikai.ThinkingLevel (ThinkingLevel)` (or rely on `Baikai.Prelude` if it already
-   re-exports it — check; if not, add the explicit import).
+   `import Baikai.ThinkingLevel (ThinkingLevel)`. `Baikai.Prelude` does not re-export this
+   type.
 
 3. Default it to `Nothing` in the smart constructor:
 
@@ -449,8 +633,8 @@ Edit `baikai-claude/src/Baikai/Provider/Claude/Interactive.hs`:
    claudeEffortValue lvl = renderThinkingLevel lvl
    ```
 
-2. Add the imports it needs: `ThinkingLevel (..)` and `renderThinkingLevel` from
-   `Baikai.ThinkingLevel` (or from `Baikai`).
+2. Add the explicit imports `ThinkingLevel (..)` and `renderThinkingLevel` from
+   `Baikai.ThinkingLevel`.
 
 Edit `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`:
 
@@ -470,60 +654,81 @@ Edit `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`:
          <> ["--", Text.unpack (codexInteractivePrompt req)]
      )
 
-   -- Codex takes reasoning effort as a config override; its enum accepts the
-   -- full canonical set, so reuse renderThinkingLevel directly.
+   -- Codex takes reasoning effort as a config override. Reuse the six-level
+   -- Baikai renderer; provider-only none/ultra remain raw extraArgs values.
    effortArgs :: InteractiveLaunchRequest -> [String]
    effortArgs req = case req ^. #effort of
      Nothing -> []
      Just lvl -> ["-c", "model_reasoning_effort=" <> Text.unpack (renderThinkingLevel lvl)]
    ```
 
-2. Add the imports: `ThinkingLevel` and `renderThinkingLevel` from `Baikai.ThinkingLevel`
-   (or `Baikai`).
+2. Add the explicit import of `renderThinkingLevel` from `Baikai.ThinkingLevel`. The helper
+   does not need the `ThinkingLevel` type name in its signature.
 
 Tests for Milestone 2: extend the existing command-builder tests in
-`baikai-claude/test/Main.hs` and `baikai-openai/test/Main.hs`. For Claude, assert that
-`snd (claudeInteractiveCommand defaultClaudeInteractiveConfig req)` for a request with
-`effort = Just ThinkingHigh` contains `["--effort","high"]` in order and, for
-`effort = Just ThinkingMinimal`, contains `["--effort","low"]`; and that with
-`effort = Nothing` the argv equals today's (no `--effort`). For Codex, assert the argv for
-`effort = Just ThinkingMax` contains `["-c","model_reasoning_effort=max"]` and that
-`effort = Nothing` omits it. If those test modules build requests with the positional record
-constructor rather than the smart constructor, update them to add the new field (or switch
-to `interactiveLaunchRequest` + record-update, which is more robust to future fields).
+`baikai-claude/test/Main.hs` and `baikai-openai/test/Main.hs`. Keep each existing exact
+`commandRenderingTest` request at the default `effort = Nothing`; its unchanged expected
+argv is the backward-compatibility proof. Add table-driven effort tests that compare the
+whole rendered argv, not merely list membership:
 
-Acceptance: `cabal test all` green; the argv assertions above pass.
+- Claude cases: `minimal -> low`, `low -> low`, `medium -> medium`, `high -> high`,
+  `xhigh -> xhigh`, and `max -> max`, each producing
+  `["--effort", value, "--", "prompt"]` with the default config.
+- Codex cases: all six canonical values, each producing
+  `["-c", "model_reasoning_effort=" <> value, "--", "prompt"]`.
+
+The existing tests already use `interactiveLaunchRequest` plus lens updates, so no positional
+constructor migration is needed. Because config and request `extraArgs` are rendered after
+`effortArgs`, preserve and document their existing last-override precedence rather than
+deduplicating raw flags.
+
+Acceptance: `cabal test baikai-test baikai-claude-test baikai-openai-test` passes; exact argv
+tests cover all six levels and the unchanged default argv.
 
 ### Milestone 3 — Docs, changelog, versioning, validation
 
 Scope: document the new capability, record the API change, and validate the whole workspace.
 
-1. Documentation: update the interactive-launch user guide under `docs/user/` (find it with
-   `ls docs/user` and grep for "interactive"/"effort"; it is the guide produced by
-   masterplan 3). Add an "reasoning effort" subsection showing the `effort` field, the
-   provider-neutral levels, and the per-CLI mapping table (Claude has no `minimal`; API
-   providers clamp `xhigh`/`max` to `high`).
+1. Documentation: edit `docs/user/interactive-launches.md`. Add a “Reasoning effort”
+   subsection with a record-update example and the exact mapping: Claude maps minimal to low
+   and otherwise uses the canonical name; Codex passes all six canonical names through
+   `model_reasoning_effort`. Explain that `Nothing` preserves the CLI default, while
+   Codex-only `none`/`ultra` require `extraArgs`. Separately explain that native API models
+   receive `xhigh`/`max` when supported, while non-native OpenAI-compatible hosts retain
+   their documented high clamp.
 
-2. CHANGELOG: add an entry to each affected package's changelog
-   (`baikai/CHANGELOG.md`, `baikai-claude/CHANGELOG.md`, `baikai-openai/CHANGELOG.md` — or
-   the repo's changelog convention; confirm by `ls`). Note the new `ThinkingLevel`
-   constructors, the interactive `effort` field, and the two launcher flags.
+2. Changelog: add package-scoped bullets under `[Unreleased]` in the single root
+   `CHANGELOG.md`. Record the two new `ThinkingLevel` constructors and request field for
+   `baikai`, the Claude launcher flag plus adaptive API mapping for `baikai-claude`, and the
+   Codex override plus native OpenAI wire mapping for `baikai-openai`. Do not create
+   per-package changelog files or dated release headings during feature implementation.
 
-3. Versioning: adding a constructor to the exported `ThinkingLevel` and a field to the
-   exported `InteractiveLaunchRequest` are breaking changes under the Haskell PVP (downstream
-   exhaustive matches and positional constructors can break). Recommend bumping `baikai`
-   `0.3.2.0 -> 0.4.0.0`, and `baikai-claude`/`baikai-openai` `0.3.0.1 -> 0.4.0.0`, and
-   widening their inter-package bounds accordingly. Do the actual coordinated version/tag via
-   the repository's release skill (`.claude/skills/release`) as a follow-up rather than
-   hand-editing versions here; this plan leaves a Progress note pointing at that step.
-   Downstream note: Seihou currently depends on `baikai ^>=0.3.1.0`; after release it must
-   widen to include `0.4` and set `effort` where it wants non-default behavior.
+3. Parent coordination: edit
+   `docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md` using its existing
+   registry format. Register this file as EP-4, add a progress item, and record why the
+   completed initiative was reopened for a follow-up. Set EP-4 Complete and update the
+   retrospective only after every acceptance command below passes.
 
-4. Validation: run the full workspace build, test, and the interactive smoke check.
+4. Versioning note: record but do not perform the release. The core's exported sum extension
+   implies `baikai 0.3.2.0 -> 0.4.0.0`. Provider code additions imply minor bumps from
+   `0.3.0.1`; the release operator chooses the exact versions after reviewing all changes.
+   The core major also requires updating `baikai ^>=0.3.0` in `baikai-claude`,
+   `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, and `baikai-kit`, with at least
+   patch releases for bound-only dependents. Run the manual workflow at
+   `agents/skills/release/SKILL.md` as a separate follow-up; do not hand-edit versions or
+   bounds in this feature plan. After those releases, Seihou must update its Cabal bounds and
+   reproducible Nix pins for `baikai`, both provider packages, and `baikai-kit`, then set
+   `effort` where it wants non-default behavior.
 
-Acceptance: docs render the new subsection; `cabal build all` and `cabal test all` are green;
-`baikai/test/InteractiveSpec.hs` and both vendor command-builder tests pass; the smoke suite
-(`baikai-smoke`) still builds.
+5. Validation: run the formatter, affected tests, full workspace build/test, and flake check.
+   The test suite named `baikai-smoke` performs live network calls when provider key
+   environment variables are present, so explicitly remove those variables from the full
+   test command below. Do not launch an authenticated CLI merely to validate argv construction.
+
+Acceptance: the user guide and root changelog describe the feature accurately; the parent
+MasterPlan registers completed EP-4; `nix fmt` leaves no unintended diff; `cabal build all`,
+the key-scrubbed `cabal test all`, and `nix flake check` are green; exact command-builder
+tests and provider wire-shape tests prove the behavior without a live session.
 
 
 ## Concrete Steps
@@ -535,7 +740,7 @@ Build and test after Milestone 1:
 
 ```bash
 cabal build all
-cabal test all
+cabal test baikai-test baikai-claude-test baikai-openai-test
 ```
 
 Expected: clean build (no incomplete-pattern warnings for `ThinkingLevel`), and the suites
@@ -556,6 +761,7 @@ import Baikai
 let req = (interactiveLaunchRequest "hi") { effort = Just ThinkingHigh }
 snd (claudeInteractiveCommand defaultClaudeInteractiveConfig req)
 -- expect: ["--effort","high","--","hi"]
+:quit
 ```
 
 ```bash
@@ -570,63 +776,94 @@ import Baikai
 let req = (interactiveLaunchRequest "hi") { effort = Just ThinkingMax }
 snd (codexInteractiveCommand defaultCodexInteractiveConfig req)
 -- expect: ["-c","model_reasoning_effort=max","--","hi"]
+:quit
 ```
 
-For reference, the live-CLI facts these flags rely on (already confirmed; no need to re-run
-unless validating on a different machine):
+The safe local CLI checks are help/version reads only; they do not authenticate or start a
+model request:
+
+```bash
+claude --version
+claude --help | rg -- '--effort'
+codex --version
+codex --help | rg -A4 -- '-c, --config'
+```
+
+Expected relevant output on the validated machine:
 
 ```text
-$ claude --effort __bogus__ -p "hi"
-Warning: Unknown --effort value '__bogus__' — ignoring it and using the default effort. Valid values: low, medium, high, xhigh, max.
-
-$ printf 'hi\n' | codex exec -m gpt-5.6-terra -c model_reasoning_effort=__bogus__ --sandbox read-only --skip-git-repo-check -
-ERROR: … [reasoning.effort] [invalid_enum_value] Invalid value: '__bogus__'. Supported values are: 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', and 'max'.
+2.1.215 (Claude Code)
+--effort <level>  Effort level for the current session (low, medium, high, xhigh, max)
+codex-cli 0.144.6
+-c, --config <key=value>
 ```
+
+Do not use an invalid `codex exec` or `claude -p` request as a routine smoke test: those
+commands cross the authenticated provider boundary. The pure argv and wire-shape tests are
+the acceptance evidence.
 
 Full validation after Milestone 3:
 
 ```bash
+nix fmt
+git diff --check
 cabal build all
-cabal test all
+env -u ANTHROPIC_KEY -u ANTHROPIC_API_KEY \
+  -u OPENAI_KEY -u OPENAI_API_KEY \
+  -u DEEPSEEK_KEY -u DEEPSEEK_API_KEY \
+  -u OPENROUTER_API_KEY -u TOGETHER_API_KEY \
+  -u BAIKAI_EMBEDDING_LIVE \
+  cabal test all
+nix flake check
 ```
+
+Expected: formatting completes without unrelated rewrites, `git diff --check` prints
+nothing, every Cabal component builds, all tests either pass or the credential-gated smoke
+cases report their documented skips, and the flake check succeeds.
 
 
 ## Validation and Acceptance
 
 Accepted when all hold:
 
-1. `ThinkingLevel` has six constructors and every mapping is total: `cabal build all` emits
-   no incomplete-pattern warning for it, and new unit cases assert
-   `renderThinkingLevel ThinkingXHigh == "xhigh"`, `renderThinkingLevel ThinkingMax == "max"`,
-   and `thinkingTokenBudget ThinkingMax == 32768`.
+1. `ThinkingLevel` has six constructors and every source and test mapping is total:
+   `cabal build all` emits no incomplete-pattern warning, and table-driven core tests assert
+   every canonical rendering and budget, including `ThinkingXHigh -> 24576` and
+   `ThinkingMax -> 32768`.
 
-2. API clamps hold: a Chat-Completions request shaped with `ThinkingMax` sends
-   `reasoning_effort = high` (via `toReasoningEffort`/`effort`), and the Anthropic adaptive
-   path treats `ThinkingXHigh`/`ThinkingMax` like `ThinkingHigh`.
+2. Native API intent survives dependency limitations: an OpenAI request shaped with
+   `ThinkingXHigh`/`ThinkingMax` has final JSON `reasoning_effort = "xhigh"` / `"max"`, while
+   a covered compatible host clamps those values to `"high"`. An Anthropic adaptive request
+   has `output_config.effort = "xhigh"` / `"max"`; a manual-thinking request with
+   `ThinkingMax` uses a 32768-token budget and still leaves visible-output room.
 
-3. Interactive translation holds (pure, no live session): with `effort = Just ThinkingHigh`,
-   `claudeInteractiveCommand` argv contains `["--effort","high"]`; with
-   `effort = Just ThinkingMinimal` it contains `["--effort","low"]`; with `effort = Nothing`
-   the argv is byte-identical to the pre-change output. With `effort = Just ThinkingMax`,
-   `codexInteractiveCommand` argv contains `["-c","model_reasoning_effort=max"]`; with
-   `effort = Nothing` it omits the flag.
+3. Interactive translation holds through exact pure tests for all six levels. Claude maps
+   only `ThinkingMinimal` upward to `low`; Codex uses each canonical value. With
+   `effort = Nothing`, both complete argvs are byte-identical to their pre-change expected
+   lists.
 
 4. Backward compatibility: `interactiveLaunchRequest "x"` still has every prior default, plus
    `effort = Nothing` (asserted in `requestDefaultTest`). Callers that never set `effort`
    observe no argv change.
 
-5. `cabal build all` and `cabal test all` are green; docs and per-package CHANGELOGs describe
-   the change; the versioning follow-up is recorded in Progress.
+5. `docs/user/interactive-launches.md` and the root `CHANGELOG.md` describe the change;
+   `docs/masterplans/3-interactive-cli-launches-and-agent-asset-layouts.md` registers EP-4 as
+   complete; the coordinated release follow-up covers every internal dependent.
+
+6. `nix fmt`, `git diff --check`, `cabal build all`, the key-scrubbed `cabal test all`, and
+   `nix flake check` succeed. No authenticated provider request or interactive launch is part
+   of acceptance.
 
 
 ## Idempotence and Recovery
 
-All edits are additive and re-runnable; building/testing has no side effects. The `cabal
-repl` checks are read-only. No authenticated session is required for any acceptance step —
-the argv builders are pure. If a milestone is committed independently, the build stays green
-because the field defaults to `Nothing` and the mappings stay total. To roll back, revert the
-milestone's commit; earlier milestones remain valid because Milestone 2 only *reads* the new
-`ThinkingLevel` constructors added in Milestone 1.
+All source edits are additive and the commands are safe to repeat. Cabal and Nix may refresh
+local build caches, and `nix fmt` may rewrite formatting, but no acceptance command contacts
+an AI provider or changes remote state. The `cabal repl` checks and argv builders are pure.
+If a milestone is committed independently, the build stays green because the field defaults
+to `Nothing` and every new constructor match is added in Milestone 1. To roll back, revert
+the milestone's commit; earlier milestones remain valid because Milestone 2 only reads the
+constructors introduced in Milestone 1.
 
 The version bump / release is deliberately deferred to the release skill; until it runs, the
 in-tree change is complete and testable but unreleased, so no downstream package is affected.
@@ -634,9 +871,12 @@ in-tree change is complete and testable but unreleased, so no downstream package
 
 ## Interfaces and Dependencies
 
-No new external dependencies. The upstream `openai` Haskell SDK enum
-`OpenAI.V1.Chat.Completions.ReasoningEffort` (`_Minimal | _Low | _Medium | _High`) is the
-reason the OpenAI API path clamps; no SDK change is needed.
+No new external dependencies. Hackage's current `openai-2.5.3` still has the
+`OpenAI.V1.Chat.Completions.ReasoningEffort` constructors `_Minimal | _Low | _Medium |
+_High`; Baikai clamps only the typed staging request, then restores canonical higher values
+in the raw JSON body that its streaming HTTP transport actually sends. Hackage's current
+`claude-1.4.0` already exposes `OutputConfig.effort :: Maybe Text`, so no dependency upgrade
+is needed there either.
 
 Interfaces at completion:
 
@@ -657,8 +897,25 @@ Interfaces at completion:
   canonical name).
 - `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`: `codexInteractiveCommand` emits
   `["-c", "model_reasoning_effort=<value>"]` when `effort` is set (canonical name).
+- `baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs`: native OpenAI JSON carries the
+  canonical value; DeepSeek/OpenRouter/Together compatibility JSON clamps the two new levels
+  to `high`.
+- `baikai-claude/src/Baikai/Provider/Claude/Internal/Request.hs`: adaptive requests carry
+  explicit `xhigh`/`max`; manual-thinking requests use the extended fixed token budgets.
 
-Downstream impact: `baikai`, `baikai-claude`, `baikai-openai` need coordinated PVP-major
-version bumps (see Milestone 3) handled by `.claude/skills/release`. Seihou (a consumer)
-will then widen its `baikai*` bounds and may set `effort` on the interactive requests it
-builds in `Seihou.CLI.AgentLaunchExec`.
+Downstream impact: `baikai` needs a PVP-major release; all five publishable dependents need
+new releases because their core bound changes, with feature-minor releases appropriate for
+`baikai-claude` and `baikai-openai` and at least patches for bound-only packages. The exact
+release operation belongs to `agents/skills/release/SKILL.md`. Seihou will then update its
+`baikai*` Cabal bounds and Nix pins and may set `effort` on requests built in
+`Seihou.CLI.AgentLaunchExec`.
+
+
+## Revision Note
+
+2026-07-20: Validated the draft against the current codebase, Mori-located dependency
+sources, current Hackage releases, installed CLI help, official provider documentation, the
+repository release workflow, and the parent MasterPlan. Revised the API work so native
+OpenAI and Anthropic requests preserve `xhigh`/`max`; added missing test-module and exhaustive
+test coverage; corrected the single-changelog and six-package release workflow; scoped
+provider-only `none`/`ultra`; added parent-plan synchronization and full repository gates.

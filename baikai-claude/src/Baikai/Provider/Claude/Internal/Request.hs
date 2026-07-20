@@ -184,6 +184,8 @@ adaptiveEffort = \case
   ThinkingLow -> Just "low"
   ThinkingMedium -> Just "medium"
   ThinkingHigh -> Nothing
+  ThinkingXHigh -> Just "xhigh"
+  ThinkingMax -> Just "max"
 
 -- | Map a baikai 'Tool.Tool' into the upstream Anthropic
 -- 'ClaudeTool.ToolDefinition'. The SDK helper is used to populate

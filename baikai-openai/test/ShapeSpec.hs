@@ -31,6 +31,8 @@ tests =
   testGroup
     "ShapeSpec"
     [ deepseekShapeTest,
+      nativeHigherEffortTests,
+      compatibleHigherEffortClampTest,
       openRouterCacheControlTest,
       strictModeGateTest,
       usageStreamingGateTest,
@@ -50,6 +52,33 @@ deepseekShapeTest =
     lookupTop "max_tokens" value @?= Just (Number 8192)
     lookupTop "thinking" value
       @?= Just (Aeson.object ["type" .= ("enabled" :: Text.Text)])
+    lookupTop "reasoning_effort" value @?= Just (String "high")
+
+nativeHigherEffortTests :: TestTree
+nativeHigherEffortTests =
+  testGroup
+    "native OpenAI higher reasoning effort"
+    [ testCase name $ do
+        value <-
+          shapedBody
+            Models.openai_gpt_5_6_terra
+            (emptyOptions & #thinking .~ Just level)
+            emptyContext
+        lookupTop "reasoning_effort" value @?= Just (String expected)
+    | (name, level, expected) <-
+        [ ("xhigh survives SDK staging", ThinkingXHigh, "xhigh"),
+          ("max survives SDK staging", ThinkingMax, "max")
+        ]
+    ]
+
+compatibleHigherEffortClampTest :: TestTree
+compatibleHigherEffortClampTest =
+  testCase "OpenAI-compatible higher reasoning effort clamps to high" $ do
+    value <-
+      shapedBody
+        Models.deepseek_deepseek_chat
+        (emptyOptions & #thinking .~ Just ThinkingMax)
+        emptyContext
     lookupTop "reasoning_effort" value @?= Just (String "high")
 
 openRouterCacheControlTest :: TestTree

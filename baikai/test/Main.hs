@@ -27,6 +27,7 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Test.Tasty.QuickCheck (Gen)
 import Test.Tasty.QuickCheck qualified as QC
+import ThinkingLevelSpec qualified
 import TraceSpec qualified
 import UsageSpec qualified
 
@@ -101,6 +102,7 @@ main = do
         InteractiveSpec.tests,
         StreamSpec.tests,
         SurfaceSpec.tests,
+        ThinkingLevelSpec.tests,
         TraceSpec.tests,
         UsageSpec.tests
       ]

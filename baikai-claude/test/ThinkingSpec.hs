@@ -23,6 +23,8 @@ tests =
   testGroup
     "ThinkingSpec"
     [ testGroup "mapRequest max_tokens" (neverExceedsCapTests <> styleTests),
+      adaptiveHigherEffortTests,
+      maxBudgetTest,
       explicitMaxTokensTest,
       handRolledUnclampedTest,
       tooSmallCapDropsThinkingTest,
@@ -48,7 +50,9 @@ thinkingLevels =
   [ ("minimal", ThinkingMinimal),
     ("low", ThinkingLow),
     ("medium", ThinkingMedium),
-    ("high", ThinkingHigh)
+    ("high", ThinkingHigh),
+    ("xhigh", ThinkingXHigh),
+    ("max", ThinkingMax)
   ]
 
 neverExceedsCapTests :: [TestTree]
@@ -81,6 +85,36 @@ styleTests =
   | (name, model, style) <- anthropicModels,
     (levelName, level) <- thinkingLevels
   ]
+
+adaptiveHigherEffortTests :: TestTree
+adaptiveHigherEffortTests =
+  testGroup
+    "adaptive higher effort"
+    [ testCase name $ do
+        req <-
+          requestFor
+            anthropic_claude_opus_4_7
+            (emptyOptions & #thinking .~ Just level)
+        requestThinking req @?= Just Messages.ThinkingAdaptive
+        (Messages.output_config req >>= Messages.effort) @?= Just expected
+    | (name, level, expected) <-
+        [ ("xhigh is preserved", ThinkingXHigh, "xhigh"),
+          ("max is preserved", ThinkingMax, "max")
+        ]
+    ]
+
+maxBudgetTest :: TestTree
+maxBudgetTest =
+  testCase "manual max effort uses 32768 tokens with visible-output room" $ do
+    req <-
+      requestFor
+        anthropic_claude_haiku_4_5
+        (emptyOptions & #thinking .~ Just ThinkingMax)
+    requestThinking req
+      @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = 32768}
+    assertBool
+      "max_tokens leaves visible-output room beyond the max thinking budget"
+      (Messages.max_tokens req > 32768)
 
 explicitMaxTokensTest :: TestTree
 explicitMaxTokensTest =
@@ -167,6 +201,8 @@ adaptiveEffort = \case
   ThinkingLow -> Just "low"
   ThinkingMedium -> Just "medium"
   ThinkingHigh -> Nothing
+  ThinkingXHigh -> Just "xhigh"
+  ThinkingMax -> Just "max"
 
 streamFidelityTests :: TestTree
 streamFidelityTests =

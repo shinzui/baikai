@@ -151,6 +151,7 @@ test-suite baikai-test
     InteractiveSpec
     StreamSpec
     SurfaceSpec
+    ThinkingLevelSpec
     TraceSpec
     UsageSpec
 

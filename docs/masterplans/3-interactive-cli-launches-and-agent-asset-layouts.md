@@ -21,14 +21,14 @@ Callers such as Seihou can ask Baikai to launch an interactive provider with a r
 
 The initiative also adds provider-native agent asset layout helpers. A kit installer remains a filesystem command in the consuming project, but it can ask Baikai where Claude Code and Codex expect skills and custom agents to live. This makes the provider discovery rules reusable across projects without turning Baikai into a kit package manager.
 
-In scope: a core interactive request/result model in `baikai`, Claude Code and Codex launch implementations in `baikai-claude` and `baikai-openai`, agent asset layout helpers in `baikai`, user documentation, tests, and smoke checks that do not require an authenticated interactive session unless explicitly marked live.
+In scope: a core interactive request/result model in `baikai`, Claude Code and Codex launch implementations in `baikai-claude` and `baikai-openai`, agent asset layout helpers in `baikai`, provider-neutral reasoning-effort control for interactive launches, user documentation, tests, and smoke checks that do not require an authenticated interactive session unless explicitly marked live.
 
 Out of scope: replacing `completeRequest` with an interactive session API, implementing a long-running programmatic conversation protocol, managing kit repository manifests, installing files into a user's project, or proving that a non-debug Codex session loaded a project skill in automated tests.
 
 
 ## Decomposition Strategy
 
-The work is decomposed by functional concern. EP-1 defines the core vocabulary: what an interactive launch request is, what options can be expressed provider-neutrally, what result is returned, and which provider-specific settings are represented without depending on vendor packages. EP-2 implements the vendor-specific launchers against that vocabulary. EP-3 adds reusable provider asset layout helpers and documentation for kit installers.
+The work is decomposed by functional concern. EP-1 defines the core vocabulary: what an interactive launch request is, what options can be expressed provider-neutrally, what result is returned, and which provider-specific settings are represented without depending on vendor packages. EP-2 implements the vendor-specific launchers against that vocabulary. EP-3 adds reusable provider asset layout helpers and documentation for kit installers. EP-4 is a follow-up that extends the established core request and both launchers with a shared reasoning-effort setting while preserving provider-specific command-line translation at the vendor boundary.
 
 This split keeps the existing completion registry stable. The current CLI provider modules deliberately wrap `claude -p` and `codex exec` as batch providers. Changing those modules to mean "interactive session" would silently change existing semantics and break users who rely on `Response` values and synthetic streams. A sibling abstraction lets Baikai support both use cases honestly.
 
@@ -42,6 +42,7 @@ Alternatives considered and rejected: extending `ApiProvider` with an optional i
 | EP-1 | Add interactive launch core abstraction | docs/plans/13-add-interactive-launch-core-abstraction.md | None | None | Complete |
 | EP-2 | Implement Claude and Codex interactive launchers | docs/plans/14-implement-claude-and-codex-interactive-launchers.md | EP-1 | None | Complete |
 | EP-3 | Add agent asset layout helpers for kits | docs/plans/15-add-agent-asset-layout-helpers-for-kits.md | EP-1 | EP-2 | Complete |
+| EP-4 | Add reasoning-effort control to interactive CLI launches | docs/plans/44-add-reasoning-effort-control-to-interactive-cli-launches.md | EP-2 | None | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -55,7 +56,7 @@ EP-2 hard-depends on EP-1 because the Claude and Codex launchers should implemen
 
 EP-3 hard-depends on EP-1 because provider identity and scope terminology should be shared with the interactive surface. EP-3 has a soft dependency on EP-2 because the final documentation is clearer once the concrete launchers exist, but most of the path helper work can proceed after EP-1.
 
-The recommended implementation order is EP-1, then EP-2, then EP-3. If multiple contributors are involved, EP-3 can begin after EP-1 with a note to reconcile documentation examples once EP-2 finalizes launcher names.
+EP-4 hard-depends on EP-2 because it extends the request and pure command builders delivered by EP-1 and EP-2. Its dependency is already satisfied. The recommended implementation order for the original work was EP-1, then EP-2, then EP-3; the later EP-4 follow-up can proceed independently now that all three are complete.
 
 
 ## Integration Points
@@ -65,6 +66,8 @@ The recommended implementation order is EP-1, then EP-2, then EP-3. If multiple 
 `Baikai.Provider.Claude.Interactive` is owned by EP-2 in `baikai-claude`. It should expose Claude-specific configuration and a launcher function that consumes the EP-1 request type. It must not replace `Baikai.Provider.Claude.Cli`, which remains the `claude -p` batch provider.
 
 `Baikai.Provider.OpenAI.Interactive` or `Baikai.Provider.Codex.Interactive` is owned by EP-2 in `baikai-openai`. The module name should be chosen during implementation and recorded in the child plan. It must not replace `Baikai.Provider.OpenAI.Cli`, which remains the `codex exec` batch provider.
+
+`Baikai.ThinkingLevel` and the `InteractiveLaunchRequest` fields in `baikai/src/Baikai/Interactive.hs` are extended by EP-4. EP-4 also updates the Claude and OpenAI interactive modules owned by EP-2 so each translates the shared effort setting into its own CLI syntax. The batch/API request shapers consume the same six-level vocabulary and must preserve native higher effort values while keeping compatibility clamps explicit.
 
 `baikai/src/Baikai/AgentAssets.hs` is owned by EP-3. It should expose provider-native layout helpers for skills and agents. Consumers such as Seihou can use these helpers in their kit installer, but Baikai should not own copying, updating, or deleting kit files.
 
@@ -82,6 +85,7 @@ Documentation is shared across all three plans. EP-1 should document the concept
 - [x] EP-3: Add provider-native skill and custom-agent layout helpers for Claude Code and Codex.
 - [x] EP-3: Document how kit installers should consume layout helpers while retaining ownership of filesystem lifecycle.
 - [x] EP-3: Add tests for all user/project layout paths and Codex custom-agent TOML generation if that helper is included.
+- [ ] EP-4: Add six-level reasoning-effort control to the shared request, API mappings, and both interactive launchers; document and validate the coordinated change.
 
 
 ## Surprises & Discoveries
@@ -103,6 +107,8 @@ interactions between child plans. Provide concise evidence.
 
 - Provider documentation confirmed the path split used by EP-3. Evidence: Codex skills use `.agents/skills` and `$HOME/.agents/skills`, while Codex custom agents use `.codex/agents` and `$HOME/.codex/agents`; Claude Code uses `.claude/skills` and `.claude/agents`.
 
+- The completed initiative needed to reopen for EP-4 because downstream interactive-launch consumers require deterministic reasoning-effort selection, while the original request exposed model selection but only raw vendor-specific `extraArgs` for effort. Evidence: `docs/plans/44-add-reasoning-effort-control-to-interactive-cli-launches.md` defines the shared field and both pure argv translations.
+
 
 ## Decision Log
 
@@ -118,10 +124,14 @@ interactions between child plans. Provide concise evidence.
   Rationale: The existing package split keeps provider-specific dependencies outside the core package. Core should define shared request and layout vocabulary; vendor packages should own command-line flags for their tools.
   Date: 2026-05-24
 
+- Decision: Reopen the initiative and register reasoning-effort control as EP-4, hard-dependent on the completed EP-2.
+  Rationale: The follow-up extends the exact shared request and vendor launchers established here, so keeping it under this MasterPlan preserves ownership and integration history rather than treating the feature as unrelated work.
+  Date: 2026-07-20
+
 
 ## Outcomes & Retrospective
 
-The initiative is complete. Baikai now has a provider-neutral interactive launch vocabulary in `Baikai.Interactive`, vendor interactive launchers in `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive`, and provider-native asset layout helpers in `Baikai.AgentAssets`.
+The original three-plan initiative completed with a provider-neutral interactive launch vocabulary in `Baikai.Interactive`, vendor interactive launchers in `Baikai.Provider.Claude.Interactive` and `Baikai.Provider.OpenAI.Interactive`, and provider-native asset layout helpers in `Baikai.AgentAssets`. The initiative is temporarily reopened while EP-4 adds reasoning-effort control to that surface.
 
 The existing batch completion registry remains intact. `Baikai.Provider.Claude.Cli` still drives `claude -p` through `completeRequest` / `streamRequest`, and `Baikai.Provider.OpenAI.Cli` still drives `codex exec`. The new interactive launch modules start real terminal sessions and return an `InteractiveLaunchResult` after the CLI exits.
 
@@ -133,3 +143,5 @@ Asset layout support stayed intentionally pure. Baikai computes and documents wh
 2026-05-24: Marked EP-2 complete after adding vendor interactive launchers, command-construction tests, smoke help checks, and interactive launch documentation. Recorded the Codex system-prompt flag discovery because EP-3 documentation should preserve that distinction.
 
 2026-05-24: Marked EP-3 complete after adding `Baikai.AgentAssets`, path and TOML tests, and asset-layout documentation. Filled the MasterPlan retrospective because all child plans are complete.
+
+2026-07-20: Reopened the initiative to register EP-4, a follow-up that adds provider-neutral reasoning-effort control to the shared interactive request and both vendor launchers.

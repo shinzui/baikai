@@ -127,6 +127,10 @@ toReasoningEffort = \case
   ThinkingLow -> Chat.ReasoningEffort_Low
   ThinkingMedium -> Chat.ReasoningEffort_Medium
   ThinkingHigh -> Chat.ReasoningEffort_High
+  -- The SDK enum stops at High. Shape.injectThinkingShape restores
+  -- the canonical xhigh/max string in the serialized native OpenAI body.
+  ThinkingXHigh -> Chat.ReasoningEffort_High
+  ThinkingMax -> Chat.ReasoningEffort_High
 
 -- | Map a baikai 'Tool.Tool' into the upstream OpenAI 'Tool_Function'
 -- shape. The compat record's 'supportsStrictMode' flag controls
