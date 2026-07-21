@@ -7,6 +7,36 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.4.1.0] - 2026-07-20
+
+### Changed
+
+- Version bump only; no library API or code changes. Released so the umbrella
+  release tag `baikai-0.4.1.0` names a fresh core version alongside the breaking
+  `baikai-claude` / `baikai-openai` 0.4.0.0 releases, matching the tag
+  convention downstream consumers pin against.
+
+## [baikai-claude 0.4.0.0] - 2026-07-20
+
+### Changed
+
+- **Breaking:** `claudeCliCommand` now takes the `Options` record and forwards
+  `Options.thinking` to batch `claude -p` as `--effort <level>` (`minimal`
+  collapses to `low`, matching the interactive launcher and the claude CLI's
+  lack of a `minimal` value). `thinking = Nothing` emits no effort flag, keeping
+  existing argv byte-for-byte. The added parameter is a PVP-major signature
+  change.
+
+## [baikai-openai 0.4.0.0] - 2026-07-20
+
+### Changed
+
+- **Breaking:** `codexCliCommand` now takes the `Options` record and forwards
+  `Options.thinking` to `codex exec` as `-c model_reasoning_effort=<level>` for
+  all six effort levels. `thinking = Nothing` emits no override, keeping
+  existing argv byte-for-byte. The added parameter is a PVP-major signature
+  change.
+
 ## [baikai 0.4.0.0] - 2026-07-20
 
 ### Added
