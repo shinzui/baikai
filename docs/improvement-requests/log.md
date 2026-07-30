@@ -2,6 +2,9 @@
 
 ## 2026-07-30
 
+* **Addition**: IR-2 requests the planned MCP client, tool, and authentication contracts as a
+  coherent public release for Shikumi and Shikigami.
+
 * **Review**: IR-1 records an Anthropic Claude review with claude-opus-5 after in-repository
   verification against Baikai's three coding-agent surfaces, the cradle and settei dependency
   sources, and installed Claude Code 2.1.220 and codex-cli 0.146.0 help output. Approved with
