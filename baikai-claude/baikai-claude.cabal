@@ -51,7 +51,7 @@ library
     , claude             ^>=1.4
     , containers         ^>=0.7
     , cradle             ^>=0.0
-    , crypton            ^>=1.0
+    , crypton            >=1.0    && <1.2
     , generic-lens       ^>=2.3
     , http-client        ^>=0.7
     , http-client-tls    ^>=0.3
