@@ -7,6 +7,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai-claude 0.4.0.1] - 2026-07-30
+
+### Fixed
+
+- Widened the `crypton` bound from `^>=1.0` to `>=1.0 && <1.2` so consumers can
+  build `baikai-claude` alongside packages that require `crypton` 1.1.x (for
+  example `pg-migrate-1.1.0.0`), which previously had no solvable build plan.
+  The only `crypton` use is `Crypto.Hash` (`Digest`, `SHA256`) in
+  `Baikai.Provider.Claude.Transport`, whose API is identical across the 1.0/1.1
+  boundary. No API change.
+
 ## [baikai 0.4.1.0] - 2026-07-20
 
 ### Changed
