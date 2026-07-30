@@ -6,17 +6,51 @@ timestamp: "2026-07-29T20:38:55Z"
 requestId: IR-1
 status: proposed
 origin: mori://shinzui/keiro-syntax
-reviews: []
+reviews:
+  - kind: model
+    reviewer: claude
+    reviewed_at: 2026-07-30T05:14:54Z
+    document_timestamp: 2026-07-29T20:38:55Z
+    scope: technical-accuracy
+    outcome: approved
+    provider: anthropic
+    model: claude-opus-5
+    context: >-
+      In-repository review at mori://shinzui/baikai against the batch, interactive, and
+      agent-asset surfaces, the cradle dependency source, the settei package family, and the
+      installed Claude Code 2.1.220 and codex-cli 0.146.0 help output. The central request is
+      sound and the abstraction belongs in Baikai. Four corrections were carried into the
+      accepted design: codex exec exposes no --ask-for-approval flag, so approval policy is not
+      part of the shared unattended vocabulary; the illustrative AgentRunResult ByteString
+      output fields cannot represent the inherited output mode the same request allows; --add-dir
+      grants tool access on Claude Code but write access on codex exec, so extraDirs is not
+      fully provider-neutral; and the existing interactive launchers already violate the
+      fail-visibly safety requirement this request introduces, which the design repairs rather
+      than documents. The accepted design is
+      docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md.
 ---
 
 # Improvement Request: Add a configurable CLI for unattended coding-agent runs
 
 ## Status
 
-- **Status:** proposed
+- **Status:** proposed, reviewed and accepted for build
 - **Origin:** `shinzui/keiro-syntax`, whose `scripts/sync-keiro-dsl.sh` currently embeds a direct `claude -p` invocation
 - **Owner of the build:** `shinzui/baikai`
 - **Size:** additive but architectural: one unattended-agent request/result contract, vendor renderers, a configuration layer, and a companion executable
+- **Accepted design:** `docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md`, which decomposes the build into six ExecPlans (`docs/plans/45` through `docs/plans/50`)
+
+The review recorded in this document's frontmatter approves the request and corrects four
+factual points in it. Where this document and the MasterPlan disagree, the MasterPlan wins; its
+Decision Log records why. The corrections: `codex exec` exposes no `--ask-for-approval` flag, so
+approval policy is not part of the shared unattended vocabulary and any approval intent travels
+as an explicit provider argument; the illustrative `AgentRunResult` `ByteString` output fields
+cannot represent the inherited output mode this document also asks for, so the accepted design
+models captured output as a three-state value; `--add-dir` grants tool access on Claude Code but
+write access on `codex exec`, so `extraDirs` carries provider-dependent authority; and the
+existing interactive launchers already violate the fail-visibly safety requirement introduced
+here, which the accepted design repairs — knowingly relaxing acceptance criterion 7 for those
+two launchers, at the cost of a major version bump on both provider packages.
 
 ## Problem
 
