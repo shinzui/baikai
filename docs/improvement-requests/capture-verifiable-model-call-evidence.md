@@ -5,7 +5,7 @@ description: Record the requested and provider-observed model, effective thinkin
 timestamp: "2026-08-02T18:29:04Z"
 requestId: IR-3
 status: proposed
-origin: mori://shinzui/kikan/okf/use-cases/concepts/UC-8
+origin: mori://shinzui/kikan
 ---
 
 # Improvement Request: capture verifiable model-call evidence at the provider boundary
