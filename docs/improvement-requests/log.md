@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-08-02
+
+* **Addition**: IR-3 requests provider-boundary model-call evidence for sanctioned agent-run
+  attestations in `mori://shinzui/kikan/okf/use-cases/concepts/UC-8`.
+
 ## 2026-07-30
 
 * **Addition**: IR-2 requests the planned MCP client, tool, and authentication contracts as a

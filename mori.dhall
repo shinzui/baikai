@@ -151,4 +151,13 @@ in  Schema.Project::{
         , location = Schema.DocLocation.LocalFile "docs/user/prompt-caching.md"
         }
       ]
+    , okfBundles =
+      [ Schema.OkfBundle::{
+        , name = "improvement-requests"
+        , path = "docs/improvement-requests"
+        , profile = Some "mori/improvement-requests-profile.dhall"
+        , okfVersion = "0.1"
+        , description = Some "Baikai-owned improvement requests"
+        }
+      ]
     }
