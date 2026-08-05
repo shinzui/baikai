@@ -169,10 +169,19 @@ violationRenderingTest =
     assertBool
       ("expected the permitted maximum in: " <> Text.unpack message)
       ("edit-workspace" `Text.isInfixOf` message)
-    let argsMessage = renderCeilingViolation (ProviderArgsForbidden ["--skip"])
+    -- Raw provider arguments are the one part of a job description an
+    -- operator could write a credential into, so the refusal says how
+    -- many were requested and never what they were. Asserting the
+    -- absence is the point: a "helpful" edit that quoted them would
+    -- defeat the secret classification the configuration layer applies.
+    let argsMessage =
+          renderCeilingViolation (ProviderArgsForbidden ["--api-key", "sk-not-a-real-key"])
     assertBool
-      ("expected the offending argument in: " <> Text.unpack argsMessage)
-      ("--skip" `Text.isInfixOf` argsMessage)
+      ("expected the count in: " <> Text.unpack argsMessage)
+      ("2" `Text.isInfixOf` argsMessage)
+    assertBool
+      ("expected no argument value in: " <> Text.unpack argsMessage)
+      (not ("sk-not-a-real-key" `Text.isInfixOf` argsMessage))
     let providerMessage = renderCeilingViolation (ProviderForbidden AgentCodex [AgentClaude])
     assertBool
       ("expected both providers in: " <> Text.unpack providerMessage)

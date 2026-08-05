@@ -13,6 +13,7 @@ import Baikai.Agent
     capturedBytes,
   )
 import Baikai.Agent.Run (runAgentCommand, timeoutMicros)
+import CliTests (cliTests)
 import ConfigTests (configTests)
 import Control.Concurrent (threadDelay)
 import Control.Lens ((&), (.~), (^.))
@@ -40,7 +41,8 @@ main =
     testGroup
       "baikai-agent"
       [ runTests,
-        configTests
+        configTests,
+        cliTests
       ]
 
 runTests :: TestTree

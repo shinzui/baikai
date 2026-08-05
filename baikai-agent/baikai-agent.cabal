@@ -89,7 +89,9 @@ test-suite baikai-agent-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Main.hs
-  other-modules:  ConfigTests
+  other-modules:
+    CliTests
+    ConfigTests
 
   -- -threaded is not optional here: the runner forks threads to drain
   -- pipes and relies on System.Timeout interrupting a blocking wait.

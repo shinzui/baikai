@@ -672,9 +672,19 @@ explain options jobName staged =
     -- for a configured value.
     placeholder = "<prompt supplied at run time>"
     request = agentJobRequest (staged ^. #job) placeholder
+    -- The argument vector is printed, so it must not carry the one
+    -- setting that can hold a credential. The ceiling is checked against
+    -- the real request; only the request the display is rendered from
+    -- has its raw provider arguments replaced, so each one still shows
+    -- in its true position without showing its value.
+    displayRequest =
+      request
+        & #safety
+          . #providerArgs
+          .~ ["<redacted>" | _ <- staged ^. #job . #providerArgs]
     rendered = do
-      permitted <- applyCeilingToJob (staged ^. #ceiling) request
-      renderJobCommand (staged ^. #job) permitted
+      _ <- applyCeilingToJob (staged ^. #ceiling) request
+      renderJobCommand (staged ^. #job) displayRequest
     textSections =
       "job \""
         <> jobName

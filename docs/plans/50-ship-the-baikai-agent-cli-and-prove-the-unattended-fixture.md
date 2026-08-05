@@ -75,7 +75,8 @@ This section must always reflect the actual current state of the work.
 - [x] Milestone 3 (2026-08-05): Implement `agent show` and `agent list`.
 - [x] Milestone 4 (2026-08-05): Implement `agent run`, including prompt sources, exit codes, and
       stream discipline.
-- [ ] Milestone 5: Build the end-to-end fixture test against a fake `claude` executable.
+- [x] Milestone 5 (2026-08-05): Build the end-to-end fixture test against a fake `claude`
+      executable.
 - [ ] Milestone 6: Write `docs/user/unattended-agent-runs.md`, cross-link the other two surfaces,
       and write the consumer migration guide.
 - [ ] Milestone 7: Coordinate the release, update the improvement request's status, and run the full
@@ -116,6 +117,30 @@ implementation. Provide concise evidence.
   `scopeOverride` pattern-matches `RawText` and passes any other shape through unchanged rather than
   rendering it. The other shapes are unreachable — `cliOverride` only ever builds a `RawText` — but
   the compiler cannot know that, and "just `show` it" is not available on purpose.
+
+- Discovery (2026-08-05): **the raw provider arguments leaked through two paths that only became
+  reachable once a command printed something.** EP-5 classifies `safety.provider-args` secret so it
+  cannot enter a resolution report "or a structured error", and its own tests prove the report side.
+  Two places defeated that:
+
+  1. `renderCeilingViolation (ProviderArgsForbidden args)` in `baikai/src/Baikai/Agent.hs`
+     interpolated the arguments verbatim — `"raw provider arguments are not permitted: " <>
+     Text.unwords args` — so a job whose operator wrote `provider-args "--api-key" "sk-…"` under a
+     ceiling that forbids them printed the key in its refusal message. The renderer now reports how
+     many were requested and states that their values are not shown; the constructor keeps its
+     `[Text]` payload so a programmatic caller can still inspect it, with a Haddock note saying not
+     to render it. `baikai/test/AgentSpec.hs` now asserts the *absence* of the value rather than its
+     presence, which is the assertion that would have caught this.
+
+  2. `agent show` prints the rendered argument vector, and both vendor renderers append the raw
+     provider arguments to it verbatim. Redacting after the fact would have meant guessing which
+     trailing elements to drop; instead `show` renders the display vector from a request whose
+     `safety.providerArgs` have been replaced by `<redacted>` markers, so each argument still
+     appears in its true position without its value. The ceiling check runs against the real
+     request, not the redacted one.
+
+  Consequence for the MasterPlan: this is the only change this plan made to a file EP-1 owns, and it
+  changed a rendering rather than a type.
 
 - Discovery (2026-08-05): EP-5's note that the command-line spelling is
   `--set jobs.<name>.extra-dirs=/one` is **superseded at the command-line layer**. `--set` keys are
@@ -244,6 +269,16 @@ Record every decision made while working on the plan.
   that envelope keeps the invariant that with `--json` standard output is one JSON value, rather than
   a JSON object concatenated with raw agent bytes. `aeson` was rejected because the package needs
   three shapes (object, array, string) and would otherwise not depend on it at all.
+  Date: 2026-08-05
+
+- Decision: The fixture test takes its prompt from a `PromptFile`, and the standard-input transport
+  is covered by a separate narrow test that duplicates the real `stdin` handle onto a file and
+  restores it.
+  Rationale: the plan offered two options and asked for one to be recorded. Passing the prompt
+  reader into `runAgentCli` as a parameter would put a function in the signature of the surface
+  every consumer calls, purely for testing. Redirecting the real handle keeps `runAgentCli`'s
+  signature honest and still exercises the actual `BS.hGetContents stdin` path rather than a
+  stand-in; `hDuplicate`/`hDuplicateTo` restore the original handle, so no other test is affected.
   Date: 2026-08-05
 
 - Decision: Milestones 1 through 4 were implemented and committed together.

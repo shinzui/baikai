@@ -331,6 +331,15 @@ data CeilingViolation
     CapabilityExceeded !AgentCapability !AgentCapability
   | -- | The raw provider arguments that were requested while the
     -- channel is closed, in the order given.
+    --
+    -- __Do not render these values.__ This is the one field of a job
+    -- description an operator could write a credential into, which is
+    -- why the configuration layer classifies it secret; a refusal
+    -- message that quoted them would defeat that classification, so
+    -- 'renderCeilingViolation' reports how many were requested and not
+    -- what they were. The list is retained rather than reduced to a
+    -- count because a programmatic caller may legitimately need to
+    -- inspect it.
     ProviderArgsForbidden ![Text]
   | -- | The requested provider, then the permitted providers.
     ProviderForbidden !AgentProvider ![AgentProvider]
@@ -345,7 +354,9 @@ renderCeilingViolation (CapabilityExceeded requested permitted) =
     <> " exceeds the permitted maximum "
     <> renderAgentCapability permitted
 renderCeilingViolation (ProviderArgsForbidden args) =
-  "raw provider arguments are not permitted: " <> Text.unwords args
+  "raw provider arguments are not permitted; "
+    <> Text.pack (show (length args))
+    <> " requested, and their values are secret and are not shown"
 renderCeilingViolation (ProviderForbidden requested permitted) =
   "provider "
     <> renderAgentProvider requested

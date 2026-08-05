@@ -130,6 +130,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `baikai`: `renderCeilingViolation` no longer prints the raw provider arguments
+  a `ProviderArgsForbidden` violation carries. It reports how many were
+  requested and states that their values are not shown. Raw provider arguments
+  are the one part of a job description that can hold a credential — the
+  configuration layer classifies the setting secret for that reason — and a
+  refusal message that quoted them defeated the classification. The constructor
+  keeps its `[Text]` payload so a programmatic caller can still inspect it.
+
 - **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns
   `Either AgentRenderError (FilePath, [String])` and `launchClaudeInteractive`
   returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
