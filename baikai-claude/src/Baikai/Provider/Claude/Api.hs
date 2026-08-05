@@ -51,6 +51,7 @@ import Baikai.Provider.Claude.Internal.ErrorClass (classifyErrorValue, classifyE
 import Baikai.Provider.Claude.Internal.Request (mapRequest)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
 import Baikai.Provider.Claude.Sse (claudeSseStreamValueWithHeaders)
+import Baikai.Provider.Claude.Sse qualified as Sse
 import Baikai.Provider.Claude.Transport qualified as Transport
 import Baikai.Provider.Registry
   ( ApiProvider (..),
@@ -80,6 +81,7 @@ import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
+import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
@@ -147,7 +149,8 @@ claudeMessagesStream m ctx opts =
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)))
         tref <- newIORef False
-        _ <- forkIO (worker call ch)
+        mref <- newIORef Nothing
+        _ <- forkIO (worker call mref ch)
         startTime <- getCurrentTime
         -- The request body is the envelope the two digests commit to:
         -- it is exactly the JSON this call is about to put on the wire.
@@ -168,6 +171,7 @@ claudeMessagesStream m ctx opts =
                   assembler = emptyAssembler m startTime,
                   finished = False,
                   terminalRef = tref,
+                  metadataRef = mref,
                   evidence = mkEvidence
                 }
         pure (Stream.unfoldrM step initialState)
@@ -221,9 +225,10 @@ prepareCall m ctx opts = do
 -- handled failure) we close the channel with 'Nothing'.
 worker ::
   ClaudeCall ->
+  IORef (Maybe Sse.ResponseMetadata) ->
   Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)) ->
   IO ()
-worker call ch = do
+worker call metaRef ch = do
   r <-
     trySync $
       Transport.runWithTimeout (call ^. #timeoutMs) $
@@ -231,6 +236,7 @@ worker call ch = do
           (call ^. #clientEnv)
           (call ^. #requestHeaders)
           (call ^. #requestBody)
+          (writeIORef metaRef . Just)
           (writeChan ch . Just)
   case r of
     Right Nothing -> pure ()
@@ -245,6 +251,11 @@ data ProducerState = ProducerState
     assembler :: !Assembler,
     finished :: !Bool,
     terminalRef :: !(IORef Bool),
+    -- | Where the worker leaves the response-level metadata it captured
+    -- before the first event. Read on this side rather than pushed
+    -- through 'chan' so the channel keeps carrying exactly one kind of
+    -- thing; 'absorbMetadata' folds it into the assembler.
+    metadataRef :: !(IORef (Maybe Sse.ResponseMetadata)),
     -- | Everything about this call's evidence that was knowable before
     -- the first byte came back, waiting on the terminal timestamp and
     -- outcome. 'Nothing' when the caller did not ask for evidence.
@@ -269,35 +280,41 @@ step s
   | s ^. #finished = pure Nothing
   | otherwise = do
       mRaw <- readChan (s ^. #chan)
+      -- After the read, because the worker writes the metadata before it
+      -- writes anything onto the channel: taking it here means every
+      -- path out of this branch — including the one where the channel
+      -- closed without ever producing an event — sees it.
+      ass0 <- absorbMetadata (s ^. #metadataRef) (s ^. #assembler)
+      let s' = s & #assembler .~ ass0
       case mRaw of
         Nothing -> do
-          alreadyTerminal <- readIORef (s ^. #terminalRef)
+          alreadyTerminal <- readIORef (s' ^. #terminalRef)
           if alreadyTerminal
             then pure Nothing
             else do
               now <- getCurrentTime
-              let (ev, ass') = unexpectedEoS now (s ^. #assembler)
-              sealed <- sealTerminal s ev
+              let (ev, ass') = unexpectedEoS now ass0
+              sealed <- sealTerminal (s' & #assembler .~ ass') ev
               pure
                 ( Just
                     ( sealed,
-                      s & #assembler .~ ass' & #finished .~ True
+                      s' & #assembler .~ ass' & #finished .~ True
                     )
                 )
         Just raw -> do
           now <- getCurrentTime
-          let (events, ass') = translate raw (s ^. #assembler) now
+          let (events, ass') = translate raw ass0 now
           case events of
-            [] -> step (s & #assembler .~ ass')
+            [] -> step (s' & #assembler .~ ass')
             (e : rest) -> do
-              sealed <- sealTerminal s e
+              sealed <- sealTerminal (s' & #assembler .~ ass') e
               pure
                 ( Just
                     ( sealed,
-                      s
+                      s'
                         & #pending .~ rest
                         & #assembler .~ ass'
-                        & #finished .~ (s ^. #finished || terminal sealed)
+                        & #finished .~ (s' ^. #finished || terminal sealed)
                     )
                 )
 
@@ -342,6 +359,37 @@ sealTerminal s ev
       EventError p -> EventError (p & #evidence .~ Just record)
       other -> other
 
+-- | Fold whatever response-level metadata the worker has captured into
+-- the assembler.
+--
+-- Idempotent: applying it again overwrites the same fields with the same
+-- values, which is what lets 'step' call it on every pass rather than
+-- tracking whether it has run.
+absorbMetadata :: IORef (Maybe Sse.ResponseMetadata) -> Assembler -> IO Assembler
+absorbMetadata ref ass = do
+  meta <- readIORef ref
+  pure $ case meta of
+    Nothing -> ass
+    Just md ->
+      ass
+        & #httpStatus .~ Just (md ^. #httpStatus)
+        & #providerRequestId .~ correlationId md
+
+-- | Anthropic's correlation identifier for this response, or a
+-- gateway's if Anthropic's own is absent.
+--
+-- The preference order is 'Sse.capturedHeaderNames' itself, so the
+-- allow-list and the preference cannot disagree. Nothing is invented:
+-- a response carrying none of those headers leaves this
+-- 'Ev.Unobserved'.
+correlationId :: Sse.ResponseMetadata -> Ev.Observed Text
+correlationId md =
+  case [v | n <- Sse.capturedHeaderNames, Just v <- [lookup (headerName n) (md ^. #headers)]] of
+    (v : _) -> Ev.Observed v
+    [] -> Ev.Unobserved
+  where
+    headerName = Text.decodeUtf8 . CI.foldedCase
+
 terminal :: AssistantMessageEvent -> Bool
 terminal = \case
   EventDone {} -> True
@@ -357,6 +405,13 @@ unexpectedEoS now ass =
    in (EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg (providerError errText)), ass)
 
 -- | Translation state across one streaming call.
+--
+-- The four fields below @stopReason@ are what this call /observed/, as
+-- distinct from what it requested. They are kept here rather than
+-- derived at the terminal because this record is the only state that
+-- survives from the first event to the last, and because an observation
+-- that never arrived must stay 'Ev.Unobserved' rather than falling back
+-- to the caller's configuration.
 data Assembler = Assembler
   { model :: !Model,
     start :: !UTCTime,
@@ -369,7 +424,22 @@ data Assembler = Assembler
     toolArgsBuf :: !(IntMap Text),
     toolMeta :: !(IntMap (Text, Text)),
     usage :: !Usage.Usage,
-    stopReason :: !Stop.StopReason
+    stopReason :: !Stop.StopReason,
+    -- | Anthropic's own correlation identifier for this call, from the
+    -- response headers.
+    providerRequestId :: !(Ev.Observed Text),
+    -- | The model identifier Anthropic reported running, from
+    -- @message_start@. Never the configured model.
+    observedModel :: !(Ev.Observed Text),
+    -- | The response's HTTP status. Recorded because the transport has
+    -- it; 'Baikai.Evidence.ModelCallEvidence' has no field for it, and
+    -- inventing one is EP-1's decision to make, not this module's.
+    httpStatus :: !(Maybe Int),
+    -- | Whether Anthropic actually reported token counts, as opposed to
+    -- 'usage' still holding the zeroes it was initialised with. Without
+    -- this a failed call would claim the provider reported consuming
+    -- nothing.
+    usageReported :: !Bool
   }
   deriving stock (Generic)
 
@@ -387,7 +457,11 @@ emptyAssembler m s =
       toolArgsBuf = IntMap.empty,
       toolMeta = IntMap.empty,
       usage = Usage.zeroUsage,
-      stopReason = Stop.Stop
+      stopReason = Stop.Stop,
+      providerRequestId = Ev.Unobserved,
+      observedModel = Ev.Unobserved,
+      httpStatus = Nothing,
+      usageReported = False
     }
 
 translate ::
@@ -410,7 +484,16 @@ translateEvent raw ass now = case raw of
   Messages.Ping -> ([], ass)
   Messages.Message_Start {Messages.message = mr} ->
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
-        ass' = ass & #responseId .~ Just (mr ^. #id) & #usage .~ usage0
+        ass' =
+          ass
+            & #responseId .~ Just (mr ^. #id)
+            -- The provider's value, never the caller's. The SDK's
+            -- @model@ field is not optional, so a @message_start@ that
+            -- arrives at all is a genuine observation; a stream that
+            -- fails before one arrives leaves this 'Ev.Unobserved'.
+            & #observedModel .~ Ev.Observed (mr ^. #model)
+            & #usage .~ usage0
+            & #usageReported .~ True
         skeleton = skeletonMessage ass' now
      in ([EventStart StartPayload {partial = skeleton, responseId = Just (mr ^. #id)}], ass')
   Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
@@ -428,7 +511,7 @@ translateEvent raw ass now = case raw of
             & #outputTokens .~ outputTokensFinal
             & #totalTokens
               .~ ((u ^. #inputTokens) + outputTokensFinal + (u ^. #cacheReadTokens) + (u ^. #cacheWriteTokens))
-     in ([], ass & #stopReason .~ stopR & #usage .~ u')
+     in ([], ass & #stopReason .~ stopR & #usage .~ u' & #usageReported .~ True)
   Messages.Message_Stop ->
     let reason = ass ^. #stopReason
         refusal = providerError "Anthropic refused to generate a response (stop_reason=refusal)"

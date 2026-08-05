@@ -11,6 +11,8 @@ module Baikai.Provider.Claude.Sse
     claudeSseStreamValue,
     claudeSseStreamValueWithHeaders,
     sseFromResponse,
+    ResponseMetadata (..),
+    capturedHeaderNames,
   )
 where
 
@@ -20,25 +22,73 @@ import Control.Monad (foldM, when)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
+import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
 import Data.IORef qualified as IORef
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
+import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Header (RequestHeaders)
 import Network.HTTP.Types.Status qualified as Status
 import Servant.Client qualified as Client
 
+-- | Response-level metadata captured once, before the first event.
+--
+-- Header capture is an allow-list: a response header is recorded only
+-- if its name appears in 'capturedHeaderNames'. A denylist would leak
+-- whatever header a future gateway decides to add.
+--
+-- Names are recorded folded to lowercase, so a reader can look one up
+-- without case-folding first.
+data ResponseMetadata = ResponseMetadata
+  { httpStatus :: !Int,
+    headers :: ![(Text, Text)]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The response headers worth recording. Anthropic issues
+-- @request-id@; gateways in front of it commonly add @x-request-id@
+-- and @cf-ray@. None of these can carry a credential: they are values
+-- the server chose, not values baikai sent.
+--
+-- The order is a preference order as well as an allow-list. A consumer
+-- picking one correlation identifier out of a response should take the
+-- first of these that is present, so Anthropic's own identifier wins
+-- over a gateway's when both are there.
+capturedHeaderNames :: [CI SBS.ByteString]
+capturedHeaderNames = ["request-id", "x-request-id", "cf-ray"]
+
+-- | Status and allow-listed headers, read straight off the response.
+responseMetadata :: HTTP.Response body -> ResponseMetadata
+responseMetadata response =
+  ResponseMetadata
+    { httpStatus = Status.statusCode (HTTP.responseStatus response),
+      headers =
+        [ (decodeLenient (CI.foldedCase name), decodeLenient value)
+        | (name, value) <- HTTP.responseHeaders response,
+          name `elem` capturedHeaderNames
+        ]
+    }
+
 -- | POST the request to @/v1/messages@ with @stream=true@ and feed each
--- decoded SSE event to the callback. A non-2xx response is classified
--- from status, @Retry-After@, and body and delivered as one 'Left'.
+-- decoded SSE event to the second callback. A non-2xx response is
+-- classified from status, @Retry-After@, and body and delivered as one
+-- 'Left'.
+--
+-- The first callback receives the response's 'ResponseMetadata' exactly
+-- once, before any event. It is a separate callback rather than a
+-- widening of the per-event one because the per-event callback runs
+-- once per SSE event — potentially thousands of times per call — and
+-- response-level data does not belong on that hot path.
 claudeSseStream ::
   Client.ClientEnv ->
   Text ->
   Maybe Text ->
   Messages.CreateMessage ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
 claudeSseStream env apiKey anthropicVersion req =
@@ -49,6 +99,7 @@ claudeSseStreamValue ::
   Text ->
   Maybe Text ->
   Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
 claudeSseStreamValue env apiKey anthropicVersion =
@@ -68,9 +119,10 @@ claudeSseStreamValueWithHeaders ::
   Client.ClientEnv ->
   RequestHeaders ->
   Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
-claudeSseStreamValueWithHeaders env requestHeaders requestBody onEvent = do
+claudeSseStreamValueWithHeaders env requestHeaders requestBody onMetadata onEvent = do
   let base = Client.baseUrl env
       secure = case Client.baseUrlScheme base of
         Client.Http -> False
@@ -87,15 +139,23 @@ claudeSseStreamValueWithHeaders env requestHeaders requestBody onEvent = do
             -- EP-8 wires Options.timeoutMs through this local transport.
             HTTP.responseTimeout = HTTP.responseTimeoutNone
           }
-  HTTP.withResponse request (Client.manager env) (`sseFromResponse` onEvent)
+  HTTP.withResponse request (Client.manager env) $ \response ->
+    sseFromResponse response onMetadata onEvent
 
 -- | Consume an @http-client@ response as an Anthropic SSE stream.
+--
+-- 'onMetadata' fires exactly once, before any event, on both the
+-- success and the non-2xx path. A failed call's correlation identifier
+-- is if anything more valuable than a successful one's, since it is
+-- precisely what a provider support request needs.
 sseFromResponse ::
   HTTP.Response HTTP.BodyReader ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
-sseFromResponse response onEvent = do
+sseFromResponse response onMetadata onEvent = do
   let st = HTTP.responseStatus response
+  onMetadata (responseMetadata response)
   if not (Status.statusIsSuccessful st)
     then do
       bodyChunks <- HTTP.brConsume (HTTP.responseBody response)

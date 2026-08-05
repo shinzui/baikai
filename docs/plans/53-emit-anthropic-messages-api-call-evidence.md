@@ -55,9 +55,9 @@ and against a live account, if you have one, through the existing smoke suite.
 
 ## Progress
 
-- [ ] Widen the SSE transport callback so response metadata reaches the adapter.
-- [ ] Capture the Anthropic correlation header and the HTTP status in the adapter.
-- [ ] Read the provider-reported model out of `message_start`.
+- [x] Widen the SSE transport callback so response metadata reaches the adapter. (2026-08-05)
+- [x] Capture the Anthropic correlation header and the HTTP status in the adapter. (2026-08-05)
+- [x] Read the provider-reported model out of `message_start`. (2026-08-05)
 - [x] Turn `ThinkingPlan` into a `ThinkingTranslation` and return it from `mapRequest`.
       (2026-08-05)
 - [x] Record the three Anthropic thinking-downgrade cases as `ThinkingAdjustment` values.
@@ -65,7 +65,7 @@ and against a live account, if you have one, through the existing smoke suite.
 - [ ] Populate the evidence record and derive the evidence strength from what was observed.
 - [ ] Add the response commitment digest.
 - [x] Write the fourteen-case translation table test. (2026-08-05)
-- [ ] Write the header-capture and observed-model fixture tests.
+- [x] Write the header-capture and observed-model fixture tests. (2026-08-05)
 - [ ] Write the end-to-end evidence test for a successful call and a 429.
 - [ ] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading.
 
@@ -103,6 +103,36 @@ vanished; recording what was ultimately sent would not. The adjustment's JSON sp
   call. Threading response-level metadata through it would mean either re-sending the same values
   on every event or making every event payload a sum type. A second callback invoked exactly once,
   before the first event, matches what the data actually is and leaves the hot path untouched.
+  Date: 2026-08-05
+
+- Decision: The response metadata reaches the assembler through an `IORef` the producer reads
+  after each channel read, rather than through the event channel itself.
+  Rationale: The metadata is captured on the worker thread and the assembler lives on the consumer
+  side, so something has to cross the boundary. Making the channel carry a sum of "an event" and
+  "the metadata" would change the type every event on the hot path travels in, to carry a value
+  that arrives exactly once. Reading a separate `IORef` after each channel read costs one read per
+  upstream event, keeps the channel carrying exactly one kind of thing, and is safe against
+  reordering because the worker writes the metadata before it writes anything onto the channel and
+  the channel read is the synchronisation point. `absorbMetadata` is idempotent, so the consumer
+  does not have to track whether it has already run.
+  Date: 2026-08-05
+
+- Decision: The correlation header preference order *is* `capturedHeaderNames`, rather than a
+  second list beside it.
+  Rationale: The adapter needs one identifier and the response may carry several. Encoding the
+  preference as the order of the allow-list means the two cannot disagree, and adding a header to
+  the allow-list forces an explicit decision about where it ranks. Anthropic's own `request-id`
+  is first, so a gateway's identifier is only used when Anthropic's is absent.
+  Date: 2026-08-05
+
+- Decision: `Assembler.httpStatus` is captured but is not promoted into the evidence record.
+  Rationale: The plan's Interfaces section requires the field, and the transport has the value for
+  free. `ModelCallEvidence` has no field for an HTTP status, and adding one is a change to
+  [docs/plans/51](51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md) and to
+  the MasterPlan's Integration Points, which this plan is explicitly forbidden to make on its own.
+  Recording it on the assembler leaves it available to
+  [docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md) without
+  this plan overstepping.
   Date: 2026-08-05
 
 - Decision: `EvidenceFullyObserved` is unreachable on the Anthropic transport, and that is
