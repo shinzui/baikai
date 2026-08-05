@@ -1,0 +1,55 @@
+{
+  "model": "claude-opus-4-6",
+  "max_tokens": 4096,
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "stream": true,
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 16384
+  },
+  "metadata": {
+    "user_id": "u-123"
+  },
+  "extra_headers": {
+    "x-api-key": "sk-baikai-fixture-secret-key"
+  },
+  "system": "You are a careful assistant. SYSTEM-PROMPT-BODY-MARKER.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "PROMPT-BODY-MARKER: summarise the attached quarterly report."
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "REASONING-TEXT-MARKER: the user wants a short summary."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_1",
+          "name": "fetch_report",
+          "input": {
+            "query": "TOOL-PAYLOAD-MARKER"
+          }
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "fetch_report",
+      "description": "Fetch a quarterly report by identifier.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

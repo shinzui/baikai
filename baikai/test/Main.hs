@@ -17,6 +17,7 @@ import Data.Vector qualified as V
 import EmbeddingSpec qualified
 import ErrorInfoSpec qualified
 import ErrorSpec qualified
+import EvidenceSpec qualified
 import FetchModelsSpec qualified
 import GenModelsSpec qualified
 import HelpersSpec qualified
@@ -98,6 +99,7 @@ main = do
         EmbeddingSpec.tests,
         ErrorInfoSpec.tests,
         ErrorSpec.tests,
+        EvidenceSpec.tests,
         FetchModelsSpec.tests,
         GenModelsSpec.tests,
         HelpersSpec.tests,

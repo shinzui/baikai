@@ -148,6 +148,7 @@ test-suite baikai-test
     EmbeddingSpec
     ErrorInfoSpec
     ErrorSpec
+    EvidenceSpec
     FetchModelsCore
     FetchModelsSpec
     GenModelsCore

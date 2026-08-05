@@ -69,15 +69,18 @@ or tool payload ever appears anywhere in the encoded envelope.
       (2026-08-05)
 - [x] Add the `ModelCallEvidence` record itself and the `evidenceSchemaVersion` constant.
       (2026-08-05)
-- [ ] Implement canonical JSON encoding (`canonicalEncode`).
-- [ ] Implement `commitmentDigest` and `configurationDigest`.
+- [x] Implement canonical JSON encoding (`canonicalEncode`). (2026-08-05)
+- [x] Implement `commitmentDigest` and `configurationDigest`. (2026-08-05)
 - [ ] Replace the call-identifier generator and expose `newCallId`.
 - [ ] Add the `evidence` field to `Baikai.Options`.
 - [ ] Export `Baikai.Evidence` from the umbrella `Baikai` module and add it to the cabal
       `exposed-modules` list.
-- [ ] Write `baikai/test/EvidenceSpec.hs` covering canonicality, redaction, `Observed` semantics,
-      and identifier uniqueness; wire it into `baikai/test/Main.hs`.
-- [ ] Add the golden digest fixtures under `baikai/test/fixtures/`.
+- [x] Write `baikai/test/EvidenceSpec.hs` covering canonicality, redaction, and `Observed`
+      semantics; wire it into `baikai/test/Main.hs`. (2026-08-05)
+- [ ] Add the identifier-uniqueness cases to `baikai/test/EvidenceSpec.hs` (deferred with
+      `newCallId` itself to Milestone 4).
+- [x] Add the golden digest fixture at `baikai/test/fixtures/evidence-request.json`. One fixture
+      serves both the golden-digest and the redaction tests. (2026-08-05)
 - [ ] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading.
 
 
@@ -93,6 +96,37 @@ expansion repeats. Neither `Cost` nor `Usage` has a `FromJSON` instance today, a
 would produce a decoder that silently returns a different value than was encoded — precisely the
 kind of quiet fidelity loss this initiative exists to eliminate. `ModelCallEvidence` therefore
 gets `ToJSON` only, with the reason stated in its Haddock. See the Decision Log.
+
+**`base16-bytestring` 1.0.2.0 does not export `encodeBase16`.** The plan names
+`Data.ByteString.Base16.encodeBase16` as the hex renderer. That function existed in the 1.0.0 and
+1.0.1 series; the 1.0.2.0 module in the local package store exports only `encode`, `decode`, and
+`decodeLenient`, all `ByteString`-to-`ByteString`:
+
+```text
+src/Baikai/Evidence.hs:870:27: error: [GHC-76037]
+    Not in scope: ‘Base16.encodeBase16’
+    Note: The module ‘Data.ByteString.Base16’ does not export ‘encodeBase16’.
+```
+
+`digestOf` now calls `Base16.encode` and decodes the result with
+`Data.Text.Encoding.decodeLatin1`, which is total and exact because base16 output is lowercase
+ASCII by construction.
+
+**Aeson's own string escaper was rejected in favour of a hand-written one.** The first sketch
+reused `Data.Aeson.Encoding.text` for string escaping, which is correct and deterministic — but
+only for a fixed aeson version. Since the commitment digest is a value that outlives the build
+that produced it, an aeson upgrade quietly changing an escape rule would invalidate every
+recorded digest with no code change in this repository. The escaper is now written out in
+`Baikai.Evidence` (about fifteen lines), so the canonical encoding depends on nothing that can
+change underneath it.
+
+**Number canonicalisation needs `Scientific.normalize`, not just a format choice.** Rendering
+through `formatScientific Fixed Nothing` alone is not canonical: aeson parses `1.1` into a
+`Scientific` with coefficient 11 and exponent -1, and `1.100` into coefficient 1100 and exponent
+-3, and `formatScientific` faithfully renders those as `1.1` and `1.100`. Two equal values, two
+digests. `Scientific.normalize` strips the trailing zeros first. The test case
+`normalises integral and fractional number spellings` pins nine spellings against their canonical
+forms.
 
 **The plan's `/dev/urandom` seeding instruction would hang the process.** Milestone 4 specifies
 reading the seed with `Data.ByteString.readFile`. `BS.readFile` asks for the file's size, gets

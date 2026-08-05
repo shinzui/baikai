@@ -54,17 +54,24 @@ module Baikai.Evidence
     EvidenceRequest (..),
     EvidenceStrictness (..),
     evidenceRequest,
+
+    -- * Canonical encoding and digests
+    canonicalEncode,
+    commitmentDigest,
+    configurationDigest,
+    configurationProjection,
   )
 where
 
 import Baikai.Error (BaikaiError)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Baikai.Usage (Usage)
+import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson
   ( FromJSON (parseJSON),
     Options (fieldLabelModifier, omitNothingFields),
     ToJSON (toJSON),
-    Value (Object, String),
+    Value (Array, Bool, Null, Number, Object, String),
     camelTo2,
     defaultOptions,
     genericParseJSON,
@@ -75,9 +82,26 @@ import Data.Aeson
     (.:?),
     (.=),
   )
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (typeMismatch)
+import Data.Bits (shiftR, (.&.))
+import Data.ByteString (ByteString)
+import Data.ByteString.Base16 qualified as Base16
+import Data.ByteString.Builder (Builder)
+import Data.ByteString.Builder qualified as Builder
+import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Char (ord)
+import Data.List (intersperse)
+import Data.Scientific (FPFormat (Fixed), Scientific)
+import Data.Scientific qualified as Scientific
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TextEncoding
 import Data.Time (UTCTime, diffUTCTime)
+import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -748,3 +772,261 @@ baseEvidence
 -- the two records agree on the same call.
 millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
+
+-- ============================================================
+-- Canonical encoding
+-- ============================================================
+
+-- | Encode a JSON value to bytes such that two equal values always
+-- produce byte-identical output.
+--
+-- The rules, which a later maintainer must preserve:
+--
+-- * Object keys are emitted in ascending order by their UTF-8 byte
+--   sequence, recursively. Aeson's @Object@ is a @KeyMap@ whose
+--   iteration order is unspecified and in practice depends on
+--   insertion history, so the order is imposed here rather than
+--   inherited.
+--
+-- * Array order is preserved, because array order is semantically
+--   meaningful.
+--
+-- * There is no insignificant whitespace: no space after a colon or a
+--   comma, and no trailing newline.
+--
+-- * Strings are UTF-8 with the minimal escaping JSON requires:
+--   @\\"@, @\\\\@, the five short control escapes, and @\\u@ followed
+--   by four /lowercase/ hexadecimal digits for any other character
+--   below @U+0020@. Nothing else is escaped. The escaper is written
+--   out here rather than borrowed from aeson so that an aeson upgrade
+--   cannot silently change a digest.
+--
+-- * Numbers are normalised before rendering, so @1@, @1.0@, @1.00@,
+--   and @1e0@ all produce the bytes @1@. An integral value renders as
+--   a plain integer with no decimal point and no exponent; anything
+--   else renders fixed-point with no exponent.
+--
+-- Changing any of these rules invalidates every digest recorded by an
+-- earlier build. Treat such a change as a major bump of
+-- 'evidenceSchemaVersion', not as a bug fix.
+canonicalEncode :: Value -> ByteString
+canonicalEncode =
+  LazyByteString.toStrict . Builder.toLazyByteString . buildCanonical
+
+buildCanonical :: Value -> Builder
+buildCanonical = \case
+  Null -> Builder.byteString "null"
+  Bool True -> Builder.byteString "true"
+  Bool False -> Builder.byteString "false"
+  Number n -> buildNumber n
+  String t -> buildString t
+  Array xs ->
+    Builder.char7 '['
+      <> mconcat (intersperse (Builder.char7 ',') (map buildCanonical (Vector.toList xs)))
+      <> Builder.char7 ']'
+  Object o ->
+    Builder.char7 '{'
+      <> mconcat (intersperse (Builder.char7 ',') (map member (KeyMap.toAscList o)))
+      <> Builder.char7 '}'
+  where
+    member (k, v) = buildString (Key.toText k) <> Builder.char7 ':' <> buildCanonical v
+
+-- | Render a number with exactly one spelling per mathematical value.
+-- 'Scientific.normalize' strips trailing zeros from the coefficient
+-- first, without which @1.1@ and @1.100@ — which aeson parses into
+-- different 'Scientific' values — would encode to different bytes.
+buildNumber :: Scientific -> Builder
+buildNumber raw
+  | Scientific.isInteger n = Builder.integerDec (truncate n)
+  | otherwise = Builder.string7 (Scientific.formatScientific Fixed Nothing n)
+  where
+    n = Scientific.normalize raw
+
+buildString :: Text -> Builder
+buildString t =
+  Builder.char7 '"' <> Text.foldr (\c acc -> escapeChar c <> acc) mempty t <> Builder.char7 '"'
+
+escapeChar :: Char -> Builder
+escapeChar = \case
+  '"' -> Builder.byteString "\\\""
+  '\\' -> Builder.byteString "\\\\"
+  '\n' -> Builder.byteString "\\n"
+  '\r' -> Builder.byteString "\\r"
+  '\t' -> Builder.byteString "\\t"
+  '\b' -> Builder.byteString "\\b"
+  '\f' -> Builder.byteString "\\f"
+  c
+    | c < '\x20' -> Builder.byteString "\\u" <> hex4 (ord c)
+    | otherwise -> Builder.charUtf8 c
+
+hex4 :: Int -> Builder
+hex4 n = mconcat [nibble (n `shiftR` s) | s <- [12, 8, 4, 0]]
+  where
+    nibble v = Builder.char7 ("0123456789abcdef" !! (v .&. 0xF))
+
+-- | SHA-256 of the canonical encoding, rendered as 64 lowercase
+-- hexadecimal characters and prefixed with the algorithm so the string
+-- is self-describing: @"sha256:1b4f0e98…"@.
+--
+-- @Base16.encode@ emits lowercase ASCII, so decoding it as Latin-1 is
+-- total and gives the same characters.
+digestOf :: Value -> Text
+digestOf v =
+  "sha256:"
+    <> TextEncoding.decodeLatin1 (Base16.encode (SHA256.hash (canonicalEncode v)))
+
+-- ============================================================
+-- The two digests
+-- ============================================================
+
+-- | A commitment to the exact request body Baikai sent, prompt content
+-- included.
+--
+-- The digest reveals nothing on its own: publishing it does not
+-- disclose the prompt. Anyone who independently holds the request can
+-- recompute this value and confirm that a given evidence record
+-- describes that request — which is what makes it possible to bind a
+-- recorded call to a reviewed artifact.
+--
+-- Nothing is redacted here, because credentials travel in HTTP headers
+-- and command-line environments, never in a request body, and headers
+-- are not part of this function's input.
+commitmentDigest :: Value -> Text
+commitmentDigest = digestOf
+
+-- | A digest over the request's configuration only, with all content
+-- removed by 'configurationProjection'.
+--
+-- Two calls that ask the same model the same way about different
+-- subjects produce the same value here. That is the point: this digest
+-- is safe to compare across runs that legitimately differ in content.
+-- It proves /how/ a call was configured and deliberately proves
+-- nothing about /what/ was asked, so it must never be presented as
+-- binding a run to any particular input. Use 'commitmentDigest' for
+-- that.
+configurationDigest :: Value -> Text
+configurationDigest = digestOf . configurationProjection
+
+-- | Reduce a request envelope to the configuration it expresses,
+-- discarding everything that carries content.
+--
+-- This is an explicit __allow-list__, never a denylist, and the
+-- distinction is not stylistic. A denylist over request bodies from
+-- the Anthropic Messages API and seven different OpenAI-compatible
+-- hosts will miss a field the first time any one of them adds one, and
+-- the failure mode is prompt content leaking into a digest that
+-- callers were told is content-free. An allow-list fails the other
+-- way: a genuinely new configuration field is silently omitted from
+-- the digest until someone adds it here, which loses fidelity rather
+-- than leaking.
+--
+-- Keys outside the list are dropped entirely. Three keys are kept but
+-- replaced with structural summaries: @messages@ becomes one object
+-- per message carrying its role, its block count, and the total
+-- character length of every string inside it; @system@ becomes just
+-- that character count; @tools@ becomes each tool's name and nothing
+-- else, so descriptions and JSON schemas do not survive.
+--
+-- A top-level value that is not an object has no named fields for the
+-- allow-list to admit, so it projects to 'Null' rather than passing
+-- through.
+configurationProjection :: Value -> Value
+configurationProjection = \case
+  Object o -> Object (KeyMap.fromList (concatMap keep (KeyMap.toAscList o)))
+  _ -> Null
+  where
+    keep (k, v) = case Key.toText k of
+      "messages" -> [(k, summariseMessages v)]
+      "system" -> [(k, charSummary v)]
+      "tools" -> [(k, summariseTools v)]
+      name
+        | name `Set.member` configurationKeys -> [(k, v)]
+        | otherwise -> []
+
+-- | The request fields that describe how a call is configured rather
+-- than what it says. Covers the Anthropic Messages API and the
+-- OpenAI-compatible Chat Completions shapes this repository builds.
+configurationKeys :: Set Text
+configurationKeys =
+  Set.fromList
+    [ "cache_control",
+      "enable_thinking",
+      "frequency_penalty",
+      "max_completion_tokens",
+      "max_tokens",
+      "model",
+      "output_config",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop_sequences",
+      "stream",
+      "temperature",
+      "thinking",
+      "tool_choice",
+      "top_p"
+    ]
+
+summariseMessages :: Value -> Value
+summariseMessages = \case
+  Array xs -> Array (fmap summariseMessage xs)
+  _ -> Null
+
+summariseMessage :: Value -> Value
+summariseMessage = \case
+  Object m ->
+    object
+      [ "role" .= roleOf (KeyMap.lookup "role" m),
+        "blocks" .= blockCount (KeyMap.lookup "content" m),
+        "chars" .= maybe 0 totalStringChars (KeyMap.lookup "content" m)
+      ]
+  _ -> Null
+  where
+    roleOf = \case
+      Just (String r) -> String r
+      _ -> Null
+    blockCount :: Maybe Value -> Int
+    blockCount = \case
+      Just (Array a) -> Vector.length a
+      Just Null -> 0
+      Nothing -> 0
+      Just _ -> 1
+
+-- | Total characters across every JSON string anywhere inside a value.
+-- Recursive on purpose: a content block's text can sit at any depth,
+-- and a count is a structural fact that reveals nothing about what was
+-- written.
+totalStringChars :: Value -> Int
+totalStringChars = \case
+  String t -> Text.length t
+  Array xs -> sum (fmap totalStringChars xs)
+  Object o -> sum (fmap totalStringChars (KeyMap.elems o))
+  _ -> 0
+
+charSummary :: Value -> Value
+charSummary v = object ["chars" .= totalStringChars v]
+
+-- | A tool reduces to its name. The name is configuration — which
+-- capabilities the call offered — while the description and input
+-- schema are author-written content. Both wire shapes are handled: the
+-- Anthropic form with @name@ at the top level, and the OpenAI form
+-- that nests it under @function@.
+summariseTools :: Value -> Value
+summariseTools = \case
+  Array xs -> Array (fmap summariseTool xs)
+  _ -> Null
+
+summariseTool :: Value -> Value
+summariseTool = \case
+  Object t -> object ["name" .= nameOf t]
+  _ -> Null
+  where
+    nameOf t = case KeyMap.lookup "name" t of
+      Just n@(String _) -> n
+      _ -> case KeyMap.lookup "function" t of
+        Just (Object f) -> case KeyMap.lookup "name" f of
+          Just n@(String _) -> n
+          _ -> Null
+        _ -> Null
