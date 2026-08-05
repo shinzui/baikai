@@ -47,6 +47,15 @@ cabal list --simple streamly | grep -E '^streamly 0\.(11|12)(\.|$)'
 cabal list --simple streamly-core | grep -E '^streamly-core 0\.(3|4)(\.|$)'
 ```
 
+`baikai-agent` brings a second family that deserves the same check, because it
+is newer and less widely mirrored than the rest of the dependency set:
+
+```bash
+for pkg in settei settei-env settei-kdl settei-optparse-applicative; do
+  cabal list --simple "$pkg" | grep -E "^$pkg 0\.2(\.|$)" || echo "MISSING: $pkg"
+done
+```
+
 If the `source-repository-package` check finds a package pin, stop and resolve
 that first. If Hackage does not list versions satisfying the `.cabal` bounds,
 stop and tell the operator which dependency is not resolvable from Hackage.
@@ -91,20 +100,27 @@ Publish in this order — a dependency must be on Hackage before its dependents:
    skills and subagents (listing, install, update, uninstall, status, discovery).
    Depends only on `baikai`. No in-repo package depends on it.
 7. **`baikai-agent`** — `baikai-agent/` — unattended coding-agent runs: the
-   process runner and the layered configuration layer, and later the `baikai`
-   executable. Depends on `baikai` today, and on `baikai-claude` and
-   `baikai-openai` once
-   `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md`
-   adds the executable that dispatches on provider. It therefore publishes
-   **last**, after all three. No in-repo package depends on it.
+   process runner, the layered configuration layer, and the **`baikai`
+   executable** (`agent run`, `agent show`, `agent list`). Its library depends
+   on `baikai`, `baikai-claude`, and `baikai-openai` — it dispatches a resolved
+   job to the vendor renderer for its provider — so it publishes **last**, after
+   all three. No in-repo package depends on it.
 
    It is the only package with third-party dependencies outside the usual set:
    `settei`, `settei-env`, `settei-kdl`, and `settei-optparse-applicative`, all
-   pinned `^>=0.2`. All four are published on Hackage at `0.2.0.0` — verified
-   by resolving and building them from Hackage on 2026-08-05 — so the
-   Hackage-only rule above holds. `settei-formats` is deliberately **not** a
-   dependency and must not be added: it bundles Dhall loading, and the
-   repository configuration this package reads is untrusted input.
+   pinned `^>=0.2`, plus `optparse-applicative ^>=0.19` (the version
+   `baikai-kit` already uses, so the build plan carries one copy). All four
+   `settei` packages are published on Hackage at `0.2.0.0` — verified by
+   resolving and building them from Hackage on 2026-08-05 — so the Hackage-only
+   rule above holds. `settei-formats` is deliberately **not** a dependency and
+   must not be added: it bundles Dhall loading, and the repository
+   configuration this package reads is untrusted input.
+
+   It is also the only package that ships an executable a user installs. That
+   needs no extra publishing step — `cabal sdist` carries the stanza — but note
+   that the executable is named `baikai` while a *package* is also named
+   `baikai`, so an in-workspace `cabal run baikai` fails as ambiguous. Use
+   `cabal run baikai-agent:exe:baikai` when exercising it before a release.
 
 Packages 2–6 depend only on `baikai` (for their library component), so once
 `baikai` is up they can be published in any order among themselves. Package 7 is
@@ -118,24 +134,33 @@ the only one that must wait for packages 2 and 3 as well.
 
 ## Internal dependency bounds
 
-Each dependent already pins its internal dependency with an explicit PVP-caret
-bound — every one of `baikai-claude`, `baikai-openai`, `baikai-trace-otel`,
-`baikai-effectful`, `baikai-kit`, and `baikai-agent` lists `baikai` as:
+Every dependent pins its internal dependencies with explicit PVP-caret bounds,
+never an unbounded `build-depends`. There are two internal edges:
 
+- **On `baikai`** — `baikai-claude`, `baikai-openai`, `baikai-trace-otel`,
+  `baikai-effectful`, `baikai-kit`, and `baikai-agent` each carry a
+  `baikai ^>=…` bound.
+- **On the provider packages** — `baikai-agent` additionally carries
+  `baikai-claude ^>=…` and `baikai-openai ^>=…`, because its provider dispatch
+  reaches both renderers. This edge is easy to forget: it is the only one that
+  is not "something depends on `baikai`".
+
+Read the current bounds rather than trusting an example, because they move with
+every release:
+
+```bash
+grep -rn '^ *, baikai' */*.cabal | grep '\^>='
 ```
-build-depends:
-  , baikai ^>=0.2.0
-```
 
-Before publishing, confirm those bounds are present and correct. Any new
-dependent must carry the same explicit caret bound (not an unbounded
-`build-depends`).
+Before publishing, confirm every bound is present and admits the version you are
+about to publish.
 
-When you bump `baikai` in a way that changes the bound dependents resolve
+When you bump a package in a way that changes the bound its dependents resolve
 against:
 
-- Update the `baikai ^>=…` bound in `baikai-claude`, `baikai-openai`,
-  `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`, and `baikai-agent`.
+- Update the bound in every dependent. A `baikai` major forces edits in all six
+  dependents; a `baikai-claude` or `baikai-openai` major forces an edit in
+  `baikai-agent`.
 - A dependent that changed **only** because of that bound bump still needs a new
   version (a `patch` bump is the minimum) and its own release + tag, because its
   `.cabal` content changed.
@@ -222,12 +247,35 @@ Every gate must pass before any tag or upload. Stop on the first failure.
 nix fmt                 # then confirm the tree is clean:
 git diff --exit-code    # fails if formatting changed anything uncommitted
 cabal build all
-cabal test all
 nix flake check
 ```
 
 If `nix fmt` produced changes, fold them into the release commit (re-run the
 build/test/check after re-formatting).
+
+**Run the test gate with the provider keys and the coding-agent binaries
+removed.** A bare `cabal test all` on a developer machine makes real, billable
+provider calls: `baikai-smoke` gates its API cases on the key environment
+variables *and* gates its batch CLI cases on `findExecutable` alone, so merely
+having `claude` or `codex` on `PATH` is enough to spend money. Two independent
+gates, and both have to be closed. This `zsh` command closes them while keeping
+the active toolchain — adjust the two filtered `PATH` entries to wherever the
+coding agents are installed on this machine:
+
+```zsh
+baikai_test_path=(${path:#/Users/shinzui/.local/bin})
+baikai_test_path=(${baikai_test_path:#/opt/homebrew/bin})
+env -u ANTHROPIC_KEY -u ANTHROPIC_API_KEY \
+  -u OPENAI_KEY -u OPENAI_API_KEY \
+  -u DEEPSEEK_KEY -u DEEPSEEK_API_KEY \
+  -u OPENROUTER_API_KEY -u TOGETHER_API_KEY \
+  -u BAIKAI_EMBEDDING_LIVE PATH="${(j/:/)baikai_test_path}" \
+  cabal test all
+```
+
+Every suite must pass, not merely skip. If a suite reports zero tests run,
+something was filtered that should not have been — investigate rather than
+proceeding.
 
 ### 5. Commit, tag, push
 
@@ -269,9 +317,11 @@ cabal upload --documentation --publish \
 ```
 
 Confirm the package page renders on Hackage before moving to the next package.
-**If any upload fails, stop** — do not publish a dependent (`baikai-claude`,
-`baikai-openai`, `baikai-trace-otel`) while its dependency `baikai` failed to
-publish.
+**If any upload fails, stop** — do not publish a dependent while a dependency
+failed to publish. That means no `baikai-claude`, `baikai-openai`,
+`baikai-trace-otel`, `baikai-effectful`, `baikai-kit`, or `baikai-agent` after a
+failed `baikai`, and no `baikai-agent` after a failed `baikai-claude` or
+`baikai-openai`.
 
 > Hackage credentials: `cabal upload` reads `~/.config/cabal/config` or prompts.
 > Make sure the operator is a Hackage maintainer/uploader for each package.
@@ -298,8 +348,11 @@ gh release create baikai-0.1.0.1 \
 - **Always publish in dependency order:** `baikai` before `baikai-claude`,
   `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`; and
   all of `baikai`, `baikai-claude`, `baikai-openai` before `baikai-agent`.
-- **Never skip the gates** (`nix fmt` clean, `cabal build all`, `cabal test
-  all`, `nix flake check`). Stop on any failure.
+- **Never skip the gates** (`nix fmt` clean, `cabal build all`, the key- and
+  CLI-scrubbed `cabal test all`, `nix flake check`). Stop on any failure.
+- **Never run the test gate with provider keys or coding-agent binaries
+  visible.** `baikai-smoke` will make real billable calls, and the CLI cases
+  key off `PATH` alone rather than off any environment variable.
 - **Never continue publishing dependents after an upstream upload fails.**
 - **Never publish `baikai-smoke`** — it is a test-only package with no library.
 - Keep tags **annotated** and **per-package** (`<package>-<version>`).
