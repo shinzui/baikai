@@ -91,12 +91,20 @@ Publish in this order — a dependency must be on Hackage before its dependents:
    skills and subagents (listing, install, update, uninstall, status, discovery).
    Depends only on `baikai`. No in-repo package depends on it.
 7. **`baikai-agent`** — `baikai-agent/` — unattended coding-agent runs: the
-   process runner, and later the layered configuration layer and the `baikai`
+   process runner and the layered configuration layer, and later the `baikai`
    executable. Depends on `baikai` today, and on `baikai-claude` and
    `baikai-openai` once
    `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md`
    adds the executable that dispatches on provider. It therefore publishes
    **last**, after all three. No in-repo package depends on it.
+
+   It is the only package with third-party dependencies outside the usual set:
+   `settei`, `settei-env`, `settei-kdl`, and `settei-optparse-applicative`, all
+   pinned `^>=0.2`. All four are published on Hackage at `0.2.0.0` — verified
+   by resolving and building them from Hackage on 2026-08-05 — so the
+   Hackage-only rule above holds. `settei-formats` is deliberately **not** a
+   dependency and must not be added: it bundles Dhall loading, and the
+   repository configuration this package reads is untrusted input.
 
 Packages 2–6 depend only on `baikai` (for their library component), so once
 `baikai` is up they can be published in any order among themselves. Package 7 is

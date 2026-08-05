@@ -191,8 +191,10 @@ rewritten. That channel is gated once, by the operator ceiling — adding
 a second check that scans for dangerous flag spellings would look like a
 security boundary that a renamed vendor flag defeats.
 
-The full user guide for this surface, including the `baikai agent`
-command, arrives in
+How a repository describes a named job, how an operator caps what any
+job may ask for, and which configuration layer wins are documented in
+`docs/user/unattended-agent-runs.md`. The `baikai agent` command that
+drives it all from a shell script arrives in
 `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md`.
 
 `Baikai.Agent` is not re-exported from the umbrella `Baikai` module,

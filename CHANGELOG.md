@@ -66,6 +66,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   package, and its POSIX-signal escalation is conditional on a non-Windows
   build.
 
+- `baikai-agent`: new exposed module `Baikai.Agent.Config`, the layered
+  configuration layer. `resolveAgentJob` resolves one named job across five
+  layers — built-in defaults, the operator file, the repository file, the
+  environment, then command-line overrides, later layers winning — and returns
+  the resolved `AgentJob` together with a report attributing every value to the
+  file, line, and column it came from. `agentJobRequest` converts a job into an
+  `AgentRunRequest`, taking the prompt at call time. `listAgentJobs` enumerates
+  configured job names, sorted, each attributed to the highest-precedence scope
+  defining it. `defaultAgentConfigPaths` locates
+  `$XDG_CONFIG_HOME/baikai/agents.kdl` (or `$HOME/.config/baikai/agents.kdl`)
+  and `./.baikai/agents.kdl`, with no upward search through parent directories.
+
+  The **policy ceiling** is loaded by a separate function, `loadAgentCeiling`,
+  against a separate source list containing the operator file and nothing else:
+  no repository file, environment variable, or command-line override can raise
+  it. `applyCeilingToJob` refuses an over-broad request with `CeilingRejected`
+  rather than clamping it. With no operator file the ceiling is
+  `defaultAgentCeiling`. `safety.provider-args` is classified secret and renders
+  as `<redacted>` in any report or structured error.
+
+  New dependencies: `settei`, `settei-env`, `settei-kdl`, and
+  `settei-optparse-applicative` (all `^>=0.2`, published on Hackage at
+  `0.2.0.0`), plus `containers` and `filepath`. `settei-formats` is deliberately
+  excluded, because it bundles Dhall loading and repository configuration is
+  untrusted input here. Nothing in the package imports `Baikai.Agent.Config`
+  yet; the `baikai` executable is its first caller.
+
 ### Changed
 
 - **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns
