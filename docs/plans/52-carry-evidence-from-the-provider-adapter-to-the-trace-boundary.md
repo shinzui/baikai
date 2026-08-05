@@ -962,3 +962,56 @@ that follow —
 [55](55-emit-claude-and-codex-cli-completion-provider-evidence.md) — consume this surface
 unchanged and only replace the values passed into `minimalEvidence` and the observed fields
 overwritten afterwards.
+
+
+## Outcomes & Retrospective
+
+The channel is built and proved. A provider adapter attaches a `ModelCallEvidence` to its
+terminal stream event; `Baikai.Trace` picks it up and pushes exactly one `CallEvidence` trace
+event per call; a caller reads a complete record out of a JSON-lines trace file with
+`jq 'select(.kind == "call_evidence") | .evidence'`. All five terminations are covered by tests,
+and `cabal build all` and `cabal test all` are green across all eight packages.
+
+**What the opt-out guarantee actually rests on.** Two tests, and they are worth naming because
+they are the ones a future maintainer will be tempted to delete. The golden-fixture test compares
+an opted-out call's encoded trace lines against
+`baikai/test/fixtures/trace-opt-out.jsonl`, textually rather than through `Aeson.Value`, so field
+order counts. The envelope-forcing test hands `minimalEvidence` an envelope that throws and
+asserts the call still succeeds, which is the only thing standing between the current design and
+someone "tidying up" the missing bang on that parameter. Neither test is decorative.
+
+**What is deliberately still `Unobserved`.** Every provider-observed field, including `usage`.
+The MasterPlan's Progress line lists usage among what this plan supplies, but no adapter can yet
+distinguish a provider-reported zero from an absent report, and `Observed zeroUsage` would be the
+exact fabrication the `Observed` type exists to prevent. EP-3, EP-4, and EP-5 populate it. The
+`endpoint.implementationVersion` field is `Nothing` for the same reason — the core cannot know a
+vendor package's version, and a literal per adapter would be a lie by the next release.
+
+**What the next plans should read first.** Three things in this plan's Decision Log and Surprises
+change what they must do:
+
+- `minimalEvidence` and `prepareEvidence` take a `Maybe BaikaiError` after the status, which this
+  plan's Interfaces section as first written did not. Use `prepareEvidence` for a streaming
+  adapter whose translator is pure, `minimalEvidence` when the outcome is already known.
+- A `CallEvidence` event's `eventId` is the *trace* identifier, and the evidence record's own
+  `callId` is a separate identifier in a separate namespace. Do not try to make them equal.
+- Evidence emitted by this plan does not reach an OpenTelemetry backend, because the sink ends the
+  span on the terminal event and the evidence arrives after it. EP-7 owns the fix, and the cheapest
+  one is to emit `CallEvidence` before the terminal event — safe precisely because no consumer has
+  ever seen a `call_evidence` line.
+
+**Three behaviour changes reach callers who never asked for evidence**, all of them corrections,
+all in `CHANGELOG.md` under `[Unreleased]`: `CallFinished` gains four token fields, a zero cost is
+now reported as zero at all three entry-building sites, and `FromJSON TraceEvent` refuses a
+`call_evidence` line rather than manufacturing a decode. The cost change is the loud one — a
+dashboard that read an absent `usd` as "unpriced" will now count those calls as costing zero,
+which is the correct reading but a different number.
+
+**What went wrong and what it cost.** Two bugs were introduced and caught here rather than by a
+downstream consumer. The hand-written `FromJSON` read a `data` wrapper aeson does not emit for a
+record constructor, and it compiled and passed because nothing in the repository decoded a
+`TraceEvent`; writing the round-trip test found it. And `Baikai.Trace.Sink.renderHuman` needed a
+branch for the new constructor, which `-Wincomplete-patterns` reported — but only in a `cabal
+repl` session, because cabal does not re-emit warnings for a module it considers up to date. The
+lesson generalises: after widening a sum, a clean `cabal build` is not evidence that every match
+was updated.

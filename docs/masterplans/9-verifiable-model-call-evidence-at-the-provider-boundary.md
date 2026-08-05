@@ -194,7 +194,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | Complete |
-| EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | In Progress |
+| EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Complete |
 | EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Not Started |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Not Started |
 | EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Not Started |
@@ -321,13 +321,14 @@ sign, does not hold sanctioning policy, and does not own retries.
 - [x] EP-1: Implement canonical JSON encoding and the two digests, with golden tests proving
       stability across map ordering and encoder differences and proving no credential, prompt
       body, thinking text, or tool payload appears in the envelope. (2026-08-05)
-- [ ] EP-2: Widen the provider-to-trace channel so an adapter returns the evidence it built.
-- [ ] EP-2: Prove the opt-out path is free — a call with no evidence request produces trace output
-      byte-identical to the pre-initiative output and computes no digest.
-- [ ] EP-2: Emit exactly one terminal evidence record per call across streaming, retries at the
-      caller level, early consumer termination, and sink failure.
-- [ ] EP-2: Stop eliding usage and cost fidelity in the trace path; propagate the mechanical
-      updates through `baikai-effectful` and `baikai-trace-otel`.
+- [x] EP-2: Widen the provider-to-trace channel so an adapter returns the evidence it built.
+      (2026-08-05)
+- [x] EP-2: Prove the opt-out path is free — a call with no evidence request produces trace output
+      byte-identical to the pre-initiative output and computes no digest. (2026-08-05)
+- [x] EP-2: Emit exactly one terminal evidence record per call across streaming, retries at the
+      caller level, early consumer termination, and sink failure. (2026-08-05)
+- [x] EP-2: Stop eliding usage and cost fidelity in the trace path; propagate the mechanical
+      updates through `baikai-effectful` and `baikai-trace-otel`. (2026-08-05)
 - [ ] EP-3: Promote the Anthropic `ThinkingPlan` into the shared `ThinkingTranslation` and record
       every Anthropic downgrade site.
 - [ ] EP-3: Capture the Anthropic response correlation header and the provider-reported model
@@ -488,6 +489,59 @@ does; only code reaching for a bare selector is affected.
 ordering, number normalisation, or string escaping, that test fails — and the correct response is
 a major bump of `evidenceSchemaVersion`, because every digest recorded by an earlier build
 becomes unverifiable. The test's own comment says this. Do not paste a new value over it.
+
+
+### Found while implementing EP-2
+
+These change what EP-3 through EP-7 must do.
+
+**The evidence builder takes a `Maybe BaikaiError` the plans did not anticipate.**
+`Baikai.Evidence.Build.minimalEvidence` and `prepareEvidence` end in
+`CallStatus -> Maybe BaikaiError -> …`, not `CallStatus -> …`. `baseEvidence` sets `errorInfo` to
+`Nothing` unconditionally, and a failed call's record has to carry one, so the builder had to grow
+the argument. `prepareEvidence` is the shape a streaming adapter wants: it does the `IO` half —
+the opt-out check and the call identifier — before the first byte comes back and returns a
+finaliser the adapter applies at the terminal, keeping the translator pure. EP-3 and EP-4 should
+use it; EP-5 and EP-6 should use `minimalEvidence`, whose outcome is known by the time it is
+called.
+
+**A `CallEvidence` event's `eventId` is the trace identifier, not the evidence record's `callId`.**
+EP-2's own text said to reuse the evidence identifier "so a reader can join the evidence to its
+`call_started` line", and those two halves contradict each other — the trace layer mints its
+identifier before dispatch and the adapter mints the evidence's later. All four event kinds for a
+call now share the trace identifier, and the `CallEvidence` event is what ties the two namespaces
+together. No later plan should try to make them equal; the only way to do that is to inject the
+trace identifier into `Options`, which the Decision Log rejects.
+
+**`usage` is still `Unobserved` after EP-2, and EP-3/4/5 own it.** This MasterPlan's Progress line
+lists usage among what EP-2 supplies, but the field is typed `Observed Usage`, and no assembler
+yet tracks whether a provider actually reported a usage figure. Recording `Observed zeroUsage`
+because the assembler happens to hold zero is precisely the fabrication the type exists to
+prevent. Each provider plan populates it when its transport learns to distinguish a reported zero
+from silence.
+
+**Evidence does not reach an OpenTelemetry backend yet, and EP-7 owns the fix.** The sink ends and
+removes the span on `CallFinished`/`CallFailed`, and `Baikai.Trace` pushes `CallEvidence` after
+them, so the attribute-attaching branch is only reachable from a hand-fed or replayed event
+stream. EP-2 followed this MasterPlan's instruction to tolerate the missing span rather than
+reorder the events, which is the right call for EP-2's scope — but the consequence is a live gap.
+The cheapest fix is to emit `CallEvidence` before the terminal event, which is safe precisely
+because no consumer has ever seen a `call_evidence` line.
+
+**Three unconditional behaviour changes have shipped, and the cost one is the loud one.**
+`CallFinished` gained `cachedInputTokens`, `cacheWriteTokens`, `reasoningTokens`, and
+`totalTokens`; a computed cost of zero is now reported as zero at all three `CallLogEntry`
+construction sites and in `CallFinished`; and `FromJSON TraceEvent` is hand-written and refuses a
+`call_evidence` line. A cost dashboard that read an absent `usd` as "unpriced" now counts those
+calls as costing zero. EP-7's release notes must lead with that.
+
+**A trace line has no `data` wrapper, and evidence field names are snake_case.** Aeson's
+`TaggedObject` only uses `contentsFieldName` for a positional constructor, and every `TraceEvent`
+constructor has named fields, so a line reads `{"kind":"call_evidence","eventId":…,"evidence":{…}}`.
+Inside, the evidence record spells its fields in snake_case and renders absent fields as explicit
+`null`, which is the opposite of the trace event's own encoding and is deliberate. Any plan
+writing a `jq` filter or a user-facing example must use `.evidence.requested_model`, not
+`.data.evidence.requestedModel`.
 
 
 ## Decision Log
