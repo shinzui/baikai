@@ -59,17 +59,18 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Add the four `settei` dependencies to `baikai-agent`, and prove the KDL reader
-      works end to end with a throwaway spike before designing the schema around it.
-- [ ] Milestone 2: Declare the job schema — `AgentJob`, its per-job `Config`, decoders, and the
-      conversion to an `AgentRunRequest`.
-- [ ] Milestone 3: Implement scope discovery and the five-layer resolution order.
-- [ ] Milestone 4: Implement ceiling loading from user scope only, and apply it to every resolved
-      job.
-- [ ] Milestone 5: Implement job enumeration with source attribution.
-- [ ] Milestone 6: Add tests for precedence, provenance, redaction, and ceiling refusal.
-- [ ] Milestone 7: Document the schema and precedence rules, add changelog bullets, and run the
-      full offline validation.
+- [x] Milestone 1 (2026-08-05): Add the four `settei` dependencies to `baikai-agent`, and prove the
+      KDL reader works end to end with a throwaway spike before designing the schema around it.
+- [x] Milestone 2 (2026-08-05): Declare the job schema — `AgentJob`, its per-job `Config`, decoders,
+      and the conversion to an `AgentRunRequest`.
+- [x] Milestone 3 (2026-08-05): Implement scope discovery and the five-layer resolution order.
+- [x] Milestone 4 (2026-08-05): Implement ceiling loading from user scope only, and apply it to
+      every resolved job.
+- [x] Milestone 5 (2026-08-05): Implement job enumeration with source attribution.
+- [x] Milestone 6 (2026-08-05): Add tests for precedence, provenance, redaction, and ceiling
+      refusal. 43 tests pass, 26 of them new.
+- [x] Milestone 7 (2026-08-05): Document the schema and precedence rules, add changelog bullets, and
+      run the full offline validation.
 
 
 ## Surprises & Discoveries
@@ -77,8 +78,77 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. Milestone 1 is a spike whose entire purpose is to populate this section with what the
-KDL reader actually produces, before any schema is designed around an assumption.)
+- Discovery (Milestone 1, 2026-08-05): the KDL-to-key mapping is exactly as Context and Orientation
+  described, and **hyphens are legal in key segments** — in job names as well as leaf names, so no
+  word-separator change is needed. Reading the plan's own spike document produced this key set,
+  every one of them carrying a path, a line, and a column:
+
+  ```text
+  jobs.sync-keiro-dsl.extra-dirs            array[2]   line 10, column 16
+  jobs.sync-keiro-dsl.provider              text       line  8, column 14
+  jobs.sync-keiro-dsl.safety.allowed-tools  array[2]   line 14, column 21
+  jobs.sync-keiro-dsl.safety.capability     text       line 13, column 18
+  jobs.sync-keiro-dsl.timeout               text       line 11, column 13
+  jobs.sync-keiro-dsl.working-dir           text       line  9, column 17
+  policy.allow-provider-args                bool False line  3, column 23
+  policy.allowed-providers                  array[2]   line  4, column 21
+  policy.max-capability                     text       line  2, column 18
+  ```
+
+  Three levels of nesting flatten correctly, so `safety { capability … }` reaches
+  `jobs.<name>.safety.capability`; `#false` is the right KDL v2 boolean literal and arrives as
+  `RawBool`; and `settei-kdl`'s span preservation reaches `Candidate`'s `Origin`, which is what
+  Milestone 6's provenance assertion depends on.
+
+- Discovery (Milestone 1, 2026-08-05): **a KDL node's argument count changes its raw type, so
+  `listDecoder` alone would reject the plan's own documented example.** Spiking a second document
+  showed a list-shaped node takes three different shapes:
+
+  ```text
+  extra-dirs                 -> RawNull        (zero arguments)
+  extra-dirs "/tmp/only"     -> RawText        (one argument)
+  extra-dirs "/one" "/two"   -> RawArray       (two or more arguments)
+  ```
+
+  `settei`'s `listDecoder` accepts `RawArray` and nothing else — `settei/src/Settei/Value.hs`
+  matches `RawArray values` and falls through to `failure key "an array"`. So
+  `extra-dirs "/path/one"`, which the Interfaces and Dependencies section of this plan writes
+  verbatim as the documented single-directory form, would have failed to decode with "expected an
+  array". The same trap catches every list-valued setting from the command line, because
+  `cliOverride` always builds a `RawText`, meaning `--set jobs.demo.extra-dirs=/tmp/one` could
+  never populate a list. Consequence: this plan defines its own `scalarOrListDecoder`, which maps
+  `RawNull` to the empty list, a scalar to a one-element list, and an array elementwise. Every
+  list-valued setting uses it; plain `listDecoder` is used nowhere.
+
+- Discovery (Milestone 5, 2026-08-05): **`SourceKind` cannot tell the two configuration files
+  apart**, so `AgentJobEntry`'s `scope` field could not have the type the Interfaces and
+  Dependencies section gave it. `settei-kdl/src/Settei/Kdl.hs` line 230 builds every source it reads
+  as `source (options ^. #name) (FileSource "KDL v2") root` — the `FileSource` payload names the
+  *format*, not the path — so the user document and the repository document carry an identical
+  `SourceKind`. What does distinguish them is `sourceName`, which is the label this plan passes to
+  `kdlSourceOptions`. Consequence: this plan defines its own `AgentConfigScope` (`UserScope` /
+  `RepositoryScope`) with a `renderAgentConfigScope` that doubles as the source label, and
+  `AgentJobEntry` carries that instead of `SourceKind`. EP-6 should display this type rather than
+  reaching for `SourceKind`, which would show `FileSource "KDL v2"` twice.
+
+- Discovery (Milestone 6, 2026-08-05): **`renderResolutionText` names the source but drops the file
+  location; only `renderResolutionJson` carries path, line, and column.** `Settei.Render` builds a
+  `locationJson` object with `path`, `line`, and `column` for the JSON rendering and has no
+  equivalent in the text rendering, which prints `from file source repository configuration
+  (KDL v2)` and a `shadowed:` line and stops there. The spans really do survive from `settei-kdl`
+  into the report — the JSON rendering proves it — so this is a renderer limitation, not lost
+  provenance. Consequence: this plan's provenance test asserts the scope names against the text
+  rendering and the line number against the JSON rendering. Consequence for EP-6: `agent show`
+  cannot satisfy improvement-request acceptance criterion 5 by printing `renderResolutionText`
+  alone. It must either emit the JSON rendering or walk `reportNodes` and render
+  `origin ^. #location` itself.
+
+- Discovery (Milestone 4, 2026-08-05): the ceiling test earns its keep. Mutating `loadAgentCeiling`
+  to append the repository sources to the user sources — the exact one-line \"consistency fix\" the
+  module's comment warns against — makes `A REPOSITORY FILE CANNOT RAISE THE CEILING` fail while
+  every other test in the workspace keeps passing. The mutation was applied, the failure observed,
+  and the module restored. This is the evidence that the plan's central security property is pinned
+  by a test rather than only by a comment.
 
 
 ## Decision Log
@@ -149,6 +219,58 @@ Record every decision made while working on the plan.
   away from exhausting memory, so the lowest configuration layer sets a concrete default that any
   higher layer can override or explicitly unset.
   Date: 2026-07-30
+
+- Decision: The built-in layer is expressed as `settei` named default rules inside `agentJobConfig`,
+  not as a synthetic `BuiltInSource`, which the Plan of Work's Milestone 3 had prescribed.
+  Rationale: every job key contains the job name, so a built-in *source* would have to be rebuilt
+  per name and could not be a module-level constant — and resolving job `b` against a built-in
+  source constructed for job `a` would emit unknown-key warnings for every one of `a`'s keys. Named
+  rules are name-independent, keep `agentJobConfig` complete and testable on its own without any
+  source at all, and appear in the report with a rule name and a rationale
+  (`from default rule inherit-output`), which is strictly more informative than `built-in`. The
+  precedence semantics are identical: a default applies only when no source supplies the key, which
+  is exactly "lowest layer". This also makes the job load consistent with the ceiling load, which
+  the plan already specified as `withDefault` seeded from `defaultAgentCeiling`. The user guide's
+  precedence table still lists built-in defaults as layer one, because that is what they are.
+  Date: 2026-08-05
+
+- Decision: Unsetting the output limit is spelled `output-limit "unlimited"` rather than
+  `output-limit 0` or a KDL null.
+  Rationale: the Decision Log above promises a higher layer can "explicitly unset" the default, and
+  neither obvious spelling works. A KDL `#null` is a present value that fails to decode as an
+  integer rather than reading as absent, and `0` is genuinely ambiguous — an operator could
+  reasonably read it as "capture nothing". A word says what it means. This is also consistent with
+  the neighbouring refusal of `timeout "0"`, where a zero was rejected precisely because its
+  intended meaning was unguessable.
+  Date: 2026-08-05
+
+- Decision: `AgentJobEntry` carries Baikai's own `AgentConfigScope` and a `definingScopes` count,
+  rather than `settei`'s `SourceKind` as the Interfaces section specified.
+  Rationale: `settei-kdl` tags every document `FileSource "KDL v2"`, naming the format rather than
+  the file, so `SourceKind` reports the user and repository documents identically and could not
+  satisfy Milestone 5's own acceptance criterion. The count is included because Milestone 5 asked
+  for the winner plus a count: a bare name with no indication that two files define it hides a real
+  source of confusion.
+  Date: 2026-08-05
+
+- Decision: The four environment-variable bindings are a function of the job name,
+  `agentEnvBindings :: Text -> Bindings`, rather than the module-level constant the Interfaces
+  section showed.
+  Rationale: a binding maps an environment variable to a configuration *key*, and every job key
+  contains the job name, so a name-independent binding list cannot exist. The reference
+  application's validate-once-and-force-in-a-test trick is preserved: the `error` on an invalid
+  binding list is still inside the function, and the test suite forces `agentEnvBindings "probe"`,
+  so a bad edit fails in tests rather than at start-up.
+  Date: 2026-08-05
+
+- Decision: The schema and the ceiling ship in one commit rather than the two the Concrete Steps
+  section sketched.
+  Rationale: both live in one module, `Baikai.Agent.Config`, so splitting them across commits would
+  mean landing a file that does not compile or performing an artificial two-step edit of the same
+  file. The reviewability the split was meant to buy is preserved a different way: the ceiling is a
+  separate exported function with a separate source list and its own commented rationale, and it has
+  five dedicated tests, two of them named in capitals. The commit message states both halves.
+  Date: 2026-08-05
 
 
 ## Context and Orientation
@@ -1030,10 +1152,11 @@ To roll back, revert the commits. Nothing imports `Baikai.Agent.Config` at the e
 
 Four new dependencies, added to `baikai-agent/baikai-agent.cabal`: `settei ^>=0.2`,
 `settei-env ^>=0.2`, `settei-kdl ^>=0.2`, and `settei-optparse-applicative ^>=0.2`, plus
-`containers` for building in-memory sources. All four `settei` packages are published on Hackage at
-`0.2.0.0`, which satisfies the Hackage-only rule in `agents/skills/release/SKILL.md`. `settei-formats`
-is deliberately excluded: it would pull in YAML and Dhall loading, and Dhall was rejected for
-untrusted input.
+`containers` for the job-name map and set, and `filepath` for joining the configuration paths. All
+four `settei` packages are published on Hackage at `0.2.0.0` — confirmed by resolving and building
+them from Hackage during this work — which satisfies the Hackage-only rule in
+`agents/skills/release/SKILL.md`. `settei-formats` is deliberately excluded: it would pull in YAML
+and Dhall loading, and Dhall was rejected for untrusted input.
 
 At completion, `baikai-agent/src/Baikai/Agent/Config.hs` exports:
 
@@ -1067,17 +1190,27 @@ agentCeilingConfig :: Config AgentCeiling
 loadAgentCeiling   :: AgentConfigPaths -> IO (Either AgentConfigError AgentCeiling)
 applyCeilingToJob  :: AgentCeiling -> AgentRunRequest -> Either AgentRenderError AgentRunRequest
 
--- Enumeration
-data AgentJobEntry = AgentJobEntry { name :: !Text, scope :: !SourceKind }
+-- Enumeration. The scope is Baikai's own type, not settei's SourceKind:
+-- settei-kdl tags every document FileSource "KDL v2", naming the format
+-- rather than the file, so the two documents are identical by kind.
+data AgentConfigScope = UserScope | RepositoryScope
+renderAgentConfigScope :: AgentConfigScope -> Text   -- doubles as the source label
+data AgentJobEntry = AgentJobEntry
+  { name :: !Text, scope :: !AgentConfigScope, definingScopes :: !Int }
 listAgentJobs :: AgentConfigPaths -> IO (Either AgentConfigError [AgentJobEntry])
 
 -- Errors from loading, distinct from resolution errors which settei reports
-data AgentConfigError = ...
+data AgentConfigError
+  = ConfigFileUnreadable !FilePath !Text   -- rendered settei-kdl diagnosis, never the document
+  | InvalidJobName !Text !Text
 renderAgentConfigError :: AgentConfigError -> Text
 
 -- Exported for testing
-parseDuration :: Text -> Maybe NominalDiffTime
-agentEnvBindings :: Bindings
+parseDuration      :: Text -> Maybe NominalDiffTime
+agentEnvBindings   :: Text -> Bindings    -- per job name: every key contains it
+defaultOutputLimit :: Int                 -- 4194304
+scalarOrListDecoder :: Decoder a -> Decoder [a]
+validateJobName    :: Text -> Either AgentConfigError ()
 ```
 
 The KDL schema, which the user guide documents and the tests pin:
@@ -1102,7 +1235,7 @@ jobs {
     extra-dirs   "/path/one"       // optional list
     timeout      "45m"             // optional: 90s | 45m | 2h | bare seconds
     output       "inherit"         // inherit | capture | tee   (default inherit)
-    output-limit 4194304           // bytes per stream (built-in default)
+    output-limit 4194304           // bytes per stream, or "unlimited" (default 4194304)
     env-requires "KEIRO_PATH"      // names only; never values
     safety {
       capability    "edit-workspace"        // required
@@ -1116,15 +1249,67 @@ jobs {
 The precedence contract:
 
 ```text
-layer              source kind          can set job settings   can set the ceiling
-built-in defaults  BuiltInSource        yes                    yes (the default)
-user file          FileSource           yes                    yes
-repository file    FileSource           yes                    NO
-environment        EnvironmentSource    provider/model/exe/timeout only   NO
-command line       CommandLineSource    yes                    NO
+layer              expressed as             can set job settings   can set the ceiling
+built-in defaults  settei named default     yes                    yes (the default)
+                   rules in the Config
+user file          FileSource "KDL v2"      yes                    yes
+repository file    FileSource "KDL v2"      yes                    NO
+environment        EnvironmentSource        provider/model/exe/timeout only   NO
+command line       CommandLineSource        yes                    NO
 ```
+
+The built-in layer is a set of named default rules inside `agentJobConfig` rather than a synthetic
+`BuiltInSource`, because every job key contains the job name and a source would therefore have to be
+rebuilt per name. The precedence semantics are unchanged — a default applies only when no source
+supplies the key — and the report attributes such a value to its rule, for example
+`from default rule inherit-output`. See the Decision Log.
 
 Downstream impact: none yet. Nothing imports `Baikai.Agent.Config` at the end of this plan.
 `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md` is its first caller and
 adds the `executable baikai` stanza plus `optparse-applicative` to the same `.cabal` file; add only
 your own modules and dependencies so the two plans do not collide.
+
+
+## Outcomes & Retrospective
+
+The plan is complete and every acceptance criterion holds. `baikai-agent` gained one exposed module,
+`Baikai.Agent.Config`, and one test module, `ConfigTests`, taking the package's suite from 17 tests
+to 43. `nix fmt`, `git diff --check`, `cabal build all`, the key- and CLI-scrubbed `cabal test all`,
+and `nix flake check` all pass. No acceptance step invoked a live model or a coding-agent binary.
+
+Against the original vision. A repository can now own a job description and an operator can now cap
+it, which is the reason the initiative exists; the layering, the provenance, the redaction, and the
+refusal all behave as designed. The estimate that "almost none of the hard part is written here" held
+— `settei` supplied precedence, provenance, and secret redaction, and the code this plan added is
+mostly a schema plus two carefully-different source lists.
+
+What the plan got wrong, all of it caught by Milestone 1 existing at all or by writing the tests.
+Three of the Interfaces section's signatures could not be implemented as written: `agentEnvBindings`
+had to become a function of the job name, `AgentJobEntry.scope` could not be `settei`'s `SourceKind`,
+and the built-in layer could not be a `BuiltInSource` — each for the same underlying reason, that a
+job name is part of every key and that `settei-kdl` names formats rather than files. The Decision Log
+records each. The spike also caught that the plan's own documented `extra-dirs "/path/one"` example
+would not have decoded, which would have been discovered by an operator rather than by a test if
+Milestone 1 had been skipped.
+
+What is worth carrying forward. The mutation check on `loadAgentCeiling` — appending the repository
+sources and confirming exactly one test turns red — is the only evidence that the module's central
+security property is enforced rather than merely commented, and it took two minutes. Any future
+change to that source list deserves the same check.
+
+Two things a later plan must pick up. `renderResolutionText` drops file locations, so EP-6's
+`agent show` cannot satisfy improvement-request acceptance criterion 5 by printing it alone. And
+`settei` 0.2.0.0 still self-describes as experimental in its own README; the four dependencies are
+pinned `^>=0.2` and a 0.3 series should be read before it is adopted.
+
+
+## Revision Notes
+
+- 2026-08-05: Implemented. Four deviations from the plan as written, each recorded in the Decision
+  Log with its rationale and reflected in the Interfaces and Dependencies section above: the built-in
+  layer is named default rules rather than a synthetic `BuiltInSource`; `AgentJobEntry.scope` carries
+  a new `AgentConfigScope` rather than `settei`'s `SourceKind`, and gained a `definingScopes` count;
+  `agentEnvBindings` takes the job name; and the schema and ceiling shipped in one commit rather than
+  two because they share one module. One addition the plan did not anticipate: `scalarOrListDecoder`,
+  without which no single-element list and no list-valued `--set` override would decode. `filepath`
+  was added as a fifth new dependency alongside `containers`.

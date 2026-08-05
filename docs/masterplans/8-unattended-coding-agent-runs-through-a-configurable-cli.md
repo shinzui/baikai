@@ -146,7 +146,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 | EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | Complete |
 | EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Complete |
 | EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Complete |
-| EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Not Started |
+| EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Complete |
 | EP-6 | Ship the baikai agent CLI and prove the unattended fixture | docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md | EP-2, EP-4, EP-5 | EP-3 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -284,10 +284,10 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-4 (2026-08-05): Create the `baikai-agent` package skeleton and register it in `cabal.project` and the release skill.
 - [x] EP-4 (2026-08-05): Implement the process runner with standard-input prompt delivery, timeout with process-group termination, output caps, and the three output disciplines.
 - [x] EP-4 (2026-08-05): Add fake-executable integration tests for working directory, timeout, non-zero exit, spawn failure, and output truncation.
-- [ ] EP-5: Declare the `settei` configuration for an unattended job and decode it from KDL.
-- [ ] EP-5: Implement scope discovery and the built-in, user, repository, environment, and command-line layer order.
-- [ ] EP-5: Load the user-scope policy ceiling and apply it to every resolved job.
-- [ ] EP-5: Add tests for precedence, per-value provenance, secret redaction, and ceiling refusal.
+- [x] EP-5 (2026-08-05): Declare the `settei` configuration for an unattended job and decode it from KDL.
+- [x] EP-5 (2026-08-05): Implement scope discovery and the built-in, user, repository, environment, and command-line layer order.
+- [x] EP-5 (2026-08-05): Load the user-scope policy ceiling and apply it to every resolved job.
+- [x] EP-5 (2026-08-05): Add tests for precedence, per-value provenance, secret redaction, and ceiling refusal.
 - [ ] EP-6: Implement `agent run`, `agent show`, and `agent list` with documented exit codes and stream discipline.
 - [ ] EP-6: Prove the `sync-keiro-dsl.sh` launch shape end-to-end against fake executables.
 - [ ] EP-6: Write `docs/user/unattended-agent-runs.md` and cross-link the two existing surfaces.
@@ -484,6 +484,49 @@ interactions between child plans. Provide concise evidence.
   transport: EP-4's fixture is the place the two-sided contract is observed, exactly as EP-2
   anticipated, and the branch is not dead code.
 
+- Discovery (EP-5, 2026-08-05): the verified KDL key shapes, which EP-6 needs before it writes
+  example configuration files. Nested nodes flatten to dotted keys through at least three levels, so
+  `jobs { demo { safety { capability … } } }` reaches `jobs.demo.safety.capability`; **hyphens are
+  legal in every key segment**, in job names as well as leaf names, so no word-separator change was
+  needed; `#false` is the correct KDL v2 boolean literal; and `settei-kdl`'s spans survive into each
+  value's `Origin` with a path, a line, and a column. Consequence: EP-6 can write the documented
+  schema verbatim.
+
+- Discovery (EP-5, 2026-08-05): **a KDL node's argument count changes its raw type**, which broke the
+  schema this MasterPlan's Integration Points section anticipated. A list-shaped node with zero
+  arguments is a `RawNull`, with one argument a `RawText`, and only with two or more a `RawArray`;
+  `settei`'s `listDecoder` accepts `RawArray` alone. So `extra-dirs "/path/one"` — the single-value
+  spelling the plans documented — would have failed with "expected an array", and no list-valued
+  `--set` override could ever have worked, because `cliOverride` always builds a `RawText`.
+  Consequence: EP-5 defines a `scalarOrListDecoder` and uses it for every list-valued setting.
+  Consequence for EP-6: `--set jobs.<name>.extra-dirs=/one` sets a one-element list, and there is no
+  command-line spelling for a multi-element list; a job needing several directories states them in a
+  file.
+
+- Discovery (EP-5, 2026-08-05): **`SourceKind` cannot distinguish the two configuration files.**
+  `settei-kdl` builds every source it reads as `FileSource "KDL v2"` — the payload names the
+  *format*, not the path — so the user document and the repository document are identical by kind,
+  and only the source *name*, which the caller supplies, tells them apart. Consequence: EP-5 owns a
+  new `AgentConfigScope` (`UserScope` / `RepositoryScope`) whose renderer doubles as the source
+  label, and `listAgentJobs` returns that rather than `SourceKind`. Consequence for EP-6: display
+  `AgentConfigScope`; reaching for `SourceKind` would print `FileSource "KDL v2"` for both scopes.
+
+- Discovery (EP-5, 2026-08-05): **`renderResolutionText` names a value's source but drops its file
+  location; only `renderResolutionJson` carries path, line, and column.** The spans do reach the
+  report — the JSON rendering proves it — so this is a renderer limitation rather than lost
+  provenance. Consequence for EP-6, and it is load-bearing: `agent show` cannot satisfy
+  improvement-request acceptance criterion 5, which requires each value's file position, by printing
+  `renderResolutionText` alone. It must emit the JSON rendering or walk `reportNodes` and render
+  `origin ^. #location` itself.
+
+- Discovery (EP-5, 2026-08-05): the ceiling's security property is pinned by a test, not only by a
+  comment. Mutating `loadAgentCeiling` to append the repository sources to the user sources — the
+  exact one-line "consistency fix" its comment warns against — makes exactly one test fail,
+  `A REPOSITORY FILE CANNOT RAISE THE CEILING`, while every other test in the workspace keeps
+  passing. The mutation was applied, the failure observed, and the module restored. Consequence for
+  EP-6: the executable must not introduce a second path to the ceiling; it calls `loadAgentCeiling`
+  and `applyCeilingToJob` and adds no override of its own.
+
 - Discovery: both providers can take the prompt on standard input, which removes the
   dash-leading-prompt hazard entirely, but Codex has a trap. `codex exec --help` states that
   if standard input is piped *and* a positional prompt is also given, standard input is
@@ -606,6 +649,17 @@ plan.
   be independently revertible. Six plans keeps each within the specification's guidance of
   two to seven while leaving no plan doing the majority of the work.
   Date: 2026-07-30
+
+- Decision: The built-in configuration layer is expressed as `settei` named default rules inside the
+  job declaration, not as a synthetic `BuiltInSource` layer.
+  Rationale: every job key contains the job name, so a built-in *source* would have to be rebuilt per
+  name and could not be a constant, and resolving one job against a source built for another would
+  emit unknown-key warnings for all of the other's keys. Named rules are name-independent, keep the
+  declaration complete on its own, and report as `from default rule <name>` with a rationale, which
+  is more informative than `built-in`. Precedence is unaffected: a default applies only when no
+  source supplies the key. The five-layer contract this MasterPlan documents is unchanged; only how
+  layer one is built changed.
+  Date: 2026-08-05
 
 - Decision: No acceptance step in this initiative invokes a live model. Pure renderer tests
   and fake-executable integration tests are the evidence.
