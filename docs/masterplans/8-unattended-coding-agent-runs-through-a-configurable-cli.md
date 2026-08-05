@@ -145,7 +145,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 | EP-1 | Add the unattended agent-run core abstraction | docs/plans/45-add-the-unattended-agent-run-core-abstraction.md | None | None | Complete |
 | EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | Complete |
 | EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Complete |
-| EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | In Progress |
+| EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Complete |
 | EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Not Started |
 | EP-6 | Ship the baikai agent CLI and prove the unattended fixture | docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md | EP-2, EP-4, EP-5 | EP-3 | Not Started |
 
@@ -281,9 +281,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-2 (2026-08-05): Add exact whole-argv tests, including prompts and paths beginning with a dash.
 - [x] EP-3 (2026-08-05): Make the Claude and Codex interactive safety mappings total and visibly failing.
 - [x] EP-3 (2026-08-05): Update interactive-launch documentation and record the release consequence of the changed signatures.
-- [ ] EP-4: Create the `baikai-agent` package skeleton and register it in `cabal.project` and the release skill.
-- [ ] EP-4: Implement the process runner with standard-input prompt delivery, timeout with process-group termination, output caps, and the three output disciplines.
-- [ ] EP-4: Add fake-executable integration tests for working directory, timeout, non-zero exit, spawn failure, and output truncation.
+- [x] EP-4 (2026-08-05): Create the `baikai-agent` package skeleton and register it in `cabal.project` and the release skill.
+- [x] EP-4 (2026-08-05): Implement the process runner with standard-input prompt delivery, timeout with process-group termination, output caps, and the three output disciplines.
+- [x] EP-4 (2026-08-05): Add fake-executable integration tests for working directory, timeout, non-zero exit, spawn failure, and output truncation.
 - [ ] EP-5: Declare the `settei` configuration for an unattended job and decode it from KDL.
 - [ ] EP-5: Implement scope discovery and the built-in, user, repository, environment, and command-line layer order.
 - [ ] EP-5: Load the user-scope policy ceiling and apply it to every resolved job.
@@ -449,6 +449,40 @@ interactions between child plans. Provide concise evidence.
   must adapt to the new `Either` is the external `shinzui/seihou` project, whose
   `Seihou.CLI.AgentLaunchExec` module builds interactive launch requests. EP-6's release must say so
   explicitly, because a downstream consumer that upgrades without adapting will fail to compile.
+
+- Discovery (EP-4, 2026-08-05): **interrupting the process group does not kill a coding agent's
+  shell-spawned children**, which is the one cross-plan fact this initiative's timeout story depends
+  on. POSIX requires a non-interactive shell to set `SIGINT` to *ignored* in the background commands
+  it starts, so `interruptProcessGroupOf` — the only group-wide signal the `process` package offers
+  — reaches the agent and not the children it backgrounded. Because the interrupt does kill the
+  agent, the leader exits inside the grace period and any escalation conditioned on "the leader is
+  still running" never executes, so the grandchild survives everything and keeps writing to the
+  working tree a script is about to inspect and commit. EP-4 therefore escalates to a group-wide
+  `SIGTERM` unconditionally through `System.Posix.Signals.signalProcessGroup`, since `process` has
+  no group-wide terminate, behind an `if !os(windows)` Cabal conditional and a
+  `BAIKAI_POSIX_SIGNALS` CPP guard. One ordering detail is load-bearing: `P.getPid` yields `Nothing`
+  once a process is reaped, so the group identifier must be read before the grace-period wait.
+  Consequence for EP-6: the `baikai agent run` documentation may state plainly that a timeout
+  terminates the agent's own child processes, and the executable must not introduce a second, weaker
+  termination path of its own. Consequence for EP-5: the package now carries a non-Windows
+  conditional, so a configuration module needing POSIX facilities should reuse the existing guard
+  rather than adding a second spelling.
+
+- Discovery (EP-4, 2026-08-05): draining an output stream on the thread that waits for the process
+  makes the timeout unreachable whenever output is captured, because the drain blocks until the
+  child closes the pipe. The runner forks both drains and waits on its own thread. The classic
+  deadlock the initiative was guarding against — waiting before draining, so a child that fills the
+  64-kilobyte pipe buffer blocks forever — is still avoided, because draining still *starts* before
+  the wait; only which thread does the reading changed. Consequence for EP-6: `agent run` gets a
+  working timeout in all three output disciplines rather than only when output is inherited, which
+  matters because a CI consumer will want `capture` and a deadline at the same time.
+
+- Discovery (EP-4, 2026-08-05): `PromptAsArgument` gives the child no standard input at all, so a
+  fixture that reads standard input under that transport *fails* rather than reading nothing —
+  `cat` exits 1 with a bad-file-descriptor error. That failure is the evidence the transport is
+  honored. This closes the loop on the EP-2 discovery that no shipped renderer selects the
+  transport: EP-4's fixture is the place the two-sided contract is observed, exactly as EP-2
+  anticipated, and the branch is not dead code.
 
 - Discovery: both providers can take the prompt on standard input, which removes the
   dash-leading-prompt hazard entirely, but Codex has a trap. `codex exec --help` states that

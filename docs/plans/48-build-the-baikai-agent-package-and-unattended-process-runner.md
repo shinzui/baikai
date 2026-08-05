@@ -59,16 +59,23 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Create the `baikai-agent` package skeleton — directory, `LICENSE`,
-      `baikai-agent.cabal`, a placeholder module, and a test suite — and register it in
-      `cabal.project` and `agents/skills/release/SKILL.md`.
-- [ ] Milestone 2: Implement precondition checks and the basic spawn-and-wait path with standard
-      -input prompt delivery.
-- [ ] Milestone 3: Implement the three output disciplines with concurrent draining and byte
-      limits.
-- [ ] Milestone 4: Implement the timeout with process-group termination.
-- [ ] Milestone 5: Add the fake-executable integration test suite.
-- [ ] Milestone 6: Document, add changelog bullets, and run the full offline validation.
+- [x] Milestone 1 (2026-08-05): Created the `baikai-agent` package skeleton — directory, `LICENSE`,
+      `baikai-agent.cabal`, a placeholder module, and a `tasty` test suite — and registered it in
+      `cabal.project` and `agents/skills/release/SKILL.md` as the seventh publishable package.
+      Committed on its own as the checkpoint that unblocks
+      `docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md`.
+- [x] Milestones 2 through 4 (2026-08-05): Implemented `runAgentCommand` — preconditions,
+      standard-input prompt delivery, the three output disciplines with concurrent draining and
+      byte limits, and the timeout with process-group termination. Written as one module rather
+      than three checkpoints because the three concerns are one function's control flow; each is
+      pinned separately by Milestone 5's cases, which is where the independent verification
+      actually lives.
+- [x] Milestone 5 (2026-08-05): Added the fake-executable suite. `cabal test baikai-agent-test`:
+      all 17 tests passed, including the grandchild-termination case and the timeout conversion
+      unit tests. No coding-agent binary and no model is involved in any of them.
+- [x] Milestone 6 (2026-08-05): Documented `runAgentCommand` and its four caller-visible behaviors
+      in `docs/user/interactive-launches.md`, added the package to the root `README.md` table and
+      a `baikai-agent` bullet to the root `CHANGELOG.md`, and ran the full offline validation.
 
 
 ## Surprises & Discoveries
@@ -76,9 +83,51 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. Process and signal behavior is the area of this initiative most likely to surprise;
-record anything you learn about pipe buffering, process groups, or `System.Timeout` interaction
-here with the test output that showed it.)
+- Discovery (Milestone 5, 2026-08-05): **an interrupt to the process group does not kill a coding
+  agent's shell-spawned children.** The grandchild test failed on its first run — the background
+  child survived and touched its marker file:
+
+  ```text
+  kills grandchildren when the group is terminated:  FAIL (7.42s)
+    test/Main.hs:226:
+    the grandchild was terminated with its group
+  ```
+
+  The cause is POSIX shell semantics, not a bug in the signal code. A non-interactive shell is
+  required to set `SIGINT` to *ignored* in the background commands it starts, so
+  `interruptProcessGroupOf` — the only group-wide signal the `process` package offers — reaches the
+  agent and not the children it backgrounded. Worse, the interrupt *succeeds* at killing the agent,
+  so the leader exits inside the grace period and the plan's escalation to `terminateProcess` never
+  runs; the grandchild outlives everything and keeps writing to the working tree a script is about
+  to inspect and commit.
+
+  The fix is to escalate to a group-wide `SIGTERM` **whether or not the leader stopped**, which
+  needs `System.Posix.Signals.signalProcessGroup` because `process` has no group-wide terminate.
+  One ordering detail is load-bearing: `P.getPid` returns `Nothing` once a process has been reaped,
+  so the group's identifier must be read *before* the grace-period wait, not after. With that in
+  place the test passes in about 5 seconds.
+
+- Discovery (Milestone 3, 2026-08-05): the plan's draining shape — standard error on a forked
+  thread, standard output on the waiting thread — is correct for the no-timeout case but makes the
+  timeout unreachable whenever output is captured. A drain on the waiting thread blocks until the
+  child closes the pipe, so a sleeping child would never let the code reach `waitWithTimeout` at
+  all. Both drains are therefore forked and the wait happens on this thread. The plan's deadlock
+  warning still governs the *ordering* — draining must start before the wait — and only the
+  question of which thread does the reading changed.
+
+- Discovery (Milestone 5, 2026-08-05): the `PromptAsArgument` transport gives the child no standard
+  input at all, and a fixture that reads standard input therefore *fails* rather than reading
+  nothing. `cat` under that transport exits 1 with a bad-file-descriptor error. That failure is
+  itself the evidence the transport is honored, so the fixture tolerates it with
+  `cat 2>/dev/null || true` and asserts the captured output is exactly the argument. This is the
+  only place the two-sided contract can be observed, since no shipped vendor renderer selects the
+  transport.
+
+- Discovery (Milestone 5, 2026-08-05): a test comparing the child's `pwd` against the request's
+  working directory must compare basenames on macOS. `withSystemTempDirectory` returns a path under
+  `/var/folders/…`, which the child resolves to `/private/var/folders/…` — the same directory by a
+  different path. Comparing the full strings fails for a reason that has nothing to do with the
+  behavior under test.
 
 
 ## Decision Log
@@ -136,6 +185,37 @@ Record every decision made while working on the plan.
   is partial.
   Date: 2026-07-30
 
+- Decision: Fork **both** drain threads and wait for the process on the calling thread, rather than
+  draining standard output on the calling thread as this plan originally specified.
+  Rationale: a drain on the waiting thread blocks until the child closes the pipe, which means the
+  timeout is never reached whenever output is captured — a sleeping child would hang the caller
+  forever despite having a deadline. The plan's real requirement, that draining start before the
+  wait so a full pipe cannot deadlock, is satisfied either way. The cost is one extra thread; the
+  benefit is that the timeout works in all three output modes rather than only in `InheritOutput`.
+  Date: 2026-08-05
+
+- Decision: Escalate a timed-out run to a group-wide `SIGTERM` unconditionally, using
+  `System.Posix.Signals.signalProcessGroup` behind a non-Windows Cabal conditional, rather than
+  stopping at this plan's interrupt-then-`terminateProcess` sequence.
+  Rationale: POSIX requires a non-interactive shell to ignore `SIGINT` in the background commands
+  it starts, so the group interrupt kills the agent while leaving exactly the grandchildren it was
+  meant to reach. Because the interrupt succeeds against the leader, the leader exits inside the
+  grace period and the planned `terminateProcess` escalation never runs at all. The `process`
+  package offers a group-wide interrupt but no group-wide terminate, so reaching the survivors
+  requires the POSIX signal API. It is added under `if !os(windows)` with a CPP guard so the
+  package still builds on Windows, where `interruptProcessGroupOf` sends `CTRL_BREAK` to the group
+  and is the platform's own group mechanism. Evidence is in Surprises & Discoveries: the
+  grandchild test fails without this and passes with it.
+  Date: 2026-08-05
+
+- Decision: `RunTimedOut` reports `0` when a run times out under a request whose `timeout` is
+  somehow absent.
+  Rationale: unreachable in practice, since a run only times out when a limit was converted
+  successfully, but the failure constructor requires a duration and inventing a measured one would
+  contradict this plan's own rule that the *configured* limit is what gets reported. Zero reads as
+  "no limit was configured", which is the honest description of that impossible state.
+  Date: 2026-08-05
+
 - Decision: The child inherits the parent's full environment; `envPassthrough` is validated as a
   precondition rather than used to filter.
   Rationale: both tools need `HOME`, `PATH`, and their own credential files to authenticate, so
@@ -143,6 +223,54 @@ Record every decision made while working on the plan.
   buys is a clear error — `MissingEnvironment` naming every declared variable that is unset or
   empty — instead of an agent that starts and then fails for reasons the operator has to guess.
   Date: 2026-07-30
+
+
+## Outcomes & Retrospective
+
+This section was missing from the plan as authored; the ExecPlan specification requires it, so it
+was added during implementation on 2026-08-05 in its skeleton position between the Decision Log and
+Context and Orientation.
+
+Completed 2026-08-05. The repository can now actually run an unattended coding agent, which nothing
+in it could do before. `baikai-agent` exists as the eighth workspace package and the seventh
+publishable one, depends on `baikai` and on neither provider package, and exports
+`runAgentCommand :: AgentRunRequest -> AgentCommand -> IO (Either AgentRunFailure AgentRunResult)`.
+
+The observable outcome the Purpose section promised holds. `cabal test baikai-agent-test` passes
+with 17 cases driven by shell scripts written into temporary directories: a non-ASCII prompt
+round-trips through `cat` on standard input, a script sleeping five seconds under a one-second
+timeout is killed and reported as a timeout in about a second rather than hanging the suite, a
+script exiting 3 produces a successful result carrying that code, and a script printing 20
+kilobytes is truncated at exactly 1024 bytes and still reports success. No coding-agent binary and
+no model is involved in any of them. By hand, in the REPL:
+
+```text
+Right (ExitSuccess,Just "hello from stdin")
+```
+
+The full offline validation is green: `nix fmt`, `git diff --check`, `cabal build all`, the key- and
+CLI-scrubbed `cabal test all` (168 core, 174 Claude, 81 Codex, 29 kit, 17 agent, and the rest, with
+the smoke suite reporting no keys or binaries and skipping every live case), and `nix flake check`.
+
+Two designs in this plan turned out to be wrong in the same direction, and both were caught by
+tests rather than by review. Draining standard output on the waiting thread makes the timeout
+unreachable whenever output is captured. Interrupting the process group does not kill a coding
+agent's shell-spawned children, because POSIX requires a non-interactive shell to ignore `SIGINT` in
+background commands — and because the interrupt does kill the agent, the planned escalation never
+runs. Both are recorded in Surprises & Discoveries with the failing output, and both fixes are in
+the Decision Log. The lesson is the plan's own: the grandchild test is the most valuable one here
+and the easiest to omit, and it is the only reason the second defect was found at all. A reviewer
+reading the signal code would have seen a group interrupt followed by an escalation and concluded,
+reasonably and wrongly, that grandchildren die.
+
+What remains is the rest of the initiative rather than a gap in this plan. Nothing imports
+`Baikai.Agent.Run` yet;
+`docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md` adds configuration
+modules alongside it in this package, and
+`docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md` is its first caller
+and adds the `executable baikai` stanza. One constraint this plan introduces for them: the package
+now carries a non-Windows Cabal conditional and a CPP guard, so a module added later that needs
+POSIX signals should reuse `BAIKAI_POSIX_SIGNALS` rather than introducing a second spelling.
 
 
 ## Context and Orientation

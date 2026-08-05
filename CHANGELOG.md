@@ -49,6 +49,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it with unrestricted tools would grant more authority than the caller asked
   for. Nothing is spawned.
 
+- `baikai-agent`: **new package** (`0.1.0.0`) holding the unattended
+  coding-agent runner. `Baikai.Agent.Run.runAgentCommand` takes an
+  `AgentRunRequest` and an already-rendered `AgentCommand` and spawns the tool
+  with no terminal and no human present. It delivers the prompt on standard
+  input and closes the handle, drains standard output and standard error
+  concurrently so a chatty agent cannot deadlock on a full pipe, retains at most
+  `outputLimit` bytes per stream while reading and discarding the excess, and
+  honors the three output disciplines. Preconditions run before any spawn: a
+  missing working directory is `WorkingDirMissing` and unset or empty declared
+  variables are `MissingEnvironment`, listing all of them at once. On timeout
+  the child's whole process group is interrupted, given a grace period, and then
+  terminated, so the agent's own child processes go with it; the failure reports
+  the configured limit. A non-zero exit code is a successful run carrying that
+  code, not a failure. The package depends on `baikai` and on neither provider
+  package, and its POSIX-signal escalation is conditional on a non-Windows
+  build.
+
 ### Changed
 
 - **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns

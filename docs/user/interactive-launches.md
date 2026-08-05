@@ -45,9 +45,77 @@ changed working tree, not the text.
 - `AgentRenderError` is a refusal raised before anything is spawned,
   and `AgentRunFailure` is a failure while spawning or waiting.
 
-`Baikai.Agent` itself spawns nothing and renders no flags. The process
-runner arrives in
-`docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md`.
+`Baikai.Agent` itself spawns nothing and renders no flags.
+
+### Running one
+
+The process runner lives in the `baikai-agent` package, as
+`runAgentCommand` in `Baikai.Agent.Run`:
+
+```haskell
+runAgentCommand ::
+  AgentRunRequest -> AgentCommand -> IO (Either AgentRunFailure AgentRunResult)
+```
+
+Both arguments are required and neither is redundant. The request
+supplies every process-level setting — working directory, timeout,
+output discipline, output limit, and declared environment variables —
+while the command supplies the executable, the argument vector, and the
+prompt transport. `AgentCommand` carries no working directory on
+purpose: Claude Code has no working-directory flag, so for one of the
+two providers it can only ever be a process-level setting, and two
+copies of a working directory that disagree would be a sandbox escape
+rather than a cosmetic bug.
+
+Four behaviors decide how a caller reads the result:
+
+- **A non-zero exit code is a `Right`, not a `Left`.** A coding agent
+  that attempts its task and fails has run. `Left` means the tool never
+  started or never finished; `Right` means it ran, and the exit code
+  says how it went. What a non-zero code means for a workflow is the
+  calling script's policy, not the library's.
+- **`InheritOutput` captures nothing, by design.** The child writes
+  straight to the parent's own streams and both result fields are
+  `OutputNotCaptured`. That is the default, and it is what a script
+  whose log is the terminal it inherited wants. Ask for `CaptureOutput`
+  or `TeeOutput` to get bytes back.
+- **The byte limit truncates rather than failing.** Output past
+  `outputLimit` is read and discarded, and the stream comes back as
+  `OutputTruncated` carrying exactly the retained prefix. Closing the
+  pipe early instead would make the agent's next write fail, producing a
+  crash attributed to the tool rather than to the limit.
+- **A timeout kills the whole process group.** A coding agent runs shell
+  commands as its own children; terminating only the agent would leave
+  them running, holding the working tree open and possibly still writing
+  to it. The run is interrupted, given a short grace period, and then
+  the group is terminated, so the agent's own children go with it.
+  `RunTimedOut` reports the configured limit, not the measured elapsed
+  time.
+
+Two preconditions are checked before anything is spawned: a working
+directory that does not exist yields `WorkingDirMissing`, and any
+variable named in `envPassthrough` that is unset or empty yields
+`MissingEnvironment` listing every one of them at once. `envPassthrough`
+is a precondition check, not a filter — the child inherits the parent's
+environment in full, because both tools need `HOME`, `PATH`, and their
+own credential files to work at all.
+
+The whole surface:
+
+```text
+output mode      child streams          result stdout/stderr
+inherit          parent's own streams   OutputNotCaptured
+capture          pipes, parent silent   OutputCaptured / OutputTruncated
+tee              pipes, echoed onward   OutputCaptured / OutputTruncated
+
+outcome                                 return value
+ran, exit 0                             Right, exitCode ExitSuccess
+ran, exit non-zero                      Right, exitCode ExitFailure n
+working directory absent                Left WorkingDirMissing
+declared variable unset or empty        Left MissingEnvironment
+executable not startable                Left SpawnFailed
+still running at the deadline           Left RunTimedOut, group terminated
+```
 
 ### What a capability becomes
 
