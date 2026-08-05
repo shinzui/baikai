@@ -47,6 +47,13 @@ library
     , text          ^>=2.1
     , time          ^>=1.14
 
+  -- The process package offers a group-wide interrupt but no group-wide
+  -- terminate, which a timeout needs to reach a coding agent's own
+  -- children. Where POSIX signals exist, use them.
+  if !os(windows)
+    build-depends: unix ^>=2.8
+    cpp-options:   -DBAIKAI_POSIX_SIGNALS
+
 test-suite baikai-agent-test
   import:         common-options
   type:           exitcode-stdio-1.0
@@ -63,6 +70,8 @@ test-suite baikai-agent-test
     , bytestring
     , directory
     , filepath
+    , generic-lens
+    , lens
     , process
     , tasty
     , tasty-hunit
