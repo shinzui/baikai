@@ -50,6 +50,7 @@ library
     Baikai.Cost.Pricing
     Baikai.Embedding
     Baikai.Error
+    Baikai.Evidence
     Baikai.Interactive
     Baikai.Message
     Baikai.Model
@@ -74,9 +75,11 @@ library
   build-depends:
     , aeson              ^>=2.2
     , base               >=4.20  && <5
+    , base16-bytestring  ^>=1.0
     , base64-bytestring  ^>=1.2
     , bytestring         ^>=0.12
     , containers         ^>=0.7
+    , cryptohash-sha256  ^>=0.11
     , generic-lens       ^>=2.3
     , lens               ^>=5.3
     , openai             ^>=2.5

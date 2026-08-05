@@ -193,7 +193,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | Not Started |
+| EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | In Progress |
 | EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Not Started |
 | EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Not Started |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Not Started |
