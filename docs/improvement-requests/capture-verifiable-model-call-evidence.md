@@ -4,8 +4,51 @@ title: Capture verifiable model-call evidence at the provider boundary
 description: Record the requested and provider-observed model, effective thinking configuration, provider correlation identifiers, usage, and payload digests for every Baikai call without claiming that client-side evidence proves provider internals.
 timestamp: "2026-08-02T18:29:04Z"
 requestId: IR-3
-status: proposed
+status: planned
 origin: mori://shinzui/kikan
+reviews:
+  - kind: model
+    reviewer: claude
+    reviewed_at: 2026-08-05T20:23:00Z
+    document_timestamp: 2026-08-02T18:29:04Z
+    scope: technical-accuracy
+    outcome: approved
+    provider: anthropic
+    model: claude-opus-5
+    context: >-
+      In-repository review at mori://shinzui/baikai against the trace and cost-log surfaces, the
+      Anthropic and OpenAI-compatible API providers, both subprocess completion providers, the
+      unattended agent surface from
+      mori://shinzui/baikai/docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli,
+      the local SSE transports, and the MercuryTechnologies/claude SDK source. Every premise the
+      request asserts was verified true, and two are stronger than stated: no observed model exists
+      anywhere in the codebase, because both API providers build their assistant skeleton from the
+      caller's own Model record; and the silent thinking-downgrade surface is six distinct sites
+      across three packages, two of which are model-capability and token-budget interactions rather
+      than effort mappings. Approved with nine corrections carried into the accepted design.
+      Four resolve ambiguities the request left open: acceptance criterion 1 does not say which of
+      baikai's two disjoint CLI surfaces it means, and the consuming use case requires the
+      unattended agent surface, which has no observability of any kind today; the single "hash of
+      the redacted request envelope" is internally inconsistent and becomes two digests, a content
+      commitment and a redaction-stable configuration digest; strict evidence mode must fail the
+      call on trace-sink failure, since today the call survives and the evidence is silently
+      dropped to stderr; and the retry/fallback relationship is caller-supplied provenance, because
+      baikai has no retry loop and acquiring one is out of scope. Five are findings the request did
+      not anticipate: the existing call-id generator is not unique across processes and is a
+      correctness defect for correlation; the trace path elides cached and reasoning token counts
+      the cost log keeps, and suppresses a zero cost entirely, so "free" and "unknown" are
+      indistinguishable; the Anthropic ThinkingPlan record already computes the translation
+      description the request asks for and discards it, while the OpenAI side has no equivalent at
+      all; response-header capture is far cheaper than the request assumes, because baikai runs its
+      own SSE transport and already reads response headers for Retry-After; and the evidence needs
+      a return channel, since ApiProvider has none, making this a major-version change across five
+      packages. One further finding was raised and then withdrawn: the review reported the
+      OpenAI-native effort path as a live wire bug for forwarding "xhigh" and "max" verbatim,
+      citing Baikai's own compat Haddock. That was wrong. compatibleEffort's docstring scopes it to
+      the non-native shapes and baikai-openai/test/ShapeSpec.hs guards the native values reaching
+      the wire intact against a GPT-5.6 model, so the behaviour is deliberate and only the doc
+      comment is stale; the accepted design was corrected to change no wire behaviour. The accepted
+      design is docs/masterplans/9-verifiable-model-call-evidence-at-the-provider-boundary.md.
 ---
 
 # Improvement Request: capture verifiable model-call evidence at the provider boundary
