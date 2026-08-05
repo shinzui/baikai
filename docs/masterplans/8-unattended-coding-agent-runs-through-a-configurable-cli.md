@@ -147,7 +147,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 | EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Complete |
 | EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Complete |
 | EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Complete |
-| EP-6 | Ship the baikai agent CLI and prove the unattended fixture | docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md | EP-2, EP-4, EP-5 | EP-3 | Not Started |
+| EP-6 | Ship the baikai agent CLI and prove the unattended fixture | docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md | EP-2, EP-4, EP-5 | EP-3 | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).

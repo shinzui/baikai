@@ -68,12 +68,13 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Add the `executable baikai` stanza and its dependencies; wire a testable
-      command-line entry point that returns a result record rather than exiting.
-- [ ] Milestone 2: Implement provider dispatch from a resolved job to a rendered command.
-- [ ] Milestone 3: Implement `agent show` and `agent list`.
-- [ ] Milestone 4: Implement `agent run`, including prompt sources, exit codes, and stream
-      discipline.
+- [x] Milestone 1 (2026-08-05): Add the `executable baikai` stanza and its dependencies; wire a
+      testable command-line entry point that returns a result record rather than exiting.
+- [x] Milestone 2 (2026-08-05): Implement provider dispatch from a resolved job to a rendered
+      command.
+- [x] Milestone 3 (2026-08-05): Implement `agent show` and `agent list`.
+- [x] Milestone 4 (2026-08-05): Implement `agent run`, including prompt sources, exit codes, and
+      stream discipline.
 - [ ] Milestone 5: Build the end-to-end fixture test against a fake `claude` executable.
 - [ ] Milestone 6: Write `docs/user/unattended-agent-runs.md`, cross-link the other two surfaces,
       and write the consumer migration guide.
@@ -86,9 +87,44 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. This plan is the first place all five earlier plans meet, so it is where any disagreement
-between them will surface. Record every such disagreement here, because the parent MasterPlan's
-retrospective depends on it.)
+- Discovery (2026-08-05): **`cabal run baikai` does not work in this workspace**, so every command
+  this plan wrote as `cabal run baikai -- …` had to become
+  `cabal run baikai-agent:exe:baikai -- …`. The executable is named `baikai` and so is a *package*,
+  and `cabal run` resolves an unqualified target as a package first:
+
+  ```text
+  Error: [Cabal-7070]
+  The run command is for running a single executable at once. The target 'baikai' refers to the
+  package baikai-0.4.1.0 which includes
+  - executables: baikai-fetch-models and baikai-gen-models
+  ```
+
+  This affects only in-workspace invocation. An installed binary is still `baikai`, which is what
+  the user guide and the migration guide document, so the executable was not renamed. The Concrete
+  Steps below were corrected in place.
+
+- Discovery (2026-08-05): **a value produced by a named default rule reaches the report as an
+  `Origin` whose `kind` is `DerivedSource` and whose `name` is the rule name — not through
+  `ResolutionNode`'s `derivation` field**, which stayed `Nothing` for every node observed. A
+  renderer that branches on `derivation` therefore never fires, and the rule name renders as a bare
+  word (`no-provider-args`) indistinguishable from a file's source label. `renderEffectiveConfig`
+  prefixes `default rule ` when the origin kind is `DerivedSource` for that reason.
+
+- Discovery (2026-08-05): **`RawValue` has no `Show` instance, deliberately**, because it may hold a
+  secret before a setting decoder has had a chance to redact it. That constrains how a `CliOverride`
+  can be re-keyed: `cliOverride` takes `Text` but `cliOverrideValue` returns `RawValue`, so
+  `scopeOverride` pattern-matches `RawText` and passes any other shape through unchanged rather than
+  rendering it. The other shapes are unreachable — `cliOverride` only ever builds a `RawText` — but
+  the compiler cannot know that, and "just `show` it" is not available on purpose.
+
+- Discovery (2026-08-05): EP-5's note that the command-line spelling is
+  `--set jobs.<name>.extra-dirs=/one` is **superseded at the command-line layer**. `--set` keys are
+  job-relative, so the motivating invocation is `--set extra-dirs=/path`; a key that already begins
+  with the `jobs` segment is treated as absolute and passes through untouched, so both spellings
+  work. EP-5's `resolveAgentJob` still takes absolute keys — the rewrite happens in `Baikai.Agent.Cli`
+  — so nothing in EP-5 changed. Separately, the MasterPlan's Vision and this plan's own migration
+  sketch both wrote `--set extra-dir=…`; the setting is `extra-dirs`, plural, and the documentation
+  written in Milestone 6 uses the real name.
 
 
 ## Decision Log
@@ -154,6 +190,70 @@ Record every decision made while working on the plan.
   line with the same fidelity as to a file. A hand-rolled flag would resolve outside the resolver and
   lose that.
   Date: 2026-07-30
+
+- Decision: `--set` splits `KEY=VALUE` in this package's own `ReadM` and then builds the override
+  with `settei`'s `cliOverride`, rather than calling `settei`'s `overrideOptions` directly.
+  Rationale: `overrideOptions` produces an override whose key is absolute, and these keys are
+  job-relative. The job name is parsed by the same applicative that parses `--set`, so it is not
+  available while reading the flag; the rewrite has to happen after parsing. Building the value with
+  `cliOverride` is what actually matters for the Decision Log entry above — the override still enters
+  resolution as a real `settei` command-line source with its own provenance and a spelling that never
+  carries the value.
+  Date: 2026-08-05
+
+- Decision: `Baikai.Agent.Cli` exports `runAgentCliWithPaths` alongside the `runAgentCli` this plan
+  specified, and tests drive the former.
+  Rationale: `runAgentCli` discovers `$XDG_CONFIG_HOME`/`$HOME` and `./.baikai/agents.kdl`, which is
+  right for the executable and wrong for a test — a developer with a real
+  `~/.config/baikai/agents.kdl` would get different results from a clean machine. Splitting
+  discovery from execution makes the plan's own hazard note ("construct `AgentConfigPaths`
+  explicitly everywhere") structurally enforceable rather than a rule to remember. `runAgentCli` is
+  now three lines: discover, then delegate.
+  Date: 2026-08-05
+
+- Decision: A sixth named exit code, `internalExitCode = 70`, joins the five this plan listed.
+  Rationale: the plan's own outcome table maps `OutputMalformed` to 70 while its constant list named
+  only five codes, so one of the two had to move. Naming it keeps the practice the plan borrowed
+  from `settei`'s reference application — every exit code is a named top-level value with a Haddock
+  comment — intact rather than leaving one bare literal in a `case`.
+  Date: 2026-08-05
+
+- Decision: Under `capture`, the agent's captured **standard error** is re-emitted on Baikai's
+  standard error, not discarded.
+  Rationale: capture exists so `response=$(baikai agent run job)` yields the agent's answer alone.
+  That argument is about standard *output*. Swallowing the agent's standard error as well would mean
+  a failing agent explains itself to nobody, and putting it on standard error cannot contaminate the
+  captured value. Under `tee` nothing is re-emitted, because the runner already echoed both streams
+  to the real handles while draining and printing them again would double every line.
+  Date: 2026-08-05
+
+- Decision: `agent list` prints its "no jobs are configured" note on standard error and leaves
+  standard output empty.
+  Rationale: the plan requires an empty list to exit 0 rather than error, and a script that pipes
+  `agent list` into `wc -l` or `while read` should see data or nothing — never prose it has to filter
+  out. The note is a diagnostic, so it follows the same stream rule as every other Baikai
+  diagnostic.
+  Date: 2026-08-05
+
+- Decision: `--json` produces exactly one JSON object on standard output per command, hand-encoded
+  rather than through `aeson`. For `agent run` that object is the outcome envelope and carries the
+  captured streams when the job captures.
+  Rationale: the plan's exit-code table documents an ambiguity — a provider that exits 64 or above is
+  indistinguishable from a Baikai failure — and says `--json` carries the unambiguous answer, which
+  requires an `outcome` field naming which of the two happened. Putting the captured output inside
+  that envelope keeps the invariant that with `--json` standard output is one JSON value, rather than
+  a JSON object concatenated with raw agent bytes. `aeson` was rejected because the package needs
+  three shapes (object, array, string) and would otherwise not depend on it at all.
+  Date: 2026-08-05
+
+- Decision: Milestones 1 through 4 were implemented and committed together.
+  Rationale: Milestone 1's deliverable is a skeleton whose `AgentRun` and `AgentShow` branches are
+  stubs, and Milestones 2 through 4 replace those stubs. Writing the stubs and then deleting them
+  would produce a commit whose content never survives, and the verification Milestone 1 asks for —
+  `--help` and `agent list` in a directory with no job file — is unchanged by the later milestones
+  and was run against the finished module. The plan's stopping points were kept as verification
+  points rather than as commit boundaries.
+  Date: 2026-08-05
 
 
 ## Context and Orientation
@@ -800,12 +900,13 @@ Then run the full validation.
 Run every command from the repository root, `/Users/shinzui/Keikaku/bokuno/baikai`, unless stated
 otherwise.
 
-After Milestone 1:
+After Milestone 1. Note the qualified target: an unqualified `cabal run baikai` resolves to the
+*package* named `baikai` and fails, as recorded in Surprises & Discoveries.
 
 ```bash
 cabal build baikai-agent
-cabal run baikai -- --help
-cabal run baikai -- agent list
+cabal run baikai-agent:exe:baikai -- --help
+cabal run baikai-agent:exe:baikai -- agent list
 ```
 
 After Milestones 2 through 5:
@@ -844,23 +945,44 @@ KDL
 cd /tmp/baikai-demo
 ```
 
-Inspect without running:
+Inspect without running. `--user-config /dev/null` keeps a developer's real
+`~/.config/baikai/agents.kdl` out of the demonstration:
 
 ```bash
-cabal run --project-dir /Users/shinzui/Keikaku/bokuno/baikai baikai -- agent show demo
+cabal run --project-dir /Users/shinzui/Keikaku/bokuno/baikai baikai-agent:exe:baikai -- \
+  agent show demo --user-config /dev/null
 ```
 
-Expected shape — the per-key listing comes from `settei`, so exact formatting follows its renderer:
+Actual shape, as produced by the implementation. Every value carries its file, line, and column,
+which is what improvement-request acceptance criterion 5 asks for and what `renderResolutionText`
+alone could not supply. Values declared with `settei`'s `publicShowSetting` render through their
+`Show` instance, which is why some carry quotes and `output-limit` reads `Just 4194304`:
 
 ```text
-effective configuration for job "demo"
-  jobs.demo.provider              claude           /tmp/baikai-demo/.baikai/agents.kdl:3:5 (file)
-  jobs.demo.working-dir           /tmp/baikai-demo /tmp/baikai-demo/.baikai/agents.kdl:4:5 (file)
-  jobs.demo.output                capture          /tmp/baikai-demo/.baikai/agents.kdl:6:5 (file)
-  jobs.demo.output-limit          4194304          built-in defaults
-  jobs.demo.safety.capability     edit-workspace   /tmp/baikai-demo/.baikai/agents.kdl:9:7 (file)
+job "demo"
 
-policy ceiling: built-in default
+effective configuration
+  jobs.demo.effort = (unset)
+  jobs.demo.env-requires = []
+      from default rule no-required-environment
+  jobs.demo.executable = "/tmp/baikai-demo/fake-claude"
+      from repository configuration at .baikai/agents.kdl:5:17
+  jobs.demo.output = "capture"
+      from repository configuration at .baikai/agents.kdl:6:17
+  jobs.demo.output-limit = Just 4194304
+      from default rule default-output-limit
+  jobs.demo.provider = "claude"
+      from repository configuration at .baikai/agents.kdl:3:17
+  jobs.demo.safety.allowed-tools = ["Read", "Edit"]
+      from repository configuration at .baikai/agents.kdl:10:21
+  jobs.demo.safety.capability = "edit-workspace"
+      from repository configuration at .baikai/agents.kdl:9:21
+  jobs.demo.safety.provider-args = <redacted>
+      from default rule no-provider-args
+  jobs.demo.working-dir = "/tmp/baikai-demo"
+      from repository configuration at .baikai/agents.kdl:4:17
+
+policy ceiling, from /dev/null
   max-capability       edit-workspace
   allow-provider-args  false
   allowed-providers    claude, codex
@@ -871,13 +993,15 @@ rendered command
     --no-session-persistence
     --permission-mode acceptEdits
     --allowedTools Read,Edit
-  prompt transport: standard input
+  prompt transport: standard input (the prompt appears nowhere in the argument vector)
 ```
 
 Then run it:
 
 ```bash
-printf 'reconcile the grammar' | cabal run --project-dir /Users/shinzui/Keikaku/bokuno/baikai baikai -- agent run demo --prompt-stdin
+printf 'reconcile the grammar' | \
+  cabal run --project-dir /Users/shinzui/Keikaku/bokuno/baikai baikai-agent:exe:baikai -- \
+  agent run demo --prompt-stdin --user-config /dev/null
 echo "exit: $?"
 ```
 
@@ -887,8 +1011,10 @@ because the fake `cat`s its input and the job captures, and `exit: 0`.
 Now prove the ceiling refuses before spawning:
 
 ```bash
-sed -i '' 's/"edit-workspace"/"full-access"/' /tmp/baikai-demo/.baikai/agents.kdl
-printf 'x' | cabal run --project-dir /Users/shinzui/Keikaku/bokuno/baikai baikai -- agent run demo --prompt-stdin
+perl -pi -e 's/"edit-workspace"/"full-access"/' /tmp/baikai-demo/.baikai/agents.kdl
+printf 'x' | \
+  cabal run --project-dir /Users/shinzui/Keikaku/bokuno/baikai baikai-agent:exe:baikai -- \
+  agent run demo --prompt-stdin --user-config /dev/null
 echo "exit: $?"
 ```
 
@@ -1068,13 +1194,22 @@ data AgentCliRun = AgentCliRun
 
 agentCliParser     :: Parser AgentCliOptions
 agentCliParserInfo :: ParserInfo AgentCliOptions
-runAgentCli        :: EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
+
+-- Discovers the two configuration files, then delegates
+runAgentCli          :: EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
+-- Takes them explicitly; this is what tests drive
+runAgentCliWithPaths :: AgentConfigPaths -> EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
 
 -- The single provider dispatch point in the codebase
 renderJobCommand :: AgentJob -> AgentRunRequest -> Either AgentRenderError AgentCommand
 
 -- Named exit codes, sysexits convention
-usageExitCode, configExitCode, refusedExitCode, unavailableExitCode, timeoutExitCode :: Int
+usageExitCode, unavailableExitCode, internalExitCode :: Int
+timeoutExitCode, refusedExitCode, configExitCode :: Int
+
+-- Exposed for testing
+readPromptSource     :: PromptSource -> IO (Either Text Text)
+renderEffectiveConfig :: ResolutionReport -> Text
 ```
 
 The command-line contract, which the user guide documents:

@@ -36,11 +36,14 @@ library
   import:          common-options
   hs-source-dirs:  src
   exposed-modules:
+    Baikai.Agent.Cli
     Baikai.Agent.Config
     Baikai.Agent.Run
 
   build-depends:
     , baikai                       ^>=0.4.1
+    , baikai-claude                ^>=0.4
+    , baikai-openai                ^>=0.4
     , base                         >=4.20   && <5
     , bytestring                   ^>=0.12
     , containers                   ^>=0.7
@@ -48,6 +51,7 @@ library
     , filepath                     ^>=1.5
     , generic-lens                 ^>=2.3
     , lens                         ^>=5.3
+    , optparse-applicative         ^>=0.19
     , process                      ^>=1.6
     , settei                       ^>=0.2
     , settei-env                   ^>=0.2
@@ -62,6 +66,23 @@ library
   if !os(windows)
     build-depends: unix ^>=2.8
     cpp-options:   -DBAIKAI_POSIX_SIGNALS
+
+executable baikai
+  import:         common-options
+  hs-source-dirs: app
+  main-is:        Main.hs
+
+  -- Deliberately thin: everything real lives in Baikai.Agent.Cli so the
+  -- whole command-line surface is reachable from the test suite without
+  -- spawning the built binary.
+  build-depends:
+    , baikai-agent
+    , base                  >=4.20  && <5
+    , generic-lens          ^>=2.3
+    , lens                  ^>=5.3
+    , optparse-applicative  ^>=0.19
+    , settei-env            ^>=0.2
+    , text                  ^>=2.1
 
 test-suite baikai-agent-test
   import:         common-options
@@ -83,6 +104,7 @@ test-suite baikai-agent-test
     , filepath
     , generic-lens
     , lens
+    , optparse-applicative
     , process
     , settei
     , settei-env

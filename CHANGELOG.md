@@ -93,6 +93,41 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   untrusted input here. Nothing in the package imports `Baikai.Agent.Config`
   yet; the `baikai` executable is its first caller.
 
+- `baikai-agent`: the **`baikai` executable**, with the `agent run`,
+  `agent show`, and `agent list` commands, and the `Baikai.Agent.Cli` module
+  that implements them. A shell script now invokes one stable command, supplies
+  a prompt on standard input, and selects Claude Code or Codex entirely through
+  configuration.
+
+  `agent run` resolves the named job, caps it against the operator ceiling,
+  renders it through the vendor renderer for its provider, and spawns it. The
+  agent's own exit code passes through unchanged; Baikai's own failures use 64
+  and above following the `sysexits` convention — 64 for a usage error or an
+  empty prompt, 69 when the executable could not be started, 70 for malformed
+  output, 75 for a timeout, 77 for a policy refusal, and 78 for a configuration
+  problem. The prompt comes from `--prompt-stdin`, `--prompt-file`, or
+  `--prompt`, which are mutually exclusive, and is decoded as UTF-8 explicitly
+  rather than through the handle's locale encoding.
+
+  `agent show` performs the whole pipeline except spawning and prints each
+  resolved value with the file, line, and column it came from, the policy
+  ceiling in force and where it was read, and the exact argument vector that
+  would be spawned — with `<redacted>` in place of any raw provider argument. A
+  job whose policy is refused prints its configuration first and then the
+  refusal. `agent list` enumerates configured jobs and the scope each came from.
+
+  Every Baikai diagnostic goes to standard error. The agent's own output follows
+  the job's output mode, so `response=$(baikai agent run job)` yields the
+  agent's answer alone for a capturing job. `--set KEY=VALUE` overrides one
+  setting of the selected job through `settei`'s own command-line source, so an
+  override is attributed with the same fidelity as a file. `--json` emits
+  exactly one JSON object per command.
+
+  New dependencies for `baikai-agent`: `baikai-claude`, `baikai-openai`, and
+  `optparse-applicative`. The provider packages are needed only so that
+  `renderJobCommand`, the single provider dispatch point in the codebase, can
+  reach both renderers.
+
 ### Changed
 
 - **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns
