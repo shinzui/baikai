@@ -59,13 +59,16 @@ or tool payload ever appears anywhere in the encoded envelope.
 
 ## Progress
 
-- [ ] Add the `cryptohash-sha256` and `base16-bytestring` dependencies to `baikai/baikai.cabal`
-      and confirm the package still builds.
-- [ ] Create `baikai/src/Baikai/Evidence.hs` with the `Observed` type and its helpers.
-- [ ] Add `ThinkingTranslation`, `ThinkingMode`, and `ThinkingAdjustment`.
-- [ ] Add `EndpointIdentity`, `TransportKind`, `CallStatus`, and `EvidenceStrength`.
-- [ ] Add `EvidenceRequest` and `EvidenceStrictness` (the caller-facing request shape).
-- [ ] Add the `ModelCallEvidence` record itself and the `evidenceSchemaVersion` constant.
+- [x] Add the `cryptohash-sha256` and `base16-bytestring` dependencies to `baikai/baikai.cabal`
+      and confirm the package still builds. (2026-08-05)
+- [x] Create `baikai/src/Baikai/Evidence.hs` with the `Observed` type and its helpers.
+      (2026-08-05)
+- [x] Add `ThinkingTranslation`, `ThinkingMode`, and `ThinkingAdjustment`. (2026-08-05)
+- [x] Add `EndpointIdentity`, `TransportKind`, `CallStatus`, and `EvidenceStrength`. (2026-08-05)
+- [x] Add `EvidenceRequest` and `EvidenceStrictness` (the caller-facing request shape).
+      (2026-08-05)
+- [x] Add the `ModelCallEvidence` record itself and the `evidenceSchemaVersion` constant.
+      (2026-08-05)
 - [ ] Implement canonical JSON encoding (`canonicalEncode`).
 - [ ] Implement `commitmentDigest` and `configurationDigest`.
 - [ ] Replace the call-identifier generator and expose `newCallId`.
@@ -80,7 +83,23 @@ or tool payload ever appears anywhere in the encoded envelope.
 
 ## Surprises & Discoveries
 
-(None yet.)
+**`Baikai.Cost` cannot round-trip through JSON, which forces `ModelCallEvidence` to be
+write-only.** The plan's Milestone 2 asked for both a `ToJSON` and a `FromJSON` instance on
+`ModelCallEvidence`. That turns out not to be honestly implementable. The record embeds
+`Baikai.Usage.Usage`, which embeds `Baikai.Cost.Cost`, whose `usd` and per-class breakdown fields
+are exact `Rational` values encoded through `ratToSci = fst . fromRationalRepetendUnlimited`
+(`baikai/src/Baikai/Cost.hs:84`). That conversion approximates any rational whose decimal
+expansion repeats. Neither `Cost` nor `Usage` has a `FromJSON` instance today, and writing one
+would produce a decoder that silently returns a different value than was encoded — precisely the
+kind of quiet fidelity loss this initiative exists to eliminate. `ModelCallEvidence` therefore
+gets `ToJSON` only, with the reason stated in its Haddock. See the Decision Log.
+
+**The plan's `/dev/urandom` seeding instruction would hang the process.** Milestone 4 specifies
+reading the seed with `Data.ByteString.readFile`. `BS.readFile` asks for the file's size, gets
+zero for a character device, and then reads in a loop until EOF — and `/dev/urandom` never
+reaches EOF. The correct call is `withBinaryFile "/dev/urandom" ReadMode (\h -> BS.hGet h 8)`,
+which reads exactly eight bytes. This was caught by reading the `bytestring` implementation
+before writing the code rather than by observing a hang.
 
 
 ## Decision Log
@@ -101,6 +120,27 @@ or tool payload ever appears anywhere in the encoded envelope.
   asked for evidence. Seeding once fixes the actual defect — the old generator produced identical
   sequences in two processes started in the same second — at no per-call cost. These identifiers
   correlate records; they are not secrets and unguessability is not a requirement.
+  Date: 2026-08-05
+
+- Decision: Give `ModelCallEvidence` a `ToJSON` instance only, not the `FromJSON` instance
+  Milestone 2 originally called for.
+  Rationale: The record embeds `Usage`, which embeds `Cost`, whose `Rational` amounts encode
+  through an approximating `Scientific` (see Surprises & Discoveries). A `FromJSON` would not
+  round-trip and would assert a fidelity the encoding does not have. Evidence is an interchange
+  format read out of process — that is what `evidenceSchemaVersion` is for — and a Haskell test or
+  consumer that needs to inspect an emitted record can decode it as a plain `Aeson.Value` and
+  match on fields, which tests the actual schema rather than a Haskell mirror of it. The
+  `Observed` type keeps its `FromJSON`, because the plan's acceptance requires proving that
+  `"unobserved"` round-trips, and `Observed` carries no lossy payload of its own.
+  Date: 2026-08-05
+
+- Decision: Spell evidence JSON field names in snake_case, matching the rest of the package.
+  Rationale: The plan specified `defaultOptions` with `omitNothingFields = False` and said nothing
+  about field naming. Leaving the default would render `requestedModel` beside `input_tokens` and
+  `http_status`, because the embedded `Usage` and `BaikaiError` records already use
+  `camelTo2 '_'`. One record with two naming conventions inside it is worse than either
+  convention. `omitNothingFields = False` is kept and stated explicitly in the options value with
+  a comment, because it is load-bearing rather than incidental.
   Date: 2026-08-05
 
 - Decision: Model an unobserved value as a dedicated `Observed a` type rather than `Maybe a`.

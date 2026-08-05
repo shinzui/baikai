@@ -25,7 +25,14 @@
 -- Nothing in this module reaches a provider or performs a call. It is
 -- the vocabulary the provider adapters populate.
 module Baikai.Evidence
-  ( -- * Observation
+  ( -- * Schema identity
+    evidenceSchemaVersion,
+
+    -- * The evidence record
+    ModelCallEvidence (..),
+    baseEvidence,
+
+    -- * Observation
     Observed (..),
     observedValue,
 
@@ -50,10 +57,12 @@ module Baikai.Evidence
   )
 where
 
+import Baikai.Error (BaikaiError)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
+import Baikai.Usage (Usage)
 import Data.Aeson
   ( FromJSON (parseJSON),
-    Options (fieldLabelModifier),
+    Options (fieldLabelModifier, omitNothingFields),
     ToJSON (toJSON),
     Value (Object, String),
     camelTo2,
@@ -68,6 +77,7 @@ import Data.Aeson
   )
 import Data.Aeson.Types (typeMismatch)
 import Data.Text (Text)
+import Data.Time (UTCTime, diffUTCTime)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -386,8 +396,24 @@ data EndpointIdentity = EndpointIdentity
   }
   deriving stock (Eq, Show, Generic)
 
+-- | Field names render in snake_case, matching 'Baikai.Usage.Usage'
+-- and 'Baikai.Error.BaikaiError', which are embedded verbatim in an
+-- evidence record.
+--
+-- @omitNothingFields@ is 'False' and stated explicitly rather than
+-- left to the default, because it is load-bearing here: an evidence
+-- record must render an absent field as @null@ rather than dropping
+-- it, so that a reader can tell "Baikai recorded nothing here" apart
+-- from "this record predates the field". This is the opposite of the
+-- choice @Baikai.Trace.Event@ makes for trace events, where dropping
+-- absent fields keeps log lines small. The difference is deliberate;
+-- do not harmonise them.
 evidenceJsonOptions :: Options
-evidenceJsonOptions = defaultOptions {fieldLabelModifier = camelTo2 '_'}
+evidenceJsonOptions =
+  defaultOptions
+    { fieldLabelModifier = camelTo2 '_',
+      omitNothingFields = False
+    }
 
 instance ToJSON EndpointIdentity where
   toJSON = genericToJSON evidenceJsonOptions
@@ -541,3 +567,184 @@ evidenceRequest rid =
       attempt = 1,
       supersedes = Nothing
     }
+
+-- ============================================================
+-- The evidence record
+-- ============================================================
+
+-- | The schema identifier for 'ModelCallEvidence'. Consumers pin
+-- against this string.
+--
+-- Bump the minor component when a field is added in a way that leaves
+-- existing readers working; bump the major component when a field is
+-- removed, changes meaning, or when 'canonicalEncode' changes, since
+-- that invalidates every previously recorded digest.
+evidenceSchemaVersion :: Text
+evidenceSchemaVersion = "baikai.model-call-evidence/1.0"
+
+-- | Everything Baikai can say about one completed provider call.
+--
+-- The field order is the story the record tells: who ran it, where it
+-- went, what was asked, what came back, how it went, and what it costs
+-- to believe.
+data ModelCallEvidence = ModelCallEvidence
+  { -- Identity -------------------------------------------------------
+
+    -- | Always 'evidenceSchemaVersion' for records this build produces.
+    schemaVersion :: !Text,
+    -- | The caller's identifier for the logical unit of work.
+    runId :: !Text,
+    -- | This call's globally unique identifier, from 'newCallId'.
+    callId :: !Text,
+    -- | Which attempt this is, one-based, as supplied by the caller.
+    attempt :: !Natural,
+    -- | The 'callId' of the attempt this one supersedes, as supplied
+    -- by the caller. Baikai has no retry loop and never fills this in
+    -- itself.
+    supersedes :: !(Maybe Text),
+    -- Where it went --------------------------------------------------
+    endpoint :: !EndpointIdentity,
+    -- What was requested ---------------------------------------------
+
+    -- | The model identifier the caller configured. This is what was
+    -- /asked for/; see 'observedModel' for what the provider said it
+    -- ran.
+    requestedModel :: !Text,
+    -- | What the caller's reasoning-effort preference became on the
+    -- wire, including every downgrade applied on the way.
+    thinking :: !ThinkingTranslation,
+    -- What came back -------------------------------------------------
+
+    -- | The model identifier the provider reported running.
+    -- 'Unobserved' when the provider did not echo one or the transport
+    -- cannot carry it. Never backfilled from 'requestedModel'.
+    observedModel :: !(Observed Text),
+    -- | The provider's own description of the thinking configuration
+    -- it applied, when it reports one.
+    --
+    -- Reasoning-token counts do /not/ belong here. They live in
+    -- 'usage', and they are corroborating evidence about output
+    -- volume, not a statement of which effort setting was applied.
+    observedThinking :: !(Observed Text),
+    -- | The provider's identifier for this response.
+    responseId :: !(Observed Text),
+    -- | The provider's request-correlation identifier, typically from
+    -- a response header, used to locate this call in the provider's
+    -- own records.
+    providerRequestId :: !(Observed Text),
+    -- | The identifier Baikai put on the outgoing request, when it
+    -- sent one. Unlike the two fields above this is something Baikai
+    -- knows by construction rather than observes, so it is 'Maybe' and
+    -- not 'Observed'.
+    clientRequestId :: !(Maybe Text),
+    -- How it went ----------------------------------------------------
+    startedAt :: !UTCTime,
+    endedAt :: !UTCTime,
+    latencyMs :: !Int,
+    status :: !CallStatus,
+    -- | 'Nothing' exactly when 'status' is 'CallSucceeded'.
+    errorInfo :: !(Maybe BaikaiError),
+    -- | The token accounting the provider reported.
+    --
+    -- This is 'Observed' rather than a bare 'Baikai.Usage.Usage'
+    -- because the existing code substitutes
+    -- 'Baikai.Usage.zeroUsage' when a provider reports nothing. In a
+    -- cost log that substitution is harmless; in evidence it is a
+    -- false statement that the call consumed no tokens.
+    usage :: !(Observed Usage),
+    -- What it proves -------------------------------------------------
+
+    -- | This record's honest self-assessment. Derived from which
+    -- observed fields the transport actually filled in.
+    strength :: !EvidenceStrength,
+    -- | 'commitmentDigest' of the request envelope.
+    requestCommitment :: !Text,
+    -- | 'configurationDigest' of the request envelope.
+    requestConfiguration :: !Text,
+    -- | 'commitmentDigest' of the response envelope. 'Unobserved' when
+    -- the call failed before any response body arrived: recording an
+    -- empty-string digest there would be a fabrication.
+    responseCommitment :: !(Observed Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | Evidence is emitted as JSON and consumed out of process. There is
+-- deliberately no 'FromJSON' instance: 'Baikai.Usage.Usage' embeds a
+-- 'Baikai.Cost.Cost', whose exact 'Rational' amounts are encoded
+-- through an approximating 'Data.Scientific.Scientific', so a decoder
+-- could not round-trip a record faithfully and would be claiming a
+-- fidelity it does not have. Read an emitted record as a plain
+-- 'Data.Aeson.Value' and match on 'evidenceSchemaVersion'.
+instance ToJSON ModelCallEvidence where
+  toJSON = genericToJSON evidenceJsonOptions
+
+-- | The evidence any transport can always produce: identity, endpoint,
+-- requested model, thinking translation, timing, status, and the two
+-- request digests.
+--
+-- Every observed field starts 'Unobserved', 'errorInfo' starts
+-- 'Nothing', and 'strength' starts at 'EvidenceRequestedOnly'. A
+-- transport that learns more overwrites those fields and raises the
+-- strength. Construct through this rather than with the record
+-- constructor, so that a field added in a later release cannot be left
+-- uninitialised at a call site.
+baseEvidence ::
+  EvidenceRequest ->
+  -- | Call id, from 'newCallId'.
+  Text ->
+  EndpointIdentity ->
+  -- | Requested model id.
+  Text ->
+  ThinkingTranslation ->
+  -- | Started at.
+  UTCTime ->
+  -- | Ended at.
+  UTCTime ->
+  CallStatus ->
+  -- | Request commitment digest.
+  Text ->
+  -- | Request configuration digest.
+  Text ->
+  ModelCallEvidence
+baseEvidence
+  EvidenceRequest {runId = rid, attempt = att, supersedes = prev}
+  cid
+  ep
+  reqModel
+  translation
+  started
+  ended
+  st
+  commitment
+  configuration =
+    ModelCallEvidence
+      { schemaVersion = evidenceSchemaVersion,
+        runId = rid,
+        callId = cid,
+        attempt = att,
+        supersedes = prev,
+        endpoint = ep,
+        requestedModel = reqModel,
+        thinking = translation,
+        observedModel = Unobserved,
+        observedThinking = Unobserved,
+        responseId = Unobserved,
+        providerRequestId = Unobserved,
+        clientRequestId = Nothing,
+        startedAt = started,
+        endedAt = ended,
+        latencyMs = millisBetween started ended,
+        status = st,
+        errorInfo = Nothing,
+        usage = Unobserved,
+        strength = EvidenceRequestedOnly,
+        requestCommitment = commitment,
+        requestConfiguration = configuration,
+        responseCommitment = Unobserved
+      }
+
+-- | Whole milliseconds between two instants, rounded. Matches the
+-- latency arithmetic @Baikai.Trace@ already uses for @CallFinished@ so
+-- the two records agree on the same call.
+millisBetween :: UTCTime -> UTCTime -> Int
+millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
