@@ -45,6 +45,8 @@ main =
       "Baikai.Provider.Claude"
       [ commandRenderingTest,
         effortRenderingTests,
+        safetyRefusalTest,
+        safetyStillRendersTest,
         agentCommandRenderingTest,
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
@@ -141,24 +143,25 @@ commandRenderingTest =
             & #safety .~ ClaudeAllowedTools ["Read", "Bash(git status)"]
             & #extraArgs .~ ["--permission-mode", "plan"]
     claudeInteractiveCommand cfg req
-      @?= ( "/bin/claude",
-            [ "--model",
-              "sonnet",
-              "--system-prompt",
-              "Be terse.",
-              "--add-dir",
-              "/work/shared",
-              "--add-dir",
-              "/work/docs",
-              "--allowedTools",
-              "Read,Bash(git status)",
-              "--debug",
-              "--permission-mode",
-              "plan",
-              "--",
-              "inspect the repo"
-            ]
-          )
+      @?= Right
+        ( "/bin/claude",
+          [ "--model",
+            "sonnet",
+            "--system-prompt",
+            "Be terse.",
+            "--add-dir",
+            "/work/shared",
+            "--add-dir",
+            "/work/docs",
+            "--allowedTools",
+            "Read,Bash(git status)",
+            "--debug",
+            "--permission-mode",
+            "plan",
+            "--",
+            "inspect the repo"
+          ]
+        )
 
 effortRenderingTests :: TestTree
 effortRenderingTests =
@@ -167,7 +170,7 @@ effortRenderingTests =
     [ testCase name $ do
         let req = interactiveLaunchRequest "prompt" & #effort .~ Just level
         claudeInteractiveCommand defaultClaudeInteractiveConfig req
-          @?= ("claude", ["--effort", expected, "--", "prompt"])
+          @?= Right ("claude", ["--effort", expected, "--", "prompt"])
     | (name, level, expected) <-
         [ ("minimal as low", ThinkingMinimal, "low"),
           ("low", ThinkingLow, "low"),
@@ -176,6 +179,47 @@ effortRenderingTests =
           ("xhigh", ThinkingXHigh, "xhigh"),
           ("max", ThinkingMax, "max")
         ]
+    ]
+
+safetyRefusalTest :: TestTree
+safetyRefusalTest =
+  testCase "refuses a Codex sandbox policy instead of launching unrestricted" $ do
+    let req =
+          interactiveLaunchRequest "inspect the repo"
+            & #safety .~ CodexSandbox CodexReadOnly CodexApprovalNever
+    case claudeInteractiveCommand defaultClaudeInteractiveConfig req of
+      Right rendered -> assertFailure ("expected refusal, rendered: " <> show rendered)
+      Left err -> do
+        case err of
+          SafetyNotExpressible p _ -> p @?= AgentClaude
+          other -> assertFailure ("expected SafetyNotExpressible, got: " <> show other)
+        let message = renderAgentRenderError err
+        assertBool "names the provider" ("Claude" `Text.isInfixOf` message)
+        assertBool "names the rejected sandbox mode" ("read-only" `Text.isInfixOf` message)
+        assertBool "names the rejected approval policy" ("never" `Text.isInfixOf` message)
+        assertBool "suggests an alternative" ("ClaudeAllowedTools" `Text.isInfixOf` message)
+
+-- | The fix refuses only what Claude cannot express. An allow-list is
+-- expressible and must still render, and an empty allow-list restricts
+-- nothing so it renders no safety flag rather than being refused.
+safetyStillRendersTest :: TestTree
+safetyStillRendersTest =
+  testGroup
+    "still renders every safety policy Claude can express"
+    [ testCase "a non-empty allow-list" $ do
+        let req =
+              interactiveLaunchRequest "inspect"
+                & #safety .~ ClaudeAllowedTools ["Read", "Grep"]
+        fmap snd (claudeInteractiveCommand defaultClaudeInteractiveConfig req)
+          @?= Right ["--allowedTools", "Read,Grep", "--", "inspect"],
+      testCase "an empty allow-list renders no safety flag" $ do
+        let req = interactiveLaunchRequest "inspect" & #safety .~ ClaudeAllowedTools []
+        fmap snd (claudeInteractiveCommand defaultClaudeInteractiveConfig req)
+          @?= Right ["--", "inspect"],
+      testCase "DefaultSafety renders no safety flag" $ do
+        let req = interactiveLaunchRequest "inspect" & #safety .~ DefaultSafety
+        fmap snd (claudeInteractiveCommand defaultClaudeInteractiveConfig req)
+          @?= Right ["--", "inspect"]
     ]
 
 -- | Render an unattended command or fail the test with the refusal's

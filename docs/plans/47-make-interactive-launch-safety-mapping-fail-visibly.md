@@ -53,8 +53,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Write temporary tests that demonstrate the current silent downgrade, and
-      record the observed pre-fix output as evidence.
+- [x] Milestone 1 (2026-08-05): Wrote temporary tests that demonstrate the current silent
+      downgrade, ran them, and recorded the observed pre-fix argument vectors in Surprises &
+      Discoveries.
 - [ ] Milestone 2: Change `claudeInteractiveCommand` and `launchClaudeInteractive` to refuse an
       inexpressible policy.
 - [ ] Milestone 3: Change `codexInteractiveCommand` and `launchCodexInteractive` the same way.
@@ -68,8 +69,36 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. Milestone 1 is designed to produce the first entry: paste the pre-fix rendered command
-that proves the downgrade is real, so the retrospective has the before-and-after.)
+- Discovery (Milestone 1, 2026-08-05): the silent downgrade is real on both providers, and the
+  rendered vectors are identical because both simply drop the policy. A caller asking Claude for a
+  read-only Codex sandbox, and a caller asking Codex for a `["Read"]` tool allow-list, each received
+  a completely unrestricted session. The Claude case was written to assert the buggy behavior and
+  passed; the Codex case was written with a deliberately wrong expectation so the failure would
+  print the actual vector:
+
+  ```text
+  PRE-FIX: Claude silently drops a Codex sandbox policy:  OK
+
+  PRE-FIX: Codex silently drops a Claude tool allow-list: FAIL
+    test/Main.hs:475:
+    expected: ["deliberately wrong so the failure prints the actual vector"]
+     but got: ["--","inspect the repo"]
+  ```
+
+  So both pre-fix vectors are `["--", "inspect the repo"]` — no `--allowedTools`, no `--sandbox`,
+  no `--ask-for-approval`, nothing. The request to be constrained left no trace whatsoever in the
+  command that would have been spawned, which is why the defect could not be noticed by reading a
+  process listing either.
+
+- Discovery (Milestone 1, 2026-08-05): `baikai-smoke/test/InteractiveSmoke.hs` does not call any of
+  the four changed functions, so Milestone 4's warning about it — described there as the single most
+  dangerous edit in the plan — turns out not to apply. The module only runs `claude --help` and
+  `codex --help` behind a `findExecutable` guard and greps the help text for flag names; it never
+  builds an `InteractiveLaunchRequest`. Confirmed by the Milestone 4 `rg` sweep, which finds the two
+  source modules and the two vendor test suites and nothing else in the workspace. Consequence: the
+  gating that Milestone 4 warns against weakening is untouched because the file needs no edit at
+  all, and the plan's risk assessment for that milestone can be relaxed to "no caller outside the
+  two vendor test suites exists".
 
 
 ## Decision Log

@@ -57,6 +57,8 @@ main =
       "Baikai.Provider.OpenAI"
       [ commandRenderingTest,
         effortRenderingTests,
+        safetyRefusalTest,
+        safetyStillRendersTest,
         agentCommandRenderingTest,
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
@@ -441,25 +443,73 @@ commandRenderingTest =
             & #safety .~ CodexSandbox CodexWorkspaceWrite CodexApprovalOnRequest
             & #extraArgs .~ ["--search"]
     codexInteractiveCommand cfg req
-      @?= ( "/bin/codex",
-            [ "--model",
-              "gpt-5-codex",
-              "--cd",
-              "/work/project",
-              "--add-dir",
-              "/work/shared",
-              "--add-dir",
-              "/work/docs",
-              "--sandbox",
-              "workspace-write",
+      @?= Right
+        ( "/bin/codex",
+          [ "--model",
+            "gpt-5-codex",
+            "--cd",
+            "/work/project",
+            "--add-dir",
+            "/work/shared",
+            "--add-dir",
+            "/work/docs",
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "on-request",
+            "--no-alt-screen",
+            "--search",
+            "--",
+            "System instructions:\nBe precise.\n\nUser request:\ninspect the repo"
+          ]
+        )
+
+safetyRefusalTest :: TestTree
+safetyRefusalTest =
+  testCase "refuses a Claude tool allow-list instead of launching unrestricted" $ do
+    let req =
+          interactiveLaunchRequest "inspect the repo"
+            & #safety .~ ClaudeAllowedTools ["Read"]
+    case codexInteractiveCommand defaultCodexInteractiveConfig req of
+      Right rendered -> assertFailure ("expected refusal, rendered: " <> show rendered)
+      Left err -> do
+        case err of
+          SafetyNotExpressible p _ -> p @?= AgentCodex
+          other -> assertFailure ("expected SafetyNotExpressible, got: " <> show other)
+        let message = renderAgentRenderError err
+        assertBool "names the provider" ("codex" `Text.isInfixOf` message)
+        assertBool "names the rejected tools" ("Read" `Text.isInfixOf` message)
+        assertBool "suggests an alternative" ("CodexSandbox" `Text.isInfixOf` message)
+
+-- | The fix refuses only what Codex cannot express. A sandbox policy is
+-- expressible and must still render, and an empty allow-list restricts
+-- nothing so it renders no safety flag rather than being refused.
+safetyStillRendersTest :: TestTree
+safetyStillRendersTest =
+  testGroup
+    "still renders every safety policy Codex can express"
+    [ testCase "a sandbox policy" $ do
+        let req =
+              interactiveLaunchRequest "inspect"
+                & #safety .~ CodexSandbox CodexReadOnly CodexApprovalNever
+        fmap snd (codexInteractiveCommand defaultCodexInteractiveConfig req)
+          @?= Right
+            [ "--sandbox",
+              "read-only",
               "--ask-for-approval",
-              "on-request",
-              "--no-alt-screen",
-              "--search",
+              "never",
               "--",
-              "System instructions:\nBe precise.\n\nUser request:\ninspect the repo"
-            ]
-          )
+              "inspect"
+            ],
+      testCase "an empty allow-list renders no safety flag" $ do
+        let req = interactiveLaunchRequest "inspect" & #safety .~ ClaudeAllowedTools []
+        fmap snd (codexInteractiveCommand defaultCodexInteractiveConfig req)
+          @?= Right ["--", "inspect"],
+      testCase "DefaultSafety renders no safety flag" $ do
+        let req = interactiveLaunchRequest "inspect" & #safety .~ DefaultSafety
+        fmap snd (codexInteractiveCommand defaultCodexInteractiveConfig req)
+          @?= Right ["--", "inspect"]
+    ]
 
 effortRenderingTests :: TestTree
 effortRenderingTests =
@@ -468,9 +518,10 @@ effortRenderingTests =
     [ testCase name $ do
         let req = interactiveLaunchRequest "prompt" & #effort .~ Just level
         codexInteractiveCommand defaultCodexInteractiveConfig req
-          @?= ( "codex",
-                ["-c", "model_reasoning_effort=" <> expected, "--", "prompt"]
-              )
+          @?= Right
+            ( "codex",
+              ["-c", "model_reasoning_effort=" <> expected, "--", "prompt"]
+            )
     | (name, level, expected) <-
         [ ("minimal", ThinkingMinimal, "minimal"),
           ("low", ThinkingLow, "low"),

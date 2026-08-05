@@ -5,6 +5,11 @@
 -- "Baikai.Provider.Claude.Cli": that module drives @claude -p@ as a
 -- batch completion provider, while this module starts the interactive
 -- terminal UI and returns only after the CLI exits.
+--
+-- A safety policy Claude Code cannot express is refused before launch
+-- rather than dropped: both the pure command builder and the launcher
+-- return 'Either' 'AgentRenderError', and a 'Left' means no process was
+-- started.
 module Baikai.Provider.Claude.Interactive
   ( ClaudeInteractiveConfig,
     executable,
@@ -15,12 +20,15 @@ module Baikai.Provider.Claude.Interactive
   )
 where
 
+import Baikai.Agent (AgentProvider (..), AgentRenderError (..))
 import Baikai.Interactive
   ( InteractiveLaunchRequest,
     InteractiveLaunchResult,
     InteractiveProvider (..),
     InteractiveSafety (..),
     interactiveLaunchResult,
+    renderCodexApprovalPolicy,
+    renderCodexSandboxMode,
   )
 import Baikai.Prelude
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
@@ -46,32 +54,47 @@ defaultClaudeInteractiveConfig =
 -- Code launch. The final positional argument is the initial user
 -- prompt. The prompt is preceded by @--@ because Claude's
 -- @--allowedTools@ and @--add-dir@ flags are variadic.
+--
+-- Returns 'Left' when the request's safety policy is one Claude Code
+-- cannot express, so a caller who asked to be constrained never
+-- receives a command that is not.
 claudeInteractiveCommand ::
-  ClaudeInteractiveConfig -> InteractiveLaunchRequest -> (FilePath, [String])
-claudeInteractiveCommand cfg req =
-  ( cfg ^. #executable,
-    modelArgs req
-      <> effortArgs req
-      <> systemPromptArgs req
-      <> extraDirArgs req
-      <> safetyArgs req
-      <> fmap Text.unpack (cfg ^. #extraArgs)
-      <> fmap Text.unpack (req ^. #extraArgs)
-      <> ["--", Text.unpack (req ^. #userPrompt)]
-  )
+  ClaudeInteractiveConfig ->
+  InteractiveLaunchRequest ->
+  Either AgentRenderError (FilePath, [String])
+claudeInteractiveCommand cfg req = do
+  safety <- safetyArgs req
+  pure
+    ( cfg ^. #executable,
+      modelArgs req
+        <> effortArgs req
+        <> systemPromptArgs req
+        <> extraDirArgs req
+        <> safety
+        <> fmap Text.unpack (cfg ^. #extraArgs)
+        <> fmap Text.unpack (req ^. #extraArgs)
+        <> ["--", Text.unpack (req ^. #userPrompt)]
+    )
 
 -- | Launch Claude Code with inherited stdin, stdout, and stderr so
 -- the local CLI owns the interactive terminal experience.
+--
+-- A 'Left' result means no process was started: the requested safety
+-- policy was refused before launch. A 'Right' carrying a non-zero
+-- 'System.Exit.ExitCode' means the session ran and exited non-zero.
 launchClaudeInteractive ::
-  ClaudeInteractiveConfig -> InteractiveLaunchRequest -> IO InteractiveLaunchResult
-launchClaudeInteractive cfg req = do
-  let (exe, args) = claudeInteractiveCommand cfg req
-  code <-
-    run $
-      cmd exe
-        & addArgs args
-        & maybe id setWorkingDir (req ^. #workingDir)
-  pure (interactiveLaunchResult InteractiveClaude code)
+  ClaudeInteractiveConfig ->
+  InteractiveLaunchRequest ->
+  IO (Either AgentRenderError InteractiveLaunchResult)
+launchClaudeInteractive cfg req = case claudeInteractiveCommand cfg req of
+  Left err -> pure (Left err)
+  Right (exe, args) -> do
+    code <-
+      run $
+        cmd exe
+          & addArgs args
+          & maybe id setWorkingDir (req ^. #workingDir)
+    pure (Right (interactiveLaunchResult InteractiveClaude code))
 
 modelArgs :: InteractiveLaunchRequest -> [String]
 modelArgs req = case Text.strip <$> req ^. #modelId of
@@ -100,10 +123,25 @@ extraDirArgs :: InteractiveLaunchRequest -> [String]
 extraDirArgs req =
   concatMap (\dir -> ["--add-dir", dir]) (req ^. #extraDirs)
 
-safetyArgs :: InteractiveLaunchRequest -> [String]
+-- | 'DefaultSafety' means the caller declined to specify a policy, so
+-- rendering nothing honors it rather than downgrading it. An empty
+-- allow-list restricts nothing, so it too renders nothing. Only a
+-- Codex sandbox policy is a restriction Claude Code cannot express,
+-- and that is refused.
+safetyArgs :: InteractiveLaunchRequest -> Either AgentRenderError [String]
 safetyArgs req = case req ^. #safety of
-  ClaudeAllowedTools [] -> []
+  DefaultSafety -> Right []
+  ClaudeAllowedTools [] -> Right []
   ClaudeAllowedTools tools ->
-    ["--allowedTools", Text.unpack (Text.intercalate "," tools)]
-  DefaultSafety -> []
-  CodexSandbox _ _ -> []
+    Right ["--allowedTools", Text.unpack (Text.intercalate "," tools)]
+  CodexSandbox sandbox approval ->
+    Left
+      ( SafetyNotExpressible
+          AgentClaude
+          ( "Claude Code cannot express a Codex sandbox policy ("
+              <> renderCodexSandboxMode sandbox
+              <> ", "
+              <> renderCodexApprovalPolicy approval
+              <> "); use ClaudeAllowedTools, or DefaultSafety to accept Claude's own default"
+          )
+      )
