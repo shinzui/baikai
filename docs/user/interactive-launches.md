@@ -119,83 +119,21 @@ still running at the deadline           Left RunTimedOut, group terminated
 
 ### What a capability becomes
 
-A capability profile is only trustworthy if you can see exactly what it
-turns into. The pure renderers `claudeAgentCommand` in
-`Baikai.Provider.Claude.Agent` and `codexAgentCommand` in
-`Baikai.Provider.OpenAI.Agent` produce the argument vector that would be
-spawned, or refuse the request. Neither spawns anything.
+The pure renderers `claudeAgentCommand` in `Baikai.Provider.Claude.Agent`
+and `codexAgentCommand` in `Baikai.Provider.OpenAI.Agent` turn a
+capability profile into an argument vector, or refuse the request.
+Neither spawns anything.
 
-Claude Code:
+The mapping tables — what each capability becomes on each tool, the
+Claude read-only caveat, the Codex tool-allow-list refusal, and the two
+different meanings of `--add-dir` — live with the rest of the unattended
+surface in
+[docs/user/unattended-agent-runs.md](unattended-agent-runs.md#what-a-capability-becomes).
 
-| capability         | rendered flag                         |
-|--------------------|---------------------------------------|
-| `read-only`        | `--permission-mode plan`              |
-| `edit-workspace`   | `--permission-mode acceptEdits`       |
-| `full-access`      | `--permission-mode bypassPermissions` |
-
-Every Claude run also gets `-p`, and `--no-session-persistence` unless
-the configuration's `persistSession` is `True`.
-
-The read-only mapping carries a caveat worth knowing before you rely on
-it. Claude Code has no permission mode meaning exactly "may read, must
-not write". Of its six modes, `manual` and `dontAsk` can block forever
-waiting for a human and are unusable unattended, `acceptEdits` and
-`bypassPermissions` permit writes, and `auto` delegates the decision to
-a classifier whose behavior is not a stable contract. `plan` is the only
-mode that reliably does not modify the tree — but it also frames the
-task as producing a plan, so a read-only Claude run behaves differently
-from a read-only Codex run, which merely has a restricted sandbox.
-
-Codex:
-
-| capability         | rendered flag                   |
-|--------------------|---------------------------------|
-| `read-only`        | `--sandbox read-only`           |
-| `edit-workspace`   | `--sandbox workspace-write`     |
-| `full-access`      | `--sandbox danger-full-access`  |
-
-Every Codex run also gets `exec` and `--cd <workingDir>`, plus
-`--skip-git-repo-check` and `--ephemeral` unless the configuration turns
-them off.
-
-Three cross-provider facts matter more than the tables:
-
-- **A tool allow-list is refused for Codex.** `codex exec` has no
-  tool allow-list flag, so a request with a non-empty `allowedTools`
-  returns `Left (UnsupportedToolRestriction AgentCodex …)` whose message
-  names the sandbox as the alternative. It is never run with
-  unrestricted tools, because a caller who narrows the tool set and gets
-  every tool has been handed more authority than they asked for.
-- **`--add-dir` does not mean the same thing on both tools.** Claude
-  Code documents it as additional directories to allow tool *access* to;
-  `codex exec` documents it as additional directories that should be
-  *writable* alongside the primary workspace. The shared `extraDirs`
-  field means "directories this run may reach beyond its working
-  directory", and the precise authority is provider-dependent.
-- **The prompt never appears in the argument vector.** Both renderers
-  set `promptTransport = PromptOnStdin` and leave the prompt in
-  `promptText`, so a prompt beginning with a dash cannot be parsed as a
-  flag or swallowed by a variadic flag. For Codex this also avoids a
-  documented trap: if standard input is piped *and* a positional prompt
-  is given, `codex exec` appends standard input as a `<stdin>` block.
-
-Reasoning effort follows each tool's own vocabulary. Claude receives
-`--effort`, whose values do not include `minimal`, so `ThinkingMinimal`
-maps up to `low`. Codex receives `-c model_reasoning_effort=<level>` and
-takes all six canonical levels unchanged. A blank model value emits no
-`--model` flag on either provider.
-
-Raw provider arguments from `AgentSafety.providerArgs` are appended
-verbatim after every structured flag and are neither inspected nor
-rewritten. That channel is gated once, by the operator ceiling — adding
-a second check that scans for dangerous flag spellings would look like a
-security boundary that a renamed vendor flag defeats.
-
-How a repository describes a named job, how an operator caps what any
-job may ask for, and which configuration layer wins are documented in
-`docs/user/unattended-agent-runs.md`. The `baikai agent` command that
-drives it all from a shell script arrives in
-`docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md`.
+That guide also documents the `baikai agent run|show|list` command a
+shell script actually invokes, how a repository describes a named job,
+how an operator caps what any job may ask for, and which configuration
+layer wins.
 
 `Baikai.Agent` is not re-exported from the umbrella `Baikai` module,
 because its field accessors deliberately share names with

@@ -77,8 +77,8 @@ This section must always reflect the actual current state of the work.
       stream discipline.
 - [x] Milestone 5 (2026-08-05): Build the end-to-end fixture test against a fake `claude`
       executable.
-- [ ] Milestone 6: Write `docs/user/unattended-agent-runs.md`, cross-link the other two surfaces,
-      and write the consumer migration guide.
+- [x] Milestone 6 (2026-08-05): Write `docs/user/unattended-agent-runs.md`, cross-link the other two
+      surfaces, and write the consumer migration guide.
 - [ ] Milestone 7: Coordinate the release, update the improvement request's status, and run the full
       offline validation.
 
@@ -269,6 +269,15 @@ Record every decision made while working on the plan.
   that envelope keeps the invariant that with `--json` standard output is one JSON value, rather than
   a JSON object concatenated with raw agent bytes. `aeson` was rejected because the package needs
   three shapes (object, array, string) and would otherwise not depend on it at all.
+  Date: 2026-08-05
+
+- Decision: The capability mapping tables were **moved** into
+  `docs/user/unattended-agent-runs.md` rather than duplicated, and
+  `docs/user/interactive-launches.md` now points at them.
+  Rationale: the plan offered "linked or moved" and called the unattended guide their natural home.
+  They document `claudeAgentCommand` and `codexAgentCommand`, which are the *unattended* renderers,
+  so they were misfiled on the interactive page from the start. Duplicating them would have created
+  two copies of a flag table that drift the first time a vendor changes a flag.
   Date: 2026-08-05
 
 - Decision: The fixture test takes its prompt from a `PromptFile`, and the standard-input transport

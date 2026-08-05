@@ -6,13 +6,205 @@ changes files inside directories you explicitly authorized, and finishes with
 a process result. The interesting output is the changed working tree, not the
 text.
 
-This is Baikai's third integration surface. The other two are documented in
-`docs/user/cli-providers.md` (batch completions returning a `Response`) and
-`docs/user/interactive-launches.md` (handing a real terminal to a human).
+This is Baikai's third integration surface, and the one a shell script talks
+to. The other two are documented in `docs/user/cli-providers.md` (batch
+completions through `claude -p` and `codex exec` that return a `Response`
+value) and `docs/user/interactive-launches.md` (handing a real terminal to a
+human and getting back an exit code when they quit). If your program wants a
+text answer, you want the first. If a person is going to sit in front of it,
+you want the second. If nobody is watching and the deliverable is a changed
+working tree, you are in the right place.
 
-This guide covers the **configuration** side: how a repository describes a
-named job, how an operator caps what any job may ask for, and which layer wins
-when two of them disagree.
+This guide covers both halves of that surface: the `baikai agent` command a
+script invokes, and the configuration that decides what the command does.
+
+## The command
+
+```text
+baikai agent run <job>  [--prompt-stdin | --prompt-file PATH | --prompt TEXT]
+                        [--set KEY=VALUE ...] [--config PATH] [--user-config PATH] [--json]
+baikai agent show <job> [--set KEY=VALUE ...] [--config PATH] [--user-config PATH] [--json]
+baikai agent list       [--config PATH] [--user-config PATH] [--json]
+```
+
+`--config` names the repository-scope document and `--user-config` the
+operator-scope one, each overriding discovery for that scope alone. `--set`
+overrides one setting of the selected job; its key is relative to the job, so
+`--set output=capture` addresses `jobs.<job>.output`. A key that already begins
+with `jobs.` is taken as written.
+
+### Quick start
+
+Write a job. The smallest useful one names a provider, a working directory, and
+how much authority it wants:
+
+```kdl
+// ./.baikai/agents.kdl
+jobs {
+  reconcile {
+    provider    "claude"
+    working-dir "."
+    safety { capability "edit-workspace" }
+  }
+}
+```
+
+Confirm it is there:
+
+```console
+$ baikai agent list
+reconcile  repository configuration
+```
+
+Look at what it would do, without doing it:
+
+```console
+$ baikai agent show reconcile
+job "reconcile"
+
+effective configuration
+  jobs.reconcile.effort = (unset)
+  jobs.reconcile.env-requires = []
+      from default rule no-required-environment
+  jobs.reconcile.executable = (unset)
+  jobs.reconcile.extra-dirs = []
+      from default rule no-extra-dirs
+  jobs.reconcile.model = (unset)
+  jobs.reconcile.output = inherit
+      from default rule inherit-output
+  jobs.reconcile.output-limit = Just 4194304
+      from default rule default-output-limit
+  jobs.reconcile.provider = "claude"
+      from repository configuration at .baikai/agents.kdl:4:17
+  jobs.reconcile.safety.allowed-tools = []
+      from default rule no-tool-restriction
+  jobs.reconcile.safety.capability = "edit-workspace"
+      from repository configuration at .baikai/agents.kdl:6:25
+  jobs.reconcile.safety.provider-args = <redacted>
+      from default rule no-provider-args
+  jobs.reconcile.timeout = (unset)
+  jobs.reconcile.working-dir = "."
+      from repository configuration at .baikai/agents.kdl:5:17
+
+policy ceiling, from built-in default (no operator configuration file)
+  max-capability       edit-workspace
+  allow-provider-args  false
+  allowed-providers    claude, codex
+
+rendered command
+  claude
+    -p
+    --no-session-persistence
+    --permission-mode acceptEdits
+  prompt transport: standard input (the prompt appears nowhere in the argument vector)
+```
+
+Every declared setting is listed, including the ones no layer set —
+`(unset)` for an optional setting with no value, and the named default rule
+that produced the rest. Values declared with a `Show`-based renderer keep their
+Haskell spelling, which is why some carry quotes and `output-limit` reads
+`Just 4194304`. The line and column are the position of the value in the file
+that supplied it.
+
+Then run it:
+
+```bash
+printf 'reconcile the grammar with the lexer' | baikai agent run reconcile --prompt-stdin
+```
+
+### `baikai agent list`
+
+Prints one line per configured job — the name and the scope whose definition
+won — sorted by name so the output is stable enough to diff. A name defined in
+both scopes is reported once, with a note that another scope also defines it.
+
+An empty list is a normal state, not an error: the command exits 0, prints
+nothing on standard output, and says `no jobs are configured` on standard
+error. A script piping the list never has to filter prose out of its data.
+
+### `baikai agent show`
+
+Performs the entire pipeline **except** spawning, and prints what it found.
+This is the command to reach for when a run did something you did not expect.
+
+It prints, in order: every resolved value with the file, line, and column it
+came from or the default rule that produced it; the policy ceiling in force and
+where it was read from; and the exact argument vector that would be spawned,
+plus where the prompt would travel. `show` takes no prompt, so the prompt is
+shown as supplied at run time rather than as a configured value.
+
+A job whose policy is refused — because it exceeds the ceiling, or because the
+provider cannot express it — still prints its configuration, and *then* the
+refusal, so you see both what was asked for and why it was denied. Printing
+nothing, or printing the configuration and silently omitting the command, would
+hide the case you most need the command for.
+
+Raw provider arguments appear as `<redacted>`, both in the effective
+configuration and in the rendered argument vector. See
+[Redaction](#redaction).
+
+### `baikai agent run`
+
+Resolves the job, caps it against the ceiling, renders the argument vector, and
+spawns the tool. The prompt comes from exactly one of `--prompt-stdin`,
+`--prompt-file PATH`, or `--prompt TEXT`; supplying two is a usage error rather
+than a silent precedence puzzle, and an empty prompt from any of them is a
+usage error too. An unattended agent given no instruction does something
+unpredictable and expensive, so failing immediately is the kinder outcome.
+
+The prompt is read as bytes and decoded as UTF-8 explicitly, not through the
+handle's locale encoding, so a prompt containing interpolated paths or
+non-ASCII text survives a machine without a UTF-8 locale.
+
+### Exit codes
+
+The agent's own exit code **passes through unchanged**. Baikai's own failures
+start at 64 and follow the `sysexits` convention, so a script can tell "the
+agent decided the task failed" from "the tool could not be started".
+
+| code | meaning |
+|------|---------|
+| `0` | the agent ran and exited 0 |
+| `n` (1…) | the agent ran and exited `n`, passed through unchanged |
+| `64` | the command line could not be parsed, or the prompt was empty or ambiguous |
+| `69` | the coding-agent executable could not be started |
+| `70` | the agent produced malformed output |
+| `75` | the run exceeded its timeout and its process group was terminated |
+| `77` | policy refused the run: the ceiling was exceeded, or the provider cannot express it |
+| `78` | configuration was missing, unreadable, or invalid |
+
+One ambiguity is real and is documented rather than hidden: if a provider ever
+exits with a code of 64 or above, a script cannot tell it apart from a Baikai
+failure. Coding agents conventionally exit 0 or 1, so in practice they do not
+collide — and `--json` carries the unambiguous answer in its `outcome` field.
+
+### Streams
+
+| stream | content |
+|--------|---------|
+| standard output | the agent's output in `capture` mode; `agent show` and `agent list` output |
+| standard error | every Baikai diagnostic, warning, and error; the agent's output in `inherit` and `tee` modes |
+
+Baikai's own messages always go to standard error. The agent's output follows
+the job's `output` setting, and which one to pick depends on what the script
+wants:
+
+- **`inherit`** when the script's log *is* the terminal. The agent writes
+  straight to your streams; Baikai captures nothing. This is the default and
+  what the motivating consumer uses.
+- **`capture`** when the script wants `response=$(baikai agent run job)`. The
+  agent's standard output becomes the command's standard output, and nothing
+  else does — Baikai's diagnostics and the agent's own standard error both go
+  to standard error, so the captured value is the answer and only the answer.
+- **`tee`** when it wants both: the bytes stream to your terminal as they
+  arrive *and* are retained under the byte limit.
+
+Output truncated at `output-limit` is announced on standard error. A silently
+truncated response that a script then parses is a bug waiting to happen.
+
+With `--json`, standard output carries exactly one JSON object per command
+instead. For `agent run` that object is the outcome envelope, including the
+captured streams when the job captures.
 
 ## The two files
 
@@ -295,6 +487,146 @@ jobs.demo.safety.provider-args = <redacted>
   from default rule no-provider-args
 ```
 
+## What a capability becomes
+
+A capability profile is only trustworthy if you can see exactly what it turns
+into — which is what `baikai agent show` prints, and what the tables below
+document.
+
+Claude Code:
+
+| capability         | rendered flag                         |
+|--------------------|---------------------------------------|
+| `read-only`        | `--permission-mode plan`              |
+| `edit-workspace`   | `--permission-mode acceptEdits`       |
+| `full-access`      | `--permission-mode bypassPermissions` |
+
+Every Claude run also gets `-p`, and `--no-session-persistence` unless the
+renderer's `persistSession` is `True`.
+
+The read-only mapping carries a caveat worth knowing before you rely on it.
+Claude Code has no permission mode meaning exactly "may read, must not write".
+Of its six modes, `manual` and `dontAsk` can block forever waiting for a human
+and are unusable unattended, `acceptEdits` and `bypassPermissions` permit
+writes, and `auto` delegates the decision to a classifier whose behavior is not
+a stable contract. `plan` is the only mode that reliably does not modify the
+tree — but it also frames the task as producing a plan, so a read-only Claude
+run behaves differently from a read-only Codex run, which merely has a
+restricted sandbox.
+
+Codex:
+
+| capability         | rendered flag                   |
+|--------------------|---------------------------------|
+| `read-only`        | `--sandbox read-only`           |
+| `edit-workspace`   | `--sandbox workspace-write`     |
+| `full-access`      | `--sandbox danger-full-access`  |
+
+Every Codex run also gets `exec` and `--cd <working-dir>`, plus
+`--skip-git-repo-check` and `--ephemeral` unless the renderer turns them off.
+
+Three cross-provider facts matter more than the tables:
+
+- **A tool allow-list is refused for Codex.** `codex exec` has no tool
+  allow-list flag, so a job with a non-empty `safety.allowed-tools` and
+  `provider "codex"` is refused with exit code 77 and a message naming the
+  sandbox as the alternative. It is never run with unrestricted tools, because
+  a caller who narrows the tool set and gets every tool has been handed more
+  authority than they asked for. This is the one place where switching
+  providers is not a one-line change — and you are told so, loudly, rather than
+  silently given weaker isolation.
+- **`extra-dirs` does not mean the same thing on both tools.** Claude Code
+  documents `--add-dir` as additional directories to allow tool *access* to;
+  `codex exec` documents it as additional directories that should be *writable*
+  alongside the primary workspace.
+- **The prompt never appears in the argument vector.** Both renderers deliver
+  it on standard input, so a prompt beginning with a dash cannot be parsed as a
+  flag or swallowed by a variadic flag such as `--allowedTools`. For Codex this
+  also avoids a documented trap: if standard input is piped *and* a positional
+  prompt is given, `codex exec` appends standard input as a `<stdin>` block.
+
+Reasoning effort follows each tool's own vocabulary. Claude receives
+`--effort`, whose values do not include `minimal`, so `minimal` maps up to
+`low`. Codex receives `-c model_reasoning_effort=<level>` and takes all six
+canonical levels unchanged. A blank `model` emits no `--model` flag on either
+provider.
+
+Raw provider arguments are appended verbatim after every structured flag and
+are neither inspected nor rewritten. That channel is gated once, by the
+operator ceiling — adding a second check that scans for dangerous flag
+spellings would look like a security boundary that a renamed vendor flag
+defeats.
+
+## Migrating a script
+
+The launch this surface was built for looks like this today, in
+`scripts/sync-keiro-dsl.sh` in the `shinzui/keiro-syntax` repository:
+
+```bash
+claude -p "$prompt" \
+  --add-dir "$keiro_path" \
+  --permission-mode acceptEdits \
+  --allowedTools Read Write Edit Glob Grep Bash Skill TodoWrite \
+  || die "agent run failed"
+```
+
+Every one of those flags becomes configuration. In `.baikai/agents.kdl`:
+
+```kdl
+jobs {
+  sync-keiro-dsl {
+    provider    "claude"
+    working-dir "."
+    output      "inherit"
+    safety {
+      capability    "edit-workspace"
+      allowed-tools "Read" "Write" "Edit" "Glob" "Grep" "Bash" "Skill" "TodoWrite"
+    }
+  }
+}
+```
+
+and in the script:
+
+```bash
+printf '%s' "$prompt" | baikai agent run sync-keiro-dsl \
+  --prompt-stdin \
+  --set extra-dirs="$keiro_path" \
+  || die "agent run failed"
+```
+
+Reading the translation piece by piece:
+
+- `-p` and `--no-session-persistence` are implied by "this is an unattended
+  run" and are rendered for you.
+- `--permission-mode acceptEdits` becomes `capability "edit-workspace"`, which
+  is the provider-neutral spelling of the same authority. Change `provider` to
+  `"codex"` and it renders `--sandbox workspace-write` instead.
+- `--allowedTools Read Write …` becomes `allowed-tools`, and Baikai joins the
+  names with commas into one argument rather than passing them separately,
+  because the flag is variadic and separate values can absorb a following flag.
+- `--add-dir "$keiro_path"` stays on the command line as
+  `--set extra-dirs="$keiro_path"`, because it is computed at run time from a
+  registry lookup while everything else is static. Note the plural: the setting
+  is `extra-dirs`, and `--set` sets it to a one-element list. A job that needs
+  several directories states them in the file.
+- `"$prompt"` moves to standard input. It is large, multi-line, and contains
+  interpolated paths, and standard input is what makes that safe.
+- `|| die` still works, because the agent's exit code propagates unchanged.
+- `output "inherit"` keeps the script's existing behavior: the agent's output
+  goes to the terminal the script inherited, exactly as before.
+
+**What does not move.** The script keeps owning its lock, its dirty-tree check,
+its test gate, its marker file, and its commit. This command runs a coding
+agent; it is not a workflow engine, and it does not want to absorb the
+deterministic parts of your pipeline. The only thing it takes over is the
+launch.
+
+Switching that job to Codex is a one-line edit — `provider "codex"` — with one
+honest exception: `allowed-tools` has to go, because `codex exec` has no such
+flag, and leaving it in is refused rather than silently ignored. See
+[What a capability becomes](#what-a-capability-becomes).
+
 ## Using it from Haskell
 
 The configuration layer lives in `Baikai.Agent.Config` in the `baikai-agent`
@@ -320,7 +652,29 @@ The ceiling is a **separate call** from job resolution, with a separate source
 list. That asymmetry is the security property, so it is two functions rather
 than one function with a flag.
 
-Turning a resolved job into something that runs takes three more steps: render
-it to an argument vector with `claudeAgentCommand` or `codexAgentCommand`, and
+Turning a resolved job into something that runs takes two more steps: render it
+to an argument vector with `claudeAgentCommand` or `codexAgentCommand`, and
 spawn it with `runAgentCommand` from `Baikai.Agent.Run`. See
 `docs/user/interactive-launches.md` for the vocabulary those share.
+
+The `baikai` executable is itself a thin wrapper over `Baikai.Agent.Cli`, whose
+`runAgentCli` returns a record rather than writing to streams or exiting:
+
+```haskell
+data AgentCliRun = AgentCliRun
+  { exitCode :: !Int, standardOutput :: !Text, standardError :: !Text }
+
+runAgentCli          :: EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
+runAgentCliWithPaths :: AgentConfigPaths -> EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
+
+renderJobCommand :: AgentJob -> AgentRunRequest -> Either AgentRenderError AgentCommand
+```
+
+`runAgentCli` discovers the two configuration files; `runAgentCliWithPaths`
+takes them explicitly, which is what a test wants. `renderJobCommand` is the
+single point in the codebase that knows both providers.
+
+Note that under `inherit` and `tee` the agent's own output goes straight to the
+real process streams and never enters `AgentCliRun`. That is intended — it is
+what a script whose log is the terminal wants — and it means a caller cannot
+observe inherited output by inspecting the record.

@@ -22,7 +22,7 @@ Options-as-data, the event stream, the registry, the trace bridge)
 works uniformly across "API call" and "CLI subprocess." They're
 not a tool-equivalent feature path — see [Limitations](#limitations).
 
-## Batch subprocesses vs interactive launches
+## Batch subprocesses vs interactive launches vs unattended runs
 
 The providers described on this page are batch subprocess providers.
 They call `claude -p` or `codex exec`, wait for the command to finish,
@@ -37,12 +37,23 @@ working directory, extra readable directories, safety preferences, and
 extra provider arguments. Vendor packages consume that request type and
 translate it into their CLI's flags.
 
+There is a third surface, and it is neither of those two: an
+**unattended run**. The coding agent starts with no terminal and no
+human present, drives its own tool loop, changes files inside
+directories you explicitly authorized, and finishes with a process
+result. The deliverable is the changed working tree, not the text. That
+surface is driven from a shell script by the `baikai agent` command,
+with the provider chosen in a configuration file rather than in the
+script — see `docs/user/unattended-agent-runs.md`.
+
 Use the batch providers when your program needs a single response value.
 Use the interactive launch surface when your program wants to hand
 control to the local CLI so the provider can own its terminal UI, tool
 loop, approvals, session state, and final process exit code.
 See `docs/user/interactive-launches.md` for the concrete
-`launchClaudeInteractive` and `launchCodexInteractive` APIs.
+`launchClaudeInteractive` and `launchCodexInteractive` APIs. Use the
+unattended surface when nobody is watching and the run is expected to
+edit the tree.
 
 ## Smallest example
 

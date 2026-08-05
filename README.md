@@ -46,12 +46,20 @@ flow regardless of which provider is on the other side.
   opening a real Claude Code / Codex terminal session with explicit
   model and reasoning-effort controls, and pure layout/path helpers for
   provider-native skills and custom agents.
+- **Unattended agent runs from a shell script.** The `baikai` executable
+  gives a script one stable command —
+  `printf '%s' "$prompt" | baikai agent run <job> --prompt-stdin` — and
+  the choice of Claude Code or Codex lives in a configuration file rather
+  than in the script. `agent show` prints the effective configuration,
+  the file and line every value came from, and the exact argument vector
+  that would be spawned, without starting anything. The agent's own exit
+  code propagates so `set -e` scripts behave.
 - **Unattended agent-run vocabulary.** `Baikai.Agent` describes a
   coding-agent run with no terminal and no human: a working directory it
   is authorized to modify, a provider-neutral capability profile, and a
   pure operator ceiling that refuses an over-broad request instead of
-  quietly weakening it. Flag rendering and process spawning are not part
-  of this module yet.
+  quietly weakening it. A policy a provider cannot express is refused
+  before process creation rather than quietly becoming a weaker policy.
 - **Repository-owned agent jobs.** `Baikai.Agent.Config` resolves a named
   job from layered KDL configuration — built-in defaults, the operator
   file, the repository file, the environment, then command-line
@@ -74,7 +82,7 @@ shared registry and re-exports nothing of its own.
 | **`baikai`**         | not yet    | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
 | **`baikai-claude`**  | not yet    | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
 | **`baikai-openai`**  | not yet    | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
-| **`baikai-agent`**   | not yet    | **Unattended** coding-agent runs: `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. It consumes an already-rendered command, so it never imports a vendor renderer. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
+| **`baikai-agent`**   | not yet    | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
 | **`baikai-trace-otel`** | not yet | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
 | `baikai-smoke`       | internal   | Live smoke tests across every shipped provider. API cases skip when their keys are absent; batch CLI cases run whenever `claude` or `codex` is on `PATH`. Not published — useful as worked examples. |
 
@@ -146,6 +154,14 @@ walkthrough.
   either is constrained or gets an error.
   See [Interactive Launches](docs/user/interactive-launches.md).
 
+- **Attended vs unattended.** An interactive launch hands a terminal to
+  a human. An unattended run has neither terminal nor human: the agent
+  owns its tool loop, edits a working tree you authorized, and returns a
+  process result. That is what the `baikai agent` command drives, with
+  the provider, permissions, paths, and limits all coming from a KDL
+  file that an operator-owned policy ceiling caps.
+  See [Unattended Agent Runs](docs/user/unattended-agent-runs.md).
+
 ## Install
 
 Until the packages appear on the package index, pull them from git via
@@ -186,6 +202,10 @@ build-depends:
   `codex exec` as subprocess providers.
 - [Interactive Launches](docs/user/interactive-launches.md) — opening
   real Claude Code / Codex sessions.
+- [Unattended Agent Runs](docs/user/unattended-agent-runs.md) — the
+  `baikai agent run|show|list` command, the KDL job format, layer
+  precedence, the operator policy ceiling, and migrating a script that
+  embeds provider flags today.
 - [Agent Assets](docs/user/agent-assets.md) — provider-native skill and
   custom-agent layout helpers.
 
