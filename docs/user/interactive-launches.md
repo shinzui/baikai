@@ -140,17 +140,96 @@ import Baikai.Agent qualified as Agent
 The two surfaces keep separate policy types on purpose.
 `InteractiveSafety` has no notion of a capability profile or an operator
 ceiling, and the unattended vocabulary has no notion of an inherited
-terminal or of interactive approval prompts. What they will share is the
-*refusal* type: an unsupported policy fails visibly on both surfaces
-rather than silently becoming a weaker policy.
+terminal or of interactive approval prompts. What they share is the
+*refusal* type, `AgentRenderError`: an unsupported policy fails visibly
+on both surfaces rather than silently becoming a weaker policy. See
+[Refused Safety Policies](#refused-safety-policies) below for what that
+means when you call an interactive launcher.
+
+## Refused Safety Policies
+
+`InteractiveSafety` carries constructors for both providers in one type,
+so nothing stops a caller from handing a Codex sandbox policy to the
+Claude launcher, or a Claude tool allow-list to the Codex launcher.
+Neither tool can express the other's policy.
+
+Baikai refuses such a request before starting anything. Both pure
+command builders and both launchers return
+`Either AgentRenderError`, and the refusal is
+`SafetyNotExpressible`:
+
+```haskell
+claudeInteractiveCommand ::
+  ClaudeInteractiveConfig -> InteractiveLaunchRequest ->
+  Either AgentRenderError (FilePath, [String])
+launchClaudeInteractive ::
+  ClaudeInteractiveConfig -> InteractiveLaunchRequest ->
+  IO (Either AgentRenderError InteractiveLaunchResult)
+
+codexInteractiveCommand ::
+  CodexInteractiveConfig -> InteractiveLaunchRequest ->
+  Either AgentRenderError (FilePath, [String])
+launchCodexInteractive ::
+  CodexInteractiveConfig -> InteractiveLaunchRequest ->
+  IO (Either AgentRenderError InteractiveLaunchResult)
+```
+
+Read the two result branches precisely, because they are not the same
+kind of bad news. A `Left` means **no process was started at all**: the
+policy was rejected before process creation, so nothing ran and nothing
+in your working tree changed. A `Right` carrying a non-zero `ExitCode`
+means the session **ran and exited non-zero**, which is an ordinary
+outcome of an interactive session.
+
+`renderAgentRenderError` turns the refusal into one line of plain
+English. The two messages are:
+
+```text
+claude cannot honor the requested safety policy: Claude Code cannot
+express a Codex sandbox policy (read-only, never); use
+ClaudeAllowedTools, or DefaultSafety to accept Claude's own default
+
+codex cannot honor the requested safety policy: Codex has no tool
+allow-list flag, so it cannot honor the requested tools (Read); use
+CodexSandbox to restrict Codex, or DefaultSafety to accept its own
+default
+```
+
+The full behavior table:
+
+| request safety                | Claude launcher             | Codex launcher                          |
+|-------------------------------|-----------------------------|-----------------------------------------|
+| `DefaultSafety`               | `Right`, no safety flags    | `Right`, no safety flags                |
+| `ClaudeAllowedTools []`       | `Right`, no safety flags    | `Right`, no safety flags                |
+| `ClaudeAllowedTools ["Read"]` | `Right`, `--allowedTools`   | `Left SafetyNotExpressible`             |
+| `CodexSandbox mode approval`  | `Left SafetyNotExpressible` | `Right`, `--sandbox`/`--ask-for-approval` |
+
+Two rows deserve a word. `DefaultSafety` means "I am not specifying a
+policy; use the tool's own default", so rendering no safety flag honors
+it exactly and is **never** a refusal. An *empty* `ClaudeAllowedTools`
+list restricts nothing, so there is nothing for Codex to fail to honor
+and it renders successfully there too; only a non-empty list is a
+restriction Codex cannot express.
+
+**This is a behavior change.** In previous releases, a policy the chosen
+provider could not express was silently discarded and the session
+started with no restriction at all — a caller who asked for a read-only
+Codex sandbox on Claude got an unrestricted Claude session and a success
+result. A call that appeared to work before may now return `Left`. That
+is the point: the previous success was reporting a constraint that was
+never applied. If you hit it, either switch to a policy the chosen
+provider can express, or state `DefaultSafety` if you genuinely did not
+want a restriction.
 
 ## Claude Code
 
 The Claude Code launcher lives in `baikai-claude`:
 
 ```haskell
+import Baikai.Agent (renderAgentRenderError)
 import Baikai.Interactive
 import Baikai.Provider.Claude.Interactive
+import Data.Text.IO qualified as TIO
 
 main :: IO ()
 main = do
@@ -164,23 +243,28 @@ main = do
         , extraDirs = ["/path/to/shared/context"]
         , safety = ClaudeAllowedTools ["Read", "Bash(git status)"]
         }
-  print result
+  case result of
+    Left err -> TIO.putStrLn (renderAgentRenderError err)  -- nothing was started
+    Right launched -> print launched
 ```
 
 `claudeInteractiveCommand` is the pure command builder used by tests and
 callers that need to inspect or log the launch. It renders the request
 to `claude` arguments including `--model`, `--system-prompt`,
-`--add-dir`, and `--allowedTools`, then `--`, then the initial prompt.
+`--add-dir`, and `--allowedTools`, then `--`, then the initial prompt,
+or refuses with `Left` when the safety policy is a Codex sandbox.
 `launchClaudeInteractive` runs that command with inherited stdin,
-stdout, and stderr.
+stdout, and stderr, and starts no process when the builder refuses.
 
 ## Codex
 
 The Codex launcher lives in `baikai-openai`:
 
 ```haskell
+import Baikai.Agent (renderAgentRenderError)
 import Baikai.Interactive
 import Baikai.Provider.OpenAI.Interactive
+import Data.Text.IO qualified as TIO
 
 main :: IO ()
 main = do
@@ -194,11 +278,15 @@ main = do
         , extraDirs = ["/path/to/shared/context"]
         , safety = CodexSandbox CodexWorkspaceWrite CodexApprovalOnRequest
         }
-  print result
+  case result of
+    Left err -> TIO.putStrLn (renderAgentRenderError err)  -- nothing was started
+    Right launched -> print launched
 ```
 
 `codexInteractiveCommand` is the pure command builder. It renders
-`--model`, `--cd`, `--add-dir`, `--sandbox`, and `--ask-for-approval`.
+`--model`, `--cd`, `--add-dir`, `--sandbox`, and `--ask-for-approval`,
+or refuses with `Left` when the safety policy is a non-empty Claude tool
+allow-list.
 The installed Codex CLI exposes no top-level interactive system-prompt
 flag, so `codexInteractivePrompt` preserves `systemPrompt` by placing it
 before the user prompt in the initial prompt text. The builder renders

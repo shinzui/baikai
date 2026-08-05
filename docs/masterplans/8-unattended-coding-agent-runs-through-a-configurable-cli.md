@@ -144,7 +144,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add the unattended agent-run core abstraction | docs/plans/45-add-the-unattended-agent-run-core-abstraction.md | None | None | Complete |
 | EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | Complete |
-| EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | In Progress |
+| EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Complete |
 | EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Not Started |
 | EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Not Started |
 | EP-6 | Ship the baikai agent CLI and prove the unattended fixture | docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md | EP-2, EP-4, EP-5 | EP-3 | Not Started |
@@ -279,8 +279,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-2 (2026-08-05): Render Codex unattended argument vectors, including sandbox mode, working root, and additional directories.
 - [x] EP-2 (2026-08-05): Prove both renderers refuse unsupported policy before any process would be created.
 - [x] EP-2 (2026-08-05): Add exact whole-argv tests, including prompts and paths beginning with a dash.
-- [ ] EP-3: Make the Claude and Codex interactive safety mappings total and visibly failing.
-- [ ] EP-3: Update interactive-launch documentation and record the release consequence of the changed signatures.
+- [x] EP-3 (2026-08-05): Make the Claude and Codex interactive safety mappings total and visibly failing.
+- [x] EP-3 (2026-08-05): Update interactive-launch documentation and record the release consequence of the changed signatures.
 - [ ] EP-4: Create the `baikai-agent` package skeleton and register it in `cabal.project` and the release skill.
 - [ ] EP-4: Implement the process runner with standard-input prompt delivery, timeout with process-group termination, output caps, and the three output disciplines.
 - [ ] EP-4: Add fake-executable integration tests for working directory, timeout, non-zero exit, spawn failure, and output truncation.
@@ -421,6 +421,34 @@ interactions between child plans. Provide concise evidence.
   standard input or as an argument, which a pure renderer test cannot. Consequence for EP-4: do
   not treat the branch as dead code, and pin it with a fixture rather than assuming a renderer
   will produce it.
+
+- Discovery (EP-3, 2026-08-05): the pre-fix evidence for the silent downgrade, which this
+  MasterPlan's Vision & Scope cites as one of the three trustworthiness properties. Temporary tests
+  written before the repair showed that a caller asking Claude for
+  `CodexSandbox CodexReadOnly CodexApprovalNever`, and a caller asking Codex for
+  `ClaudeAllowedTools ["Read"]`, each received the identical unrestricted argument vector
+  `["--", "inspect the repo"]` — no `--allowedTools`, no `--sandbox`, no `--ask-for-approval`. The
+  requested restriction left no trace at all, so the defect could not have been caught by reading a
+  process listing either. Both surfaces now refuse with `SafetyNotExpressible` and start no process.
+  Consequence for EP-6: the coordinated release's changelog can state the before-and-after
+  concretely rather than describing the old behavior abstractly, and the user guide already quotes
+  both refusal messages verbatim for searchability.
+
+- Discovery (EP-3, 2026-08-05): the two provider packages are **not** at the same version, contrary
+  to what EP-3's own release note assumed. `baikai-claude` is at `0.4.0.1` — bumped on 2026-07-30 for
+  a `crypton` bound widening — while `baikai-openai` is still at `0.4.0.0`. Both need a PVP-major
+  bump for EP-3's signature changes, so the substance is unchanged, but EP-6 must compute each
+  package's next major from its actual in-tree version rather than assuming the pair moves in step.
+
+- Discovery (EP-3, 2026-08-05): the workspace has no interactive-launcher caller outside the two
+  vendor test suites. `baikai-smoke/test/InteractiveSmoke.hs`, which EP-3 named as the single most
+  dangerous edit in the initiative because its `findExecutable` gating stands between the suite and
+  real billable calls, only runs `claude --help` and `codex --help` and greps the help text; it never
+  builds an `InteractiveLaunchRequest`. It was therefore left completely untouched. Consequence: the
+  `Baikai.Interactive` surface has exactly one in-repository consumer shape, and the only party that
+  must adapt to the new `Either` is the external `shinzui/seihou` project, whose
+  `Seihou.CLI.AgentLaunchExec` module builds interactive launch requests. EP-6's release must say so
+  explicitly, because a downstream consumer that upgrades without adapting will fail to compile.
 
 - Discovery: both providers can take the prompt on standard input, which removes the
   dash-leading-prompt hazard entirely, but Codex has a trap. `codex exec --help` states that

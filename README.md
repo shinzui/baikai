@@ -133,6 +133,10 @@ walkthrough.
 - **Batch vs interactive.** Batch providers return a single `Response`.
   The interactive launchers hand the terminal to a real Claude Code /
   Codex session that owns its own tool loop, approvals, and exit code.
+  A safety policy the chosen tool cannot express — a Codex sandbox on
+  Claude, a Claude tool allow-list on Codex — is refused before launch
+  rather than silently dropped, so a caller who asks to be constrained
+  either is constrained or gets an error.
   See [Interactive Launches](docs/user/interactive-launches.md).
 
 ## Install

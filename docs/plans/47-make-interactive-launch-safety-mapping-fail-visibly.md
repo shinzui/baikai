@@ -56,12 +56,21 @@ This section must always reflect the actual current state of the work.
 - [x] Milestone 1 (2026-08-05): Wrote temporary tests that demonstrate the current silent
       downgrade, ran them, and recorded the observed pre-fix argument vectors in Surprises &
       Discoveries.
-- [ ] Milestone 2: Change `claudeInteractiveCommand` and `launchClaudeInteractive` to refuse an
-      inexpressible policy.
-- [ ] Milestone 3: Change `codexInteractiveCommand` and `launchCodexInteractive` the same way.
-- [ ] Milestone 4: Update every in-repository caller, including the smoke suite.
-- [ ] Milestone 5: Document the change, record the breaking-release consequence, and run the full
-      offline validation.
+- [x] Milestone 2 (2026-08-05): `claudeInteractiveCommand` and `launchClaudeInteractive` refuse a
+      `CodexSandbox` policy with `SafetyNotExpressible AgentClaude` and start no process. Replaced
+      the temporary pre-fix case with `safetyRefusalTest`, added `safetyStillRendersTest` for the
+      three expressible policies, and wrapped the pre-existing expectations in `Right` with no
+      argument vector changed. `cabal test baikai-claude-test`: all 174 tests passed.
+- [x] Milestone 3 (2026-08-05): the mirror change in `codexInteractiveCommand` and
+      `launchCodexInteractive`, refusing a non-empty `ClaudeAllowedTools` list with
+      `SafetyNotExpressible AgentCodex`. `cabal test baikai-openai-test`: all 81 tests passed.
+- [x] Milestone 4 (2026-08-05): the `rg` sweep found no caller outside the two vendor test suites
+      already updated in Milestones 2 and 3 — `baikai-smoke/test/InteractiveSmoke.hs` never calls
+      the four functions, so its gating was left untouched rather than edited. `cabal build all`
+      succeeds.
+- [x] Milestone 5 (2026-08-05): documented the refusal in `docs/user/interactive-launches.md`,
+      recorded both breaking changes in the root `CHANGELOG.md`, updated the `README.md` highlight,
+      and ran the full offline validation.
 
 
 ## Surprises & Discoveries
@@ -99,6 +108,25 @@ implementation. Provide concise evidence.
   gating that Milestone 4 warns against weakening is untouched because the file needs no edit at
   all, and the plan's risk assessment for that milestone can be relaxed to "no caller outside the
   two vendor test suites exists".
+
+- Discovery (Milestone 5, 2026-08-05): the in-tree version this plan releases from is not the
+  `0.4.0.0` recorded in Milestone 5 and Interfaces and Dependencies. `baikai-claude` is already at
+  `0.4.0.1`, published on 2026-07-30 as a `crypton` bound widening; `baikai-openai` is still at
+  `0.4.0.0`. Both still need a PVP-major bump for this plan, so the conclusion is unchanged — but
+  the coordinated release in
+  `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md` must compute each
+  package's next major from its actual in-tree version rather than assuming the two are in step.
+  Confirmed by the `cabal build` output naming `baikai-claude-0.4.0.1` and `baikai-openai-0.4.0.0`,
+  and by the `[baikai-claude 0.4.0.1] - 2026-07-30` heading in the root `CHANGELOG.md`.
+
+- Discovery (Milestone 2, 2026-08-05): the refusal message reads better than the plan's own draft
+  predicted, because `renderAgentRenderError` already prefixes the provider. The rendered line is
+  `claude cannot honor the requested safety policy: Claude Code cannot express a Codex sandbox
+  policy (read-only, never); …`, so the provider is named twice — once canonically by the shared
+  renderer and once conversationally by the explanation. That redundancy was kept rather than
+  trimmed: the explanation must stand on its own wherever a caller pattern-matches
+  `SafetyNotExpressible p why` and prints only `why`, which is exactly what a caller inspecting the
+  constructor rather than the rendered text would do.
 
 
 ## Decision Log
@@ -142,6 +170,24 @@ Record every decision made while working on the plan.
   policy that was then discarded. Do not turn `DefaultSafety` into an error.
   Date: 2026-07-30
 
+- Decision: Assert the refused error's constructor *and* its rendered wording in both refusal
+  tests, rather than only one of them.
+  Rationale: asserting only the wording would let a future contributor swap the constructor for a
+  different `AgentRenderError` while keeping the message, which would silently change what callers
+  pattern-match on; asserting only the constructor would let the explanation decay into "not
+  supported", which is the dead-end error this plan exists to prevent. Each test therefore matches
+  `SafetyNotExpressible p _`, checks the provider, and then makes three `assertBool` checks on the
+  rendered text: it names the provider, quotes what was rejected, and suggests an alternative.
+  Date: 2026-08-05
+
+- Decision: Leave `baikai-smoke/test/InteractiveSmoke.hs` completely untouched.
+  Rationale: it does not call any of the four changed functions, so there is nothing to update. The
+  plan anticipated editing it and warned that doing so was the single most dangerous step because
+  the file's `findExecutable` gating stands between the suite and real billable calls. The safest
+  response to "the edit turned out to be unnecessary" is to make no edit at all rather than a
+  cosmetic one, so the gating is provably unchanged by inspection of the diff.
+  Date: 2026-08-05
+
 - Decision: An **empty** `ClaudeAllowedTools` list renders successfully on both providers rather
   than being refused by Codex.
   Rationale: an empty allow-list restricts nothing, so there is nothing Codex is failing to
@@ -149,6 +195,56 @@ Record every decision made while working on the plan.
   Only a non-empty list represents a restriction Codex cannot express. The asymmetry is
   deliberate and must be commented in the code.
   Date: 2026-07-30
+
+
+## Outcomes & Retrospective
+
+This section was missing from the plan as authored; the ExecPlan specification requires it, so it
+was added during implementation on 2026-08-05 in its skeleton position between the Decision Log and
+Context and Orientation.
+
+Completed 2026-08-05, in full and without deviation from the design. Both interactive launchers now
+refuse a safety policy their provider cannot express, and both return `Either AgentRenderError` from
+the pure builder and the `IO` launcher. The observable outcome the Purpose section promised holds:
+`claudeInteractiveCommand` given `CodexSandbox CodexReadOnly CodexApprovalNever` returns
+`Left (SafetyNotExpressible AgentClaude …)` and `codexInteractiveCommand` given
+`ClaudeAllowedTools ["Read"]` returns `Left (SafetyNotExpressible AgentCodex …)`, where before this
+plan both returned a successfully rendered, unrestricted command. Verified by hand in the REPL as
+well as by the suites:
+
+```text
+claude cannot honor the requested safety policy: Claude Code cannot express a Codex sandbox
+policy (read-only, never); use ClaudeAllowedTools, or DefaultSafety to accept Claude's own default
+Right ["--allowedTools","Read,Grep","--","inspect"]
+```
+
+Nothing that previously worked renders differently. Every pre-existing expected argument vector in
+both vendor suites was wrapped in `Right` and otherwise left byte-for-byte identical, which was the
+plan's own stated tripwire for having smuggled a behavior change into a bug fix. `nix fmt`,
+`git diff --check`, `cabal build all`, the key- and CLI-scrubbed `cabal test all` (174 Claude tests,
+81 Codex tests, and every other suite passing, with the smoke suite reporting every key and both
+binaries unavailable and skipping all live cases), and `nix flake check` all succeed. No acceptance
+step started an interactive session or invoked a live model.
+
+Two things went differently than the plan expected, both in the direction of less work. The smoke
+suite needed no edit at all, which removed the plan's single most dangerous step; and the in-tree
+`baikai-claude` version is `0.4.0.1` rather than the `0.4.0.0` the plan assumed, which changes
+nothing about this plan but is a trap for the coordinated release. Both are recorded in Surprises &
+Discoveries.
+
+What remains is deliberately not in this plan's scope: the PVP-major bumps for `baikai-claude` and
+`baikai-openai` and the publish itself, which
+`docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md` coordinates for the
+whole initiative, and the downstream `shinzui/seihou` adaptation, which cannot be performed from
+this repository and is recorded in the changelog and the parent MasterPlan instead.
+
+The lesson worth carrying forward is the ordering. Writing the pre-fix tests first — one asserting
+the buggy behavior and one deliberately wrong so its failure would print the real value — cost a few
+minutes and produced the only artifact that justifies a breaking release: evidence of what the old
+code actually did, in its own output, rather than a description of what it was believed to do. Both
+pre-fix vectors turned out to be `["--", "inspect the repo"]`, meaning the discarded policy left no
+trace anywhere, not even in a process listing. A test written after the fix could not have shown
+that.
 
 
 ## Context and Orientation

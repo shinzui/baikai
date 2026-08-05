@@ -49,6 +49,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it with unrestricted tools would grant more authority than the caller asked
   for. Nothing is spawned.
 
+### Changed
+
+- **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns
+  `Either AgentRenderError (FilePath, [String])` and `launchClaudeInteractive`
+  returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
+  whose `safety` is a `CodexSandbox` policy — which Claude Code cannot express
+  — is refused with `SafetyNotExpressible AgentClaude`, naming the rejected
+  sandbox mode and approval policy and suggesting `ClaudeAllowedTools` or
+  `DefaultSafety`. Previously the policy was silently discarded and an
+  **unrestricted** Claude session was started and reported as a success. A
+  `Left` means no process was started; a `Right` with a non-zero exit code
+  means the session ran and exited non-zero. `DefaultSafety` and an empty
+  `ClaudeAllowedTools` list still render no safety flag and are never refused,
+  and no previously rendered argument vector changed. Callers must handle the
+  refusal branch.
+- **Breaking:** `baikai-openai`: `codexInteractiveCommand` now returns
+  `Either AgentRenderError (FilePath, [String])` and `launchCodexInteractive`
+  returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
+  whose `safety` is a non-empty `ClaudeAllowedTools` list — which `codex` has
+  no flag for — is refused with `SafetyNotExpressible AgentCodex`, quoting the
+  rejected tools and suggesting `CodexSandbox` or `DefaultSafety`. Previously
+  the allow-list was silently discarded and Codex was started with its default
+  sandbox. The same `Left`/`Right` reading applies, `DefaultSafety` and an
+  empty allow-list are never refused, and no previously rendered argument
+  vector changed. Callers must handle the refusal branch.
+
+  Both changes make the interactive surface honor the same contract as the new
+  unattended surface: a safety policy the chosen provider cannot express fails
+  visibly instead of silently becoming a weaker policy. Downstream consumers
+  must adapt before upgrading; the known one is `shinzui/seihou`, whose
+  `Seihou.CLI.AgentLaunchExec` module builds interactive launch requests.
+
 ## [baikai-claude 0.4.0.1] - 2026-07-30
 
 ### Fixed
