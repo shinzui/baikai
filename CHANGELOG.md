@@ -259,8 +259,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `thinking_dropped_unsupported_host` where the option previously vanished with
   no trace. A forty-two-row table test pins the translation and the shaped
   request body for every shape at every level.
+- `baikai-openai`: the Chat Completions adapter now reads what the host reports
+  about itself — the `model` it says produced the response and the correlation
+  identifier it issues in a response header — instead of discarding both. The
+  model comes from the first streamed chunk that carries a top-level `model`
+  field and is never overwritten by a later one; a host that reports none leaves
+  the observation `"unobserved"` rather than being filled in from the configured
+  model.
+- `baikai-openai`: new exports from `Baikai.Provider.OpenAI.Sse` —
+  `ResponseMetadata` and `capturedHeaderNames` — and from
+  `Baikai.Provider.OpenAI.Api` — `openaiChatStreamWith` and `SseDriver`.
+  Response-header capture is an **allow-list** (`x-request-id`, `request-id`,
+  `x-amzn-requestid`, `x-ms-request-id`, `cf-ray`, in that preference order),
+  not a denylist, so a header a future gateway adds is not recorded by default.
+  The list is longer than the Anthropic one because this transport speaks to an
+  open-ended set of hosts and the gateways commonly in front of them.
 
 ### Fixed
+
+- `baikai-openai`: `Response.responseId` was always `Nothing` on the Chat
+  Completions transport, although every compatible host sends a top-level `id`
+  on every streamed chunk. It now carries the identifier the host reported, on
+  both the successful and the failed terminal.
 
 - `baikai`: the `ThinkingFormatOpenAI` Haddock in `Baikai.Compat` listed the
   native `reasoning_effort` vocabulary as `minimal | low | medium | high`, which
@@ -320,6 +340,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   debugging and its header states it is not covered by PVP compatibility
   guarantees, but the change is recorded here because that is not a licence to
   break a consumer silently.
+- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Sse`'s four streaming
+  entry points — `openaiSseStream`, `openaiSseStreamValue`,
+  `openaiSseStreamValueWithHeaders`, and `sseFromResponse` — take a new
+  `ResponseMetadata -> IO ()` callback immediately before the existing per-chunk
+  callback. It fires exactly once, before the first chunk, on both the success
+  and the non-2xx path — a failed call's correlation identifier is if anything
+  more valuable than a successful one's. Pass `(\_ -> pure ())` to keep the
+  previous behaviour. The callback is separate rather than a widening of the
+  per-chunk one because that one runs once per SSE frame and response-level data
+  does not belong on that path.
+- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Api`'s `RawChunk` gains
+  `model` and `responseId` fields, both `Maybe Text`. Code that pattern-matches
+  on `RawChunk` is unaffected; code that constructs one with record syntax must
+  add them.
 - **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Shape`'s
   `shapeRequestBody`, `streamRequestBody`, and `injectThinkingShape` now return
   `(Aeson.Value, ThinkingTranslation)` instead of a bare body. Take `fst` to

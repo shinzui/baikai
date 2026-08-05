@@ -66,13 +66,14 @@ cabal test baikai-openai
       adjustment on the native path, which expresses every level exactly. (2026-08-05)
 - [x] Correct the stale `ThinkingFormatOpenAI` Haddock in `baikai/src/Baikai/Compat.hs`.
       (2026-08-05)
-- [ ] Widen the SSE transport callback so response metadata reaches the adapter.
-- [ ] Capture the correlation header and the HTTP status.
-- [ ] Read the provider-reported model out of the streamed chunks.
+- [x] Widen the SSE transport callback so response metadata reaches the adapter. (2026-08-05)
+- [x] Capture the correlation header and the HTTP status. (2026-08-05)
+- [x] Read the provider-reported model out of the streamed chunks — and the response id
+      beside it, which this transport also discarded. (2026-08-05)
 - [ ] Populate the evidence record and derive the strength from what was observed.
 - [ ] Add the response commitment digest.
 - [x] Write the forty-two-case translation table test (seven shapes by six levels). (2026-08-05)
-- [ ] Write the header-capture and observed-model fixture tests.
+- [x] Write the header-capture and observed-model fixture tests. (2026-08-05)
 - [ ] Write the end-to-end evidence tests, including the toggle-host indistinguishability case.
 - [ ] Add `CHANGELOG.md` entries under `### Added`, plus a `### Fixed` line for the corrected
       `ThinkingFormatOpenAI` Haddock. Nothing here belongs under `### Changed`: this plan sends
@@ -104,6 +105,25 @@ parallel-entry-point pattern the MasterPlan's Decision Log rejects. One test hel
 `shapedBody` in `baikai-openai/test/ShapeSpec.hs`, gained an `fst`; no assertion in the existing
 suite changed.
 
+### Found while implementing Milestone 2
+
+**This adapter never read the response id, though the plan assumed it did.** The Context section
+says "Baikai already reads `id` for the response identifier", which is true of the Anthropic
+adapter and false of this one: `parseChunk` decoded neither `id` nor `model`, and every
+`doneTerminal`/`errorTerminal` call passed `Nothing`, so `Response.responseId` was permanently
+`Nothing` on this transport. Reading `id` is the same one-line lookup as reading `model` and fills
+the evidence record's `responseId`, so both were added together, and the terminal payloads now
+carry the identifier for every caller. That is the same class of unconditional cheap observation
+the MasterPlan's Decision Log names — a value the transport already had in hand and threw away.
+
+**The driver seam takes the request body rather than the per-call record.**
+[docs/plans/53](53-emit-anthropic-messages-api-call-evidence.md) makes its `SseDriver` take a
+`ClaudeCall`. Copying that here would have required exporting `OpenAICall` — which also holds the
+resolved API key and the built request headers — for the sole benefit of a test that wants to see
+the outgoing body. This `SseDriver` instead takes exactly the arguments of
+`openaiSseStreamValueWithHeaders`, so `liveSseDriver` *is* that function and a test driver receives
+the request body directly. The technique EP-3 recommended is unchanged: replace only the socket.
+
 **One derivation covers five of the seven shapes.** `effortTranslation` compares the word that went
 on the wire with `renderThinkingLevel` and records `EffortClamped` when they differ, so the native
 path's empty adjustment list is a computed consequence of forwarding the canonical name rather than
@@ -130,6 +150,17 @@ behind, which is the failure mode
   comment is in scope; changing the behaviour is not. Had the clamp been implemented, it would
   have silently weakened every `xhigh` and `max` request against a current OpenAI model — the
   precise failure mode this whole initiative exists to eliminate.
+  Date: 2026-08-05
+
+- Decision: Track whether the host reported usage at all, with a `usageReported` flag on the
+  assembler, rather than reading whether the accumulated counts happen to be zero.
+  Rationale: The assembler initialises `usage` to zeroes, so a call that failed before any usage
+  chunk arrived would otherwise report that the host said it consumed nothing — a fabrication, and
+  precisely what `Observed` exists to stop. A host that sends a usage block reported its counts even
+  when every one of them is zero, and that distinction is the whole point.
+  [docs/plans/53](53-emit-anthropic-messages-api-call-evidence.md) established the mechanism and the
+  MasterPlan records that each provider plan needs its own; this is that one. The flag is set by
+  `applyUsage`, the single place a usage block reaches the assembler.
   Date: 2026-08-05
 
 - Decision: Record the signature change under `### Changed` as breaking, even though this plan's

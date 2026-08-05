@@ -715,12 +715,12 @@ finishReasonTests =
     [ testCase "content_filter terminates as EventError" $ do
         let (_events1, ass1) =
               translate
-                (Right RawChunk {contentDelta = Just "partial", reasoningDelta = Nothing, finishReason = Nothing, toolDeltas = [], usage = Nothing})
+                (Right RawChunk {contentDelta = Just "partial", reasoningDelta = Nothing, finishReason = Nothing, toolDeltas = [], usage = Nothing, model = Nothing, responseId = Nothing})
                 (emptyAssembler openaiTestModel (read "2026-06-05 00:00:00 UTC"))
                 (read "2026-06-05 00:00:01 UTC")
             (events2, ass2) =
               translate
-                (Right RawChunk {contentDelta = Nothing, reasoningDelta = Nothing, finishReason = Just "content_filter", toolDeltas = [], usage = Nothing})
+                (Right RawChunk {contentDelta = Nothing, reasoningDelta = Nothing, finishReason = Just "content_filter", toolDeltas = [], usage = Nothing, model = Nothing, responseId = Nothing})
                 ass1
                 (read "2026-06-05 00:00:02 UTC")
             (events3, _) = closeOpenStream (read "2026-06-05 00:00:03 UTC") Nothing ass2
@@ -734,7 +734,7 @@ finishReasonTests =
       testCase "unknown finish_reason is a successful diagnostic" $ do
         let (_events, ass1) =
               translate
-                (Right RawChunk {contentDelta = Nothing, reasoningDelta = Nothing, finishReason = Just "mystery", toolDeltas = [], usage = Nothing})
+                (Right RawChunk {contentDelta = Nothing, reasoningDelta = Nothing, finishReason = Just "mystery", toolDeltas = [], usage = Nothing, model = Nothing, responseId = Nothing})
                 (emptyAssembler openaiTestModel (read "2026-06-05 00:00:00 UTC"))
                 (read "2026-06-05 00:00:01 UTC")
             (terminalEvents, _) = closeOpenStream (read "2026-06-05 00:00:02 UTC") Nothing ass1

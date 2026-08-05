@@ -208,7 +208,9 @@ emptyChunk =
       reasoningDelta = Nothing,
       finishReason = Nothing,
       toolDeltas = [],
-      usage = Nothing
+      usage = Nothing,
+      model = Nothing,
+      responseId = Nothing
     }
 
 runChunks :: Model -> [RawChunk] -> [AssistantMessageEvent]

@@ -6,6 +6,8 @@ module Baikai.Provider.OpenAI.Sse
     openaiSseStreamValue,
     openaiSseStreamValueWithHeaders,
     sseFromResponse,
+    ResponseMetadata (..),
+    capturedHeaderNames,
   )
 where
 
@@ -14,25 +16,82 @@ import Control.Monad (foldM, when)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
+import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
 import Data.IORef qualified as IORef
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
+import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Header (RequestHeaders)
 import Network.HTTP.Types.Status qualified as Status
 import OpenAI.V1.Chat.Completions qualified as Chat
 import Servant.Client qualified as Client
 
+-- | Response-level metadata captured once, before the first chunk.
+--
+-- Header capture is an allow-list: a response header is recorded only
+-- if its name appears in 'capturedHeaderNames'. A denylist would leak
+-- whatever header a future gateway decides to add, and this transport
+-- speaks to an open-ended set of hosts.
+--
+-- Names are recorded folded to lowercase, so a reader can look one up
+-- without case-folding first.
+data ResponseMetadata = ResponseMetadata
+  { httpStatus :: !Int,
+    headers :: ![(Text, Text)]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The response headers worth recording across the OpenAI-compatible
+-- ecosystem. OpenAI itself issues @x-request-id@; other hosts spell
+-- their own identifier @request-id@, and the gateways commonly sitting
+-- in front of one of them add @x-amzn-requestid@, @x-ms-request-id@, or
+-- @cf-ray@. None can carry a credential: they are values the server
+-- chose, not values baikai sent.
+--
+-- The order is a preference order as well as an allow-list, matching
+-- the discipline @Baikai.Provider.Claude.Sse@ established. A consumer
+-- picking one correlation identifier out of a response takes the first
+-- of these that is present, so the host's own identifier wins over a
+-- gateway's when both are there.
+capturedHeaderNames :: [CI SBS.ByteString]
+capturedHeaderNames =
+  [ "x-request-id",
+    "request-id",
+    "x-amzn-requestid",
+    "x-ms-request-id",
+    "cf-ray"
+  ]
+
+-- | Status and allow-listed headers, read straight off the response.
+responseMetadata :: HTTP.Response body -> ResponseMetadata
+responseMetadata response =
+  ResponseMetadata
+    { httpStatus = Status.statusCode (HTTP.responseStatus response),
+      headers =
+        [ (decodeLenient (CI.foldedCase name), decodeLenient value)
+        | (name, value) <- HTTP.responseHeaders response,
+          name `elem` capturedHeaderNames
+        ]
+    }
+
 -- | POST the request to @/v1/chat/completions@ and feed decoded SSE
--- JSON payloads to the callback. A @data: [DONE]@ frame ends the
+-- JSON payloads to the second callback. A @data: [DONE]@ frame ends the
 -- stream without producing a callback value.
+--
+-- The first callback receives the response's 'ResponseMetadata' exactly
+-- once, before any chunk. It is a separate callback rather than a
+-- widening of the per-chunk one because the per-chunk callback runs once
+-- per SSE frame — potentially thousands of times per call — and
+-- response-level data does not belong on that hot path.
 openaiSseStream ::
   Client.ClientEnv ->
   Text ->
   Chat.CreateChatCompletion ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
 openaiSseStream env apiKey req =
@@ -42,6 +101,7 @@ openaiSseStreamValue ::
   Client.ClientEnv ->
   Text ->
   Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
 openaiSseStreamValue env apiKey =
@@ -56,9 +116,10 @@ openaiSseStreamValueWithHeaders ::
   Client.ClientEnv ->
   RequestHeaders ->
   Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
-openaiSseStreamValueWithHeaders env requestHeaders requestBody onEvent = do
+openaiSseStreamValueWithHeaders env requestHeaders requestBody onMetadata onEvent = do
   let base = Client.baseUrl env
       secure = case Client.baseUrlScheme base of
         Client.Http -> False
@@ -75,14 +136,24 @@ openaiSseStreamValueWithHeaders env requestHeaders requestBody onEvent = do
             -- EP-8 wires Options.timeoutMs through this local transport.
             HTTP.responseTimeout = HTTP.responseTimeoutNone
           }
-  HTTP.withResponse request (Client.manager env) (`sseFromResponse` onEvent)
+  HTTP.withResponse request (Client.manager env) $ \response ->
+    sseFromResponse response onMetadata onEvent
 
+-- | Consume an @http-client@ response as an OpenAI-compatible SSE
+-- stream.
+--
+-- 'onMetadata' fires exactly once, before any chunk, on both the success
+-- and the non-2xx path. A failed call's correlation identifier is if
+-- anything more valuable than a successful one's, since it is precisely
+-- what a provider support request needs.
 sseFromResponse ::
   HTTP.Response HTTP.BodyReader ->
+  (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
-sseFromResponse response onEvent = do
+sseFromResponse response onMetadata onEvent = do
   let st = HTTP.responseStatus response
+  onMetadata (responseMetadata response)
   if not (Status.statusIsSuccessful st)
     then do
       bodyChunks <- HTTP.brConsume (HTTP.responseBody response)

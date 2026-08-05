@@ -32,6 +32,8 @@ module Baikai.Provider.OpenAI.Api
     registerWithRegistry,
     openaiChatProvider,
     openaiChatStream,
+    openaiChatStreamWith,
+    SseDriver,
     RawChunk (..),
     RawToolDelta (..),
     parseChunk,
@@ -67,7 +69,7 @@ import Baikai.Options (Options (..))
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyException)
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (streamRequestBody)
-import Baikai.Provider.OpenAI.Sse (openaiSseStreamValueWithHeaders)
+import Baikai.Provider.OpenAI.Sse (ResponseMetadata, capturedHeaderNames, openaiSseStreamValueWithHeaders)
 import Baikai.Provider.OpenAI.Transport qualified as Transport
 import Baikai.Provider.Registry
   ( ApiProvider (..),
@@ -99,6 +101,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
+import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
@@ -153,7 +156,37 @@ registerWithRegistry reg =
 -- one 'EventDone' or 'EventError'.
 openaiChatStream ::
   Model -> Context -> Options -> Stream IO AssistantMessageEvent
-openaiChatStream m ctx opts =
+openaiChatStream = openaiChatStreamWith liveSseDriver
+
+-- | How a call physically reaches the host.
+--
+-- The arguments are exactly those of
+-- 'Baikai.Provider.OpenAI.Sse.openaiSseStreamValueWithHeaders', which is
+-- what 'liveSseDriver' is. A test passes a driver that replays a
+-- recorded response through the same
+-- 'Baikai.Provider.OpenAI.Sse.sseFromResponse' the live one uses, so the
+-- request shaping, header allow-list, status classification, and chunk
+-- decoding under test are all the real implementations and only the
+-- socket is missing.
+--
+-- The request body arrives as an argument rather than inside a per-call
+-- record, so a test driver can capture exactly what went out without
+-- this module exporting the record that also holds the resolved API key.
+type SseDriver =
+  Client.ClientEnv ->
+  RequestHeaders ->
+  Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
+  (Either BaikaiError Aeson.Value -> IO ()) ->
+  IO ()
+
+liveSseDriver :: SseDriver
+liveSseDriver = openaiSseStreamValueWithHeaders
+
+-- | 'openaiChatStream' over an explicit transport driver.
+openaiChatStreamWith ::
+  SseDriver -> Model -> Context -> Options -> Stream IO AssistantMessageEvent
+openaiChatStreamWith driver m ctx opts =
   Stream.concatEffect $ do
     setupResult <- trySync (prepareCall m ctx opts)
     let setup = either (Left . exceptionToError) id setupResult
@@ -162,7 +195,8 @@ openaiChatStream m ctx opts =
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe (Either BaikaiError RawChunk)))
         tref <- newIORef False
-        _ <- forkIO (worker call ch)
+        mref <- newIORef Nothing
+        _ <- forkIO (worker driver call mref ch)
         startTime <- getCurrentTime
         -- The request body is the envelope the two digests commit to:
         -- it is exactly the JSON this call is about to put on the wire.
@@ -183,6 +217,7 @@ openaiChatStream m ctx opts =
                   assembler = emptyAssembler m startTime,
                   finished = False,
                   terminalRef = tref,
+                  metadataRef = mref,
                   evidence = mkEvidence
                 }
         pure (Stream.unfoldrM step initialState)
@@ -244,7 +279,14 @@ data RawChunk = RawChunk
     reasoningDelta :: !(Maybe Text),
     finishReason :: !(Maybe Text),
     toolDeltas :: ![RawToolDelta],
-    usage :: !(Maybe RawUsage)
+    usage :: !(Maybe RawUsage),
+    -- | The model the host says produced this chunk, from the chunk's
+    -- top-level @model@ field. 'Nothing' means the host did not report
+    -- one — never that it reported the configured model.
+    model :: !(Maybe Text),
+    -- | The host's identifier for this response, from the chunk's
+    -- top-level @id@ field.
+    responseId :: !(Maybe Text)
   }
   deriving stock (Show, Generic)
 
@@ -265,16 +307,25 @@ data RawUsage = RawUsage
   deriving stock (Show, Generic)
 
 worker ::
-  OpenAICall -> Chan (Maybe (Either BaikaiError RawChunk)) -> IO ()
-worker call ch = do
+  SseDriver ->
+  OpenAICall ->
+  IORef (Maybe ResponseMetadata) ->
+  Chan (Maybe (Either BaikaiError RawChunk)) ->
+  IO ()
+worker driver call metaRef ch = do
   r <-
-    trySync $
-      Transport.runWithTimeout (call ^. #timeoutMs) $
-        openaiSseStreamValueWithHeaders (call ^. #clientEnv) (call ^. #requestHeaders) (call ^. #requestBody) $ \case
-          Left be -> writeChan ch (Just (Left be))
-          Right val -> case parseChunk val of
-            Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
-            Right chunk -> writeChan ch (Just (Right chunk))
+    trySync
+      $ Transport.runWithTimeout (call ^. #timeoutMs)
+      $ driver
+        (call ^. #clientEnv)
+        (call ^. #requestHeaders)
+        (call ^. #requestBody)
+        (writeIORef metaRef . Just)
+      $ \case
+        Left be -> writeChan ch (Just (Left be))
+        Right val -> case parseChunk val of
+          Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
+          Right chunk -> writeChan ch (Just (Right chunk))
   case r of
     Right Nothing -> pure ()
     Right (Just be) -> writeChan ch (Just (Left be))
@@ -317,7 +368,13 @@ parseChunk = Aeson.parseEither $ Aeson.withObject "ChatCompletionChunk" $ \o -> 
         reasoningDelta = reasoningDelta,
         finishReason = finishR,
         toolDeltas = toolDeltas,
-        usage = ru
+        usage = ru,
+        -- Read as a lookup yielding 'Maybe' rather than a required
+        -- field: chunks are decoded as raw JSON precisely because
+        -- compatible hosts vary, and a host that omits either of these
+        -- has reported nothing, which is not a decode failure.
+        model = lookupText "model" o,
+        responseId = lookupText "id" o
       }
 
 parseMessageObject ::
@@ -413,6 +470,11 @@ data ProducerState = ProducerState
     assembler :: !Assembler,
     finished :: !Bool,
     terminalRef :: !(IORef Bool),
+    -- | Where the worker leaves the response-level metadata it captured
+    -- before the first chunk. Read on this side rather than pushed
+    -- through 'chan' so the channel keeps carrying exactly one kind of
+    -- thing; 'absorbMetadata' folds it into the assembler.
+    metadataRef :: !(IORef (Maybe ResponseMetadata)),
     -- | Everything about this call's evidence that was knowable before
     -- the first byte came back, waiting on the terminal timestamp and
     -- outcome. 'Nothing' when the caller did not ask for evidence.
@@ -437,22 +499,28 @@ step s
   | s ^. #finished = pure Nothing
   | otherwise = do
       mRaw <- readChan (s ^. #chan)
+      -- After the read, because the worker writes the metadata before it
+      -- writes anything onto the channel: taking it here means every
+      -- path out of this branch — including the one where the channel
+      -- closed without ever producing a chunk — sees it.
+      ass0 <- absorbMetadata (s ^. #metadataRef) (s ^. #assembler)
+      let s' = s & #assembler .~ ass0
       case mRaw of
         Nothing -> do
-          alreadyTerminal <- readIORef (s ^. #terminalRef)
+          alreadyTerminal <- readIORef (s' ^. #terminalRef)
           if alreadyTerminal
             then pure Nothing
             else do
               now <- getCurrentTime
-              let (events, ass') = closeOpenStream now Nothing (s ^. #assembler)
+              let (events, ass') = closeOpenStream now Nothing ass0
               case events of
                 [] -> pure Nothing
                 (e : rest) -> do
-                  sealed <- sealTerminal s e
+                  sealed <- sealTerminal (s' & #assembler .~ ass') e
                   pure
                     ( Just
                         ( sealed,
-                          s
+                          s'
                             & #pending .~ rest
                             & #assembler .~ ass'
                             & #finished .~ True
@@ -460,20 +528,51 @@ step s
                     )
         Just raw -> do
           now <- getCurrentTime
-          let (events, ass') = translate raw (s ^. #assembler) now
+          let (events, ass') = translate raw ass0 now
           case events of
-            [] -> step (s & #assembler .~ ass')
+            [] -> step (s' & #assembler .~ ass')
             (e : rest) -> do
-              sealed <- sealTerminal s e
+              sealed <- sealTerminal (s' & #assembler .~ ass') e
               pure
                 ( Just
                     ( sealed,
-                      s
+                      s'
                         & #pending .~ rest
                         & #assembler .~ ass'
-                        & #finished .~ (s ^. #finished || terminal sealed)
+                        & #finished .~ (s' ^. #finished || terminal sealed)
                     )
                 )
+
+-- | Fold whatever response-level metadata the worker has captured into
+-- the assembler.
+--
+-- Idempotent: applying it again overwrites the same fields with the same
+-- values, which is what lets 'step' call it on every pass rather than
+-- tracking whether it has run.
+absorbMetadata :: IORef (Maybe ResponseMetadata) -> Assembler -> IO Assembler
+absorbMetadata ref ass = do
+  meta <- readIORef ref
+  pure $ case meta of
+    Nothing -> ass
+    Just md ->
+      ass
+        & #httpStatus .~ Just (md ^. #httpStatus)
+        & #providerRequestId .~ correlationId md
+
+-- | The host's correlation identifier for this response, or a gateway's
+-- if the host's own is absent.
+--
+-- The preference order is
+-- 'Baikai.Provider.OpenAI.Sse.capturedHeaderNames' itself, so the
+-- allow-list and the preference cannot disagree. Nothing is invented: a
+-- response carrying none of those headers leaves this 'Ev.Unobserved'.
+correlationId :: ResponseMetadata -> Ev.Observed Text
+correlationId md =
+  case [v | n <- capturedHeaderNames, Just v <- [lookup (headerName n) (md ^. #headers)]] of
+    (v : _) -> Ev.Observed v
+    [] -> Ev.Unobserved
+  where
+    headerName = Text.decodeUtf8 . CI.foldedCase
 
 -- | Mark the stream terminated and attach the call's evidence to the
 -- terminal event.
@@ -650,7 +749,33 @@ data Assembler = Assembler
     -- enabled) has a chance to land.
     finishSeen :: !Bool,
     pendingError :: !(Maybe BaikaiError),
-    finishNote :: !(Maybe Text)
+    finishNote :: !(Maybe Text),
+    -- The five fields below are what this call /observed/, as distinct
+    -- from what it requested. They live here because this record is the
+    -- only state that survives from the first chunk to the last, and
+    -- because an observation that never arrived must stay
+    -- 'Ev.Unobserved' rather than falling back to the caller's
+    -- configuration.
+
+    -- | The host's own correlation identifier for this call, from the
+    -- response headers.
+    providerRequestId :: !(Ev.Observed Text),
+    -- | The model identifier the host reported running, from the first
+    -- chunk that carried one. Never the configured model.
+    observedModel :: !(Ev.Observed Text),
+    -- | The host's identifier for this response, from the first chunk
+    -- that carried one.
+    responseId :: !(Maybe Text),
+    -- | The response's HTTP status. Recorded because the transport has
+    -- it; 'Baikai.Evidence.ModelCallEvidence' has no field for it, and
+    -- inventing one belongs to the vocabulary's plan, not to this
+    -- module.
+    httpStatus :: !(Maybe Int),
+    -- | Whether the host actually reported token counts, as opposed to
+    -- 'usage' still holding the zeroes it was initialised with. Without
+    -- this a failed call would claim the host reported consuming
+    -- nothing.
+    usageReported :: !Bool
   }
   deriving stock (Generic)
 
@@ -676,7 +801,12 @@ emptyAssembler m s =
       stopReason = Stop.Stop,
       finishSeen = False,
       pendingError = Nothing,
-      finishNote = Nothing
+      finishNote = Nothing,
+      providerRequestId = Ev.Unobserved,
+      observedModel = Ev.Unobserved,
+      responseId = Nothing,
+      httpStatus = Nothing,
+      usageReported = False
     }
 
 translate ::
@@ -687,10 +817,12 @@ translate ::
 translate chunk ass now
   | Left be <- chunk =
       let msg = finalMessage ass now (Just (be ^. #message)) Stop.ErrorReason
-       in ([EventError (errorTerminal Nothing Nothing Stop.ErrorReason msg be)], ass)
+       in ([EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg be)], ass)
   | Right raw <- chunk =
-      let -- 1. Apply field-based reasoning delta.
-          (reasoningEvents, ass1) = applyReasoningDelta (raw ^. #reasoningDelta) ass
+      let -- 0. Record what the host said about itself.
+          ass0 = observeChunk raw ass
+          -- 1. Apply field-based reasoning delta.
+          (reasoningEvents, ass1) = applyReasoningDelta (raw ^. #reasoningDelta) ass0
           -- 2. Apply content delta (open text block if needed).
           (textEvents, ass2) = applyContentDelta (raw ^. #contentDelta) ass1
           -- 3. Apply tool-call deltas.
@@ -705,6 +837,27 @@ translate chunk ass now
             Just fr -> closeOnFinish fr ass4
             Nothing -> ([], ass4)
        in (reasoningEvents <> textEvents <> toolEvents <> closeEvents, ass5)
+
+-- | Record what the host reported about itself on this chunk.
+--
+-- Both values come from the /first/ chunk that carries them and are
+-- never overwritten. Compatible hosts repeat both fields on every chunk
+-- and they are expected to agree; a host where they disagree is a
+-- genuine discovery worth recording rather than something to resolve
+-- silently by last-write-wins.
+--
+-- A missing field means the host reported nothing, so the observation
+-- stays 'Ev.Unobserved'. The configured model is never substituted —
+-- that is the specific mistake 'Ev.Observed' exists to prevent.
+observeChunk :: RawChunk -> Assembler -> Assembler
+observeChunk raw ass =
+  ass
+    & #observedModel .~ firstObserved (ass ^. #observedModel) (raw ^. #model)
+    & #responseId .~ ((ass ^. #responseId) <|> (raw ^. #responseId))
+
+firstObserved :: Ev.Observed a -> Maybe a -> Ev.Observed a
+firstObserved (Ev.Observed a) _ = Ev.Observed a
+firstObserved Ev.Unobserved m = maybe Ev.Unobserved Ev.Observed m
 
 applyReasoningDelta ::
   Maybe Text -> Assembler -> ([AssistantMessageEvent], Assembler)
@@ -861,7 +1014,13 @@ rawUsageToUsage u =
 
 applyUsage :: Maybe RawUsage -> Assembler -> Assembler
 applyUsage Nothing ass = ass
-applyUsage (Just u) ass = ass & #usage .~ rawUsageToUsage u
+applyUsage (Just u) ass =
+  ass
+    & #usage .~ rawUsageToUsage u
+    -- A host that sent a usage block reported its counts, even if every
+    -- one of them is zero. That is what distinguishes a reported zero
+    -- from silence in the evidence record.
+    & #usageReported .~ True
 
 -- | Close all open content blocks and stash the resolved stop
 -- reason; defer 'EventDone' to channel close.
@@ -972,8 +1131,8 @@ closeOpenStream now mErr ass
                 else Nothing
           msg = finalMessage ass now (fmap (^. #message) terminalErr) reason
           terminalEvent = case terminalErr of
-            Just be -> EventError (errorTerminal Nothing Nothing reason msg be)
-            Nothing -> EventDone (doneTerminal Nothing Nothing reason msg)
+            Just be -> EventError (errorTerminal Nothing (ass ^. #responseId) reason msg be)
+            Nothing -> EventDone (doneTerminal Nothing (ass ^. #responseId) reason msg)
        in ([terminalEvent], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
@@ -990,7 +1149,7 @@ closeOpenStream now mErr ass
             Nothing -> "openai stream ended without finish_reason"
           msg = finalMessage ass3 now (Just errText) reason
           errInfo = fromMaybe (providerError errText) mErr
-          errEv = EventError (errorTerminal Nothing Nothing reason msg errInfo)
+          errEv = EventError (errorTerminal Nothing (ass3 ^. #responseId) reason msg errInfo)
        in (tagEvents <> closeReasoning <> closeText <> closeTools <> [errEv], ass3)
 
 finalMessage ::
