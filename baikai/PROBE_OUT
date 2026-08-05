@@ -1,0 +1,2 @@
+{"kind":"call_started","eventId":"019fd41ada1d13b047a849c700000000","timestamp":"2026-08-05T22:45:57.405781Z","provider":"stub.trace","model":"stub-1","maxTokens":16,"promptSummary":"hello"}
+{"kind":"call_finished","eventId":"019fd41ada1d13b047a849c700000000","timestamp":"2026-08-05T22:45:57.406051Z","provider":"stub.trace","model":"stub-1","latencyMs":0,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"cacheWriteTokens":0,"totalTokens":0,"usd":0}

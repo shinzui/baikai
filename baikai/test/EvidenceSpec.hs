@@ -5,6 +5,7 @@
 module EvidenceSpec (tests) where
 
 import Baikai.Evidence
+import Baikai.Provider.Cli.Internal qualified as Internal
 import Control.Concurrent (threadDelay)
 import Control.Monad (replicateM)
 import Data.Aeson (Value (Number, Object, String), object, (.=))
@@ -204,7 +205,27 @@ redactionTests =
         let encoded = BS8.unpack (canonicalEncode env)
         assertBool
           "the commitment input must contain the prompt body"
-          ("PROMPT-BODY-MARKER" `isInfix` encoded)
+          ("PROMPT-BODY-MARKER" `isInfix` encoded),
+      -- The subprocess providers pass their rendered argument vector as
+      -- the request envelope, and both of them place the prompt inside
+      -- it. The commitment digest therefore covers the prompt, which is
+      -- correct; the configuration projection must not.
+      --
+      -- It does not, for a structural reason worth stating: the
+      -- projection admits named fields from an object, and a JSON array
+      -- has none, so an argv envelope projects to @null@ wholesale. That
+      -- is the allow-list failing in the safe direction.
+      testCase "an argv envelope's configuration projection keeps nothing" $ do
+        let argv = Internal.argvEnvelope "codex" ["exec", "--model", "gpt-5.6", "--", "PROMPT-BODY-MARKER"]
+            projected = BS8.unpack (canonicalEncode (configurationProjection argv))
+            committed = BS8.unpack (canonicalEncode argv)
+        projected @?= "null"
+        assertBool
+          "the commitment input must contain the argv prompt"
+          ("PROMPT-BODY-MARKER" `isInfix` committed)
+        assertBool
+          "the configuration projection must not contain the argv prompt"
+          (not ("PROMPT-BODY-MARKER" `isInfix` projected))
     ]
   where
     isInfix needle haystack =

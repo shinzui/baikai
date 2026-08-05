@@ -221,7 +221,7 @@ runClaudeCli cfg m ctx opts = do
   -- crossed the boundary, and there is nothing else to describe the
   -- launch with. Built lazily and dropped unforced when the caller
   -- asked for no evidence.
-  let evidenceFor st =
+  let evidenceFor st mErr =
         Build.minimalEvidence
           m
           opts
@@ -231,8 +231,9 @@ runClaudeCli cfg m ctx opts = do
           start
           end
           st
+          mErr
       failedWith err = do
-        ev <- evidenceFor Ev.CallFailed
+        ev <- evidenceFor Ev.CallFailed (Just err)
         let resp = Resp.errorResponse m end (millisBetween start end) err
         pure resp {Resp.evidence = ev}
   case executed of
@@ -245,7 +246,7 @@ runClaudeCli cfg m ctx opts = do
           if is_error r
             then failedWith (providerError (result r))
             else do
-              ev <- evidenceFor Ev.CallSucceeded
+              ev <- evidenceFor Ev.CallSucceeded Nothing
               let resp = mkResponse m start end (result r)
               pure resp {Resp.evidence = ev}
 

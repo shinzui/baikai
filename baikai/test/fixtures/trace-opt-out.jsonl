@@ -1,0 +1,2 @@
+{"kind":"call_started","eventId":"<id>","timestamp":"<ts>","provider":"stub.trace","model":"stub-1","maxTokens":16,"promptSummary":"hello"}
+{"kind":"call_finished","eventId":"<id>","timestamp":"<ts>","provider":"stub.trace","model":"stub-1","latencyMs":0,"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"cacheWriteTokens":0,"totalTokens":0,"usd":0}

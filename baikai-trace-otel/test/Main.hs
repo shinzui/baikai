@@ -6,6 +6,14 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
 import Baikai.Error (BaikaiError, providerError)
+import Baikai.Evidence
+  ( CallStatus (..),
+    EvidenceRequest,
+    TransportKind (..),
+    evidenceRequest,
+    noThinkingRequested,
+  )
+import Baikai.Evidence.Build (minimalEvidence)
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
@@ -14,16 +22,20 @@ import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace, withTraceStream)
+import Baikai.Trace.Event (TraceEvent (..))
+import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (threadDelay)
 import Control.Exception (throwIO)
 import Control.Lens ((&), (.~), (^.))
+import Data.Aeson qualified as Aeson
 import Data.Generics.Labels ()
 import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Time (getCurrentTime)
 import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
@@ -40,7 +52,8 @@ main =
       "baikai-trace-otel"
       [ successSpanTest,
         failureSpanTest,
-        abortSpanTest
+        abortSpanTest,
+        evidenceSpanTest
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses
@@ -221,3 +234,77 @@ awaitSpans getSpans n = go (100 :: Int)
       if length spans >= n
         then pure spans
         else threadDelay 50000 >> go (k - 1)
+
+-- | A 'CallEvidence' event describes a call the started/terminal pair
+-- already delimits, so it must neither open a span nor close one.
+--
+-- The sink is fed a hand-built sequence rather than driven through
+-- 'withTrace', for two reasons. It isolates the claim to the sink's own
+-- behaviour, and it is the only way to reach the attach path at all:
+-- "Baikai.Trace" pushes the evidence event /after/ the terminal, by
+-- which point the span has been ended and removed from the map.
+evidenceSpanTest :: TestTree
+evidenceSpanTest =
+  testCase "a CallEvidence event neither opens nor closes a span" $ do
+    let a = Custom "baikai-otel-evidence"
+        m = stubModel a
+    (tracer, getSpans) <- newTracerWithInMemory
+    let TraceSink fold' = otelSink tracer
+    now <- getCurrentTime
+    mev <-
+      minimalEvidence
+        m
+        (stubOptions & #evidence .~ Just (evidenceRequest "run-otel" :: EvidenceRequest))
+        TransportHttpApi
+        noThinkingRequested
+        (Aeson.object ["model" Aeson..= ("stub-1" :: Text)])
+        now
+        now
+        CallSucceeded
+        Nothing
+    ev <- maybe (assertFailure "expected an evidence record") pure mev
+    let started =
+          CallStarted
+            { eventId = "otel-1",
+              timestamp = now,
+              provider = "stub.otel",
+              model = "stub-1",
+              maxTokens = 16,
+              promptSummary = "hello"
+            }
+        evidenceEvent =
+          CallEvidence
+            { eventId = "otel-1",
+              timestamp = now,
+              provider = "stub.otel",
+              model = "stub-1",
+              evidence = ev
+            }
+    -- Feed started then evidence, and stop. The span is opened by the
+    -- first and left open by the second; the fold's finalizer is what
+    -- eventually closes it, so exactly one span is exported.
+    Stream.fold fold' (Stream.fromList [started, evidenceEvent])
+    spans <- getSpans
+    assertEqual "exactly one span recorded" 1 (length spans)
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
+        mapM_
+          ( \k ->
+              assertBool
+                ("evidence attribute " <> Text.unpack k <> " missing; got: " <> show (HashMap.keys attrs))
+                (HashMap.member k attrs)
+          )
+          [ "baikai.evidence.schema_version",
+            "baikai.evidence.run_id",
+            "baikai.evidence.call_id",
+            "baikai.evidence.strength",
+            "baikai.evidence.request_commitment",
+            "baikai.evidence.request_configuration"
+          ]
+        -- The provider reported no model, so nothing may claim it did.
+        assertBool
+          "gen_ai.response.model must be absent when observedModel is Unobserved"
+          (not (HashMap.member "gen_ai.response.model" attrs))
+      _ -> assertFailure "expected exactly one span"

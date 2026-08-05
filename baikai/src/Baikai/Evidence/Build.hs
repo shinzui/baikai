@@ -27,11 +27,12 @@ module Baikai.Evidence.Build
 where
 
 import Baikai.Api (Api (..), renderApi)
+import Baikai.Error (BaikaiError)
 import Baikai.Evidence
   ( CallStatus,
     EndpointIdentity (..),
     EvidenceStrictness (..),
-    ModelCallEvidence,
+    ModelCallEvidence (..),
     ThinkingTranslation,
     TransportKind (..),
     baseEvidence,
@@ -102,10 +103,16 @@ minimalEvidence ::
   -- | Ended at.
   UTCTime ->
   CallStatus ->
+  -- | The normalized error, which must be 'Just' exactly when the
+  -- status is not 'CallSucceeded'. 'ModelCallEvidence' keeps the status
+  -- and the error as separate fields because that is the shape the JSON
+  -- schema needs, and their correlation is stated in the record's own
+  -- documentation rather than enforced by the type.
+  Maybe BaikaiError ->
   IO (Maybe ModelCallEvidence)
-minimalEvidence m opts transport translation envelope started ended st = do
+minimalEvidence m opts transport translation envelope started ended st err = do
   mk <- prepareEvidence m opts transport translation envelope started
-  pure (fmap (\finish -> finish ended st) mk)
+  pure (fmap (\finish -> finish ended st err) mk)
 
 -- | 'minimalEvidence' for a transport that learns its terminal
 -- timestamp and status later than it learns everything else.
@@ -131,7 +138,7 @@ prepareEvidence ::
   Aeson.Value ->
   -- | Started at.
   UTCTime ->
-  IO (Maybe (UTCTime -> CallStatus -> ModelCallEvidence))
+  IO (Maybe (UTCTime -> CallStatus -> Maybe BaikaiError -> ModelCallEvidence))
 prepareEvidence m opts transport translation envelope started =
   case opts ^. #evidence of
     Nothing -> pure Nothing
@@ -141,18 +148,21 @@ prepareEvidence m opts transport translation envelope started =
           commitment = commitmentDigest envelope
           configuration = configurationDigest envelope
       pure $
-        Just $ \ended st ->
-          baseEvidence
-            req
-            cid
-            ep
-            (m ^. #modelId)
-            translation
-            started
-            ended
-            st
-            commitment
-            configuration
+        Just $ \ended st err ->
+          ( baseEvidence
+              req
+              cid
+              ep
+              (m ^. #modelId)
+              translation
+              started
+              ended
+              st
+              commitment
+              configuration
+          )
+            { errorInfo = err
+            }
 
 -- | Where a call went, without recording a credential.
 --

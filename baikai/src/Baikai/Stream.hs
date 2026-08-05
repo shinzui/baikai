@@ -557,6 +557,7 @@ errorEvents m opts startTs e = do
       startTs
       now
       Evidence.CallFailed
+      (Just err)
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
       EventError (errorTerminal ev Nothing ErrorReason msg err)
@@ -594,6 +595,7 @@ noProviderEvents m opts = do
       now
       now
       Evidence.CallFailed
+      (Just be)
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
       EventError (errorTerminal ev Nothing ErrorReason msg be)

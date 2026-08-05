@@ -172,9 +172,82 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   strictly they need evidence. A call whose `evidence` is `Nothing`, which is
   every call that does not opt in, behaves exactly as it did before: no digest
   is computed and no evidence is emitted.
+- `baikai`: model-call evidence is now **produced and emitted**. A caller who
+  sets `Options.evidence` gets exactly one `call_evidence` line per call from
+  their trace sink, under every way a call can end: success, provider failure, a
+  consumer that abandons the stream (status `aborted`, not `failed` — an abort
+  is the consumer's doing and reporting it as a provider failure would
+  misattribute it), and dispatch that found no registered handler.
+
+  New exposed module `Baikai.Evidence.Build` bridges the vocabulary to the
+  `Model` and `Options` records: `minimalEvidence` and `prepareEvidence` build a
+  record, `dispatchEnvelope` supplies the request envelope for the paths where
+  no adapter ran, `sanitizeEndpoint` reduces a base URL to scheme/host/port/path
+  with the query string and any userinfo dropped wholesale, and `onSinkFailure`
+  is the hook a future release replaces to make a strict caller's call fail when
+  the trace sink does.
+
+  Every record this release produces has `strength` `requested_only` and every
+  provider-observed field set to `"unobserved"`. That is not a placeholder: it
+  is a truthful record for a transport that has not yet been taught to observe
+  anything. Later releases teach each transport to observe more.
+
+  **A caller who does not opt in pays nothing.** With `Options.evidence` absent
+  no digest is computed, no call identifier is generated, no evidence event is
+  emitted, and the request envelope is never even forced — the gate lives inside
+  the shared builder rather than at each adapter's call site, and the envelope
+  parameter is deliberately lazy. Both facts are guarded by tests.
+- `baikai`: `TraceEvent` gains a `CallEvidence` constructor, encoded as
+  `{"kind":"call_evidence", …}`. A consumer whose pattern match over `TraceEvent`
+  is exhaustive must add a branch; one with a wildcard is unaffected. Filter for
+  it with `jq 'select(.kind == "call_evidence") | .evidence'`. Note that a trace
+  line carries its fields alongside the `kind` discriminator rather than nested
+  under a `data` key, and that the evidence record inside spells its own fields
+  in snake_case — the two encodings differ deliberately, because an evidence
+  record must render an absent field as explicit `null` while a trace line drops
+  it to stay small.
+- `baikai-trace-otel`: the sink attaches an evidence record's salient fields to
+  the open span as flat attributes (`baikai.evidence.run_id`,
+  `baikai.evidence.call_id`, `baikai.evidence.strength`, the two digests, and
+  `gen_ai.response.model` only when the provider actually reported one) rather
+  than serialising the record into one blob. A `CallEvidence` event neither
+  opens nor closes a span.
 
 ### Changed
 
+- **Breaking:** `baikai`: `TerminalPayload` gains an `evidence` field and the two
+  terminal smart constructors take it as their new first argument:
+  `doneTerminal :: Maybe ModelCallEvidence -> Maybe Text -> StopReason -> Message -> TerminalPayload`
+  and `errorTerminal` likewise. `Response` gains the same field. A custom
+  provider implementation must pass `Nothing` (or a record it builds through
+  `Baikai.Evidence.Build`); a custom `Response` built with the record
+  constructor must add `evidence = Nothing`. Code that only pattern-matches on
+  these types is unaffected.
+- **Breaking:** `baikai`: `CallFinished` gains `cachedInputTokens`,
+  `cacheWriteTokens`, `reasoningTokens`, and `totalTokens`. The trace path used
+  to drop counts that `Baikai.Cost.Log.CallLogEntry` kept from the same `Usage`
+  value, which made the cost log strictly more faithful than the trace.
+- **Breaking:** `baikai`: a computed cost of **zero is now reported as zero**
+  rather than suppressed, in `CallFinished` and at all three `CallLogEntry`
+  construction sites. Previously `usd` was omitted whenever the cost came out at
+  zero, so "this call was free" and "baikai could not price this call" were
+  indistinguishable — and the subscription-based CLI providers always price at
+  zero, so that was the common case rather than a corner. **A cost dashboard
+  that treated an absent `usd` as "unpriced" will now count those calls as
+  costing zero.** That is the correct reading, but it changes what such a
+  dashboard shows.
+- **Breaking:** `baikai`: `FromJSON TraceEvent` is written out by hand instead of
+  derived. The three pre-existing kinds decode exactly as before; a
+  `call_evidence` line fails to parse with a message saying to read it as a
+  plain `Data.Aeson.Value`. `ModelCallEvidence` has no `FromJSON` on purpose —
+  it embeds a `Cost` whose exact `Rational` amounts encode through an
+  approximating `Scientific`, so a decoder would return a different value than
+  was encoded — and manufacturing that fidelity would be the precise failure
+  this vocabulary exists to eliminate.
+- `baikai`: `Baikai.Trace.Sink.renderHuman` renders a `CallEvidence` event as a
+  single `EVIDENCE run=… call=… strength=…` line rather than the whole record. A
+  human-readable sink is for watching calls go by; the full record is meant to
+  be read out of `fileSink` output by a machine.
 - `baikai`: call identifiers on the trace path are now globally unique.
   `Baikai.Evidence.newCallId` produces 32 lowercase hexadecimal characters
   carrying 128 bits — 48 bits of Unix time in milliseconds, 48 bits of a

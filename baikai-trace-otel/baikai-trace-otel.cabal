@@ -53,6 +53,7 @@ test-suite baikai-trace-otel-test
   main-is:        Main.hs
   ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
+    , aeson                                ^>=2.2
     , baikai                               ^>=0.4.0
     , baikai-trace-otel
     , base

@@ -411,7 +411,8 @@ data ProducerState = ProducerState
     -- the first byte came back, waiting on the terminal timestamp and
     -- outcome. 'Nothing' when the caller did not ask for evidence.
     -- 'sealTerminal' applies it.
-    evidence :: !(Maybe (UTCTime -> Ev.CallStatus -> Ev.ModelCallEvidence))
+    evidence ::
+      !(Maybe (UTCTime -> Ev.CallStatus -> Maybe BaikaiError -> Ev.ModelCallEvidence))
   }
   deriving stock (Generic)
 
@@ -489,12 +490,17 @@ sealTerminal s ev
         Nothing -> pure ev
         Just finish -> do
           now <- getCurrentTime
-          let record = finish now (statusOf ev)
+          let record = finish now (statusOf ev) (errorOf ev)
           pure (withEvidence record ev)
   where
     statusOf = \case
       EventDone {} -> Ev.CallSucceeded
       _ -> Ev.CallFailed
+    -- The terminal payload already carries the normalized error, and
+    -- 'errorTerminal' guarantees it is 'Just' on every 'EventError'.
+    errorOf = \case
+      EventError p -> p ^. #errorInfo
+      _ -> Nothing
     -- Set through the generic-lens label rather than a record update:
     -- 'Baikai.Options.Options' also has an @evidence@ field, so under
     -- @DuplicateRecordFields@ a bare @p {evidence = ...}@ has no unique
@@ -1028,6 +1034,7 @@ immediateError m opts err = do
       now
       now
       Ev.CallFailed
+      (Just err)
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
       EventError (errorTerminal ev Nothing Stop.ErrorReason msg err)

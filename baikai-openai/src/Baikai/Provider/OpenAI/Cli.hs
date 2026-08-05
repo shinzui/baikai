@@ -184,7 +184,7 @@ runCodexCli cfg m ctx opts = do
   -- crossed the boundary, and there is nothing else to describe the
   -- launch with. Built lazily and dropped unforced when the caller
   -- asked for no evidence.
-  let mkEv end st =
+  let mkEv end st mErr =
         Build.minimalEvidence
           m
           opts
@@ -194,18 +194,20 @@ runCodexCli cfg m ctx opts = do
           start
           end
           st
+          mErr
   result <- trySync (P.withCreateProcess procSpec (consume start mkEv m))
   case result of
     Right resp -> pure resp
     Left ex -> do
       end <- getCurrentTime
-      ev <- mkEv end Ev.CallFailed
-      let resp = Resp.errorResponse m end (millisBetween start end) (exceptionToError ex)
+      let err = exceptionToError ex
+      ev <- mkEv end Ev.CallFailed (Just err)
+      let resp = Resp.errorResponse m end (millisBetween start end) err
       pure resp {Resp.evidence = ev}
 
 consume ::
   UTCTime ->
-  (UTCTime -> Ev.CallStatus -> IO (Maybe Ev.ModelCallEvidence)) ->
+  (UTCTime -> Ev.CallStatus -> Maybe BaikaiError -> IO (Maybe Ev.ModelCallEvidence)) ->
   Model ->
   Maybe Handle ->
   Maybe Handle ->
@@ -228,16 +230,12 @@ consume start mkEv m _ mOut mErr ph = do
       end <- getCurrentTime
       case exitCode of
         ExitFailure n -> do
-          ev <- mkEv end Ev.CallFailed
-          let resp =
-                Resp.errorResponse
-                  m
-                  end
-                  (millisBetween start end)
-                  (processError n (Internal.decodeUtf8Lenient errBytes))
+          let err = processError n (Internal.decodeUtf8Lenient errBytes)
+          ev <- mkEv end Ev.CallFailed (Just err)
+          let resp = Resp.errorResponse m end (millisBetween start end) err
           pure resp {Resp.evidence = ev}
         ExitSuccess -> do
-          ev <- mkEv end Ev.CallSucceeded
+          ev <- mkEv end Ev.CallSucceeded Nothing
           pure
             Resp.Response
               { Resp.message =
@@ -260,7 +258,7 @@ consume start mkEv m _ mOut mErr ph = do
   where
     errorNow err = do
       end <- getCurrentTime
-      ev <- mkEv end Ev.CallFailed
+      ev <- mkEv end Ev.CallFailed (Just err)
       let resp = Resp.errorResponse m end (millisBetween start end) err
       pure resp {Resp.evidence = ev}
 

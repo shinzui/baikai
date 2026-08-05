@@ -49,6 +49,7 @@ import Baikai.Cost.Log
     appendEntry,
     summarizeContext,
   )
+import Baikai.Error (providerError)
 -- 'Baikai.Evidence.CallStatus' has a @CallFailed@ constructor and so
 -- does 'Baikai.Trace.Event.TraceEvent'. They mean different things and
 -- both belong in this module, so the status constructors stay behind
@@ -223,6 +224,7 @@ finalizeTrace s eid start m opts = do
     sent <- readIORef (s ^. #terminalSent)
     unless sent $ do
       now <- getCurrentTime
+      let abortText = "aborted: stream consumer stopped before the terminal event"
       writeChan (s ^. #chan) $
         Just
           CallFailed
@@ -231,7 +233,7 @@ finalizeTrace s eid start m opts = do
               provider = m ^. #provider,
               model = m ^. #modelId,
               latencyMs = millisBetween start now,
-              errorMessage = "aborted: stream consumer stopped before the terminal event"
+              errorMessage = abortText
             }
       -- The consumer stopped before the terminal event, so no adapter
       -- ever handed evidence back and this layer has to build it. The
@@ -250,6 +252,12 @@ finalizeTrace s eid start m opts = do
           start
           now
           Evidence.CallAborted
+          -- 'errorInfo' is 'Just' whenever the status is not
+          -- 'CallSucceeded', so an abort needs one. Its category is
+          -- 'OtherError' rather than any provider-failure category,
+          -- because nothing about the provider went wrong: the consumer
+          -- stopped reading. The message says exactly that.
+          (Just (providerError abortText))
       pushEvidence s eid now m mev
     writeChan (s ^. #chan) Nothing
     takeMVar (s ^. #done)

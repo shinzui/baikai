@@ -90,12 +90,13 @@ no `data` wrapper and the evidence record's keys are snake_case — see Surprise
       providers, and the no-provider-registered error path. (2026-08-05)
 - [x] Gate all evidence construction on the caller's opt-in, inside the shared builder.
       (2026-08-05)
-- [ ] Prove the opt-out path is free: byte-identical trace output and no digest computed.
+- [x] Prove the opt-out path is free: byte-identical trace output and no digest computed.
+      (2026-08-05)
 - [x] Propagate the mechanical updates through `baikai-effectful` and `baikai-trace-otel`.
       (2026-08-05)
-- [ ] Extend `baikai/test/TraceSpec.hs` with the five termination cases.
-- [ ] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading for every package
-      whose surface changed.
+- [x] Extend `baikai/test/TraceSpec.hs` with the five termination cases. (2026-08-05)
+- [x] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading for every package
+      whose surface changed. (2026-08-05)
 
 
 ## Surprises & Discoveries
@@ -158,6 +159,52 @@ that spell them in camelCase read `null`.
 only appeared in a `cabal repl` session, not in `cabal build all`, because cabal does not re-emit
 warnings for a module it considers up to date. Worth remembering: after widening a sum, a clean
 `cabal build` is not evidence that every match was updated.
+
+### Found in Milestones 3 and 4
+
+**The `errorInfo` field is never populated by `baseEvidence`, so the builder had to grow an
+argument.** This plan's Interfaces section pins `minimalEvidence`'s signature ending in
+`CallStatus -> IO (Maybe ModelCallEvidence)`, but its own Milestone 3 requires a failed call's
+record to carry "a populated `errorInfo`", and `baseEvidence` sets that field to `Nothing`
+unconditionally. `minimalEvidence` and `prepareEvidence` therefore take a `Maybe BaikaiError`
+after the status. The correlation between the two — `Just` exactly when the status is not
+`succeeded` — is stated in the Haddock rather than enforced by the type, because collapsing them
+into one sum would have diverged further from the pinned signature for no gain a caller can
+observe.
+
+**The `usage` field stays `Unobserved` in this plan, and that is a judgment call worth stating.**
+The MasterPlan's Progress list includes usage among what EP-2 supplies, but `usage` is typed
+`Observed Usage`, and plan 51's own Haddock on it says the reason: existing code substitutes
+`zeroUsage` when a provider reports nothing, and recording that substitution as observed "is a
+false statement that the call consumed no tokens". EP-2 cannot yet tell a provider-reported zero
+from an absent report — the assemblers do not track whether a usage field arrived — so recording
+`Observed zeroUsage` would be exactly the fabrication the type exists to prevent. It is left
+`Unobserved`, and EP-3, EP-4, and EP-5 populate it as each transport learns to distinguish the
+two. Understating is the safe direction; the acceptance criteria in this plan name only
+`observed_model` and `response_id`, so nothing is violated.
+
+**The golden fixture was checked against the real prior behaviour, not reconstructed.** The plan
+asks for the pre-change byte sequence to be captured before editing `Baikai.Trace.hs`, which was
+no longer possible by the time the need was noticed. Instead the same fixture provider was run
+under a git worktree at commit `0acbad8` — the last commit before this plan touched the trace path
+— and its output compared with the current output. The two `call_started` lines are identical
+field for field; `call_finished` differs only by `cachedInputTokens`, `cacheWriteTokens`,
+`totalTokens`, and `usd`, which are precisely the two fidelity fixes this plan makes on purpose.
+Nothing else moved and no `call_evidence` line appeared. The fixture at
+`baikai/test/fixtures/trace-opt-out.jsonl` records the post-fix bytes, and the test's comment
+records the comparison.
+
+**A golden comparison must be textual, not through `Aeson.Value`.** The first version of the
+opt-out golden test round-tripped each event through `toJSON` before encoding, which sorts object
+keys — and field *order* is part of what an existing consumer sees. Comparing sorted objects would
+have hidden exactly the drift the test exists to catch. The comparison now redacts the three
+volatile fields textually on the encoded line.
+
+**Writing the `FromJSON` test found the bug the hand-written instance had.** The decoder added in
+Milestone 1 read a nested `data` object and so could not have parsed a single line this package
+emits. Nothing in the repository exercised `FromJSON TraceEvent`, which is why it compiled and
+passed. `baikai/test/TraceSpec.hs` now round-trips all three decodable kinds and asserts the
+flat-alongside-`kind` shape.
 
 
 ## Decision Log
@@ -878,10 +925,27 @@ In the new `baikai/src/Baikai/Evidence/Build.hs`:
 ```haskell
 minimalEvidence ::
   Model -> Options -> TransportKind -> ThinkingTranslation ->
-  Aeson.Value -> UTCTime -> UTCTime -> CallStatus -> IO (Maybe ModelCallEvidence)
+  Aeson.Value -> UTCTime -> UTCTime -> CallStatus -> Maybe BaikaiError ->
+  IO (Maybe ModelCallEvidence)
+
+-- For a streaming adapter, which knows the envelope before the first byte comes
+-- back and the outcome only at the last, and whose translator is pure.
+prepareEvidence ::
+  Model -> Options -> TransportKind -> ThinkingTranslation ->
+  Aeson.Value -> UTCTime ->
+  IO (Maybe (UTCTime -> CallStatus -> Maybe BaikaiError -> ModelCallEvidence))
+
+dispatchEnvelope :: Model -> Options -> Aeson.Value
+sanitizeEndpoint :: Text -> Maybe Text
+transportForModel :: Model -> TransportKind
+baikaiPackageVersion :: Text
 
 onSinkFailure :: EvidenceStrictness -> SomeException -> IO ()
 ```
+
+The `Maybe BaikaiError` argument was not in this plan as first written; see Surprises &
+Discoveries for why it had to be. It must be `Just` exactly when the status is not
+`CallSucceeded`.
 
 The `Maybe` in that result is the opt-out gate and is not negotiable: it returns `Nothing` when
 `Options.evidence` is `Nothing`, before forcing the envelope argument or generating a call

@@ -145,6 +145,8 @@ completeRequestWith reg m ctx opts = do
       -- "No provider was registered" is a fact about the call, so a
       -- caller who asked for evidence gets a record of it. Nothing was
       -- sent, so the digests are over 'Build.dispatchEnvelope'.
+      let detail = "No provider registered for API: " <> renderApi (Model.api m)
+          err = providerUnavailable detail
       ev <-
         Build.minimalEvidence
           m
@@ -155,8 +157,8 @@ completeRequestWith reg m ctx opts = do
           now
           now
           Evidence.CallFailed
-      let detail = "No provider registered for API: " <> renderApi (Model.api m)
-          resp = errorResponse m now 0 (providerUnavailable detail)
+          (Just err)
+      let resp = errorResponse m now 0 err
       pure resp {evidence = ev}
 
 -- | Dispatch a synchronous request through the process-global registry.

@@ -10,6 +10,14 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
 import Baikai.Error (BaikaiError, providerError)
+import Baikai.Evidence
+  ( ModelCallEvidence,
+    TransportKind (..),
+    evidenceRequest,
+    noThinkingRequested,
+  )
+import Baikai.Evidence qualified as Ev
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
@@ -21,13 +29,21 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
-import Baikai.Usage (zeroUsage)
+import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Exception (throwIO)
 import Control.Monad (replicateM)
+import Data.Aeson (Value (..))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Set qualified as Set
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TextEncoding
+import Data.Text.IO qualified as Text.IO
+import Data.Time (UTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
@@ -45,7 +61,10 @@ tests =
       memoryFailTest,
       throwingSinkTest,
       eventIdUniquenessTest,
-      earlyAbortTest
+      earlyAbortTest,
+      fidelityTest,
+      evidenceTests,
+      encodingTests
     ]
 
 -- | Each test uses its own private 'Api' tag so tasty's parallel
@@ -239,3 +258,478 @@ awaitEvents ref n = go (100 :: Int)
       if length evs >= n
         then pure (reverse evs)
         else threadDelay 50000 >> go (k - 1)
+
+-- ============================================================
+-- Usage and cost fidelity
+-- ============================================================
+
+-- | Usage with every disjoint token class populated, so a trace event
+-- that drops one is visible rather than merely zero.
+richUsage :: Usage
+richUsage =
+  zeroUsage
+    & #inputTokens
+    .~ 11
+    & #outputTokens
+    .~ 7
+    & #cacheReadTokens
+    .~ 5
+    & #cacheWriteTokens
+    .~ 3
+    & #reasoningTokens
+    .~ Just 4
+    & #totalTokens
+    .~ 26
+
+registerWithUsage :: Api -> Usage -> IO ()
+registerWithUsage a u =
+  let resp = stubResponse a & #message . #usage .~ u
+      handler _m _ctx _opts = pure resp
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler
+          }
+
+fidelityTest :: TestTree
+fidelityTest =
+  testGroup
+    "CallFinished fidelity"
+    [ testCase "carries the full disjoint token breakdown" $ do
+        let a = Custom "baikai-trace-usage-fidelity"
+        registerWithUsage a richUsage
+        (ref, sink) <- memorySink
+        _ <- withTrace sink (stubModel a) stubContext stubOptions
+        events <- reverse <$> readTVarIO ref
+        -- Read through record patterns, not '#field' labels:
+        -- generic-lens only resolves a label present on every
+        -- constructor of the sum, and these five are on 'CallFinished'
+        -- alone.
+        case [f | f@CallFinished {} <- events] of
+          [ CallFinished
+              { inputTokens,
+                outputTokens,
+                cachedInputTokens,
+                cacheWriteTokens,
+                reasoningTokens,
+                totalTokens
+              }
+            ] -> do
+              inputTokens @?= Just 11
+              outputTokens @?= Just 7
+              cachedInputTokens @?= Just 5
+              cacheWriteTokens @?= Just 3
+              reasoningTokens @?= Just 4
+              totalTokens @?= Just 26
+          other -> assertFailure ("expected one CallFinished, got: " <> show other),
+      -- A zero cost used to be suppressed, which made "this call was
+      -- free" indistinguishable from "baikai could not price this
+      -- call". The CLI providers always price at zero, so that was the
+      -- common case rather than a corner.
+      testCase "reports a zero cost as zero rather than omitting it" $ do
+        let a = Custom "baikai-trace-zero-cost"
+        registerOk a
+        (ref, sink) <- memorySink
+        _ <- withTrace sink (stubModel a) stubContext stubOptions
+        events <- reverse <$> readTVarIO ref
+        case [f | f@CallFinished {} <- events] of
+          [f@CallFinished {usd}] -> do
+            usd @?= Just 0
+            assertBool
+              "usd must be present in the encoded JSON, not dropped by omitNothingFields"
+              (KeyMap.member "usd" (asObject (Aeson.toJSON f)))
+          other -> assertFailure ("expected one CallFinished, got: " <> show other)
+    ]
+
+-- ============================================================
+-- Evidence emission
+-- ============================================================
+
+-- | The same options every other test in this module uses, plus an
+-- evidence request. A call that emits no evidence cannot prove an
+-- exactly-once guarantee about evidence, so every emission case below
+-- opts in.
+evidenceOptions :: Options
+evidenceOptions = stubOptions & #evidence .~ Just (evidenceRequest "run-52")
+
+-- | A fixture provider that builds evidence the way a real adapter
+-- does: it hands 'Build.minimalEvidence' the envelope it would have
+-- sent and attaches the result to its 'Response', which
+-- 'liftCompleteToStream' then carries onto the terminal event.
+--
+-- 'registerOk' deliberately does not, because most of this module's
+-- tests are about the trace path rather than the evidence path, and a
+-- provider that builds no evidence is the honest model of one that has
+-- not been taught to.
+registerOkWithEvidence :: Api -> IO ()
+registerOkWithEvidence a =
+  let handler m _ctx opts = do
+        now <- getCurrentTime
+        ev <-
+          Build.minimalEvidence
+            m
+            opts
+            TransportHttpApi
+            noThinkingRequested
+            (Aeson.object ["model" Aeson..= (m ^. #modelId :: Text)])
+            now
+            now
+            Ev.CallSucceeded
+            Nothing
+        pure (stubResponse a & #evidence .~ ev)
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler
+          }
+
+evidencesIn :: [TraceEvent] -> [ModelCallEvidence]
+evidencesIn events = [ev | CallEvidence {evidence = ev} <- events]
+
+asObject :: Value -> Aeson.Object
+asObject = \case
+  Object o -> o
+  _ -> KeyMap.empty
+
+-- | Read one field out of an encoded evidence record.
+--
+-- Deliberately through the JSON rather than through a Haskell record
+-- pattern: the encoded form is the contract other systems pin against,
+-- and it is the thing that must not drift. It also spells fields in
+-- snake_case, which a Haskell mirror would silently paper over.
+evidenceField :: Text -> ModelCallEvidence -> Maybe Value
+evidenceField k ev = KeyMap.lookup (Key.fromText k) (asObject (Aeson.toJSON ev))
+
+evidenceTests :: TestTree
+evidenceTests =
+  testGroup
+    "model-call evidence"
+    [ successEvidenceTest,
+      failureEvidenceTest,
+      abortEvidenceTest,
+      noProviderEvidenceTest,
+      sinkFailureEvidenceTest,
+      optOutSilentTest,
+      optOutGoldenTest,
+      envelopeNotForcedTest
+    ]
+
+-- | Assert the shape every record this plan produces must have: the
+-- channel works, and nothing was backfilled from the request.
+assertMinimalShape :: ModelCallEvidence -> IO ()
+assertMinimalShape ev = do
+  evidenceField "schema_version" ev @?= Just (String Ev.evidenceSchemaVersion)
+  evidenceField "run_id" ev @?= Just (String "run-52")
+  evidenceField "requested_model" ev @?= Just (String "stub-1")
+  evidenceField "strength" ev @?= Just (String "requested_only")
+  evidenceField "observed_model" ev @?= Just (String "unobserved")
+  evidenceField "response_id" ev @?= Just (String "unobserved")
+  evidenceField "provider_request_id" ev @?= Just (String "unobserved")
+  assertDigest "request_commitment" ev
+  assertDigest "request_configuration" ev
+  where
+    assertDigest k e = case evidenceField k e of
+      Just (String d) ->
+        assertBool
+          (Text.unpack k <> " must be a sha256 digest, got: " <> show d)
+          ("sha256:" `Text.isPrefixOf` d && Text.length d == 71)
+      other -> assertFailure (Text.unpack k <> " missing or not a string: " <> show other)
+
+-- | Exactly one evidence record per call, joined to the rest of the
+-- call's lines by the trace @eventId@.
+exactlyOneEvidence :: [TraceEvent] -> IO ModelCallEvidence
+exactlyOneEvidence events = case evidencesIn events of
+  [ev] -> do
+    let ids = Set.fromList [e ^. #eventId :: Text | e <- events]
+    Set.size ids @?= 1
+    assertMinimalShape ev
+    pure ev
+  other ->
+    assertFailure
+      ("expected exactly one CallEvidence, got " <> show (length other) <> ": " <> show events)
+
+successEvidenceTest :: TestTree
+successEvidenceTest =
+  testCase "a successful call emits one evidence record with status succeeded" $ do
+    let a = Custom "baikai-evidence-success"
+    registerOkWithEvidence a
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext evidenceOptions
+    events <- reverse <$> readTVarIO ref
+    ev <- exactlyOneEvidence events
+    evidenceField "status" ev @?= Just (String "succeeded")
+    evidenceField "error_info" ev @?= Just Null
+    -- Purely additive: the pre-existing contract is untouched.
+    length [e | e@CallStarted {} <- events] @?= 1
+    length [e | e@CallFinished {} <- events] @?= 1
+    length [e | e@CallFailed {} <- events] @?= 0
+
+failureEvidenceTest :: TestTree
+failureEvidenceTest =
+  testCase "a failed call emits one evidence record with status failed" $ do
+    let a = Custom "baikai-evidence-failure"
+    registerFail a (providerError "stub-failure")
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext evidenceOptions
+    events <- reverse <$> readTVarIO ref
+    ev <- exactlyOneEvidence events
+    evidenceField "status" ev @?= Just (String "failed")
+    case evidenceField "error_info" ev of
+      Just (Object o) ->
+        assertBool
+          ("expected error_info to mention stub-failure, got: " <> show o)
+          (maybe False (Text.isInfixOf "stub-failure" . renderString) (KeyMap.lookup "message" o))
+      other -> assertFailure ("expected a populated error_info, got: " <> show other)
+    length [e | e@CallStarted {} <- events] @?= 1
+    length [e | e@CallFailed {} <- events] @?= 1
+  where
+    renderString = \case
+      String t -> t
+      v -> Text.pack (show v)
+
+abortEvidenceTest :: TestTree
+abortEvidenceTest =
+  testCase "an abandoned stream emits one evidence record with status aborted" $ do
+    let a = Custom "baikai-evidence-abort"
+    registerOk a
+    (ref, sink) <- memorySink
+    emitted <-
+      Stream.toList
+        (Stream.take 1 (withTraceStream sink (stubModel a) stubContext evidenceOptions))
+    length emitted @?= 1
+    events <- awaitEvents ref 3
+    ev <- exactlyOneEvidence events
+    -- 'aborted', not 'failed'. The consumer stopped reading; reporting
+    -- that as a provider failure would misattribute it.
+    evidenceField "status" ev @?= Just (String "aborted")
+
+noProviderEvidenceTest :: TestTree
+noProviderEvidenceTest =
+  testCase "an unregistered provider emits one evidence record with status failed" $ do
+    let a = Custom "baikai-evidence-no-provider"
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext evidenceOptions
+    events <- reverse <$> readTVarIO ref
+    ev <- exactlyOneEvidence events
+    evidenceField "status" ev @?= Just (String "failed")
+
+sinkFailureEvidenceTest :: TestTree
+sinkFailureEvidenceTest =
+  testCase "a throwing sink does not fail an opted-in best-effort call" $ do
+    let a = Custom "baikai-evidence-throwing-sink"
+    registerOk a
+    result <-
+      timeout 5000000 (withTrace throwingSink (stubModel a) stubContext evidenceOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a throwing sink"
+      Just resp -> do
+        -- Today's behaviour, unchanged: the exception does not
+        -- propagate and the call succeeds. docs/plans/57 makes a
+        -- strict caller's call fail here instead, by replacing
+        -- 'Build.onSinkFailure'.
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= Stop
+
+-- | The criterion that protects every existing user of this library.
+optOutSilentTest :: TestTree
+optOutSilentTest =
+  testCase "a call with no evidence request emits no evidence and traces identically" $ do
+    let a = Custom "baikai-evidence-opt-out"
+    registerOkWithEvidence a
+    (outRef, outSink) <- memorySink
+    _ <- withTrace outSink (stubModel a) stubContext stubOptions
+    optedOut <- reverse <$> readTVarIO outRef
+    (inRef, inSink) <- memorySink
+    _ <- withTrace inSink (stubModel a) stubContext evidenceOptions
+    optedIn <- reverse <$> readTVarIO inRef
+    evidencesIn optedOut @?= []
+    length (evidencesIn optedIn) @?= 1
+    -- Asking for evidence adds an event and changes nothing else.
+    map redact optedOut @?= map redact [e | e <- optedIn, notEvidence e]
+  where
+    notEvidence = \case
+      CallEvidence {} -> False
+      _ -> True
+
+-- | Encode an event the way a sink does, then blank the fields that
+-- legitimately differ between two runs of the same call.
+--
+-- Deliberately textual rather than a rewrite of the decoded
+-- 'Aeson.Value': 'Aeson.toJSON' produces a 'KeyMap' whose re-encoding
+-- sorts keys, and field /order/ is part of what an existing consumer
+-- sees. Comparing sorted objects would hide exactly the drift this is
+-- here to catch.
+--
+-- The three redacted values are a hex identifier, an ISO-8601
+-- timestamp, and an integer; none can contain a @,@ or @}@, so scanning
+-- to the next one is a safe way to find the end of the value.
+redact :: TraceEvent -> Text
+redact =
+  redactField "latencyMs" "0"
+    . redactField "timestamp" "\"<ts>\""
+    . redactField "eventId" "\"<id>\""
+    . TextEncoding.decodeUtf8
+    . BL8.toStrict
+    . Aeson.encode
+
+redactField :: Text -> Text -> Text -> Text
+redactField key replacement line
+  | Text.null rest = line
+  | otherwise = before <> needle <> replacement <> Text.dropWhile isValueChar after
+  where
+    needle = "\"" <> key <> "\":"
+    (before, rest) = Text.breakOn needle line
+    after = Text.drop (Text.length needle) rest
+    isValueChar c = c /= ',' && c /= '}'
+
+-- | The golden fixture is the encoded event sequence an opted-out call
+-- produces, recorded against
+-- @baikai\/test\/fixtures\/trace-opt-out.jsonl@.
+--
+-- Its content was checked against the pre-plan code rather than
+-- asserted from memory: the same fixture provider was run at commit
+-- @0acbad8@ (the last commit before this plan touched the trace path)
+-- and the two @call_started@ lines match exactly, while @call_finished@
+-- differs only by the four token fields and the @usd@ field this plan
+-- deliberately added. Nothing else moved, and no @call_evidence@ line
+-- appears.
+--
+-- If this test fails, an opted-out caller's trace output changed. That
+-- is a breaking change for every existing user of this library and
+-- needs a changelog entry, not a new fixture pasted over the old one.
+optOutGoldenTest :: TestTree
+optOutGoldenTest =
+  testCase "an opted-out call's trace bytes match the golden fixture" $ do
+    let a = Custom "baikai-evidence-golden"
+    registerOk a
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext stubOptions
+    events <- reverse <$> readTVarIO ref
+    expected <- Text.lines <$> Text.IO.readFile "test/fixtures/trace-opt-out.jsonl"
+    map redact events @?= filter (not . Text.null) expected
+
+-- | An opted-out call must do no work, not merely produce no output.
+--
+-- The fixture provider hands 'Build.minimalEvidence' an envelope that
+-- throws when forced. If someone later adds a strictness annotation to
+-- that parameter, or moves the opt-out check below the digest
+-- computation, this test fails and says why.
+envelopeNotForcedTest :: TestTree
+envelopeNotForcedTest =
+  testCase "an opted-out call never forces the request envelope" $ do
+    let a = Custom "baikai-evidence-lazy-envelope"
+        handler m _ctx opts = do
+          now <- getCurrentTime
+          ev <-
+            Build.minimalEvidence
+              m
+              opts
+              TransportHttpApi
+              noThinkingRequested
+              (error "envelope forced on the opt-out path")
+              now
+              now
+              Ev.CallSucceeded
+              Nothing
+          pure (stubResponse a & #evidence .~ ev)
+    registerApiProvider
+      ApiProvider
+        { apiTag = a,
+          stream = liftCompleteToStream handler,
+          complete = handler
+        }
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext stubOptions
+    events <- reverse <$> readTVarIO ref
+    evidencesIn events @?= []
+
+-- ============================================================
+-- Wire encoding
+-- ============================================================
+
+-- | 'FromJSON' is hand-written and therefore can drift from the derived
+-- 'ToJSON' without the compiler noticing. It already did once during
+-- this plan: the decoder read a nested @data@ object, which aeson's
+-- 'TaggedObject' does not produce for a record constructor, so it could
+-- not have parsed a single line this package emits.
+encodingTests :: TestTree
+encodingTests =
+  testGroup
+    "TraceEvent JSON"
+    [ testCase "the three decodable kinds round-trip" $
+        mapM_ roundTrip [sampleStarted, sampleFinished, sampleFailed],
+      -- A trace line carries its fields alongside the discriminator,
+      -- not nested under one. Consumers filter on this shape.
+      testCase "fields sit alongside the kind discriminator" $ do
+        let o = asObject (Aeson.toJSON sampleFinished)
+        KeyMap.lookup "kind" o @?= Just (String "call_finished")
+        KeyMap.lookup "latencyMs" o @?= Just (Number 12)
+        assertBool "no data wrapper" (not (KeyMap.member "data" o)),
+      -- Not a limitation to route around: 'ModelCallEvidence' embeds a
+      -- cost whose exact Rational cannot survive the Scientific it
+      -- encodes through, so a decoder would return a different value
+      -- than was encoded. Failing loudly beats claiming a fidelity the
+      -- type does not have.
+      testCase "a call_evidence line refuses to decode, with an explanation" $ do
+        let a = Custom "baikai-evidence-decode"
+        registerOkWithEvidence a
+        (ref, sink) <- memorySink
+        _ <- withTrace sink (stubModel a) stubContext evidenceOptions
+        events <- reverse <$> readTVarIO ref
+        case [e | e@CallEvidence {} <- events] of
+          [e] -> case Aeson.eitherDecode (Aeson.encode e) :: Either String TraceEvent of
+            Right decoded -> assertFailure ("expected a decode failure, got: " <> show decoded)
+            Left err ->
+              assertBool
+                ("expected the message to point at Data.Aeson.Value, got: " <> err)
+                ("Data.Aeson.Value" `Text.isInfixOf` Text.pack err)
+          other -> assertFailure ("expected one CallEvidence, got: " <> show other)
+    ]
+  where
+    roundTrip e = case Aeson.eitherDecode (Aeson.encode e) of
+      Right decoded -> decoded @?= e
+      Left err -> assertFailure ("failed to decode " <> show e <> ": " <> err)
+
+fixedTime :: UTCTime
+fixedTime = read "2026-05-14 00:00:00 UTC"
+
+sampleStarted :: TraceEvent
+sampleStarted =
+  CallStarted
+    { eventId = "abc",
+      timestamp = fixedTime,
+      provider = "stub.trace",
+      model = "stub-1",
+      maxTokens = 16,
+      promptSummary = "hello"
+    }
+
+sampleFinished :: TraceEvent
+sampleFinished =
+  CallFinished
+    { eventId = "abc",
+      timestamp = fixedTime,
+      provider = "stub.trace",
+      model = "stub-1",
+      latencyMs = 12,
+      inputTokens = Just 11,
+      outputTokens = Just 7,
+      cachedInputTokens = Just 5,
+      cacheWriteTokens = Just 3,
+      reasoningTokens = Just 4,
+      totalTokens = Just 26,
+      usd = Just 0
+    }
+
+sampleFailed :: TraceEvent
+sampleFailed =
+  CallFailed
+    { eventId = "abc",
+      timestamp = fixedTime,
+      provider = "stub.trace",
+      model = "stub-1",
+      latencyMs = 12,
+      errorMessage = "boom"
+    }
