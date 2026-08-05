@@ -55,6 +55,13 @@ module Baikai.Agent
       ),
     agentRunRequest,
 
+    -- * The operator policy ceiling
+    AgentCeiling (maxCapability, allowProviderArgs, allowedProviders),
+    defaultAgentCeiling,
+    CeilingViolation (..),
+    renderCeilingViolation,
+    applyAgentCeiling,
+
     -- * The rendered command
     AgentPromptTransport (..),
     AgentCommand (..),
@@ -62,12 +69,19 @@ module Baikai.Agent
     -- * The run result
     AgentRunResult,
     agentRunResult,
+
+    -- * Failures
+    AgentRenderError (..),
+    renderAgentRenderError,
+    AgentRunFailure (..),
+    renderAgentRunFailure,
   )
 where
 
 import Baikai.Prelude
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Data.ByteString (ByteString)
+import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime)
 import System.Exit (ExitCode)
 
@@ -92,9 +106,9 @@ parseAgentProvider _ = Nothing
 
 -- | How much authority an unattended run gets, expressed
 -- provider-neutrally. Constructors ascend in authority, and the
--- 'Ord' instance derived from that order is what
--- 'Baikai.Agent.applyAgentCeiling' compares against an operator's
--- permitted maximum — do not reorder them.
+-- 'Ord' instance derived from that order is what 'applyAgentCeiling'
+-- compares against an operator's permitted maximum — do not reorder
+-- them.
 --
 -- * 'AgentReadOnly': the run may read but must not modify anything.
 -- * 'AgentEditWorkspace': the run may modify files inside its working
@@ -271,6 +285,115 @@ agentRunRequest p dir userPrompt =
       envPassthrough = []
     }
 
+-- | The limit an operator places on what any job may request.
+--
+-- A job description can come from a repository the operator did not
+-- write, which makes it untrusted input: it could ask for unlimited
+-- filesystem access. A ceiling is a separate, operator-owned value
+-- that bounds what any job may ask for, and 'applyAgentCeiling' is the
+-- pure check.
+data AgentCeiling = AgentCeiling
+  { -- | The highest capability any job may request.
+    maxCapability :: !AgentCapability,
+    -- | Whether jobs may pass raw provider arguments at all. The whole
+    -- channel is privileged, so it is permitted or refused as a unit
+    -- rather than filtered.
+    allowProviderArgs :: !Bool,
+    -- | The providers jobs may select. An empty list permits __no__
+    -- provider; it does not mean \"all providers\".
+    allowedProviders :: ![AgentProvider]
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The ceiling in force when an operator has supplied no policy of
+-- their own: a job may ask for read-only or edit-workspace authority,
+-- may not ask for full access, and may not pass raw provider
+-- arguments; both providers are permitted.
+--
+-- An edit-capable default is the only one under which a job that
+-- changes files works on a fresh machine with no out-of-band setup,
+-- while the two things that can widen authority without bound —
+-- sandbox-bypassing modes and arbitrary vendor flags — stay opt-in at
+-- operator scope.
+defaultAgentCeiling :: AgentCeiling
+defaultAgentCeiling =
+  AgentCeiling
+    { maxCapability = AgentEditWorkspace,
+      allowProviderArgs = False,
+      allowedProviders = [AgentClaude, AgentCodex]
+    }
+
+-- | One way a request exceeded a ceiling.
+data CeilingViolation
+  = -- | The requested capability, then the permitted maximum. The
+    -- order matters: reversing the pair produces a message that blames
+    -- the wrong side.
+    CapabilityExceeded !AgentCapability !AgentCapability
+  | -- | The raw provider arguments that were requested while the
+    -- channel is closed, in the order given.
+    ProviderArgsForbidden ![Text]
+  | -- | The requested provider, then the permitted providers.
+    ProviderForbidden !AgentProvider ![AgentProvider]
+  deriving stock (Eq, Show, Generic)
+
+-- | One line of plain English naming what was asked for and what is
+-- permitted.
+renderCeilingViolation :: CeilingViolation -> Text
+renderCeilingViolation (CapabilityExceeded requested permitted) =
+  "requested capability "
+    <> renderAgentCapability requested
+    <> " exceeds the permitted maximum "
+    <> renderAgentCapability permitted
+renderCeilingViolation (ProviderArgsForbidden args) =
+  "raw provider arguments are not permitted: " <> Text.unwords args
+renderCeilingViolation (ProviderForbidden requested permitted) =
+  "provider "
+    <> renderAgentProvider requested
+    <> " is not permitted; permitted providers: "
+    <> renderPermittedProviders permitted
+  where
+    renderPermittedProviders [] = "none"
+    renderPermittedProviders ps = Text.intercalate ", " (map renderAgentProvider ps)
+
+-- | Check a request against a ceiling. Returns the request
+-- __unchanged__ when it is within the ceiling, and every violation
+-- when it is not.
+--
+-- Two properties are deliberate. The request is never modified to fit
+-- the ceiling: a job that asked for more authority than it may have is
+-- an error to report, not a request to quietly weaken, because silent
+-- clamping is how a job that believes it may edit ends up doing
+-- nothing and reporting success. And every violation is collected
+-- rather than only the first, so an operator fixing a job description
+-- sees all of them in one run.
+--
+-- This function does not inspect the contents of the requested
+-- 'providerArgs'. See that field's documentation for why a denylist of
+-- dangerous flags would be false confidence rather than a boundary.
+applyAgentCeiling :: AgentCeiling -> AgentRunRequest -> Either [CeilingViolation] AgentRunRequest
+applyAgentCeiling limit request
+  | null violations = Right request
+  | otherwise = Left violations
+  where
+    requestedProvider = request ^. #provider
+    permittedProviders = limit ^. #allowedProviders
+    requestedCapability = request ^. #safety . #capability
+    permittedCapability = limit ^. #maxCapability
+    requestedArgs = request ^. #safety . #providerArgs
+    violations =
+      concat
+        [ [ ProviderForbidden requestedProvider permittedProviders
+          | requestedProvider `notElem` permittedProviders
+          ],
+          [ CapabilityExceeded requestedCapability permittedCapability
+          | requestedCapability > permittedCapability
+          ],
+          [ ProviderArgsForbidden requestedArgs
+          | not (null requestedArgs),
+            not (limit ^. #allowProviderArgs)
+          ]
+        ]
+
 -- | How the prompt reaches the child process.
 data AgentPromptTransport
   = -- | The prompt is written to the child's standard input and
@@ -345,3 +468,95 @@ agentRunResult p code elapsed =
       stderr = OutputNotCaptured,
       duration = elapsed
     }
+
+-- | A refusal raised before any process is created: the requested
+-- policy cannot be expressed honestly for the chosen provider, so the
+-- run must not start.
+--
+-- Every constructor that reports an inexpressible policy carries a
+-- human-readable explanation, because a refusal that does not say
+-- /why/ is a dead end rather than an error an operator can act on.
+data AgentRenderError
+  = -- | The provider, the capability it cannot express, and why.
+    UnsupportedCapability !AgentProvider !AgentCapability !Text
+  | -- | The provider cannot honor a tool allow-list, and why.
+    UnsupportedToolRestriction !AgentProvider !Text
+  | -- | The general case: this provider cannot honor the requested
+    -- safety policy, and why. It carries no capability, so it also
+    -- serves surfaces whose safety vocabulary has no capability
+    -- profile — notably the interactive launchers, which share this
+    -- refusal type rather than growing a parallel one.
+    SafetyNotExpressible !AgentProvider !Text
+  | -- | The provider the renderer implements, then the provider the
+    -- request named. Each vendor renderer is a separate function in a
+    -- separate package, so nothing in the type system stops a caller
+    -- from handing a Codex request to the Claude renderer; without
+    -- this constructor the renderer's only options would be to
+    -- silently render the wrong provider's flags or to throw. The
+    -- order matters: reversing the pair names the wrong culprit.
+    ProviderMismatch !AgentProvider !AgentProvider
+  | -- | The request exceeded the operator's policy ceiling.
+    CeilingRejected ![CeilingViolation]
+  deriving stock (Eq, Show, Generic)
+
+renderAgentRenderError :: AgentRenderError -> Text
+renderAgentRenderError (UnsupportedCapability p cap why) =
+  renderAgentProvider p
+    <> " cannot express the requested capability "
+    <> renderAgentCapability cap
+    <> ": "
+    <> why
+renderAgentRenderError (UnsupportedToolRestriction p why) =
+  renderAgentProvider p
+    <> " cannot express the requested tool restriction: "
+    <> why
+renderAgentRenderError (SafetyNotExpressible p why) =
+  renderAgentProvider p
+    <> " cannot honor the requested safety policy: "
+    <> why
+renderAgentRenderError (ProviderMismatch renderer requested) =
+  "the "
+    <> renderAgentProvider renderer
+    <> " renderer cannot render a request for provider "
+    <> renderAgentProvider requested
+renderAgentRenderError (CeilingRejected violations) =
+  "the request exceeds the permitted policy ceiling: "
+    <> Text.intercalate "; " (map renderCeilingViolation violations)
+
+-- | A failure raised while spawning the child process or waiting for
+-- it.
+--
+-- There is deliberately no constructor for \"the process exited
+-- non-zero\". That is a normal outcome and lives in 'AgentRunResult':
+-- a coding agent that fails its task and exits 1 has still run.
+data AgentRunFailure
+  = -- | The executable that could not be started, and the operating
+    -- system's message. The pair is what distinguishes \"the tool is
+    -- not installed\" from \"the tool is installed but the working
+    -- directory does not exist\".
+    SpawnFailed !FilePath !Text
+  | -- | The run exceeded this limit and was terminated.
+    RunTimedOut !NominalDiffTime
+  | -- | Every variable named in the request's 'envPassthrough' that is
+    -- unset or empty, checked as a group so an operator sees all of
+    -- them at once.
+    MissingEnvironment ![Text]
+  | -- | The working directory does not exist or is not a directory.
+    WorkingDirMissing !FilePath
+  | -- | The run produced output the caller could not interpret.
+    OutputMalformed !Text
+  deriving stock (Eq, Show, Generic)
+
+renderAgentRunFailure :: AgentRunFailure -> Text
+renderAgentRunFailure (SpawnFailed path message) =
+  "could not start " <> Text.pack path <> ": " <> message
+renderAgentRunFailure (RunTimedOut limit) =
+  "the run exceeded its timeout of " <> Text.pack (show limit)
+renderAgentRunFailure (MissingEnvironment names) =
+  "required environment variables are unset or empty: "
+    <> Text.intercalate ", " names
+renderAgentRunFailure (WorkingDirMissing path) =
+  "the working directory does not exist or is not a directory: "
+    <> Text.pack path
+renderAgentRunFailure (OutputMalformed why) =
+  "the run produced malformed output: " <> why

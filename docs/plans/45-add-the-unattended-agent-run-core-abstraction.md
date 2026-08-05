@@ -64,9 +64,11 @@ This section must always reflect the actual current state of the work.
       capability profile, safety request, request record, output discipline, rendered-command
       type, and result record; register the module in `baikai/baikai.cabal`.
       `cabal build baikai` succeeds with no warnings.
-- [ ] Milestone 2: Add the policy ceiling, the `CeilingViolation` type, and the pure
-      `applyAgentCeiling` function that refuses rather than clamps.
-- [ ] Milestone 3: Add the render-error and run-failure taxonomies.
+- [x] Milestone 2 (2026-08-05): Add the policy ceiling, the `CeilingViolation` type, and the
+      pure `applyAgentCeiling` function that refuses rather than clamps.
+      `cabal build baikai` succeeds with no warnings.
+- [x] Milestone 3 (2026-08-05): Add the render-error and run-failure taxonomies.
+      `cabal build baikai` succeeds with no warnings.
 - [ ] Milestone 4: Add `baikai/test/AgentSpec.hs` covering defaults, every capability and
       ceiling pair, every refusal, and every canonical rendering; register it in
       `baikai/baikai.cabal` and `baikai/test/Main.hs`.
@@ -174,6 +176,18 @@ Record every decision made while working on the plan.
   syntax. All three abstract records use the same form for consistency, so a future record
   that happens to introduce a duplicate field name does not force a second style.
   Consumers see no difference: `import Baikai.Agent` brings the same names into scope.
+  Date: 2026-08-05
+
+- Decision (2026-08-05): the unattended failure taxonomies do not reuse
+  `baikai/src/Baikai/Error.hs`.
+  Rationale: `BaikaiError` is built around an `ErrorCategory` oriented to HTTP-shaped provider
+  failures — authentication, rate limiting, context overflow — and it is what
+  `completeRequest` returns. An unattended run is not a completion, and most of those
+  categories cannot occur on it, so reporting through that type would force every caller to
+  handle variants that are unreachable while saying nothing about the failures that actually
+  happen: a refused policy, a failed spawn, a timeout, a missing precondition. The two new
+  types are also split along the line that matters operationally — `AgentRenderError` means
+  nothing was started, `AgentRunFailure` means something was.
   Date: 2026-08-05
 
 ## Outcomes & Retrospective
