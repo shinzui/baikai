@@ -143,7 +143,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add the unattended agent-run core abstraction | docs/plans/45-add-the-unattended-agent-run-core-abstraction.md | None | None | Complete |
-| EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | Not Started |
+| EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | In Progress |
 | EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Not Started |
 | EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Not Started |
 | EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Not Started |

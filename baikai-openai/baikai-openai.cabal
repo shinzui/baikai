@@ -31,6 +31,7 @@ library
   import:          common-options
   hs-source-dirs:  src
   exposed-modules:
+    Baikai.Provider.OpenAI.Agent
     Baikai.Provider.OpenAI.Api
     Baikai.Provider.OpenAI.Cli
     Baikai.Provider.OpenAI.Interactive

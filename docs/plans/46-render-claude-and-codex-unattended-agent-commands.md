@@ -55,12 +55,15 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Re-verify the installed tools' flags and record any drift from the flag
-      table in Context and Orientation before writing code.
-- [ ] Milestone 2: Add `Baikai.Provider.Claude.Agent` with `ClaudeAgentConfig` and
+- [x] Milestone 1 (2026-08-05): Re-verify the installed tools' flags and record any drift from
+      the flag table in Context and Orientation before writing code. No mapping-relevant drift;
+      Claude Code is now 2.1.222 rather than 2.1.220. Evidence in Surprises & Discoveries.
+- [x] Milestone 2 (2026-08-05): Add `Baikai.Provider.Claude.Agent` with `ClaudeAgentConfig` and
       `claudeAgentCommand`; register it in `baikai-claude/baikai-claude.cabal`.
-- [ ] Milestone 3: Add `Baikai.Provider.OpenAI.Agent` with `CodexAgentConfig` and
+      `cabal build baikai-claude` succeeds with no warnings.
+- [x] Milestone 3 (2026-08-05): Add `Baikai.Provider.OpenAI.Agent` with `CodexAgentConfig` and
       `codexAgentCommand`; register it in `baikai-openai/baikai-openai.cabal`.
+      `cabal build baikai-openai` succeeds with no warnings.
 - [ ] Milestone 4: Add exact whole-argument-vector tests for both renderers, covering every
       capability, every refusal, dash-leading prompts and paths, and both prompt transports.
 - [ ] Milestone 5: Document the mapping tables, add changelog bullets, and run the full
@@ -72,9 +75,39 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. Milestone 1 exists specifically to populate this section: if the installed tools'
-flags differ from the table below, record the difference here with the `--help` output that
-shows it, and correct the mapping before implementing.)
+- Milestone 1 verification (2026-08-05): **no drift in any flag this plan maps.** The installed
+  tools are Claude Code `2.1.222` — a patch ahead of the `2.1.220` the plan was written against
+  — and `codex-cli 0.146.0`, unchanged. Every fact the mapping depends on still holds:
+
+  ```text
+  claude --help
+    --permission-mode <mode>   (choices: "acceptEdits", "auto", "bypassPermissions",
+                                "manual", "dontAsk", "plan")
+    --allowedTools, --allowed-tools <tools...>
+                               Comma or space-separated list of tool names to allow
+    --add-dir <directories...> Additional directories to allow tool access to
+    --effort <level>           (low, medium, high, xhigh, max)
+    --no-session-persistence   ... (only works with --print)
+    --input-format <format>    "text" (default), or "stream-json"
+    -p, --print                Print response and exit (useful for pipes)
+
+  codex exec --help
+    -s, --sandbox <SANDBOX_MODE>  [possible values: read-only, workspace-write,
+                                   danger-full-access]
+    -C, --cd <DIR>                working root
+    --add-dir <DIR>               Additional directories that should be writable
+    --skip-git-repo-check, --ephemeral, -m/--model, -c/--config
+    [PROMPT]  If not provided as an argument (or if `-` is used), instructions are
+              read from stdin. If stdin is piped and a prompt is also provided,
+              stdin is appended as a `<stdin>` block
+  ```
+
+  `codex exec --help | grep ask-for-approval` printed nothing and exited 1, so `codex exec`
+  still has no approval flag and the shared vocabulary still needs no approval field.
+  `--permission-mode` still offers both `plan` and `acceptEdits`, which the capability mapping
+  requires. Claude's `--allowedTools` and `--add-dir` are still variadic, so the comma-joined
+  tool list and the repeated `--add-dir` remain the correct renderings. No mapping changed as a
+  result of this milestone.
 
 
 ## Decision Log
@@ -133,6 +166,27 @@ Record every decision made while working on the plan.
   process state a reader cannot see.
   Date: 2026-07-30
 
+
+- Decision (2026-08-05): the Codex renderer emits no `--json` flag.
+  Rationale: the batch completion provider in `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs`
+  needs machine-readable events because it must reconstruct a `Response` value. An unattended
+  run's deliverable is the changed working tree, and its standard output is read by a shell
+  script or a human tailing a log, so plain output is the useful default. A caller who wants
+  JSONL can ask for it through raw provider arguments, which the operator ceiling gates.
+  Date: 2026-08-05
+
+- Decision (2026-08-05): the Codex renderer emits no `-o`/`--output-last-message`.
+  Rationale: writing the agent's final message to a file is genuinely useful, but there is
+  nowhere in the shared vocabulary to say *where* the file goes, so supporting it here would
+  make it a Codex-only behavior with no Claude counterpart and no provider-neutral spelling.
+  That is a core vocabulary change and belongs in a later plan rather than being smuggled in.
+  Date: 2026-08-05
+
+- Decision (2026-08-05): both renderers read the requested capability as
+  `req ^. #safety . #capability` rather than the plan's `req ^. #safety ^. #capability`.
+  Rationale: the two are equivalent in effect, but the composed-lens form is one traversal and
+  is the form used elsewhere in the repository. No behavior differs.
+  Date: 2026-08-05
 
 ## Context and Orientation
 

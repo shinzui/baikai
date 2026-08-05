@@ -32,6 +32,7 @@ library
   import:          common-options
   hs-source-dirs:  src
   exposed-modules:
+    Baikai.Provider.Claude.Agent
     Baikai.Provider.Claude.Api
     Baikai.Provider.Claude.Cli
     Baikai.Provider.Claude.Interactive
