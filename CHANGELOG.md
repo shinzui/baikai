@@ -25,10 +25,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   permitted value. The default ceiling permits read-only and edit-workspace
   authority and refuses full access and raw provider arguments.
 
-  This release adds vocabulary only. `Baikai.Agent` spawns no process and
-  renders no command-line flags, and no existing surface changed: `Baikai.Agent`
-  is deliberately not re-exported from the umbrella `Baikai` module, so
-  `import Baikai` continues to compile unchanged.
+  `Baikai.Agent` itself is vocabulary and pure policy algebra only: it spawns no
+  process and renders no command-line flags. Those live in the vendor packages
+  and in `baikai-agent`, below. The module is deliberately not re-exported from
+  the umbrella `Baikai` module, because its field accessors share names with
+  `Baikai.Interactive`, so `import Baikai` continues to compile unchanged.
 - `baikai-claude`: new exposed module `Baikai.Provider.Claude.Agent` with
   `ClaudeAgentConfig`, `defaultClaudeAgentConfig`, and `claudeAgentCommand`, a
   pure renderer from an unattended `AgentRunRequest` to the `claude` argument
@@ -62,9 +63,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the child's whole process group is interrupted, given a grace period, and then
   terminated, so the agent's own child processes go with it; the failure reports
   the configured limit. A non-zero exit code is a successful run carrying that
-  code, not a failure. The package depends on `baikai` and on neither provider
-  package, and its POSIX-signal escalation is conditional on a non-Windows
-  build.
+  code, not a failure. The runner consumes an already-rendered `AgentCommand`
+  and never imports a vendor renderer, so it is exercised entirely with
+  hand-written argument vectors. Its POSIX-signal escalation is conditional on a
+  non-Windows build.
 
 - `baikai-agent`: new exposed module `Baikai.Agent.Config`, the layered
   configuration layer. `resolveAgentJob` resolves one named job across five
@@ -90,8 +92,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `settei-optparse-applicative` (all `^>=0.2`, published on Hackage at
   `0.2.0.0`), plus `containers` and `filepath`. `settei-formats` is deliberately
   excluded, because it bundles Dhall loading and repository configuration is
-  untrusted input here. Nothing in the package imports `Baikai.Agent.Config`
-  yet; the `baikai` executable is its first caller.
+  untrusted input here.
 
 - `baikai-agent`: the **`baikai` executable**, with the `agent run`,
   `agent show`, and `agent list` commands, and the `Baikai.Agent.Cli` module
@@ -126,7 +127,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   New dependencies for `baikai-agent`: `baikai-claude`, `baikai-openai`, and
   `optparse-applicative`. The provider packages are needed only so that
   `renderJobCommand`, the single provider dispatch point in the codebase, can
-  reach both renderers.
+  reach both renderers. This is the first dependency in the workspace from
+  `baikai-agent` onto the provider packages, so `baikai-agent` now publishes
+  after all three of `baikai`, `baikai-claude`, and `baikai-openai`.
+
+  The user guide `docs/user/unattended-agent-runs.md` documents the whole
+  surface: the three commands with their flags, exit codes, and stream
+  discipline; the KDL job format and layer precedence; the operator ceiling and
+  redaction; the capability mapping tables for both tools; and a before-and-after
+  migration of a script that embeds provider flags today.
+  `docs/user/cli-providers.md` and `docs/user/interactive-launches.md` link to
+  it, and the capability mapping tables moved there from the latter.
 
 ### Changed
 
