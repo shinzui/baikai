@@ -29,6 +29,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   renders no command-line flags, and no existing surface changed: `Baikai.Agent`
   is deliberately not re-exported from the umbrella `Baikai` module, so
   `import Baikai` continues to compile unchanged.
+- `baikai-claude`: new exposed module `Baikai.Provider.Claude.Agent` with
+  `ClaudeAgentConfig`, `defaultClaudeAgentConfig`, and `claudeAgentCommand`, a
+  pure renderer from an unattended `AgentRunRequest` to the `claude` argument
+  vector. It maps the capability profile onto `--permission-mode`
+  (`plan` / `acceptEdits` / `bypassPermissions`), joins a tool allow-list into
+  one `--allowedTools` argument, repeats `--add-dir` per extra directory, always
+  emits `-p`, and emits `--no-session-persistence` unless `persistSession` is
+  set. The prompt travels on standard input and appears nowhere in the argument
+  vector. A request naming a different provider is refused with
+  `ProviderMismatch`. Nothing is spawned.
+- `baikai-openai`: new exposed module `Baikai.Provider.OpenAI.Agent` with
+  `CodexAgentConfig`, `defaultCodexAgentConfig`, and `codexAgentCommand`, the
+  same renderer for `codex exec`. It maps the capability profile onto
+  `--sandbox` (`read-only` / `workspace-write` / `danger-full-access`), emits
+  `--cd` for the working root, and defaults `--skip-git-repo-check` and
+  `--ephemeral` on. A request carrying a tool allow-list is **refused** with
+  `UnsupportedToolRestriction`, because `codex exec` has no such flag and running
+  it with unrestricted tools would grant more authority than the caller asked
+  for. Nothing is spawned.
 
 ## [baikai-claude 0.4.0.1] - 2026-07-30
 

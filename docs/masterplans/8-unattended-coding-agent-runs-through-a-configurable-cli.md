@@ -143,7 +143,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add the unattended agent-run core abstraction | docs/plans/45-add-the-unattended-agent-run-core-abstraction.md | None | None | Complete |
-| EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | In Progress |
+| EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | Complete |
 | EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Not Started |
 | EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Not Started |
 | EP-5 | Resolve unattended agent jobs with layered KDL configuration | docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md | EP-1, EP-4 | None | Not Started |
@@ -275,10 +275,10 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-1 (2026-08-05): Define the policy ceiling and the pure ceiling-intersection function that refuses rather than clamps.
 - [x] EP-1 (2026-08-05): Define the render-error and run-failure taxonomies distinguishing refusal, spawn failure, timeout, malformed output, and non-zero exit.
 - [x] EP-1 (2026-08-05): Add pure tests covering every capability/ceiling pair, including every refusal.
-- [ ] EP-2: Render Claude Code unattended argument vectors, including permission mode, tool allow-list, and additional directories.
-- [ ] EP-2: Render Codex unattended argument vectors, including sandbox mode, working root, and additional directories.
-- [ ] EP-2: Prove both renderers refuse unsupported policy before any process would be created.
-- [ ] EP-2: Add exact whole-argv tests, including prompts and paths beginning with a dash.
+- [x] EP-2 (2026-08-05): Render Claude Code unattended argument vectors, including permission mode, tool allow-list, and additional directories.
+- [x] EP-2 (2026-08-05): Render Codex unattended argument vectors, including sandbox mode, working root, and additional directories.
+- [x] EP-2 (2026-08-05): Prove both renderers refuse unsupported policy before any process would be created.
+- [x] EP-2 (2026-08-05): Add exact whole-argv tests, including prompts and paths beginning with a dash.
 - [ ] EP-3: Make the Claude and Codex interactive safety mappings total and visibly failing.
 - [ ] EP-3: Update interactive-launch documentation and record the release consequence of the changed signatures.
 - [ ] EP-4: Create the `baikai-agent` package skeleton and register it in `cabal.project` and the release skill.
@@ -402,6 +402,25 @@ interactions between child plans. Provide concise evidence.
   core stays pure while spawning and configuration live in `baikai-agent`; a ceiling refuses
   rather than clamps; the interactive and unattended policy types stay separate and share only
   the refusal type; unattended failures do not reuse `Baikai.Error`.
+
+- Discovery (EP-2, 2026-08-05): the flag table this initiative was designed against still
+  holds. Re-verified against Claude Code `2.1.222` (a patch ahead of the `2.1.220` the plans
+  cite) and `codex-cli 0.146.0`: `--permission-mode` still offers all six values including
+  `plan` and `acceptEdits`, `--allowedTools` and `--add-dir` are still variadic on Claude,
+  `codex exec` still exposes `--sandbox`, `--cd`, `--add-dir`, `--skip-git-repo-check`, and
+  `--ephemeral`, and `codex exec --help | grep ask-for-approval` still prints nothing. No
+  capability turned out to be inexpressible, so EP-5 and EP-6 can document the mapping tables
+  exactly as this MasterPlan's Integration Points section anticipated.
+
+- Discovery (EP-2, 2026-08-05): `PromptAsArgument` is now a transport that **no shipped renderer
+  selects**. Both `claudeAgentCommand` and `codexAgentCommand` always choose `PromptOnStdin`,
+  because standard-input delivery removes the dash-leading-prompt hazard on both tools and
+  avoids Codex's `<stdin>`-block trap entirely. The constructor is still load-bearing: EP-1
+  exports it, and EP-4's runner must honor it, since that is the only place the two-sided
+  contract can be observed — a fixture executable can check whether the prompt arrived on
+  standard input or as an argument, which a pure renderer test cannot. Consequence for EP-4: do
+  not treat the branch as dead code, and pin it with a fixture rather than assuming a renderer
+  will produce it.
 
 - Discovery: both providers can take the prompt on standard input, which removes the
   dash-leading-prompt hazard entirely, but Codex has a trap. `codex exec --help` states that

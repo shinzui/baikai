@@ -69,8 +69,11 @@ This section must always reflect the actual current state of the work.
       configuration booleans, and dash-leading prompts and paths.
       `cabal test baikai-claude-test baikai-openai-test` passes; both suites build with no
       warnings.
-- [ ] Milestone 5: Document the mapping tables, add changelog bullets, and run the full
-      offline validation.
+- [x] Milestone 5 (2026-08-05): Document the mapping tables, add changelog bullets, and run the
+      full offline validation. `nix fmt`, `git diff --check`, `cabal build all`, the key- and
+      CLI-scrubbed `cabal test all`, and `nix flake check` all succeed; `baikai-claude-test`
+      went 155 -> 170 cases and `baikai-openai-test` 62 -> 77, and the smoke suite reported
+      `no provider keys or CLI binaries available; skipping all cases`.
 
 
 ## Surprises & Discoveries
@@ -112,6 +115,16 @@ implementation. Provide concise evidence.
   tool list and the repeated `--add-dir` remain the correct renderings. No mapping changed as a
   result of this milestone.
 
+
+- Gap recorded (2026-08-05): `PromptAsArgument` is **not** exercised by this plan's tests, and
+  the Decision Log's claim that it is "retained and tested as a fallback" is only half true. It
+  is retained — `Baikai.Agent` exports it and the runner in
+  `docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md` must honor it
+  — but neither renderer here can produce it: both always select `PromptOnStdin`, which the
+  tests assert explicitly. There is therefore no rendering behavior to test on that branch. The
+  transport's two-sided contract is EP-4's to pin, where a fixture executable can observe
+  whether the prompt arrived on standard input or as an argument. Milestone 4's checklist line
+  was corrected accordingly rather than claiming coverage that does not exist.
 
 ## Decision Log
 
@@ -190,6 +203,60 @@ Record every decision made while working on the plan.
   Rationale: the two are equivalent in effect, but the composed-lens form is one traversal and
   is the form used elsewhere in the repository. No behavior differs.
   Date: 2026-08-05
+
+- Decision (2026-08-05): the tests assert the rendered command field by field through
+  `generic-lens` labels rather than comparing one whole `AgentCommand` value with `@?=` as
+  Milestone 4's prose implied.
+  Rationale: constructing an expected `AgentCommand` with record syntax needs its field names in
+  scope, and both vendor test suites already import `Baikai.Provider.*.Interactive` unqualified,
+  which exports `executable` and `extraArgs`. Bringing a second `executable` into scope would
+  make the existing record updates in those files ambiguous. Asserting `executable`,
+  `arguments`, `promptTransport`, and `promptText` separately is equally strict — the argument
+  vector is still compared whole, so a flag in the wrong order or an extra flag still fails —
+  and it leaves the existing tests untouched. Refusals are still compared as whole `Either`
+  values, since a `Left` needs only constructors.
+  Date: 2026-08-05
+
+- Decision (2026-08-05): add the missing `Outcomes & Retrospective` section to this plan.
+  Rationale: the ExecPlan specification requires it and the plan skeleton places it between the
+  Decision Log and Context and Orientation, but this file was authored without it. Adding it in
+  its skeleton position rather than at the end keeps the section order consistent with every
+  other plan in `docs/plans/`.
+  Date: 2026-08-05
+
+## Outcomes & Retrospective
+
+Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
+Compare the result against the original purpose.
+
+Outcome (2026-08-05): complete, and the headline behavior is real. The same neutral
+edit-workspace request with a tool allow-list renders for Claude as
+`["-p","--no-session-persistence","--permission-mode","acceptEdits","--allowedTools","Read,Write"]`
+and is *refused* for Codex with `UnsupportedToolRestriction`, whose message names the sandbox
+alternative — both pinned by tests, neither reaching a process. `baikai-claude-test` grew from
+155 to 170 cases and `baikai-openai-test` from 62 to 77. Both new modules are additive: no
+existing signature changed, and the interactive modules were not touched, so
+`docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md` can proceed without a
+conflict.
+
+The mapping tables are published in `docs/user/interactive-launches.md` alongside the three
+facts that matter more than the tables themselves: Codex refuses a tool allow-list, `--add-dir`
+grants tool access on Claude but write access on Codex, and the prompt never enters the argument
+vector on either provider.
+
+Gaps. `PromptAsArgument` has no renderer that produces it, so its contract is untested here and
+is EP-4's to pin with a fixture executable — recorded in Surprises & Discoveries and carried to
+the parent MasterPlan. Nothing in this plan can be exercised end to end, because no runner
+exists yet; the evidence is pure tests by design, and no acceptance step ran an installed
+coding-agent binary with a prompt.
+
+Lessons worth carrying forward. First, adding an unqualified import to a vendor test suite is
+the riskiest part of touching these files: `DuplicateRecordFields` makes several field names
+collide across the three Claude and Codex surfaces, so import the new module qualified and read
+fields through labels. Second, re-verifying the vendor flags before writing the mapping was the
+only reason the mapping can be asserted rather than assumed — the installed Claude Code had
+already moved a patch version since the plan was written, and a future plan touching these
+renderers should repeat that check rather than trusting this plan's table.
 
 ## Context and Orientation
 
