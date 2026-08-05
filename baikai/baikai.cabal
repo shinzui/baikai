@@ -37,6 +37,7 @@ library
   hs-source-dirs:  src
   exposed-modules:
     Baikai
+    Baikai.Agent
     Baikai.AgentAssets
     Baikai.Api
     Baikai.Auth

@@ -60,9 +60,10 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: Create `baikai/src/Baikai/Agent.hs` with provider identity, capability
-      profile, safety request, request record, output discipline, rendered-command type, and
-      result record; register the module in `baikai/baikai.cabal`.
+- [x] Milestone 1 (2026-08-05): Create `baikai/src/Baikai/Agent.hs` with provider identity,
+      capability profile, safety request, request record, output discipline, rendered-command
+      type, and result record; register the module in `baikai/baikai.cabal`.
+      `cabal build baikai` succeeds with no warnings.
 - [ ] Milestone 2: Add the policy ceiling, the `CeilingViolation` type, and the pure
       `applyAgentCeiling` function that refuses rather than clamps.
 - [ ] Milestone 3: Add the render-error and run-failure taxonomies.
@@ -78,8 +79,24 @@ This section must always reflect the actual current state of the work.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet. Record here anything that contradicts the Context and Orientation section below,
-especially if a field turns out not to be expressible provider-neutrally.)
+- Discovery (2026-08-05): a field name shared by two records in the same module cannot be
+  exported as a bare name at all, not even once. The plan assumed the conflict was only
+  between `AgentRunRequest` and `AgentRunResult` accessors both being exported; in fact GHC
+  9.12.4 rejects the export item itself. Reduced to a two-record file:
+
+  ```text
+  Dup.hs:2:18: error: [GHC-87543]
+      Ambiguous occurrence ‘provider’.
+      It could refer to
+         either the field ‘provider’ of record ‘Req’,
+             or the field ‘provider’ of record ‘Res’,
+  ```
+
+  Consequence: `Baikai.Agent` exports the accessors of its abstract records through the
+  subordinate-name form, `AgentRunRequest (provider, prompt, …)`. That form exports the
+  selectors without exporting the data constructor, so the abstract-record property the plan
+  requires is preserved and downstream record-update syntax still works — verified with a
+  two-module scratch build before writing the module. See the Decision Log entry.
 
 
 ## Decision Log
@@ -145,6 +162,19 @@ Record every decision made while working on the plan.
   limit.
   Date: 2026-07-30
 
+
+- Decision (2026-08-05): export the accessors of `AgentRunRequest`, `AgentSafety`, and
+  `AgentCeiling` using the subordinate-name export form — `AgentRunRequest (provider, prompt,
+  …)` — rather than as bare top-level names as the plan's Interfaces section described.
+  Rationale: GHC rejects a bare export of a field name that two records in the same module
+  define, so `provider` could not be exported bare in any case (see Surprises &
+  Discoveries). The subordinate form exports the selectors while still hiding the data
+  constructor, which is the property the plan actually depends on: a later plan can add a
+  defaulted field without breaking callers who use the smart constructor plus record-update
+  syntax. All three abstract records use the same form for consistency, so a future record
+  that happens to introduce a duplicate field name does not force a second style.
+  Consumers see no difference: `import Baikai.Agent` brings the same names into scope.
+  Date: 2026-08-05
 
 ## Outcomes & Retrospective
 
