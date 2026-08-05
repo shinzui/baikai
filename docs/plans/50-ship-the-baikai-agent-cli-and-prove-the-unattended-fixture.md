@@ -79,8 +79,19 @@ This section must always reflect the actual current state of the work.
       executable.
 - [x] Milestone 6 (2026-08-05): Write `docs/user/unattended-agent-runs.md`, cross-link the other two
       surfaces, and write the consumer migration guide.
-- [ ] Milestone 7: Coordinate the release, update the improvement request's status, and run the full
-      offline validation.
+- [x] Milestone 7, the validation half (2026-08-05): `nix fmt`, `git diff --check`,
+      `cabal build all`, the key- and CLI-scrubbed `cabal test all`, and `nix flake check` all
+      succeed. Every suite passes: `baikai` 168, `baikai-claude` 174, `baikai-openai` 81,
+      `baikai-agent` 65, `baikai-kit` 29, `baikai-effectful` 4, `baikai-trace-otel` 3, and
+      `baikai-smoke` with no provider key and no coding-agent binary on `PATH`. No acceptance step
+      invoked a live model or a real coding-agent binary.
+- [ ] Milestone 7, the release half: bump versions, update internal bounds, move the `[Unreleased]`
+      changelog into dated sections, publish in dependency order, close the improvement request, and
+      complete the parent MasterPlan. **Not started, and deliberately held.** This plan's own
+      Idempotence and Recovery section says to treat it as a separate session because publishing to
+      Hackage cannot be undone; everything before it is complete, tested, and usable in-tree through
+      a source-repository pin. It also needs an explicit decision to publish, which is not the
+      implementer's to make.
 
 
 ## Surprises & Discoveries

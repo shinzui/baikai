@@ -288,9 +288,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-5 (2026-08-05): Implement scope discovery and the built-in, user, repository, environment, and command-line layer order.
 - [x] EP-5 (2026-08-05): Load the user-scope policy ceiling and apply it to every resolved job.
 - [x] EP-5 (2026-08-05): Add tests for precedence, per-value provenance, secret redaction, and ceiling refusal.
-- [ ] EP-6: Implement `agent run`, `agent show`, and `agent list` with documented exit codes and stream discipline.
-- [ ] EP-6: Prove the `sync-keiro-dsl.sh` launch shape end-to-end against fake executables.
-- [ ] EP-6: Write `docs/user/unattended-agent-runs.md` and cross-link the two existing surfaces.
+- [x] EP-6 (2026-08-05): Implement `agent run`, `agent show`, and `agent list` with documented exit codes and stream discipline.
+- [x] EP-6 (2026-08-05): Prove the `sync-keiro-dsl.sh` launch shape end-to-end against fake executables.
+- [x] EP-6 (2026-08-05): Write `docs/user/unattended-agent-runs.md` and cross-link the two existing surfaces.
 - [ ] EP-6: Coordinate the release across every affected package and update the improvement-request status.
 
 
@@ -526,6 +526,36 @@ interactions between child plans. Provide concise evidence.
   passing. The mutation was applied, the failure observed, and the module restored. Consequence for
   EP-6: the executable must not introduce a second path to the ceiling; it calls `loadAgentCeiling`
   and `applyCeilingToJob` and adds no override of its own.
+
+- Discovery (EP-6, 2026-08-05): **the secret classification EP-5 applied to
+  `safety.provider-args` had two holes that only opened once something printed.** EP-5's own tests
+  prove a resolution report never carries the value, but a refusal message and a rendered argument
+  vector both did. `renderCeilingViolation (ProviderArgsForbidden args)` in
+  `baikai/src/Baikai/Agent.hs` interpolated the arguments verbatim, so a job asking for
+  `provider-args "--api-key" "sk-…"` under a ceiling that forbids them printed the key in the
+  refusal; and `agent show` prints the argument vector, into which both vendor renderers append
+  those arguments unchanged. The renderer now reports the count and states that the values are not
+  shown, and `agent show` renders its display vector from a request whose provider arguments have
+  been replaced by `<redacted>` markers, while the ceiling check still runs against the real
+  request. Consequence, and it is the one worth carrying forward: a "renders no secret material"
+  property has to be re-checked at every new *output* surface, not established once at the
+  configuration layer. This is also the only change EP-6 made to a file EP-1 owns, and it changed a
+  rendering rather than a type — the `ProviderArgsForbidden` constructor keeps its `[Text]` payload,
+  now with a Haddock note saying not to render it.
+
+- Discovery (EP-6, 2026-08-05): `cabal run baikai` cannot reach the new executable, because the
+  workspace already has a *package* named `baikai` and `cabal run` resolves an unqualified target as
+  a package first. In-workspace invocation is `cabal run baikai-agent:exe:baikai`. An installed
+  binary is still `baikai`, which is what the user guide and the migration guide document, so the
+  executable was not renamed. Consequence: any future plan writing `cabal run baikai -- …` in its
+  Concrete Steps is writing a command that fails.
+
+- Discovery (EP-6, 2026-08-05): a value produced by a `settei` named default rule reaches the
+  resolution report as an `Origin` whose `kind` is `DerivedSource` and whose `name` is the rule
+  name — **not** through `ResolutionNode`'s `derivation` field, which was `Nothing` for every node
+  observed. A renderer that branches on `derivation` therefore never fires, and the rule name renders
+  as a bare word indistinguishable from a file's source label. Consequence for any future consumer of
+  the report: branch on the origin kind, not on `derivation`.
 
 - Discovery: both providers can take the prompt on standard input, which removes the
   dash-leading-prompt hazard entirely, but Codex has a trap. `codex exec --help` states that
