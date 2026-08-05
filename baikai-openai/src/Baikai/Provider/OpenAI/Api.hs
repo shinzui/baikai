@@ -34,6 +34,7 @@ module Baikai.Provider.OpenAI.Api
     openaiChatStream,
     openaiChatStreamWith,
     SseDriver,
+    openaiStrength,
     RawChunk (..),
     RawToolDelta (..),
     parseChunk,
@@ -115,9 +116,11 @@ import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Version (showVersion)
 import GHC.Generics (Generic)
 import Network.HTTP.Types.Header (RequestHeaders)
 import Numeric.Natural (Natural)
+import Paths_baikai_openai qualified as Paths
 import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -595,7 +598,8 @@ sealTerminal s ev
         Nothing -> pure ev
         Just finish -> do
           now <- getCurrentTime
-          let record = finish now (statusOf ev) (errorOf ev)
+          let st = statusOf ev
+              record = observeOpenAI st (s ^. #assembler) (finish now st (errorOf ev))
           pure (withEvidence record ev)
   where
     statusOf = \case
@@ -614,6 +618,91 @@ sealTerminal s ev
       EventDone p -> EventDone (p & #evidence .~ Just record)
       EventError p -> EventError (p & #evidence .~ Just record)
       other -> other
+
+-- | Replace the observed fields of a prepared evidence record with what
+-- this call actually saw, and derive the strength from that.
+--
+-- Only ever reached on a call whose caller asked for evidence, which is
+-- what makes it safe to compute the response commitment here: that
+-- digest hashes the model's entire output and is the most expensive
+-- thing this provider adds. The observations it reads were gathered
+-- unconditionally, because each costs a lookup and each improves the
+-- 'Baikai.Response.Response' for every caller.
+--
+-- Nothing here consults the request. An observation the host did not
+-- make stays 'Ev.Unobserved'.
+observeOpenAI ::
+  Ev.CallStatus -> Assembler -> Ev.ModelCallEvidence -> Ev.ModelCallEvidence
+observeOpenAI st ass ev =
+  ev
+    & #endpoint . #implementationVersion .~ Just openaiPackageVersion
+    & #observedModel .~ (ass ^. #observedModel)
+    & #providerRequestId .~ (ass ^. #providerRequestId)
+    & #responseId .~ maybe Ev.Unobserved Ev.Observed (ass ^. #responseId)
+    & #usage .~ observedUsage ass
+    & #responseCommitment .~ responseCommitment st ass
+    & #strength .~ openaiStrength (ass ^. #observedModel) (ass ^. #providerRequestId)
+
+-- | How much an OpenAI-compatible evidence record proves, derived only
+-- from what was actually observed.
+--
+-- No host in this ecosystem echoes the reasoning configuration it
+-- applied, so 'Ev.EvidenceFullyObserved' is unreachable on this
+-- transport. Reasoning-token counts in the usage block corroborate
+-- output volume; they are not a statement of which effort setting was in
+-- force and must not raise the strength.
+--
+-- A successful HTTP status deliberately does not raise it either. A 200
+-- means the request was accepted, not that any particular model ran.
+openaiStrength :: Ev.Observed Text -> Ev.Observed Text -> Ev.EvidenceStrength
+openaiStrength observedModel providerRequestId =
+  case (observedModel, providerRequestId) of
+    (Ev.Observed _, Ev.Observed _) -> Ev.EvidenceModelObserved
+    (_, Ev.Observed _) -> Ev.EvidenceCorrelated
+    _ -> Ev.EvidenceRequestedOnly
+
+-- | The token accounting, but only if the host actually reported it.
+--
+-- The assembler initialises 'usage' to zeroes, so reporting it
+-- unconditionally would tell a reader the host said this call consumed
+-- nothing — which for a call that failed before any usage arrived is a
+-- fabrication, and exactly what 'Ev.Observed' exists to stop.
+observedUsage :: Assembler -> Ev.Observed Usage.Usage
+observedUsage ass
+  | ass ^. #usageReported = Ev.Observed (finalUsage ass)
+  | otherwise = Ev.Unobserved
+
+-- | A commitment to what came back, on a call that produced a response.
+--
+-- Left 'Ev.Unobserved' otherwise: a digest of an empty envelope is a
+-- real-looking value standing for a response that never arrived.
+responseCommitment :: Ev.CallStatus -> Assembler -> Ev.Observed Text
+responseCommitment Ev.CallSucceeded ass =
+  Ev.Observed (Ev.commitmentDigest (responseEnvelope ass))
+responseCommitment _ _ = Ev.Unobserved
+
+-- | What that digest commits to: the assembled content blocks in order,
+-- the stop reason, and the reported usage.
+--
+-- Deliberately the assembled response rather than the raw SSE bytes. Two
+-- identical responses split into different chunks must produce the same
+-- digest, and the chunk boundaries are a transport detail no verifier
+-- holding the response could reproduce. The key names match the
+-- Anthropic adapter's envelope so a consumer reading both does not have
+-- to learn two spellings.
+responseEnvelope :: Assembler -> Value
+responseEnvelope ass =
+  Aeson.object
+    [ "content" Aeson..= blocksInOrder ass,
+      "stop_reason" Aeson..= (ass ^. #stopReason),
+      "usage" Aeson..= finalUsage ass
+    ]
+
+-- | The version of this package, for the evidence record's endpoint
+-- identity. Read from the cabal-generated module rather than written as
+-- a literal, which becomes a lie the first time a release misses it.
+openaiPackageVersion :: Text
+openaiPackageVersion = Text.pack (showVersion Paths.version)
 
 terminal :: AssistantMessageEvent -> Bool
 terminal = \case
@@ -1152,18 +1241,23 @@ closeOpenStream now mErr ass
           errEv = EventError (errorTerminal Nothing (ass3 ^. #responseId) reason msg errInfo)
        in (tagEvents <> closeReasoning <> closeText <> closeTools <> [errEv], ass3)
 
+-- | The accumulated token counts with this model's price applied.
+--
+-- Shared by the assistant message and the evidence record so the two
+-- cannot report different numbers for the same call.
+finalUsage :: Assembler -> Usage.Usage
+finalUsage ass =
+  let usageBare = ass ^. #usage
+   in usageBare & #cost .~ Pricing.computeCost (ass ^. #model) usageBare
+
 finalMessage ::
   Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message
 finalMessage ass now errMsg sr =
   let blocks = blocksInOrder ass
-      m = ass ^. #model
-      usageBare = ass ^. #usage
-      computed = Pricing.computeCost m usageBare
-      usage' = usageBare & #cost .~ computed
    in Msg.AssistantMessage
         Msg.AssistantPayload
           { Msg.content = blocks,
-            Msg.usage = usage',
+            Msg.usage = finalUsage ass,
             Msg.stopReason = sr,
             Msg.errorMessage = errMsg <|> (ass ^. #finishNote),
             Msg.timestamp = Just now

@@ -70,14 +70,16 @@ cabal test baikai-openai
 - [x] Capture the correlation header and the HTTP status. (2026-08-05)
 - [x] Read the provider-reported model out of the streamed chunks — and the response id
       beside it, which this transport also discarded. (2026-08-05)
-- [ ] Populate the evidence record and derive the strength from what was observed.
-- [ ] Add the response commitment digest.
+- [x] Populate the evidence record and derive the strength from what was observed. (2026-08-05)
+- [x] Add the response commitment digest. (2026-08-05)
 - [x] Write the forty-two-case translation table test (seven shapes by six levels). (2026-08-05)
 - [x] Write the header-capture and observed-model fixture tests. (2026-08-05)
-- [ ] Write the end-to-end evidence tests, including the toggle-host indistinguishability case.
-- [ ] Add `CHANGELOG.md` entries under `### Added`, plus a `### Fixed` line for the corrected
-      `ThinkingFormatOpenAI` Haddock. Nothing here belongs under `### Changed`: this plan sends
-      nothing new on the wire.
+- [x] Write the end-to-end evidence tests, including the toggle-host indistinguishability case.
+      (2026-08-05)
+- [x] Add `CHANGELOG.md` entries under `### Added`, plus a `### Fixed` line for the corrected
+      `ThinkingFormatOpenAI` Haddock — and, contrary to this line as written, three `### Changed`
+      entries for the source-breaking signature changes. Nothing new goes on the wire; the
+      signatures did change. See the Decision Log. (2026-08-05)
 
 
 ## Surprises & Discoveries
@@ -130,6 +132,40 @@ path's empty adjustment list is a computed consequence of forwarding the canonic
 a special case someone has to remember. Adding an eighth wire shape cannot leave a stale table
 behind, which is the failure mode
 [docs/plans/53](53-emit-anthropic-messages-api-call-evidence.md) warned this plan about.
+
+
+### Found while implementing Milestone 3
+
+**Four evidence helpers are now duplicated verbatim across two provider packages.**
+`observeOpenAI`/`observeAnthropic`, `openaiStrength`/`anthropicStrength`, `observedUsage`,
+`responseCommitment`, and `correlationId` differ between
+`baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` and
+`baikai-claude/src/Baikai/Provider/Claude/Api.hs` only in the package version they read and in
+which assembler record they project. Two copies is not yet a problem and a premature abstraction
+over one example would have been worse, but a third copy would be: EP-5 adds two more transports
+and [docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md) is the
+plan that can see all of them at once. The natural home is `Baikai.Evidence.Build`, which already
+owns the construction side of exactly this record.
+
+**The two transports now agree on the response envelope's key names by hand, not by construction.**
+Both spell it `{"content": …, "stop_reason": …, "usage": …}`, so a verifier holding a response can
+recompute the digest without knowing which provider served it. Nothing enforces the agreement; it
+is a comment in each module. If the shared helper above is written, it should own the envelope
+shape too.
+
+**The no-dispatch path behaves exactly as EP-3 predicted.** When `mapRequest` fails, `immediateError`
+emits `noThinkingRequested` — asserting the caller requested no thinking level — even for a caller
+who set one. This plan leaves it alone for the reason EP-3 gave: every honest alternative needs a
+`ThinkingMode` the vocabulary does not have, and extending EP-1's vocabulary unilaterally from a
+provider plan is not this plan's decision to make. Two transports now share the flaw, which
+strengthens the case for
+[docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md) resolving it
+rather than each provider inventing something.
+
+**`finalUsage` had to be extracted before the evidence could use it.** The priced usage was computed
+inline inside `finalMessage`, so an evidence record built beside it would have had to recompute
+`Pricing.computeCost` and could have drifted from what the assistant message reported for the same
+call. It is now one function both read.
 
 
 ## Decision Log
@@ -772,3 +808,53 @@ the most likely place to discover that a needed adjustment case is missing; if t
 a change to
 [docs/plans/51](51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md) and to the
 MasterPlan's Integration Points section, and both must be updated before the code is written.
+
+
+## Outcomes & Retrospective
+
+Complete. `cabal build all` produces zero warnings and all eight test suites pass, including
+`baikai-smoke`, which has no credentials present and therefore skips the live path.
+
+Every acceptance criterion holds. The translation table covers all forty-two shape-by-level
+combinations, and every row asserts both the produced `ThinkingTranslation` and the shaped JSON
+body — the present keys and the absent ones, so a shape cannot quietly send a field belonging to
+another host. No request body changed anywhere: `nativeHigherEffortTests` and
+`compatibleHigherEffortClampTest` pass untouched, which is this plan's sharpest criterion precisely
+because an earlier draft proposed changing them. A native host at `ThinkingXHigh` sends
+`"reasoning_effort":"xhigh"` with an empty adjustment list while a DeepSeek model sends `"high"`
+and records `EffortClamped`, proved in adjacent cases. A `ThinkingFormatZai` host at `ThinkingLow`
+and at `ThinkingMax` receives byte-identical request bodies and produces two translations that
+differ in `requested` and both carry `EffortCollapsedToToggle`. A replayed successful call produces
+exactly one `CallEvidence` record whose `observed_model` is `Observed` carrying a value different
+from `requested_model`; a replayed 429 produces one record with `status: failed`, a populated
+`error_info`, an `Observed` `provider_request_id`, and `"unobserved"` for the model, the response
+id, the usage, and the response commitment.
+
+Nothing regressed and no existing assertion changed meaning. Five existing call sites were edited
+mechanically: `ShapeSpec`'s `shapedBody` helper takes `fst` of the shaping pair, `SseSpec`'s two
+pre-existing cases gained the metadata callback argument, and three `RawChunk` literals in
+`ShapeSpec`, `ReasoningSpec`, and `Main` gained the two new fields. Every assertion in them is
+unchanged.
+
+Three things are worth carrying forward.
+
+**The most valuable test in this plan is the one the plan almost did not ask for.** The toggle-host
+case sends two requests a provider cannot tell apart and shows baikai's record telling them apart.
+Every other case proves a field is populated; that one demonstrates why the record exists at all.
+A plan that produces this kind of case should put it in the acceptance criteria, not only in a test
+list.
+
+**Deriving beats tabulating, again.** One helper compares the word that went on the wire with the
+canonical level name, so five of the seven shapes share a single derivation and the native path's
+empty adjustment list is a consequence rather than a special case. The test table is the mirror
+image: every word and every adjustment is written out as a literal, so it states the intent
+independently instead of recomputing it. Derived in the code, tabulated in the test — the two
+must not be the same thing or the test proves only that the code agrees with itself.
+
+**The second implementation is where the shared abstraction becomes visible.** Four helpers are now
+duplicated between this adapter and the Anthropic one, differing only in the package version they
+read. Abstracting after one example would have been a guess; after two it is a shape, and after
+[docs/plans/55](55-emit-claude-and-codex-cli-completion-provider-evidence.md) adds two more it will
+be a liability. Recorded under Surprises & Discoveries for
+[docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md), which is the
+first plan positioned to see every transport at once.

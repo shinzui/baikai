@@ -36,6 +36,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
+import EvidenceSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import ReasoningSpec qualified
@@ -81,6 +82,7 @@ main =
         responseFormatMappingTest,
         optionsMappingTest,
         ErrorClassSpec.tests,
+        EvidenceSpec.tests,
         ReasoningSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,

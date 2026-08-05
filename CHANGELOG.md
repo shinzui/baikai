@@ -259,13 +259,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `thinking_dropped_unsupported_host` where the option previously vanished with
   no trace. A forty-two-row table test pins the translation and the shaped
   request body for every shape at every level.
-- `baikai-openai`: the Chat Completions adapter now reads what the host reports
-  about itself — the `model` it says produced the response and the correlation
-  identifier it issues in a response header — instead of discarding both. The
-  model comes from the first streamed chunk that carries a top-level `model`
-  field and is never overwritten by a later one; a host that reports none leaves
-  the observation `"unobserved"` rather than being filled in from the configured
-  model.
+- `baikai-openai`: the Chat Completions provider now fills in the evidence record
+  it previously left blank. It records the model **the host reported running**
+  (read from the first streamed chunk carrying a top-level `model` field and
+  never overwritten by a later one), the host's `x-request-id` correlation
+  header, the response id, the token counts the host actually reported, and a
+  commitment digest over the assembled response. A field the host did not report
+  stays `"unobserved"` and is never backfilled from the request — in particular,
+  a call that fails before any chunk arrives reports no observed model at all.
+  `strength` is `model_observed` when both the model and a correlation
+  identifier arrived, `correlated` when only the identifier did, and
+  `requested_only` otherwise; a 2xx status never raises it, because a 200 means
+  the request was accepted, not that any particular model ran.
+  `fully_observed` is unreachable on this transport, since no host in this
+  ecosystem echoes the reasoning configuration it applied.
 - `baikai-openai`: new exports from `Baikai.Provider.OpenAI.Sse` —
   `ResponseMetadata` and `capturedHeaderNames` — and from
   `Baikai.Provider.OpenAI.Api` — `openaiChatStreamWith` and `SseDriver`.

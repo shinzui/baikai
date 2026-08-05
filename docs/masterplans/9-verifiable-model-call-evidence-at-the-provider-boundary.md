@@ -196,7 +196,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 | EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | Complete |
 | EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Complete |
 | EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Complete |
-| EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | In Progress |
+| EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Complete |
 | EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Not Started |
 | EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | Not Started |
 | EP-7 | Enforce strict evidence mode and release the evidence surface | docs/plans/57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md | EP-2, EP-3, EP-4, EP-5, EP-6 | None | Not Started |
@@ -335,11 +335,12 @@ sign, does not hold sanctioning policy, and does not own retries.
       through the local SSE transport. (2026-08-05)
 - [x] EP-3: Prove all six canonical thinking levels against both Anthropic thinking styles with
       recorded fixtures. (2026-08-05)
-- [ ] EP-4: Build the OpenAI-compatible translation record across all seven wire shapes.
-- [ ] EP-4: Correct the stale `ThinkingFormatOpenAI` Haddock, leaving the native effort mapping —
-      which is deliberate and test-guarded — unchanged.
-- [ ] EP-4: Capture the OpenAI-compatible response correlation header and provider-reported
-      model.
+- [x] EP-4: Build the OpenAI-compatible translation record across all seven wire shapes.
+      (2026-08-05)
+- [x] EP-4: Correct the stale `ThinkingFormatOpenAI` Haddock, leaving the native effort mapping —
+      which is deliberate and test-guarded — unchanged. (2026-08-05)
+- [x] EP-4: Capture the OpenAI-compatible response correlation header and provider-reported
+      model. (2026-08-05)
 - [ ] EP-5: Preserve the Claude CLI session identifier and parse its reported usage.
 - [ ] EP-5: Parse the Codex CLI thread identifier and token counts from its event stream.
 - [ ] EP-5: Record executable identity, version, and argument-vector digest, at explicitly weaker
@@ -590,6 +591,49 @@ field of `ModelCallEvidence` currently holds; EP-7 may want one.
 verification command initially selected zero tests and reported success. Every later plan in this
 MasterPlan documents a `--pattern` command; check the run actually selected tests, because the
 failure mode is indistinguishable from a pass.
+
+
+### Found while implementing EP-4
+
+These change what EP-5 through EP-7 must do.
+
+**Four evidence helpers are now duplicated verbatim in two provider packages, and EP-7 should
+consolidate them.** `observeAnthropic`/`observeOpenAI`, `anthropicStrength`/`openaiStrength`,
+`observedUsage`, `responseCommitment`, and `correlationId` differ between
+`baikai-claude/src/Baikai/Provider/Claude/Api.hs` and
+`baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` only in the package version they read and the
+assembler they project. Two copies were not worth abstracting over; EP-5 adds two more transports,
+and at four the duplication becomes the kind of thing that drifts. `Baikai.Evidence.Build` already
+owns the construction side of the same record and is the natural home. EP-5 should not invent a
+third spelling, and EP-7 is the first plan positioned to see every transport at once.
+
+**Both API transports spell the response-commitment envelope identically by hand.** It is
+`{"content": …, "stop_reason": …, "usage": …}` in both, so a verifier holding a response can
+recompute the digest without knowing which provider served it. Nothing enforces that agreement
+today beyond a comment in each module; whoever writes the shared helper above should own the
+envelope shape too, and EP-5's subprocess transports need a deliberate answer rather than a third
+guess.
+
+**The no-dispatch infidelity EP-3 found is confirmed on the second transport.** When `mapRequest`
+fails, `immediateError` emits `noThinkingRequested` — which asserts the caller asked for no
+thinking level — even for a caller who set one. EP-4 left it alone for the reason EP-3 gave. Two
+transports now share it and EP-5 will make it four, which strengthens the case for EP-7 resolving
+it centrally rather than each provider inventing a workaround. Extending EP-1's `ThinkingMode` is
+still the only honest fix, and still not a provider plan's decision.
+
+**EP-4's most valuable test is the one its plan listed last.** Replaying the same call against a
+`ThinkingFormatZai` host at `ThinkingLow` and at `ThinkingMax` produces byte-identical request
+bodies and two evidence records that differ. Every other case proves a field is populated; that one
+demonstrates why the whole record exists. EP-5 and EP-6 should each look for their own equivalent —
+the pair of calls their transport cannot tell apart — rather than only asserting field presence.
+
+**Reading the response identifier was a bug fix, not just an evidence feature.** `Response.responseId`
+was permanently `Nothing` on the OpenAI-compatible transport even though every host sends a
+top-level `id` on every chunk. It is now populated for every caller, evidence or not, which is the
+class of cheap unconditional observation the Decision Log's opt-in gate deliberately excludes from
+gating. EP-5 has two known instances of the same shape waiting for it: the Claude CLI session
+identifier that is decoded and discarded, and the Codex thread identifier that is filtered out of
+the event stream.
 
 
 ## Decision Log

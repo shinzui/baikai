@@ -41,6 +41,8 @@ library
     Baikai.Provider.OpenAI.Sse
     Baikai.Provider.OpenAI.Transport
 
+  other-modules:   Paths_baikai_openai
+  autogen-modules: Paths_baikai_openai
   build-depends:
     , aeson              ^>=2.2
     , baikai             ^>=0.4.0
@@ -70,6 +72,7 @@ test-suite baikai-openai-test
   main-is:        Main.hs
   other-modules:
     ErrorClassSpec
+    EvidenceSpec
     ReasoningSpec
     ShapeSpec
     SseSpec
@@ -91,6 +94,7 @@ test-suite baikai-openai-test
     , lens              ^>=5.3
     , openai
     , servant-client
+    , stm
     , streamly-core     >=0.3    && <0.5
     , tasty
     , tasty-hunit
