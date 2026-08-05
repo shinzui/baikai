@@ -212,6 +212,38 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `gen_ai.response.model` only when the provider actually reported one) rather
   than serialising the record into one blob. A `CallEvidence` event neither
   opens nor closes a span.
+- `baikai-claude`: the Anthropic Messages provider now fills in the evidence
+  record it previously left blank. It records the model **Anthropic reported
+  running** (read from the `message_start` event, which the adapter already
+  decoded for the response id and then discarded), Anthropic's `request-id`
+  correlation header, the response id, the token counts Anthropic actually
+  reported, and a commitment digest over the assembled response. A field the
+  provider did not report stays `"unobserved"` and is never backfilled from the
+  request — in particular, a stream that fails before `message_start` reports no
+  observed model at all. `strength` is `model_observed` when both the model and a
+  correlation identifier arrived, `correlated` when only the identifier did, and
+  `requested_only` otherwise; a 2xx status never raises it, because a 200 means
+  the request was accepted, not that any particular model ran.
+  `fully_observed` is unreachable on this transport, since Anthropic does not
+  echo the thinking configuration it applied.
+- `baikai-claude`: an evidence record's `thinking` field now describes what the
+  caller's reasoning-effort preference actually became on the wire, including
+  three downgrades that were previously invisible everywhere in baikai's output:
+  asking for thinking on a model that does not advertise `reasoning`
+  (`thinking_dropped_unsupported_model`); asking for a level whose token budget
+  does not fit under the resolved output-token ceiling
+  (`thinking_dropped_budget_exceeded`, carrying both colliding numbers), which is
+  reachable by lowering `maxTokens` alone; and asking for `high` on an
+  adaptive-thinking model, which sends no effort field and so is
+  wire-indistinguishable from taking Anthropic's default depth
+  (`effort_omitted`). `minimal` on an adaptive model reports `effort_clamped`,
+  because Anthropic's adaptive vocabulary has no `minimal`.
+- `baikai-claude`: new exports from `Baikai.Provider.Claude.Sse` —
+  `ResponseMetadata` and `capturedHeaderNames` — and from
+  `Baikai.Provider.Claude.Api` — `claudeMessagesStreamWith`, `SseDriver`, and
+  `anthropicStrength`. Response-header capture is an **allow-list**
+  (`request-id`, `x-request-id`, `cf-ray`, in that preference order), not a
+  denylist, so a header a future gateway adds is not recorded by default.
 
 ### Changed
 
@@ -244,6 +276,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   approximating `Scientific`, so a decoder would return a different value than
   was encoded — and manufacturing that fidelity would be the precise failure
   this vocabulary exists to eliminate.
+- **Breaking:** `baikai-claude`: `Baikai.Provider.Claude.Sse`'s four streaming
+  entry points — `claudeSseStream`, `claudeSseStreamValue`,
+  `claudeSseStreamValueWithHeaders`, and `sseFromResponse` — take a new
+  `ResponseMetadata -> IO ()` callback immediately before the existing per-event
+  callback. It fires exactly once, before the first event, on both the success
+  and the non-2xx path. Pass `(\_ -> pure ())` to keep the previous behaviour.
+  The callback is separate rather than a widening of the per-event one because
+  the per-event callback runs once per SSE frame and response-level data does not
+  belong on that path.
+- **Breaking:** `baikai-claude`: `Baikai.Provider.Claude.Internal.Request`'s
+  `mapRequest` now returns
+  `Either Text (Messages.CreateMessage, ThinkingTranslation)` and
+  `computeThinking` returns `(ThinkingPlan, ThinkingTranslation)`. Take `fst` to
+  keep the previous value. This module is exposed for provider tests and
+  debugging and its header states it is not covered by PVP compatibility
+  guarantees, but the change is recorded here because that is not a licence to
+  break a consumer silently.
 - `baikai`: `Baikai.Trace.Sink.renderHuman` renders a `CallEvidence` event as a
   single `EVIDENCE run=… call=… strength=…` line rather than the whole record. A
   human-readable sink is for watching calls go by; the full record is meant to

@@ -42,6 +42,8 @@ library
     Baikai.Provider.Claude.Sse
     Baikai.Provider.Claude.Transport
 
+  other-modules:   Paths_baikai_claude
+  autogen-modules: Paths_baikai_claude
   build-depends:
     , aeson              ^>=2.2
     , baikai             ^>=0.4.0
@@ -72,6 +74,7 @@ test-suite baikai-claude-test
   main-is:        Main.hs
   other-modules:
     ErrorClassSpec
+    EvidenceSpec
     ShapeSpec
     SseSpec
     ThinkingSpec
@@ -95,6 +98,8 @@ test-suite baikai-claude-test
     , http-types
     , lens              ^>=5.3
     , servant-client
+    , stm
+    , streamly
     , streamly-core     >=0.3    && <0.5
     , tasty
     , tasty-hunit

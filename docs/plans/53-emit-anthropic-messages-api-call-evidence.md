@@ -62,12 +62,13 @@ and against a live account, if you have one, through the existing smoke suite.
       (2026-08-05)
 - [x] Record the three Anthropic thinking-downgrade cases as `ThinkingAdjustment` values.
       (2026-08-05)
-- [ ] Populate the evidence record and derive the evidence strength from what was observed.
-- [ ] Add the response commitment digest.
+- [x] Populate the evidence record and derive the evidence strength from what was observed.
+      (2026-08-05)
+- [x] Add the response commitment digest. (2026-08-05)
 - [x] Write the fourteen-case translation table test. (2026-08-05)
 - [x] Write the header-capture and observed-model fixture tests. (2026-08-05)
-- [ ] Write the end-to-end evidence test for a successful call and a 429.
-- [ ] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading.
+- [x] Write the end-to-end evidence test for a successful call and a 429. (2026-08-05)
+- [x] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading. (2026-08-05)
 
 
 ## Surprises & Discoveries
@@ -86,6 +87,26 @@ the level's canonical name becomes `EffortClamped`. The alternative — a hand-w
 someone edited `adaptiveEffort` and not its twin. EP-4 populates the same record from a mapping
 with seven wire shapes and should consider the same shape.
 
+**`immediateError` still reports `noThinkingRequested`, and that is a small lie EP-7 should fix.**
+When `mapRequest` fails or `prepareCall` throws, no request is built and no translation exists, so
+the adapter falls back to the "the caller asked for no thinking level" value that
+[docs/plans/52](52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md) put there.
+For a caller who *did* set a level, that field is wrong. This plan deliberately did not fix it:
+every honest alternative needs a `ThinkingMode` the vocabulary does not have — "the caller asked
+for a level and nothing was dispatched at all" is neither `absent` (which claims no level was
+asked for) nor `unsupported` (which claims the transport cannot express it). Adding one is a
+change to [docs/plans/51](51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md)
+and to the MasterPlan's Integration Points, which this plan may not make.
+[docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md) owns the
+pre-dispatch refusal path and is the right place to decide. EP-4 will hit the identical case.
+
+**A tasty `--pattern` that matches nothing reports "All 0 tests passed".** The plan's own
+verification command is `--test-options='--pattern Evidence'`, and the first name for the new test
+group did not contain that substring, so the command reported success while running nothing. The
+group is now named `EvidenceSpec: Anthropic model-call evidence`. Worth knowing for every later
+plan in this MasterPlan that documents a `--pattern` command: check the run actually selected
+tests, because the failure mode looks exactly like a pass.
+
 **The two numbers in `ThinkingDroppedBudgetExceeded` are the budget and the *resolved* ceiling,
 not the max-tokens value finally sent.** The discard fires when
 `clamp (baseTokens + budget) <= budget`, so those are the two values that actually collided. After
@@ -103,6 +124,36 @@ vanished; recording what was ultimately sent would not. The adjustment's JSON sp
   call. Threading response-level metadata through it would mean either re-sending the same values
   on every event or making every event payload a sum type. A second callback invoked exactly once,
   before the first event, matches what the data actually is and leaves the hot path untouched.
+  Date: 2026-08-05
+
+- Decision: Add a transport seam — `claudeMessagesStreamWith` over an `SseDriver` — so the
+  end-to-end test replays a recorded response through the real adapter rather than a stub.
+  Rationale: The plan asks for a test that replays a call "through the adapter" and collects the
+  evidence "with a capturing sink", and `claudeMessagesStream` reaches the network through
+  `HTTP.withResponse`. The alternatives were a local HTTP server, which needs a dependency
+  `baikai-claude` does not have and would test the socket rather than the evidence, or a fake
+  `ApiProvider` in the test, which would prove only that the test's own evidence assembly works.
+  Replacing exactly one function — the one that opens the socket — leaves `mapRequest`,
+  `sseFromResponse`, the header allow-list, the assembler, the evidence builder, the trace layer,
+  and the sink all real. EP-4 should do the same rather than inventing a second technique.
+  Date: 2026-08-05
+
+- Decision: Populate `usage` in this plan, which the plan text does not list.
+  Rationale: The MasterPlan's "Found while implementing EP-2" section assigns the field to
+  EP-3/4/5 explicitly: EP-2 left it `Unobserved` because no assembler could tell a reported zero
+  from silence. Anthropic reports token counts in `message_start` and `message_delta`, so this
+  transport can tell them apart, and the assembler now carries a `usageReported` flag saying which
+  happened. Leaving the field `Unobserved` on a call where Anthropic plainly reported counts would
+  be a gap this plan is in a position to close for the cost of one boolean.
+  Date: 2026-08-05
+
+- Decision: The response commitment digest covers the assembled response, not the raw SSE bytes.
+  Rationale: A verifier who independently holds the response has the content, the stop reason, and
+  the usage — not the frame boundaries the transport happened to deliver them in. Digesting the
+  raw bytes would make the value depend on chunking, so two identical responses could produce
+  different digests and no third party could recompute either. It is `Unobserved` on a failed
+  call: a digest of an empty envelope is a real-looking value standing for a response that never
+  arrived.
   Date: 2026-08-05
 
 - Decision: The response metadata reaches the assembler through an `IORef` the producer reads

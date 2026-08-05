@@ -30,6 +30,9 @@ module Baikai.Provider.Claude.Api
     registerWithRegistry,
     claudeMessagesProvider,
     claudeMessagesStream,
+    claudeMessagesStreamWith,
+    SseDriver,
+    anthropicStrength,
     Assembler (..),
     emptyAssembler,
     translate,
@@ -93,8 +96,10 @@ import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Version (showVersion)
 import GHC.Generics (Generic)
 import Network.HTTP.Types.Header (RequestHeaders)
+import Paths_baikai_claude qualified as Paths
 import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -140,7 +145,32 @@ registerWithRegistry reg =
 -- the masterplan's "partial output is always recoverable" promise.
 claudeMessagesStream ::
   Model -> Context -> Options -> Stream IO AssistantMessageEvent
-claudeMessagesStream m ctx opts =
+claudeMessagesStream = claudeMessagesStreamWith liveSseDriver
+
+-- | How a call physically reaches Anthropic.
+--
+-- Production passes 'liveSseDriver'. A test passes one that replays a
+-- recorded response through the same
+-- 'Baikai.Provider.Claude.Sse.sseFromResponse' the live driver uses, so
+-- header capture, status classification, and SSE frame decoding are all
+-- the real implementations and only the socket is missing.
+type SseDriver =
+  ClaudeCall ->
+  (Sse.ResponseMetadata -> IO ()) ->
+  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  IO ()
+
+liveSseDriver :: SseDriver
+liveSseDriver call =
+  claudeSseStreamValueWithHeaders
+    (call ^. #clientEnv)
+    (call ^. #requestHeaders)
+    (call ^. #requestBody)
+
+-- | 'claudeMessagesStream' over an explicit transport driver.
+claudeMessagesStreamWith ::
+  SseDriver -> Model -> Context -> Options -> Stream IO AssistantMessageEvent
+claudeMessagesStreamWith driver m ctx opts =
   Stream.concatEffect $ do
     setupResult <- trySync (prepareCall m ctx opts)
     let setup = either (Left . exceptionToError) id setupResult
@@ -150,7 +180,7 @@ claudeMessagesStream m ctx opts =
         ch <- newChan :: IO (Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)))
         tref <- newIORef False
         mref <- newIORef Nothing
-        _ <- forkIO (worker call mref ch)
+        _ <- forkIO (worker driver call mref ch)
         startTime <- getCurrentTime
         -- The request body is the envelope the two digests commit to:
         -- it is exactly the JSON this call is about to put on the wire.
@@ -224,18 +254,17 @@ prepareCall m ctx opts = do
 -- the normal channel. After the SDK call returns (success or
 -- handled failure) we close the channel with 'Nothing'.
 worker ::
+  SseDriver ->
   ClaudeCall ->
   IORef (Maybe Sse.ResponseMetadata) ->
   Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)) ->
   IO ()
-worker call metaRef ch = do
+worker driver call metaRef ch = do
   r <-
     trySync $
       Transport.runWithTimeout (call ^. #timeoutMs) $
-        claudeSseStreamValueWithHeaders
-          (call ^. #clientEnv)
-          (call ^. #requestHeaders)
-          (call ^. #requestBody)
+        driver
+          call
           (writeIORef metaRef . Just)
           (writeChan ch . Just)
   case r of
@@ -339,7 +368,8 @@ sealTerminal s ev
         Nothing -> pure ev
         Just finish -> do
           now <- getCurrentTime
-          let record = finish now (statusOf ev) (errorOf ev)
+          let st = statusOf ev
+              record = observeAnthropic st (s ^. #assembler) (finish now st (errorOf ev))
           pure (withEvidence record ev)
   where
     statusOf = \case
@@ -358,6 +388,90 @@ sealTerminal s ev
       EventDone p -> EventDone (p & #evidence .~ Just record)
       EventError p -> EventError (p & #evidence .~ Just record)
       other -> other
+
+-- | Replace the observed fields of a prepared evidence record with what
+-- this call actually saw, and derive the strength from that.
+--
+-- Only ever reached on a call whose caller asked for evidence, which is
+-- what makes it safe to compute the response commitment here: that
+-- digest hashes the model's entire output and is the most expensive
+-- thing this provider adds. The observations it reads were gathered
+-- unconditionally, because each costs a lookup and each improves the
+-- 'Baikai.Response.Response' for every caller.
+--
+-- Nothing here consults the request. An observation the provider did not
+-- make stays 'Ev.Unobserved'.
+observeAnthropic ::
+  Ev.CallStatus -> Assembler -> Ev.ModelCallEvidence -> Ev.ModelCallEvidence
+observeAnthropic st ass ev =
+  ev
+    & #endpoint . #implementationVersion .~ Just claudePackageVersion
+    & #observedModel .~ (ass ^. #observedModel)
+    & #providerRequestId .~ (ass ^. #providerRequestId)
+    & #responseId .~ maybe Ev.Unobserved Ev.Observed (ass ^. #responseId)
+    & #usage .~ observedUsage ass
+    & #responseCommitment .~ responseCommitment st ass
+    & #strength .~ anthropicStrength (ass ^. #observedModel) (ass ^. #providerRequestId)
+
+-- | How much an Anthropic evidence record proves, derived only from
+-- what was actually observed.
+--
+-- Anthropic does not echo the thinking configuration it applied, so
+-- 'Ev.EvidenceFullyObserved' is unreachable on this transport. That is
+-- a fact about Anthropic's response shape, not a gap to paper over: a
+-- reasoning-token count corroborates output volume and says nothing
+-- about which effort setting was in force.
+--
+-- A successful HTTP status deliberately does not raise the strength. A
+-- 200 means the request was accepted, not that any particular model ran.
+anthropicStrength :: Ev.Observed Text -> Ev.Observed Text -> Ev.EvidenceStrength
+anthropicStrength observedModel providerRequestId =
+  case (observedModel, providerRequestId) of
+    (Ev.Observed _, Ev.Observed _) -> Ev.EvidenceModelObserved
+    (_, Ev.Observed _) -> Ev.EvidenceCorrelated
+    _ -> Ev.EvidenceRequestedOnly
+
+-- | The token accounting, but only if Anthropic actually reported it.
+--
+-- The assembler initialises 'usage' to zeroes, so reporting it
+-- unconditionally would tell a reader the provider said this call
+-- consumed nothing — which for a call that failed before any usage
+-- arrived is a fabrication, and exactly what 'Ev.Observed' exists to
+-- stop.
+observedUsage :: Assembler -> Ev.Observed Usage.Usage
+observedUsage ass
+  | ass ^. #usageReported = Ev.Observed (finalUsage ass)
+  | otherwise = Ev.Unobserved
+
+-- | A commitment to what came back, on a call that produced a response.
+--
+-- Left 'Ev.Unobserved' otherwise: a digest of an empty envelope is a
+-- real-looking value standing for a response that never arrived.
+responseCommitment :: Ev.CallStatus -> Assembler -> Ev.Observed Text
+responseCommitment Ev.CallSucceeded ass =
+  Ev.Observed (Ev.commitmentDigest (responseEnvelope ass))
+responseCommitment _ _ = Ev.Unobserved
+
+-- | What that digest commits to: the assembled content blocks in order,
+-- the stop reason, and the reported usage.
+--
+-- Deliberately the assembled response rather than the raw SSE bytes. Two
+-- identical responses split into different frames must produce the same
+-- digest, and the frame boundaries are a transport detail no verifier
+-- holding the response could reproduce.
+responseEnvelope :: Assembler -> Value
+responseEnvelope ass =
+  Aeson.object
+    [ "content" Aeson..= blocksInOrder ass,
+      "stop_reason" Aeson..= (ass ^. #stopReason),
+      "usage" Aeson..= finalUsage ass
+    ]
+
+-- | The version of this package, for the evidence record's endpoint
+-- identity. Read from the cabal-generated module rather than written as
+-- a literal, which becomes a lie the first time a release misses it.
+claudePackageVersion :: Text
+claudePackageVersion = Text.pack (showVersion Paths.version)
 
 -- | Fold whatever response-level metadata the worker has captured into
 -- the assembler.
@@ -677,37 +791,35 @@ skeletonMessage ass _now =
         Msg.timestamp = Just (ass ^. #start)
       }
 
+-- | The assembler's token accounting with this model's pricing applied.
+-- Shared so the terminal message and the evidence record cannot report
+-- two different figures for one call.
+finalUsage :: Assembler -> Usage.Usage
+finalUsage ass =
+  let usageBare = ass ^. #usage
+   in usageBare & #cost .~ Pricing.computeCost (ass ^. #model) usageBare
+
 finalMessage :: Assembler -> UTCTime -> Msg.Message
 finalMessage ass now =
-  let blocks = blocksInOrder ass
-      m = ass ^. #model
-      usageBare = ass ^. #usage
-      computed = Pricing.computeCost m usageBare
-      usage' = usageBare & #cost .~ computed
-   in Msg.AssistantMessage
-        Msg.AssistantPayload
-          { Msg.content = blocks,
-            Msg.usage = usage',
-            Msg.stopReason = ass ^. #stopReason,
-            Msg.errorMessage = Nothing,
-            Msg.timestamp = Just now
-          }
+  Msg.AssistantMessage
+    Msg.AssistantPayload
+      { Msg.content = blocksInOrder ass,
+        Msg.usage = finalUsage ass,
+        Msg.stopReason = ass ^. #stopReason,
+        Msg.errorMessage = Nothing,
+        Msg.timestamp = Just now
+      }
 
 finalMessageOnError :: Assembler -> UTCTime -> Text -> Msg.Message
 finalMessageOnError ass now reason =
-  let blocks = blocksInOrder ass
-      m = ass ^. #model
-      usageBare = ass ^. #usage
-      computed = Pricing.computeCost m usageBare
-      usage' = usageBare & #cost .~ computed
-   in Msg.AssistantMessage
-        Msg.AssistantPayload
-          { Msg.content = blocks,
-            Msg.usage = usage',
-            Msg.stopReason = Stop.ErrorReason,
-            Msg.errorMessage = Just reason,
-            Msg.timestamp = Just now
-          }
+  Msg.AssistantMessage
+    Msg.AssistantPayload
+      { Msg.content = blocksInOrder ass,
+        Msg.usage = finalUsage ass,
+        Msg.stopReason = Stop.ErrorReason,
+        Msg.errorMessage = Just reason,
+        Msg.timestamp = Just now
+      }
 
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
 blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
