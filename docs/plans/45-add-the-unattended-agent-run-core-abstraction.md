@@ -69,9 +69,10 @@ This section must always reflect the actual current state of the work.
       `cabal build baikai` succeeds with no warnings.
 - [x] Milestone 3 (2026-08-05): Add the render-error and run-failure taxonomies.
       `cabal build baikai` succeeds with no warnings.
-- [ ] Milestone 4: Add `baikai/test/AgentSpec.hs` covering defaults, every capability and
-      ceiling pair, every refusal, and every canonical rendering; register it in
-      `baikai/baikai.cabal` and `baikai/test/Main.hs`.
+- [x] Milestone 4 (2026-08-05): Add `baikai/test/AgentSpec.hs` covering defaults, every
+      capability and ceiling pair, every refusal, and every canonical rendering; register it in
+      `baikai/baikai.cabal` and `baikai/test/Main.hs`. `cabal test baikai-test` reports
+      `All 168 tests passed`, with eleven cases in the new `Baikai.Agent` group.
 - [ ] Milestone 5: Document the new surface in `docs/user/interactive-launches.md`, add
       changelog bullets, and run the full offline validation.
 
@@ -188,6 +189,23 @@ Record every decision made while working on the plan.
   happen: a refused policy, a failed spawn, a timeout, a missing precondition. The two new
   types are also split along the line that matters operationally — `AgentRenderError` means
   nothing was started, `AgentRunFailure` means something was.
+  Date: 2026-08-05
+
+- Decision (2026-08-05): register `AgentSpec` immediately **after** `AgentAssetsSpec` in
+  `baikai/baikai.cabal`, `baikai/test/Main.hs`'s imports, and its root test group, not before
+  it as Milestone 4 instructed.
+  Rationale: the instruction to keep those lists alphabetical is the governing one, and
+  `AgentAssetsSpec` sorts before `AgentSpec` because `A` precedes `S` at the seventh
+  character. Placing it first would have broken the ordering the surrounding lists follow.
+  Date: 2026-08-05
+
+- Decision (2026-08-05): the tests build `AgentSafety` and `AgentCeiling` values with their
+  smart constructor plus `generic-lens` field updates rather than with record syntax as
+  Milestone 4's prose implied.
+  Rationale: both records are exported abstractly, so their data constructors are not in
+  scope in the test module — which is the property the plan asked for. Writing the tests
+  through the public surface is also a better test: it exercises exactly what a downstream
+  caller can do.
   Date: 2026-08-05
 
 ## Outcomes & Retrospective

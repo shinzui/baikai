@@ -137,6 +137,7 @@ test-suite baikai-test
   main-is:            Main.hs
   other-modules:
     AgentAssetsSpec
+    AgentSpec
     CatalogSpec
     CliInternalSpec
     ContextSpec

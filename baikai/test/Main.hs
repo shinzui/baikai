@@ -1,6 +1,7 @@
 module Main (main) where
 
 import AgentAssetsSpec qualified
+import AgentSpec qualified
 import Baikai
 import Baikai.Models.Generated
 import Baikai.Prelude
@@ -89,6 +90,7 @@ main = do
       "baikai"
       [ tests,
         AgentAssetsSpec.tests,
+        AgentSpec.tests,
         CatalogSpec.tests,
         CliInternalSpec.tests,
         ContextSpec.tests,
