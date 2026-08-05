@@ -1,0 +1,71 @@
+cabal-version: 3.4
+name:          baikai-agent
+version:       0.1.0.0
+synopsis:      Unattended coding-agent runs for the Baikai abstraction
+description:
+  Runs a local coding-agent command-line tool with no terminal and no
+  human present: delivers the prompt on standard input, drains both
+  output streams concurrently within a byte limit, and on timeout
+  terminates the child's whole process group. The provider-neutral
+  vocabulary lives in @Baikai.Agent@ in the core package, and vendor
+  packages own the translation into each tool's argument vector.
+
+category:      AI
+license:       BSD-3-Clause
+license-file:  LICENSE
+author:        Nadeem Bitar
+maintainer:    nadeem@gmail.com
+copyright:     (c) 2026 Nadeem Bitar
+build-type:    Simple
+
+common common-options
+  ghc-options:
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wredundant-constraints
+    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wmissing-deriving-strategies
+
+  default-language:   GHC2024
+  default-extensions:
+    DeriveAnyClass
+    DuplicateRecordFields
+    OverloadedLabels
+    OverloadedStrings
+
+library
+  import:          common-options
+  hs-source-dirs:  src
+  exposed-modules: Baikai.Agent.Run
+  build-depends:
+    , baikai        ^>=0.4.1
+    , base          >=4.20   && <5
+    , bytestring    ^>=0.12
+    , directory     ^>=1.3
+    , generic-lens  ^>=2.3
+    , lens          ^>=5.3
+    , process       ^>=1.6
+    , text          ^>=2.1
+    , time          ^>=1.14
+
+test-suite baikai-agent-test
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Main.hs
+
+  -- -threaded is not optional here: the runner forks threads to drain
+  -- pipes and relies on System.Timeout interrupting a blocking wait.
+  ghc-options:    -threaded -with-rtsopts=-N
+  build-depends:
+    , baikai
+    , baikai-agent
+    , base
+    , bytestring
+    , directory
+    , filepath
+    , process
+    , tasty
+    , tasty-hunit
+    , temporary
+    , text
+    , time

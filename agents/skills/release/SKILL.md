@@ -90,9 +90,17 @@ Publish in this order — a dependency must be on Hackage before its dependents:
 6. **`baikai-kit`** — `baikai-kit/` — shared kit installer library for AI-agent
    skills and subagents (listing, install, update, uninstall, status, discovery).
    Depends only on `baikai`. No in-repo package depends on it.
+7. **`baikai-agent`** — `baikai-agent/` — unattended coding-agent runs: the
+   process runner, and later the layered configuration layer and the `baikai`
+   executable. Depends on `baikai` today, and on `baikai-claude` and
+   `baikai-openai` once
+   `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md`
+   adds the executable that dispatches on provider. It therefore publishes
+   **last**, after all three. No in-repo package depends on it.
 
 Packages 2–6 depend only on `baikai` (for their library component), so once
-`baikai` is up they can be published in any order among themselves.
+`baikai` is up they can be published in any order among themselves. Package 7 is
+the only one that must wait for packages 2 and 3 as well.
 
 ### Not released (internal)
 
@@ -104,7 +112,7 @@ Packages 2–6 depend only on `baikai` (for their library component), so once
 
 Each dependent already pins its internal dependency with an explicit PVP-caret
 bound — every one of `baikai-claude`, `baikai-openai`, `baikai-trace-otel`,
-`baikai-effectful`, and `baikai-kit` lists `baikai` as:
+`baikai-effectful`, `baikai-kit`, and `baikai-agent` lists `baikai` as:
 
 ```
 build-depends:
@@ -119,7 +127,7 @@ When you bump `baikai` in a way that changes the bound dependents resolve
 against:
 
 - Update the `baikai ^>=…` bound in `baikai-claude`, `baikai-openai`,
-  `baikai-trace-otel`, `baikai-effectful`, and `baikai-kit`.
+  `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`, and `baikai-agent`.
 - A dependent that changed **only** because of that bound bump still needs a new
   version (a `patch` bump is the minimum) and its own release + tag, because its
   `.cabal` content changed.
@@ -133,7 +141,7 @@ versioning still forces a coordinated bump.
 
 ### 1. Pick the packages to release
 
-Decide which of the six publishable packages this run covers. If the operator
+Decide which of the seven publishable packages this run covers. If the operator
 named packages, use those. Otherwise, look at `git log` since each package's last
 tag and propose the set with changes. If it is ambiguous, confirm with
 `AskUserQuestion`. Always release a changed dependency (`baikai`) before its
@@ -150,7 +158,12 @@ git log --oneline <last-tag>..HEAD -- baikai/
 ```
 
 (Repeat with the package's directory and tag prefix: `baikai-claude-*`,
-`baikai-openai-*`, `baikai-trace-otel-*`, `baikai-effectful-*`, `baikai-kit-*`.)
+`baikai-openai-*`, `baikai-trace-otel-*`, `baikai-effectful-*`, `baikai-kit-*`,
+`baikai-agent-*`.)
+
+`baikai-agent` has no release tag yet: it is a new package whose first upload is
+version `0.1.0.0`, not a bump of anything. Reviewing "changes since its last tag"
+does not apply on that first release; review its whole directory instead.
 
 Classify the change per package and compute the new PVP version:
 
@@ -275,7 +288,8 @@ gh release create baikai-0.1.0.1 \
   pinned to a non-Hackage source or cannot resolve from Hackage, the release is
   blocked — stop and report it.
 - **Always publish in dependency order:** `baikai` before `baikai-claude`,
-  `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`.
+  `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`; and
+  all of `baikai`, `baikai-claude`, `baikai-openai` before `baikai-agent`.
 - **Never skip the gates** (`nix fmt` clean, `cabal build all`, `cabal test
   all`, `nix flake check`). Stop on any failure.
 - **Never continue publishing dependents after an upstream upload fails.**
