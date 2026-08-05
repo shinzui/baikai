@@ -173,7 +173,6 @@ runRequestWithLogWith reg h m ctx opts = do
   now <- liftIO getCurrentTime
   let u :: Usage
       u = (resp ^. #message) ^. #usage
-      meaningfulCost = (Usage.cost u) ^. #usd > 0
       entry =
         CallLogEntry
           { timestamp = now,
@@ -183,7 +182,12 @@ runRequestWithLogWith reg h m ctx opts = do
             outputTokens = positive (Usage.outputTokens u),
             cachedInputTokens = positive (Usage.cacheReadTokens u),
             reasoningTokens = Usage.reasoningTokens u,
-            usd = if meaningfulCost then Just (usdAsScientific (Usage.cost u)) else Nothing,
+            -- A zero cost is reported as zero. The other entry-building
+            -- site ('Baikai.Trace.runRequestWithRegistry') used to
+            -- suppress it too; leaving one of the two behind would make
+            -- the same record type mean different things depending on
+            -- which entry point produced it.
+            usd = Just (usdAsScientific (Usage.cost u)),
             latencyMs = resp ^. #latencyMs,
             promptSummary = summarizeContext ctx
           }

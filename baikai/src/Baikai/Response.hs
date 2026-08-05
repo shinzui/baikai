@@ -26,6 +26,7 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Error (BaikaiError, providerError)
 import Baikai.Error qualified as Error
+import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model, emptyModel)
 import Baikai.Model qualified as Model
@@ -52,7 +53,18 @@ data Response = Response
     -- error-shaped responses and 'Nothing' on success. Use
     -- 'responseError' for the normalized failure view; it synthesizes
     -- an 'OtherError' if a nonconforming provider omits this field.
-    errorInfo :: !(Maybe BaikaiError)
+    errorInfo :: !(Maybe BaikaiError),
+    -- | The evidence the provider adapter built for this call, when the
+    -- caller asked for evidence and the provider builds it.
+    --
+    -- This is a convenience for synchronous callers. A caller who needs
+    -- evidence should prefer reading it from their
+    -- 'Baikai.Trace.Sink.TraceSink': the trace path emits exactly one
+    -- record per call under every way a call can end, whereas this
+    -- field is 'Nothing' on every path that never assembles a full
+    -- response — a consumer that abandoned the stream early, or a
+    -- dispatch that failed before any provider ran.
+    evidence :: !(Maybe ModelCallEvidence)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -75,7 +87,8 @@ emptyResponse =
       provider = "",
       responseId = Nothing,
       latencyMs = 0,
-      errorInfo = Nothing
+      errorInfo = Nothing,
+      evidence = Nothing
     }
 
 -- | Wrap the response payload as a conversation 'AssistantMessage'.
@@ -124,7 +137,8 @@ errorResponse m ts latency err =
       provider = Model.provider m,
       responseId = Nothing,
       latencyMs = latency,
-      errorInfo = Just err
+      errorInfo = Just err,
+      evidence = Nothing
     }
 
 {-# DEPRECATED _Response "Use emptyResponse instead." #-}

@@ -321,7 +321,7 @@ textEvents rid body =
         TextStart IndexPayload {contentIndex = 0},
         TextDelta DeltaPayload {contentIndex = 0, delta = body},
         TextEnd BlockEndPayload {contentIndex = 0, content = body},
-        EventDone (doneTerminal (Just rid) Stop msg)
+        EventDone (doneTerminal Nothing (Just rid) Stop msg)
       ]
 
 withUnsetEnv :: String -> IO a -> IO a

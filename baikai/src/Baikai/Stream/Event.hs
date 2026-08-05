@@ -44,6 +44,7 @@ where
 
 import Baikai.Content (ThinkingContent, ToolCall)
 import Baikai.Error (BaikaiError)
+import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Message (Message)
 import Baikai.StopReason (StopReason)
 import Data.Aeson (ToJSON)
@@ -180,7 +181,20 @@ data TerminalPayload = TerminalPayload
     -- | Structured error detail. Always 'Nothing' on 'EventDone' and
     -- always 'Just' on 'EventError'; use 'errorTerminal' to enforce the
     -- error-side invariant at construction sites.
-    errorInfo :: !(Maybe BaikaiError)
+    errorInfo :: !(Maybe BaikaiError),
+    -- | The evidence the provider adapter built for this call, when the
+    -- adapter produced any. This is the channel a provider uses to
+    -- report what it actually put on the wire back to
+    -- "Baikai.Trace", which otherwise only sees the caller's own
+    -- 'Baikai.Model.Model' and 'Baikai.Options.Options'.
+    --
+    -- 'Nothing' means one of two things and a consumer must not try to
+    -- tell them apart: the caller set no
+    -- 'Baikai.Options.evidence' request, or this provider has not been
+    -- taught to build evidence. Both are distinct from evidence whose
+    -- observed fields are 'Baikai.Evidence.Unobserved', which is a
+    -- positive statement that the provider reported nothing back.
+    evidence :: !(Maybe ModelCallEvidence)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -188,16 +202,43 @@ data TerminalPayload = TerminalPayload
 -- | Build a success terminal payload ('errorInfo' is always 'Nothing').
 -- Prefer this over the raw 'TerminalPayload' constructor so a new field
 -- can never be left uninitialised at a construction site.
-doneTerminal :: Maybe Text -> StopReason -> Message -> TerminalPayload
-doneTerminal rid r m =
-  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = Nothing}
+--
+-- The evidence comes first because it is the argument most likely to be
+-- supplied from a @let@-bound value at the call site; pass 'Nothing'
+-- from a provider that does not build evidence.
+doneTerminal ::
+  Maybe ModelCallEvidence -> Maybe Text -> StopReason -> Message -> TerminalPayload
+doneTerminal ev rid r m =
+  TerminalPayload
+    { reason = r,
+      message = m,
+      responseId = rid,
+      errorInfo = Nothing,
+      evidence = ev
+    }
 
 -- | Build an error terminal payload carrying structured error detail.
 -- Prefer this over the raw 'TerminalPayload' constructor so an
 -- 'EventError' cannot be constructed without 'errorInfo'.
-errorTerminal :: Maybe Text -> StopReason -> Message -> BaikaiError -> TerminalPayload
-errorTerminal rid r m e =
-  TerminalPayload {reason = r, message = m, responseId = rid, errorInfo = Just e}
+--
+-- A failed call still carries evidence when the caller asked for it: a
+-- call that failed is a fact about the call, and a run record that
+-- omits it is worse than one that records the failure.
+errorTerminal ::
+  Maybe ModelCallEvidence ->
+  Maybe Text ->
+  StopReason ->
+  Message ->
+  BaikaiError ->
+  TerminalPayload
+errorTerminal ev rid r m e =
+  TerminalPayload
+    { reason = r,
+      message = m,
+      responseId = rid,
+      errorInfo = Just e,
+      evidence = ev
+    }
 
 -- | 'True' when the event terminates the stream — exactly one
 -- 'EventDone' or 'EventError' is emitted per call.

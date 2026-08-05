@@ -84,7 +84,7 @@ stubEvents t =
     TextStart IndexPayload {contentIndex = 0},
     TextDelta DeltaPayload {contentIndex = 0, delta = t},
     TextEnd BlockEndPayload {contentIndex = 0, content = t},
-    EventDone (doneTerminal Nothing Stop (AssistantMessage (stubPayloadWith t)))
+    EventDone (doneTerminal Nothing Nothing Stop (AssistantMessage (stubPayloadWith t)))
   ]
 
 -- | The provider's streaming completion: ignore the request, emit fixed events.

@@ -36,6 +36,7 @@ import Baikai.Content
 import Baikai.Content qualified as Content
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError, providerError, providerUnavailable)
+import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
@@ -195,6 +196,9 @@ data TerminalSeen = TerminalSeen
   { reason :: !StopReason,
     message :: !Message,
     errorInfo :: !(Maybe BaikaiError),
+    -- | The evidence the provider adapter attached to its terminal
+    -- event, copied onto the assembled 'Response' by 'finalizeState'.
+    evidence :: !(Maybe ModelCallEvidence),
     failed :: !Bool
   }
   deriving stock (Show, Generic)
@@ -244,15 +248,29 @@ step s = \case
     s
       & #blocks %~ IntMap.insert i (AssistantToolCall tc)
       & #toolArgsBuf %~ IntMap.delete i
-  EventDone TerminalPayload {reason = r, message = msg, responseId = rid} ->
+  EventDone TerminalPayload {reason = r, message = msg, responseId = rid, evidence = ev} ->
     s
       & #terminal
-        .~ Just TerminalSeen {reason = r, message = msg, errorInfo = Nothing, failed = False}
+        .~ Just
+          TerminalSeen
+            { reason = r,
+              message = msg,
+              errorInfo = Nothing,
+              evidence = ev,
+              failed = False
+            }
       & #responseId %~ (\old -> rid <|> old)
-  EventError TerminalPayload {reason = r, message = msg, responseId = rid, errorInfo = ei} ->
+  EventError TerminalPayload {reason = r, message = msg, responseId = rid, errorInfo = ei, evidence = ev} ->
     s
       & #terminal
-        .~ Just TerminalSeen {reason = r, message = msg, errorInfo = ei, failed = True}
+        .~ Just
+          TerminalSeen
+            { reason = r,
+              message = msg,
+              errorInfo = ei,
+              evidence = ev,
+              failed = True
+            }
       & #responseId %~ (\old -> rid <|> old)
 
 finalizeState :: ReassemblyState -> IO Response
@@ -266,6 +284,7 @@ finalizeState s = do
           Just TerminalSeen {reason = r, message = msg, errorInfo = ei, failed = failed'} ->
             (msg, r, ei, failed', True)
           Nothing -> (synthesizeTerminal now assembled, Stop, Nothing, False, False)
+      terminalEvidence = s ^. #terminal >>= \TerminalSeen {evidence = ev} -> ev
       terminalContent = messageContent terminalMsg
       normalizedError = case (terminalReason, terminalError) of
         (ErrorReason, Nothing) -> Just (providerError (messageErrorText terminalMsg))
@@ -287,7 +306,8 @@ finalizeState s = do
         provider = m ^. #provider,
         responseId = s ^. #responseId,
         latencyMs = latency,
-        errorInfo = normalizedError
+        errorInfo = normalizedError,
+        evidence = terminalEvidence
       }
 
 -- | Project the event-assembled content in 'contentIndex' order,
@@ -465,9 +485,14 @@ eventsFor startTs resp =
           ]
       reason = payload ^. #stopReason
       rid = resp ^. #responseId
+      -- Carry the wrapped response's evidence onto the synthetic
+      -- terminal event. Without this the two subprocess providers,
+      -- which reach the stream surface only through this function,
+      -- would build evidence and then drop it on the floor.
+      ev = resp ^. #evidence
       terminalEvent = case responseError resp of
-        Just be -> EventError (errorTerminal rid reason msg be)
-        Nothing -> EventDone (doneTerminal rid reason msg)
+        Just be -> EventError (errorTerminal ev rid reason msg be)
+        Nothing -> EventDone (doneTerminal ev rid reason msg)
    in [EventStart StartPayload {partial = skeleton, responseId = rid}]
         <> blockEvents
         <> [terminalEvent]
@@ -515,7 +540,7 @@ errorEvents e = do
       err = maybe (providerError errText) id mErr
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing ErrorReason msg err)
+      EventError (errorTerminal Nothing Nothing ErrorReason msg err)
     ]
 
 -- | The synthetic error stream used when no provider is registered for
@@ -536,5 +561,5 @@ noProviderEvents m = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing ErrorReason msg be)
+      EventError (errorTerminal Nothing Nothing ErrorReason msg be)
     ]

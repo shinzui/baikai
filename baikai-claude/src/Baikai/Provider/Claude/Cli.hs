@@ -242,7 +242,8 @@ mkResponse m start end body =
       Resp.provider = m ^. #provider,
       Resp.responseId = Nothing,
       Resp.latencyMs = millisBetween start end,
-      Resp.errorInfo = Nothing
+      Resp.errorInfo = Nothing,
+      Resp.evidence = Nothing
     }
 
 millisBetween :: UTCTime -> UTCTime -> Int

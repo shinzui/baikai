@@ -71,7 +71,7 @@ startEvent rid =
 
 doneEvent :: Maybe Text -> [AssistantContent] -> AssistantMessageEvent
 doneEvent rid blocks =
-  EventDone (doneTerminal rid Stop (assistantMessage blocks))
+  EventDone (doneTerminal Nothing rid Stop (assistantMessage blocks))
 
 signedThinking :: ThinkingContent
 signedThinking =

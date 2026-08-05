@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 -- | OpenTelemetry adapter for the baikai 'TraceSink' interface.
@@ -23,6 +24,7 @@ module Baikai.Trace.Sink.OpenTelemetry
   )
 where
 
+import Baikai.Evidence qualified as Ev
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Control.Monad (forM_)
@@ -140,6 +142,77 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
         Otel.setStatus sp (Otel.Error errorMessage)
         Otel.endSpan sp (Just (utcToTimestamp timestamp))
         pure (Map.delete eventId m)
+  CallEvidence {eventId, evidence} ->
+    -- Evidence neither opens nor closes a span: it is additional
+    -- description of a call the started/terminal pair already delimits.
+    --
+    -- The salient fields go on as flat attributes rather than one
+    -- serialised blob, because observability backends index flat
+    -- attributes and treat embedded JSON as opaque text. The two
+    -- digests are the only content-adjacent values that belong here;
+    -- nothing from the prompt, the thinking text, or a tool payload
+    -- appears in an evidence record at all.
+    --
+    -- Note that under "Baikai.Trace"'s emission order this event
+    -- arrives /after/ the matching 'CallFinished' or 'CallFailed', by
+    -- which point the span has been ended and removed from the map, so
+    -- the lookup below misses and nothing is attached. That is
+    -- deliberate: reordering the trace events to suit this sink would
+    -- change when a terminal event reaches every other consumer. The
+    -- attach path is live for hand-fed and replayed event streams,
+    -- which is what the sink's tests drive.
+    case Map.lookup eventId m of
+      Nothing -> pure m
+      Just sp -> do
+        Otel.addAttributes sp (evidenceAttributes evidence)
+        pure m
+
+-- | The flat attribute set for one 'ModelCallEvidence'.
+--
+-- 'Ev.observedModel' is attached only when the provider actually
+-- reported one. Attaching the requested model under an "observed" key
+-- when the provider said nothing would be exactly the backfill the
+-- 'Ev.Observed' type exists to prevent, and an observability backend
+-- gives no way to tell the two apart after the fact.
+--
+-- Read through a record pattern rather than bare selectors:
+-- 'Ev.ModelCallEvidence' and 'Ev.EvidenceRequest' both carry @runId@,
+-- so under @DuplicateRecordFields@ a bare @Ev.runId ev@ is an ambiguous
+-- occurrence. Matching on the constructor resolves every field at once
+-- and costs this package no new dependency.
+evidenceAttributes :: Ev.ModelCallEvidence -> HashMap.HashMap Text Attr.Attribute
+evidenceAttributes
+  Ev.ModelCallEvidence
+    { Ev.schemaVersion,
+      Ev.runId,
+      Ev.callId,
+      Ev.requestedModel,
+      Ev.observedModel,
+      Ev.strength,
+      Ev.requestCommitment,
+      Ev.requestConfiguration
+    } =
+    maybe id (HashMap.insert "gen_ai.response.model" . Attr.toAttribute) observed $
+      HashMap.fromList
+        [ ("baikai.evidence.schema_version", Attr.toAttribute schemaVersion),
+          ("baikai.evidence.run_id", Attr.toAttribute runId),
+          ("baikai.evidence.call_id", Attr.toAttribute callId),
+          ("baikai.evidence.strength", Attr.toAttribute (strengthText strength)),
+          ("gen_ai.request.model", Attr.toAttribute requestedModel),
+          ("baikai.evidence.request_commitment", Attr.toAttribute requestCommitment),
+          ("baikai.evidence.request_configuration", Attr.toAttribute requestConfiguration)
+        ]
+    where
+      observed = Ev.observedValue observedModel
+
+-- | Render an 'Ev.EvidenceStrength' with the same spelling the JSON
+-- encoding uses, so a span attribute and a trace line agree.
+strengthText :: Ev.EvidenceStrength -> Text
+strengthText = \case
+  Ev.EvidenceRequestedOnly -> "requested_only"
+  Ev.EvidenceCorrelated -> "correlated"
+  Ev.EvidenceModelObserved -> "model_observed"
+  Ev.EvidenceFullyObserved -> "fully_observed"
 
 -- | Convert a 'UTCTime' to an OpenTelemetry 'Timestamp'.
 --

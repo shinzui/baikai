@@ -226,7 +226,8 @@ consume start m _ mOut mErr ph = do
                 Resp.provider = m ^. #provider,
                 Resp.responseId = Nothing,
                 Resp.latencyMs = millisBetween start end,
-                Resp.errorInfo = Nothing
+                Resp.errorInfo = Nothing,
+                Resp.evidence = Nothing
               }
   where
     errorNow err = do

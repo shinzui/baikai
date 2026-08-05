@@ -290,7 +290,7 @@ unexpectedEoS ::
 unexpectedEoS now ass =
   let errText = "claude stream ended without message_stop"
       msg = finalMessageOnError ass now errText
-   in (EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg (providerError errText)), ass)
+   in (EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg (providerError errText)), ass)
 
 -- | Translation state across one streaming call.
 data Assembler = Assembler
@@ -334,7 +334,7 @@ translate ::
 translate raw ass now = case raw of
   Left be ->
     let msg = finalMessageOnError ass now (be ^. #message)
-     in ([EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg be)], ass)
+     in ([EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg be)], ass)
   Right ev -> translateEvent ev ass now
 
 translateEvent ::
@@ -374,15 +374,15 @@ translateEvent raw ass now = case raw of
             else finalMessage ass now
         terminalEvent =
           if reason == Stop.ErrorReason
-            then EventError (errorTerminal (ass ^. #responseId) reason msg refusal)
-            else EventDone (doneTerminal (ass ^. #responseId) reason msg)
+            then EventError (errorTerminal Nothing (ass ^. #responseId) reason msg refusal)
+            else EventDone (doneTerminal Nothing (ass ^. #responseId) reason msg)
      in ([terminalEvent], ass)
   Messages.Error {Messages.error = errVal} ->
     let errText = renderAnthropicError errVal
         mErr = classifyErrorValue errVal
         msg = finalMessageOnError ass now errText
         errInfo = fromMaybe (providerError errText) mErr
-     in ([EventError (errorTerminal (ass ^. #responseId) Stop.ErrorReason msg errInfo)], ass)
+     in ([EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg errInfo)], ass)
 
 handleBlockStart ::
   Int ->
@@ -583,7 +583,7 @@ immediateError err = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Stop.ErrorReason msg err)
+      EventError (errorTerminal Nothing Nothing Stop.ErrorReason msg err)
     ]
 
 trySync :: IO a -> IO (Either SomeException a)

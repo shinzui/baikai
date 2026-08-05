@@ -37,6 +37,7 @@ errStream _ _ _ =
       term =
         errorTerminal
           Nothing
+          Nothing
           ErrorReason
           (AssistantMessage payload)
           (rateLimited (Just 5) "rate limited, slow down")
@@ -92,6 +93,7 @@ tests =
                 .~ Just "legacy unclassified failure"
             terminal =
               doneTerminal
+                Nothing
                 Nothing
                 ErrorReason
                 (AssistantMessage payload)

@@ -624,7 +624,7 @@ translate ::
 translate chunk ass now
   | Left be <- chunk =
       let msg = finalMessage ass now (Just (be ^. #message)) Stop.ErrorReason
-       in ([EventError (errorTerminal Nothing Stop.ErrorReason msg be)], ass)
+       in ([EventError (errorTerminal Nothing Nothing Stop.ErrorReason msg be)], ass)
   | Right raw <- chunk =
       let -- 1. Apply field-based reasoning delta.
           (reasoningEvents, ass1) = applyReasoningDelta (raw ^. #reasoningDelta) ass
@@ -909,8 +909,8 @@ closeOpenStream now mErr ass
                 else Nothing
           msg = finalMessage ass now (fmap (^. #message) terminalErr) reason
           terminalEvent = case terminalErr of
-            Just be -> EventError (errorTerminal Nothing reason msg be)
-            Nothing -> EventDone (doneTerminal Nothing reason msg)
+            Just be -> EventError (errorTerminal Nothing Nothing reason msg be)
+            Nothing -> EventDone (doneTerminal Nothing Nothing reason msg)
        in ([terminalEvent], ass)
   | otherwise =
       -- Channel closed without a finish_reason. Force-close any
@@ -927,7 +927,7 @@ closeOpenStream now mErr ass
             Nothing -> "openai stream ended without finish_reason"
           msg = finalMessage ass3 now (Just errText) reason
           errInfo = fromMaybe (providerError errText) mErr
-          errEv = EventError (errorTerminal Nothing reason msg errInfo)
+          errEv = EventError (errorTerminal Nothing Nothing reason msg errInfo)
        in (tagEvents <> closeReasoning <> closeText <> closeTools <> [errEv], ass3)
 
 finalMessage ::
@@ -967,7 +967,7 @@ immediateError err = do
             }
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Stop.ErrorReason msg err)
+      EventError (errorTerminal Nothing Nothing Stop.ErrorReason msg err)
     ]
 
 mapFinishReason :: Text -> (Stop.StopReason, Maybe Text)

@@ -72,12 +72,13 @@ which prints `"EvidenceRequestedOnly"` for every call until the provider plans l
 
 ## Progress
 
-- [ ] Add the evidence slot to `TerminalPayload` in `baikai/src/Baikai/Stream/Event.hs` and
-      update the two smart constructors.
-- [ ] Add the evidence slot to `Response` in `baikai/src/Baikai/Response.hs` and carry it through
-      `reassembleResponse` and `liftCompleteToStream`.
-- [ ] Add the `CallEvidence` case to `TraceEvent` in `baikai/src/Baikai/Trace/Event.hs`.
-- [ ] Stop eliding usage and cost fidelity in `CallFinished` and `CallLogEntry`.
+- [x] Add the evidence slot to `TerminalPayload` in `baikai/src/Baikai/Stream/Event.hs` and
+      update the two smart constructors. (2026-08-05)
+- [x] Add the evidence slot to `Response` in `baikai/src/Baikai/Response.hs` and carry it through
+      `reassembleResponse` and `liftCompleteToStream`. (2026-08-05)
+- [x] Add the `CallEvidence` case to `TraceEvent` in `baikai/src/Baikai/Trace/Event.hs`.
+      (2026-08-05)
+- [x] Stop eliding usage and cost fidelity in `CallFinished` and `CallLogEntry`. (2026-08-05)
 - [ ] Emit the evidence event from `Baikai.Trace`, exactly once per call.
 - [ ] Handle the three non-success terminations: provider error, early consumer termination, and
       no registered provider.
@@ -95,7 +96,35 @@ which prints `"EvidenceRequestedOnly"` for every call until the provider plans l
 
 ## Surprises & Discoveries
 
-(None yet.)
+### Found in Milestone 1
+
+**`TraceEvent` has a `FromJSON` instance, and the new constructor cannot have one.** The plan
+describes `TraceEvent` as an encoded-only sum, but `baikai/src/Baikai/Trace/Event.hs` derived both
+`ToJSON` and `FromJSON` generically. `ModelCallEvidence` deliberately has no `FromJSON` — plan 51
+established that `Baikai.Cost.Cost`'s exact `Rational` amounts encode through an approximating
+`Scientific`, so a decoder would return a different value than was encoded — so
+`genericParseJSON` no longer type-checks once `CallEvidence` exists. Nothing in this repository
+uses `FromJSON TraceEvent`, but it is on the public surface, so it is now written out by hand:
+the three pre-existing cases decode exactly as before, and a `call_evidence` line fails with a
+message telling the reader to decode it as a plain `Aeson.Value`. See the Decision Log.
+
+**The cost elision had a third site the plan did not name.**
+`Baikai.Cost.Log.runRequestWithLogWith` computes its own `meaningfulCost` and suppresses a zero
+`usd`, exactly as the two sites in `Baikai.Trace` did. Fixing only the two named sites would have
+left the same `CallLogEntry` type meaning different things depending on which entry point built
+it, so all three are fixed together.
+
+**The OpenTelemetry sink's evidence branch cannot attach anything on the normal path.** The plan
+anticipated this and chose to have the sink tolerate a missing span rather than reorder the trace
+events, and that is what is implemented — but it is worth stating the consequence plainly:
+because `Baikai.Trace` pushes `CallEvidence` after the matching `CallFinished` or `CallFailed`,
+and the sink ends and removes the span on those events, the attribute-attaching path is reached
+only by hand-fed or replayed event streams. Evidence therefore does not reach an observability
+backend through this sink today. That is a live gap for
+[docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md), which owns
+the migration story for existing trace consumers including this one; the cheapest fix there is to
+emit `CallEvidence` before the terminal event, which no consumer can observe as a change because
+no consumer has ever seen a `call_evidence` line.
 
 
 ## Decision Log
@@ -123,6 +152,28 @@ which prints `"EvidenceRequestedOnly"` for every call until the provider plans l
   request envelope lazily means an opted-out call never even constructs the value it would have
   hashed; every adapter already has the envelope in hand for its own purposes, so no adapter does
   extra work to supply an argument that goes unused.
+  Date: 2026-08-05
+
+- Decision: Keep `FromJSON TraceEvent`, written out by hand, and make a `call_evidence` line fail
+  to parse with an explanatory message rather than decode into something approximate.
+  Rationale: Three options were available once `CallEvidence` broke the generic derivation. Giving
+  `ModelCallEvidence` a `FromJSON` was rejected outright: plan 51 established that it cannot
+  round-trip, and a decoder that silently returns a different value than was encoded is the exact
+  fidelity loss this initiative exists to eliminate. Dropping the instance entirely was rejected
+  because it breaks every consumer that reads a trace file back, including for the three cases
+  that decode perfectly well. The hand-written instance keeps those three working unchanged and
+  refuses the fourth loudly. A consumer who wants evidence back out should read it as an
+  `Aeson.Value` and match on `schemaVersion` — which is the better interface anyway, because the
+  JSON is the contract other systems pin against, not a Haskell mirror of it.
+  Date: 2026-08-05
+
+- Decision: Fix the zero-cost elision in `Baikai.Cost.Log.runRequestWithLogWith` too, not only at
+  the two sites this plan names.
+  Rationale: `CallLogEntry` is built at three sites, and the plan's Milestone 2 named two of them.
+  Leaving the third would mean a `usd` field absent from a cost-log line meant "unknown" when the
+  line came from `Baikai.Trace.runRequestWithRegistry` and "unknown or zero" when it came from
+  `runRequestWithLogWith`. One record type with two meanings, discriminated by an entry point the
+  reader of the file cannot see, is worse than either meaning consistently applied.
   Date: 2026-08-05
 
 - Decision: The provider adapter generates the call identifier, and the trace layer reads it back

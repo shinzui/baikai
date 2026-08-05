@@ -85,7 +85,8 @@ stubResponse a =
       provider = "stub.trace",
       responseId = Nothing,
       latencyMs = 0,
-      errorInfo = Nothing
+      errorInfo = Nothing,
+      evidence = Nothing
     }
 
 registerOk :: Api -> IO ()

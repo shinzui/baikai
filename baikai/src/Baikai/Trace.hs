@@ -255,7 +255,6 @@ traceEvent state eid start m ev = do
       now <- getCurrentTime
       let latency = millisBetween start now
           mu = assistantUsageFromMsg msg
-          meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
           finished =
             CallFinished
               { eventId = eid,
@@ -265,10 +264,22 @@ traceEvent state eid start m ev = do
                 latencyMs = latency,
                 inputTokens = fmap Usage.inputTokens mu,
                 outputTokens = fmap Usage.outputTokens mu,
-                usd =
-                  if meaningfulCost
-                    then fmap (usdAsScientific . Usage.cost) mu
-                    else Nothing
+                -- Every count here is 'Just' exactly when the terminal
+                -- message carried a 'Usage' at all. A zero is reported
+                -- as zero, for the same reason the cost below is: an
+                -- absent field must mean "baikai has no usage for this
+                -- call", never "the count happened to be zero".
+                cachedInputTokens = fmap Usage.cacheReadTokens mu,
+                cacheWriteTokens = fmap Usage.cacheWriteTokens mu,
+                reasoningTokens = mu >>= Usage.reasoningTokens,
+                totalTokens = fmap Usage.totalTokens mu,
+                -- Report the computed cost whether or not it is zero. It
+                -- used to be suppressed at zero, which made a genuinely
+                -- free call indistinguishable from a call whose cost
+                -- baikai could not compute — and the subscription-based
+                -- CLI providers always compute zero, so that was the
+                -- common case rather than a corner.
+                usd = fmap (usdAsScientific . Usage.cost) mu
               }
       writeChan (state ^. #chan) (Just finished)
       writeIORef (state ^. #terminalSent) True
@@ -326,7 +337,6 @@ runRequestWithRegistry reg sink h m ctx opts = do
   resp <- withTraceWith reg sink m ctx opts
   now <- liftIO getCurrentTime
   let mu = assistantUsage resp
-      meaningfulCost = maybe False (\u -> usdRat (Usage.cost u) > 0) mu
       entry =
         CallLogEntry
           { timestamp = now,
@@ -336,10 +346,11 @@ runRequestWithRegistry reg sink h m ctx opts = do
             outputTokens = mu >>= positiveNat . Usage.outputTokens,
             cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens,
             reasoningTokens = mu >>= Usage.reasoningTokens,
-            usd =
-              if meaningfulCost
-                then fmap (usdAsScientific . Usage.cost) mu
-                else Nothing,
+            -- Report a zero cost as zero. Suppressing it made "this
+            -- call was free" indistinguishable from "baikai could not
+            -- price this call", and the CLI providers always price at
+            -- zero.
+            usd = fmap (usdAsScientific . Usage.cost) mu,
             latencyMs = resp ^. #latencyMs,
             promptSummary = summarizeContext ctx
           }
