@@ -85,13 +85,26 @@ This section must always reflect the actual current state of the work.
       `baikai-agent` 65, `baikai-kit` 29, `baikai-effectful` 4, `baikai-trace-otel` 3, and
       `baikai-smoke` with no provider key and no coding-agent binary on `PATH`. No acceptance step
       invoked a live model or a real coding-agent binary.
+- [x] Milestone 7, closing the improvement request (2026-08-05):
+      `docs/improvement-requests/add-configurable-cli-for-unattended-coding-agent-runs.md` is
+      `completed`, with `completedAt`, a `resolution`, a `targetPlan` pointing at the MasterPlan, a
+      table of what was built and where, and per-criterion evidence for all seven acceptance
+      criteria. `docs/improvement-requests/log.md` has a dated Completion entry.
+      `okf validate docs/improvement-requests --profile mori/improvement-requests-profile.dhall
+      --strict` reports IR-1 clean; the two advisories it prints are pre-existing missing `reviews`
+      fields on IR-2 and IR-3.
+- [x] Milestone 7, updating the release workflow (2026-08-05): `agents/skills/release/SKILL.md`
+      records `baikai-agent`'s second internal dependency edge onto both provider packages, the
+      `cabal run baikai-agent:exe:baikai` target the name collision forces, a Hackage pre-flight
+      check for the `settei` family, and — the substantive fix — a test gate that scrubs provider
+      keys *and* the coding-agent binaries from `PATH`. The skill previously said plain
+      `cabal test all`, which makes real billable calls on any machine with `claude` or `codex`
+      installed.
 - [ ] Milestone 7, the release half: bump versions, update internal bounds, move the `[Unreleased]`
-      changelog into dated sections, publish in dependency order, close the improvement request, and
-      complete the parent MasterPlan. **Not started, and deliberately held.** This plan's own
-      Idempotence and Recovery section says to treat it as a separate session because publishing to
-      Hackage cannot be undone; everything before it is complete, tested, and usable in-tree through
-      a source-repository pin. It also needs an explicit decision to publish, which is not the
-      implementer's to make.
+      changelog into dated sections, publish in dependency order, tag, and complete the parent
+      MasterPlan. **Not started, and deliberately held.** This plan's own Idempotence and Recovery
+      section says to treat it as a separate session because publishing to Hackage cannot be undone;
+      everything before it is complete, tested, and usable in-tree through a source-repository pin.
 
 
 ## Surprises & Discoveries
@@ -280,6 +293,29 @@ Record every decision made while working on the plan.
   that envelope keeps the invariant that with `--json` standard output is one JSON value, rather than
   a JSON object concatenated with raw agent bytes. `aeson` was rejected because the package needs
   three shapes (object, array, string) and would otherwise not depend on it at all.
+  Date: 2026-08-05
+
+- Decision: `baikai` takes `0.4.1.0 -> 0.5.0.0`, a major bump, even though PVP would call this
+  release an addition.
+  Rationale: confirmed with the operator on 2026-08-05. Nothing existing changed — `Baikai.Agent` is
+  a new module that has never been published, and the one behavior change inside it
+  (`renderCeilingViolation` no longer printing raw provider arguments) has no released consumer — so
+  a strict PVP reading gives `0.4.2.0`. The major is taken deliberately for the size of the new
+  public surface. Consequence for the release step: the `baikai ^>=0.4.1` bound in all six
+  dependents must move to `^>=0.5`, and `baikai-trace-otel`, `baikai-effectful`, and `baikai-kit`
+  each need a patch release and tag purely because their `.cabal` content changed. Under the minor
+  reading those three would have needed no release at all. The rest of the set is unchanged:
+  `baikai-claude 0.4.0.1 -> 0.5.0.0` and `baikai-openai 0.4.0.0 -> 0.5.0.0` are both genuine PVP
+  majors from EP-3's signature changes, and `baikai-agent` is a first release at `0.1.0.0`.
+  Date: 2026-08-05
+
+- Decision: The improvement request was closed as `completed` before the Hackage release rather than
+  after it.
+  Rationale: the request's own seven acceptance criteria are all demonstrated in-tree by tests, and
+  none of them mentions distribution. Publishing is how consumers *get* the capability, not what
+  makes the capability exist, and holding the request open on a release that is a separate decision
+  would misreport the state of the work. The `resolution` field and the Status section both say
+  plainly that the release has not happened, so nothing is overclaimed.
   Date: 2026-08-05
 
 - Decision: The capability mapping tables were **moved** into

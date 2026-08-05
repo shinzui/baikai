@@ -4,8 +4,25 @@ title: Add a configurable CLI for unattended coding-agent runs
 description: Provide a provider-neutral command that lets automation invoke Claude Code or Codex with repository-scoped prompts, permissions, paths, and policy without embedding provider flags in shell scripts.
 timestamp: "2026-07-29T20:38:55Z"
 requestId: IR-1
-status: proposed
+status: completed
+completedAt: "2026-08-05T00:00:00Z"
 origin: mori://shinzui/keiro-syntax
+targetPlan: docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md
+resolution: >-
+  Implemented in mori://shinzui/baikai as the six ExecPlans of
+  docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md. The
+  provider-neutral vocabulary and the pure policy ceiling are Baikai.Agent in the core
+  package; the argument-vector renderers are Baikai.Provider.Claude.Agent and
+  Baikai.Provider.OpenAI.Agent; the process runner, the layered KDL configuration layer,
+  and the baikai executable with agent run, show, and list are the new baikai-agent
+  package. All seven acceptance criteria are demonstrated by tests that call no live
+  model and require no coding-agent binary — see the per-criterion evidence in this
+  document's Status section. Criterion 7 is met with one knowing, pre-approved
+  exception: the interactive launchers' return types changed to repair a silent safety
+  downgrade, carried as a major version bump on both provider packages. Two follow-ups
+  are deliberately outside this request: the Hackage release of the affected packages,
+  and migrating mori://shinzui/keiro-syntax's own scripts/sync-keiro-dsl.sh, which is a
+  commit in that repository.
 reviews:
   - kind: model
     reviewer: claude
@@ -34,11 +51,68 @@ reviews:
 
 ## Status
 
-- **Status:** proposed, reviewed and accepted for build
+- **Status:** completed — built, tested, and documented in `shinzui/baikai` on 2026-08-05
 - **Origin:** `shinzui/keiro-syntax`, whose `scripts/sync-keiro-dsl.sh` currently embeds a direct `claude -p` invocation
 - **Owner of the build:** `shinzui/baikai`
 - **Size:** additive but architectural: one unattended-agent request/result contract, vendor renderers, a configuration layer, and a companion executable
 - **Accepted design:** `docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md`, which decomposes the build into six ExecPlans (`docs/plans/45` through `docs/plans/50`)
+
+### What was built
+
+| Piece | Where it lives | ExecPlan |
+|-------|----------------|----------|
+| Provider-neutral request, result, capability profile, and the pure policy ceiling | `baikai/src/Baikai/Agent.hs` | `docs/plans/45-add-the-unattended-agent-run-core-abstraction.md` |
+| Claude and Codex argument-vector renderers | `baikai-claude/src/Baikai/Provider/Claude/Agent.hs`, `baikai-openai/src/Baikai/Provider/OpenAI/Agent.hs` | `docs/plans/46-render-claude-and-codex-unattended-agent-commands.md` |
+| Repair of the interactive launchers' silent safety downgrade | both `…/Interactive.hs` modules | `docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md` |
+| The `baikai-agent` package and the unattended process runner | `baikai-agent/src/Baikai/Agent/Run.hs` | `docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md` |
+| Layered KDL configuration with per-value provenance and the operator ceiling | `baikai-agent/src/Baikai/Agent/Config.hs` | `docs/plans/49-resolve-unattended-agent-jobs-with-layered-kdl-configuration.md` |
+| The `baikai` executable: `agent run`, `agent show`, `agent list` | `baikai-agent/src/Baikai/Agent/Cli.hs`, `baikai-agent/app/Main.hs` | `docs/plans/50-ship-the-baikai-agent-cli-and-prove-the-unattended-fixture.md` |
+
+The user-facing guide is `docs/user/unattended-agent-runs.md`, which documents the job
+format, layer precedence, the ceiling, the three commands with their exit codes and
+stream discipline, the capability mapping tables, and a before-and-after migration of
+the launch that motivated this request.
+
+### How each acceptance criterion was met
+
+Every item below is proved by a test that calls no live model and requires no
+coding-agent binary. The fixtures are `sh` scripts written into temporary directories.
+
+1. **One stable command, provider by configuration.** `baikai agent run <job>`. Proved by
+   the provider-swap test in `baikai-agent/test/CliTests.hs`, where changing only the
+   `provider` line in a KDL file moves the run from `claude` to `codex`.
+2. **The `sync-keiro-dsl.sh` launch is representable without Claude flags.** Proved by the
+   fixture test whose invocation names only a job and one `--set extra-dirs=…`, and whose
+   recorded argument vector contains `--permission-mode acceptEdits`, the full
+   `--allowedTools` list, and `--add-dir`.
+3. **Pure command-rendering tests, including dash-leading prompts and paths.** In the two
+   vendor test suites. Both renderers deliver the prompt on standard input, so a
+   dash-leading prompt cannot be parsed as a flag at all.
+4. **Fake-executable integration tests.** Across the `baikai-agent` suite: prompt
+   round-trip on standard input, stream separation, working-directory selection, timeout
+   with process-group termination, non-zero exit pass-through, spawn failure, output
+   truncation, and redaction.
+5. **An effective-configuration command that renders no secret material.** `baikai agent
+   show` prints every value with its file, line, and column, and `<redacted>` for raw
+   provider arguments — in the configuration listing *and* in the rendered argument
+   vector.
+6. **Unsupported safety mappings fail before process creation.** Proved by asserting that
+   the fake executable's record file does not exist after a refused run.
+7. **Existing surfaces remain source-compatible**, with one knowing exception recorded in
+   the review below: the interactive launchers now return `Either`, repairing a silent
+   safety downgrade, at the cost of a major version bump on both provider packages. API
+   providers and batch completion providers are untouched.
+
+### What remains, outside this request
+
+Publishing the affected packages to Hackage is a release step rather than an acceptance
+criterion, and has not happened yet; consumers can depend on the workspace through a
+source-repository pin in the meantime. Migrating
+`mori://shinzui/keiro-syntax`'s own `scripts/sync-keiro-dsl.sh` to the new command is a
+commit in that repository, following the migration guide in
+`docs/user/unattended-agent-runs.md`. Adapting `mori://shinzui/seihou`, whose
+`Seihou.CLI.AgentLaunchExec` builds interactive launch requests, to the launchers' new
+`Either` return is likewise a commit in that repository.
 
 The review recorded in this document's frontmatter approves the request and corrects four
 factual points in it. Where this document and the MasterPlan disagree, the MasterPlan wins; its

@@ -291,7 +291,9 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-6 (2026-08-05): Implement `agent run`, `agent show`, and `agent list` with documented exit codes and stream discipline.
 - [x] EP-6 (2026-08-05): Prove the `sync-keiro-dsl.sh` launch shape end-to-end against fake executables.
 - [x] EP-6 (2026-08-05): Write `docs/user/unattended-agent-runs.md` and cross-link the two existing surfaces.
-- [ ] EP-6: Coordinate the release across every affected package and update the improvement-request status.
+- [x] EP-6 (2026-08-05): Update the improvement-request status. IR-1 is `completed`, with a resolution, a target plan, and per-criterion evidence; `docs/improvement-requests/log.md` has a dated Completion entry; `okf validate --strict` reports IR-1 clean.
+- [x] EP-6 (2026-08-05): Update `agents/skills/release/SKILL.md` for the new package shape, including a test gate that scrubs provider keys *and* the coding-agent binaries from `PATH`.
+- [ ] EP-6: Coordinate the release across every affected package. Held: publishing to Hackage cannot be undone and is a separate decision.
 
 
 ## Surprises & Discoveries

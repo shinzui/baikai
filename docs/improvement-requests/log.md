@@ -1,5 +1,18 @@
 # Bundle Update Log
 
+## 2026-08-05
+
+* **Completion**: IR-1 is `completed`. The unattended coding-agent surface is built, tested,
+  and documented in `mori://shinzui/baikai` across the six ExecPlans of
+  `docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md`: the
+  `Baikai.Agent` vocabulary and pure policy ceiling, both vendor argument-vector renderers, the
+  repaired interactive launchers, the `baikai-agent` package with its process runner and
+  layered KDL configuration, and the `baikai` executable with `agent run`, `agent show`, and
+  `agent list`. All seven acceptance criteria are proved by tests that invoke no live model and
+  require no coding-agent binary. Criterion 7 is met with the one pre-approved exception the
+  review recorded. Publishing to Hackage and migrating
+  `mori://shinzui/keiro-syntax`'s `scripts/sync-keiro-dsl.sh` remain outside the request.
+
 ## 2026-08-02
 
 * **Addition**: IR-3 requests provider-boundary model-call evidence for sanctioned agent-run
