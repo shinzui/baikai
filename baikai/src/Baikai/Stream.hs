@@ -36,7 +36,9 @@ import Baikai.Content
 import Baikai.Content qualified as Content
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError, providerError, providerUnavailable)
-import Baikai.Evidence (ModelCallEvidence)
+import Baikai.Evidence (ModelCallEvidence, noThinkingRequested)
+import Baikai.Evidence qualified as Evidence
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
@@ -103,7 +105,7 @@ streamRequestWith reg m ctx opts =
     mProvider <- lookupApiProviderWith reg (m ^. #api)
     case mProvider of
       Just p -> pure (stream p m ctx opts)
-      Nothing -> Stream.fromList <$> noProviderEvents m
+      Nothing -> Stream.fromList <$> noProviderEvents m opts
 
 -- | Stream a request through the process-global registry, invoking the
 -- callback once per event, then return the same reassembled 'Response'
@@ -442,7 +444,7 @@ liftCompleteToStream f m ctx opts =
     er <- trySync (f m ctx opts)
     case er of
       Right resp -> pure (Stream.fromList (eventsFor startTs resp))
-      Left e -> Stream.fromList <$> errorEvents e
+      Left e -> Stream.fromList <$> errorEvents m opts startTs e
 
 -- | 'try' for synchronous exceptions only. Anything delivered
 -- asynchronously (wrapped in 'Control.Exception.SomeAsyncException' by
@@ -517,8 +519,15 @@ blockEvent i = \case
           ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc}
         ]
 
-errorEvents :: Control.Exception.SomeException -> IO [AssistantMessageEvent]
-errorEvents e = do
+-- | The synthetic error stream for a @complete@ handler that threw
+-- instead of returning an error-shaped 'Response'.
+--
+-- The handler may well have sent a request before it threw, but it
+-- never returned one for this layer to digest, so the digests are over
+-- 'Build.dispatchEnvelope' — see its documentation.
+errorEvents ::
+  Model -> Options -> UTCTime -> Control.Exception.SomeException -> IO [AssistantMessageEvent]
+errorEvents m opts startTs e = do
   now <- getCurrentTime
   -- When a @complete@ handler threw a typed 'BaikaiError' (the CLI,
   -- 'Baikai.Auth', and registry paths do), preserve it structurally so a
@@ -538,15 +547,31 @@ errorEvents e = do
               Msg.timestamp = Just now
             }
       err = maybe (providerError errText) id mErr
+  ev <-
+    Build.minimalEvidence
+      m
+      opts
+      (Build.transportForModel m)
+      noThinkingRequested
+      (Build.dispatchEnvelope m opts)
+      startTs
+      now
+      Evidence.CallFailed
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Nothing ErrorReason msg err)
+      EventError (errorTerminal ev Nothing ErrorReason msg err)
     ]
 
 -- | The synthetic error stream used when no provider is registered for
 -- the model's API tag.
-noProviderEvents :: Model -> IO [AssistantMessageEvent]
-noProviderEvents m = do
+--
+-- This carries evidence when the caller asked for it. "No provider was
+-- registered" is a fact about the call, and a run record that silently
+-- omits it is worse than one that records the failure. There is no wire
+-- request body to digest here because nothing was ever sent, so the
+-- digests are over 'Build.dispatchEnvelope'.
+noProviderEvents :: Model -> Options -> IO [AssistantMessageEvent]
+noProviderEvents m opts = do
   now <- getCurrentTime
   let detail = "No provider registered for API: " <> renderApi (m ^. #api)
       be = providerUnavailable detail
@@ -559,7 +584,17 @@ noProviderEvents m = do
               Msg.errorMessage = Just detail,
               Msg.timestamp = Just now
             }
+  ev <-
+    Build.minimalEvidence
+      m
+      opts
+      (Build.transportForModel m)
+      noThinkingRequested
+      (Build.dispatchEnvelope m opts)
+      now
+      now
+      Evidence.CallFailed
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Nothing ErrorReason msg be)
+      EventError (errorTerminal ev Nothing ErrorReason msg be)
     ]

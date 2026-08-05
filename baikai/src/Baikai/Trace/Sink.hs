@@ -17,6 +17,7 @@ module Baikai.Trace.Sink
   )
 where
 
+import Baikai.Evidence qualified as Evidence
 import Baikai.Trace.Event (TraceEvent (..))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
@@ -94,7 +95,34 @@ renderHuman = \case
         tshow latencyMs <> "ms:",
         errorMessage
       ]
+  -- One line, and deliberately not the whole record. A human-readable
+  -- sink is for watching calls go by; an evidence record is several
+  -- hundred bytes of structured detail meant to be read out of
+  -- 'fileSink' output by a machine. What belongs on a terminal is the
+  -- fact that evidence exists, which run and call it names, and how
+  -- much it proves.
+  CallEvidence {timestamp, provider, model, evidence} ->
+    Text.unwords
+      [ "[" <> fmtTime timestamp <> "]",
+        provider,
+        model,
+        "EVIDENCE",
+        evidenceSummary evidence
+      ]
   where
     tshow :: (Show a) => a -> Text
     tshow x = Text.pack (show x)
     fmtTime t = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" t)
+
+-- | Read through a record pattern rather than bare selectors:
+-- 'Evidence.ModelCallEvidence' and 'Evidence.EvidenceRequest' both
+-- carry @runId@, so under @DuplicateRecordFields@ a bare
+-- @Evidence.runId ev@ is an ambiguous occurrence.
+evidenceSummary :: Evidence.ModelCallEvidence -> Text
+evidenceSummary
+  Evidence.ModelCallEvidence {Evidence.runId, Evidence.callId, Evidence.strength} =
+    Text.unwords
+      [ "run=" <> runId,
+        "call=" <> callId,
+        "strength=" <> Text.pack (show strength)
+      ]

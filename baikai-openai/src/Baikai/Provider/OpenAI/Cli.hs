@@ -26,6 +26,8 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError, processError, providerError)
+import Baikai.Evidence qualified as Ev
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -178,22 +180,39 @@ runCodexCli cfg m ctx opts = do
             P.cwd = cfg ^. #workingDir
           }
   start <- getCurrentTime
-  result <- trySync (P.withCreateProcess procSpec (consume start m))
+  -- The argument vector is the envelope: for a subprocess it is what
+  -- crossed the boundary, and there is nothing else to describe the
+  -- launch with. Built lazily and dropped unforced when the caller
+  -- asked for no evidence.
+  let mkEv end st =
+        Build.minimalEvidence
+          m
+          opts
+          Ev.TransportSubprocess
+          Ev.noThinkingRequested
+          (Internal.argvEnvelope exe args)
+          start
+          end
+          st
+  result <- trySync (P.withCreateProcess procSpec (consume start mkEv m))
   case result of
     Right resp -> pure resp
     Left ex -> do
       end <- getCurrentTime
-      pure (Resp.errorResponse m end (millisBetween start end) (exceptionToError ex))
+      ev <- mkEv end Ev.CallFailed
+      let resp = Resp.errorResponse m end (millisBetween start end) (exceptionToError ex)
+      pure resp {Resp.evidence = ev}
 
 consume ::
   UTCTime ->
+  (UTCTime -> Ev.CallStatus -> IO (Maybe Ev.ModelCallEvidence)) ->
   Model ->
   Maybe Handle ->
   Maybe Handle ->
   Maybe Handle ->
   P.ProcessHandle ->
   IO Resp.Response
-consume start m _ mOut mErr ph = do
+consume start mkEv m _ mOut mErr ph = do
   case (mOut, mErr) of
     (Nothing, _) -> errorNow (providerError "codex: stdout handle missing")
     (_, Nothing) -> errorNow (providerError "codex: stderr handle missing")
@@ -208,8 +227,17 @@ consume start m _ mOut mErr ph = do
       exitCode <- P.waitForProcess ph
       end <- getCurrentTime
       case exitCode of
-        ExitFailure n -> pure (Resp.errorResponse m end (millisBetween start end) (processError n (Internal.decodeUtf8Lenient errBytes)))
-        ExitSuccess ->
+        ExitFailure n -> do
+          ev <- mkEv end Ev.CallFailed
+          let resp =
+                Resp.errorResponse
+                  m
+                  end
+                  (millisBetween start end)
+                  (processError n (Internal.decodeUtf8Lenient errBytes))
+          pure resp {Resp.evidence = ev}
+        ExitSuccess -> do
+          ev <- mkEv end Ev.CallSucceeded
           pure
             Resp.Response
               { Resp.message =
@@ -227,12 +255,14 @@ consume start m _ mOut mErr ph = do
                 Resp.responseId = Nothing,
                 Resp.latencyMs = millisBetween start end,
                 Resp.errorInfo = Nothing,
-                Resp.evidence = Nothing
+                Resp.evidence = ev
               }
   where
     errorNow err = do
       end <- getCurrentTime
-      pure (Resp.errorResponse m end (millisBetween start end) err)
+      ev <- mkEv end Ev.CallFailed
+      let resp = Resp.errorResponse m end (millisBetween start end) err
+      pure resp {Resp.evidence = ev}
 
 millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))

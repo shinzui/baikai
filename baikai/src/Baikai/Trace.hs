@@ -43,14 +43,24 @@ where
 
 import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
-import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogEntry (..),
     CallLogHandle,
     appendEntry,
     summarizeContext,
   )
-import Baikai.Evidence (newCallId)
+-- 'Baikai.Evidence.CallStatus' has a @CallFailed@ constructor and so
+-- does 'Baikai.Trace.Event.TraceEvent'. They mean different things and
+-- both belong in this module, so the status constructors stay behind
+-- the @Evidence.@ qualifier.
+import Baikai.Evidence
+  ( EvidenceStrictness (..),
+    ModelCallEvidence,
+    newCallId,
+    noThinkingRequested,
+  )
+import Baikai.Evidence qualified as Evidence
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -66,7 +76,7 @@ import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, displayException, try)
+import Control.Exception (SomeException, try)
 import Control.Monad (forM_, unless)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -75,7 +85,6 @@ import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
-import System.IO (hPutStrLn, stderr)
 
 -- ============================================================
 -- Stream-shaped trace bridge
@@ -142,8 +151,8 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
           }
     pure $
       Stream.finallyIO
-        (finalizeTrace state eid start m)
-        (Stream.mapM (traceEvent state eid start m) (streamRequestWith reg m ctx opts))
+        (finalizeTrace state eid start m opts)
+        (Stream.mapM (traceEvent state eid start m opts) (streamRequestWith reg m ctx opts))
 
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
 -- 'Response' through 'reassembleResponse'.
@@ -206,8 +215,8 @@ newTraceState = do
   writeIORef root (Just sp)
   pure state
 
-finalizeTrace :: TraceState -> Text -> UTCTime -> Model -> IO ()
-finalizeTrace s eid start m = do
+finalizeTrace :: TraceState -> Text -> UTCTime -> Model -> Options -> IO ()
+finalizeTrace s eid start m opts = do
   alreadyClosed <-
     atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
   unless alreadyClosed $ do
@@ -224,34 +233,93 @@ finalizeTrace s eid start m = do
               latencyMs = millisBetween start now,
               errorMessage = "aborted: stream consumer stopped before the terminal event"
             }
+      -- The consumer stopped before the terminal event, so no adapter
+      -- ever handed evidence back and this layer has to build it. The
+      -- status is 'CallAborted' rather than 'CallFailed': an abort is
+      -- the consumer's doing, and reporting it as a provider failure
+      -- would misattribute it. The digests are over
+      -- 'Build.dispatchEnvelope' — see its documentation for what that
+      -- does and does not commit to.
+      mev <-
+        Build.minimalEvidence
+          m
+          opts
+          (Build.transportForModel m)
+          noThinkingRequested
+          (Build.dispatchEnvelope m opts)
+          start
+          now
+          Evidence.CallAborted
+      pushEvidence s eid now m mev
     writeChan (s ^. #chan) Nothing
     takeMVar (s ^. #done)
-    reportSinkError s
+    reportSinkError s opts
     releaseStableRoot s
+
+-- | Push the 'CallEvidence' event for a call, when there is one.
+--
+-- An absent evidence value means one of two things and this layer must
+-- not try to tell them apart: the caller opted out, or a provider has
+-- not been taught to build evidence. In both cases the correct
+-- behaviour is identical — push nothing. Synthesising a record from
+-- what this layer knows would reintroduce exactly the cost the opt-out
+-- gate exists to remove on the first path, and would attribute a record
+-- to a transport that did not make it on the second.
+--
+-- The event's 'eventId' is the /trace/ identifier, the same one on this
+-- call's @call_started@ and terminal lines, so all four kinds join. The
+-- evidence's own @callId@ is a separate identifier in a separate
+-- namespace and travels inside @data.evidence@; this event is what ties
+-- the two together.
+pushEvidence ::
+  TraceState -> Text -> UTCTime -> Model -> Maybe ModelCallEvidence -> IO ()
+pushEvidence s eid now m mev =
+  forM_ mev $ \ev ->
+    writeChan (s ^. #chan) $
+      Just
+        CallEvidence
+          { eventId = eid,
+            timestamp = now,
+            provider = m ^. #provider,
+            model = m ^. #modelId,
+            evidence = ev
+          }
 
 releaseStableRoot :: TraceState -> IO ()
 releaseStableRoot s = do
   msp <- atomicModifyIORef' (s ^. #stableRoot) (\sp -> (Nothing, sp))
   forM_ msp freeStablePtr
 
-reportSinkError :: TraceState -> IO ()
-reportSinkError s = do
+-- | Report a sink failure through the strictness-aware hook.
+--
+-- The strictness comes from the caller's evidence request; a caller who
+-- asked for no evidence is 'EvidenceBestEffort', which is baikai's
+-- long-standing behaviour of reporting once on stderr and letting the
+-- call succeed. Making a strict caller's call fail here is
+-- @docs\/plans\/57@'s work and lands as a change to
+-- 'Build.onSinkFailure' alone.
+reportSinkError :: TraceState -> Options -> IO ()
+reportSinkError s opts = do
   merr <- readIORef (s ^. #sinkError)
-  forM_ merr $ \e ->
-    hPutStrLn
-      stderr
-      ("baikai: trace sink failed; trace events for this call were dropped: " <> displayException e)
+  forM_ merr (Build.onSinkFailure (strictnessOf opts))
+
+-- | The strictness a call was dispatched under. A call with no evidence
+-- request is best-effort.
+strictnessOf :: Options -> EvidenceStrictness
+strictnessOf opts =
+  maybe EvidenceBestEffort (^. #strictness) (opts ^. #evidence)
 
 traceEvent ::
   TraceState ->
   Text ->
   UTCTime ->
   Model ->
+  Options ->
   AssistantMessageEvent ->
   IO AssistantMessageEvent
-traceEvent state eid start m ev = do
+traceEvent state eid start m opts ev = do
   case ev of
-    EventDone TerminalPayload {message = msg} -> do
+    EventDone TerminalPayload {message = msg, evidence = mev} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
           mu = assistantUsageFromMsg msg
@@ -282,9 +350,10 @@ traceEvent state eid start m ev = do
                 usd = fmap (usdAsScientific . Usage.cost) mu
               }
       writeChan (state ^. #chan) (Just finished)
+      pushEvidence state eid now m mev
       writeIORef (state ^. #terminalSent) True
-      finalizeTrace state eid start m
-    EventError TerminalPayload {message = msg} -> do
+      finalizeTrace state eid start m opts
+    EventError TerminalPayload {message = msg, evidence = mev} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
           errMsg = case msg of
@@ -300,8 +369,9 @@ traceEvent state eid start m ev = do
                 errorMessage = errMsg
               }
       writeChan (state ^. #chan) (Just failed)
+      pushEvidence state eid now m mev
       writeIORef (state ^. #terminalSent) True
-      finalizeTrace state eid start m
+      finalizeTrace state eid start m opts
     _ -> pure ()
   pure ev
 
@@ -369,9 +439,6 @@ assistantUsageFromMsg :: Message -> Maybe Usage
 assistantUsageFromMsg = \case
   AssistantMessage AssistantPayload {usage = u} -> Just u
   _ -> Nothing
-
-usdRat :: Cost.Cost -> Rational
-usdRat = Cost.usd
 
 positiveNat :: Natural -> Maybe Natural
 positiveNat 0 = Nothing

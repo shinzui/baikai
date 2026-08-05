@@ -18,7 +18,6 @@ where
 import Baikai.Evidence (ModelCallEvidence)
 import Data.Aeson
   ( FromJSON (parseJSON),
-    Object,
     Options (..),
     SumEncoding (..),
     ToJSON (..),
@@ -29,7 +28,6 @@ import Data.Aeson
     (.:),
     (.:?),
   )
-import Data.Aeson.Types (Parser)
 import Data.Char (toLower)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
@@ -107,7 +105,14 @@ data TraceEvent
 -- | Aeson options used by the 'ToJSON' instance, and the shape the
 -- hand-written 'FromJSON' instance parses.
 --
--- * Sum encoding: @{"kind":"<tag>","data":{...}}@.
+-- * Sum encoding: a @kind@ discriminator alongside the constructor's
+--   own fields. Every constructor here has named fields, and aeson's
+--   'TaggedObject' merges those into the tagged object rather than
+--   nesting them, so a line reads
+--   @{"kind":"call_finished","eventId":…,"latencyMs":…}@ and not
+--   @{"kind":…,"data":{…}}@. The @contentsFieldName@ below would only
+--   take effect for a positional constructor, of which there are none.
+--   Filter with @jq 'select(.kind == "call_finished") | .latencyMs'@.
 -- * Constructor tags: snake-case (@call_started@, @call_finished@,
 --   @call_failed@, @call_evidence@).
 -- * Field labels: kept as-is (camelCase).
@@ -142,9 +147,8 @@ instance ToJSON TraceEvent where
 -- behaviour, and it is what a consumer wants anyway — the JSON, not a
 -- Haskell mirror of it, is the contract other systems pin against.
 instance FromJSON TraceEvent where
-  parseJSON = withObject "TraceEvent" $ \o -> do
-    kind <- o .: "kind"
-    d <- o .: "data" :: Parser Object
+  parseJSON = withObject "TraceEvent" $ \d -> do
+    kind <- d .: "kind"
     case kind :: Text of
       "call_started" ->
         CallStarted

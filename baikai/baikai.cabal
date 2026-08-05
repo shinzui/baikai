@@ -51,6 +51,7 @@ library
     Baikai.Embedding
     Baikai.Error
     Baikai.Evidence
+    Baikai.Evidence.Build
     Baikai.Interactive
     Baikai.Message
     Baikai.Model
@@ -72,6 +73,12 @@ library
     Baikai.Trace.Sink
     Baikai.Usage
 
+  -- The cabal-generated version module. 'Baikai.Evidence.Build' reads
+  -- it so an evidence record can name the build that produced it,
+  -- centrally rather than through a literal in each of the five
+  -- packages that construct evidence.
+  other-modules:   Paths_baikai
+  autogen-modules: Paths_baikai
   build-depends:
     , aeson              ^>=2.2
     , base               >=4.20  && <5

@@ -13,6 +13,7 @@ module Baikai.Provider.Cli.Internal
     decodeUtf8Lenient,
     extractAgentMessage,
     parseCodexJsonlStream,
+    argvEnvelope,
   )
 where
 
@@ -181,3 +182,22 @@ parseCodexJsonlStream chunks = do
 
 newlineByte :: Word8
 newlineByte = 0x0a
+
+-- | The request envelope a subprocess provider hands to
+-- 'Baikai.Evidence.Build.minimalEvidence': the rendered argument
+-- vector, executable first, as a JSON array of strings.
+--
+-- This is the subprocess analogue of an API provider's request body,
+-- and it is genuinely what crossed the boundary — there is no other
+-- description of a process launch.
+--
+-- Both CLI providers place the prompt inside this vector, so
+-- 'Baikai.Evidence.commitmentDigest' over it legitimately commits to
+-- the prompt. 'Baikai.Evidence.configurationDigest' does not: its
+-- projection admits named fields from an object and a JSON array has
+-- none, so an argv envelope projects to @null@ and the configuration
+-- digest reveals nothing about the command line at all. That is the
+-- allow-list failing in the safe direction, which is what it is for.
+argvEnvelope :: FilePath -> [String] -> Value
+argvEnvelope exe args =
+  Aeson.toJSON (map Text.pack (exe : args))

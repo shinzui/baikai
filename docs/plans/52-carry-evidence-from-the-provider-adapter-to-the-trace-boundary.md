@@ -64,10 +64,11 @@ cabal test baikai --test-options='--pattern Evidence'
 and, in an application, by pointing a trace sink at a file and reading one line out of it:
 
 ```bash
-jq 'select(.kind == "call_evidence") | .data.evidence.strength' trace.jsonl
+jq 'select(.kind == "call_evidence") | .evidence.strength' trace.jsonl
 ```
 
-which prints `"EvidenceRequestedOnly"` for every call until the provider plans land.
+which prints `"requested_only"` for every call until the provider plans land. (A trace line has
+no `data` wrapper and the evidence record's keys are snake_case — see Surprises & Discoveries.)
 
 
 ## Progress
@@ -79,16 +80,19 @@ which prints `"EvidenceRequestedOnly"` for every call until the provider plans l
 - [x] Add the `CallEvidence` case to `TraceEvent` in `baikai/src/Baikai/Trace/Event.hs`.
       (2026-08-05)
 - [x] Stop eliding usage and cost fidelity in `CallFinished` and `CallLogEntry`. (2026-08-05)
-- [ ] Emit the evidence event from `Baikai.Trace`, exactly once per call.
-- [ ] Handle the three non-success terminations: provider error, early consumer termination, and
-      no registered provider.
-- [ ] Add the sink-failure policy hook (best-effort today; strict mode is wired in
+- [x] Emit the evidence event from `Baikai.Trace`, exactly once per call. (2026-08-05)
+- [x] Handle the three non-success terminations: provider error, early consumer termination, and
+      no registered provider. (2026-08-05)
+- [x] Add the sink-failure policy hook (best-effort today; strict mode is wired in
       [docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md)).
-- [ ] Give every adapter a minimal evidence value: both API providers, both CLI completion
-      providers, and the no-provider-registered error path.
-- [ ] Gate all evidence construction on the caller's opt-in, inside the shared builder.
+      (2026-08-05)
+- [x] Give every adapter a minimal evidence value: both API providers, both CLI completion
+      providers, and the no-provider-registered error path. (2026-08-05)
+- [x] Gate all evidence construction on the caller's opt-in, inside the shared builder.
+      (2026-08-05)
 - [ ] Prove the opt-out path is free: byte-identical trace output and no digest computed.
-- [ ] Propagate the mechanical updates through `baikai-effectful` and `baikai-trace-otel`.
+- [x] Propagate the mechanical updates through `baikai-effectful` and `baikai-trace-otel`.
+      (2026-08-05)
 - [ ] Extend `baikai/test/TraceSpec.hs` with the five termination cases.
 - [ ] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading for every package
       whose surface changed.
@@ -127,7 +131,67 @@ emit `CallEvidence` before the terminal event, which no consumer can observe as 
 no consumer has ever seen a `call_evidence` line.
 
 
+### Found in Milestone 2
+
+**A trace line has no `data` wrapper, and this plan's own `jq` incantations were wrong about
+it.** `traceEventOptions` sets `sumEncoding = TaggedObject {tagFieldName = "kind",
+contentsFieldName = "data"}`, which reads as though every event nests its fields under `data`.
+Aeson only uses `contentsFieldName` for a constructor with *positional* fields; all four
+`TraceEvent` constructors have named fields, so aeson merges them into the tagged object and a
+line reads `{"kind":"call_evidence","eventId":…,"evidence":{…}}`. This is pre-existing encoding
+behaviour, not something this plan changed — but the Purpose and Concrete Steps sections of this
+plan both wrote `.data.evidence.…`, and the hand-written `FromJSON` added in Milestone 1
+initially read a nested `data` object and so could not have parsed anything this package emits.
+Both are corrected. The right filter is `jq 'select(.kind == "call_evidence") | .evidence'`.
+
+**The evidence record's JSON field names are snake_case, not camelCase.** Two encodings meet
+inside one line and they disagree on purpose. `Baikai.Trace.Event` keeps field labels as-is
+(camelCase, `eventId`) and drops absent fields; `Baikai.Evidence` snake-cases them
+(`requested_model`) and renders absent fields as explicit `null`. Plan 51 documents why the second
+does that — a reader must be able to tell "baikai recorded nothing here" from "this record
+predates the field" — and says not to harmonise them. So the evidence record's keys are
+`requested_model`, `observed_model`, `request_commitment`, and the acceptance filters in this plan
+that spell them in camelCase read `null`.
+
+**`Baikai.Trace.Sink.renderHuman` needed a branch, and the build did not say so.** It is a total
+`\case` over `TraceEvent` and `-Wincomplete-patterns` flags the new constructor — but the warning
+only appeared in a `cabal repl` session, not in `cabal build all`, because cabal does not re-emit
+warnings for a module it considers up to date. Worth remembering: after widening a sum, a clean
+`cabal build` is not evidence that every match was updated.
+
+
 ## Decision Log
+
+- Decision: The `CallEvidence` event's `eventId` is the __trace__ identifier, not the evidence
+  record's own `callId`.
+  Rationale: This plan's Milestone 2 said to "reuse the identifier from the evidence as the
+  event's `eventId` so a reader can join the evidence to its `call_started` line", and those two
+  halves contradict each other. The trace layer mints its `eventId` before dispatch, for
+  `call_started`; the adapter mints the evidence's `callId` later, from `newCallId`; they are
+  different values, so using the latter as the event id would break exactly the join the sentence
+  wants. Using the trace identifier means all four event kinds for one call share one `eventId`
+  and the join works. The two identifiers are not redundant — they live in different namespaces,
+  the trace one correlating lines within a process and the evidence one correlating calls into a
+  run for a separate system — and the `CallEvidence` event is what ties them together, carrying
+  the trace id at the top level and the call id inside `evidence`. The alternative that would
+  collapse them, injecting the trace id into `Options` before dispatch, is rejected two entries
+  below for reasons that still hold.
+  Date: 2026-08-05
+
+- Decision: On the paths where no provider adapter ran to completion, digest baikai's dispatch
+  parameters rather than omitting the digest or fabricating one over `null`.
+  Rationale: `ModelCallEvidence.requestCommitment` is `Text`, not `Observed Text`, so a record
+  cannot say "no envelope was available" — and widening it is out of bounds, because plan 51 owns
+  the type and this initiative forbids a later plan changing a field. Three paths have no wire
+  body to digest: no registered handler, a `complete` handler that threw, and a consumer that
+  abandoned the stream. `Baikai.Evidence.Build.dispatchEnvelope` gives them `{"model": …,
+  "max_tokens": …}`. On the no-handler paths that is not a reduction at all, because nothing was
+  ever sent. On the other two it is, and the failure direction is the safe one: a verifier holding
+  the prompt recomputes a different value and concludes the record does not describe their
+  request, which is a false negative. A digest that appeared to bind a run to an artifact it never
+  saw — the dangerous direction — cannot arise. Emitting no evidence instead was rejected because
+  it loses the aborted-call record that IR-3's acceptance criterion 4 exists to preserve.
+  Date: 2026-08-05
 
 - Decision: Carry the evidence on `TerminalPayload` rather than adding a new
   `AssistantMessageEvent` constructor or a new `ApiProvider` field.
@@ -672,13 +736,13 @@ credentials and no network. The first call opts in; the second does not, and mus
 evidence line at all. Read the result:
 
 ```bash
-jq -c 'select(.kind == "call_evidence") | {status: .data.evidence.status, strength: .data.evidence.strength, model: .data.evidence.requestedModel, observed: .data.evidence.observedModel}' /tmp/baikai-evidence.jsonl
+jq -c 'select(.kind == "call_evidence") | {status: .evidence.status, strength: .evidence.strength, model: .evidence.requested_model, observed: .evidence.observed_model}' /tmp/baikai-evidence.jsonl
 ```
 
 Expect exactly one line, from the first call only:
 
 ```text
-{"status":"CallFailed","strength":"EvidenceRequestedOnly","model":"test-model","observed":"unobserved"}
+{"status":"failed","strength":"requested_only","model":"test-model","observed":"unobserved"}
 ```
 
 Exactly one line is the point, and it carries two separate proofs. Two lines from the *first* call
@@ -689,7 +753,7 @@ a feature they did not ask for.
 Confirm the opted-out call still traced normally, so that the gate suppressed only the evidence:
 
 ```bash
-jq -c 'select(.kind == "call_started") | .data.model' /tmp/baikai-evidence.jsonl
+jq -c 'select(.kind == "call_started") | .model' /tmp/baikai-evidence.jsonl
 ```
 
 Expect two lines. Both calls traced; only one produced evidence.
@@ -704,19 +768,19 @@ includes `baikai-smoke`, which exercises live providers when credentials or CLI 
 present and skips them otherwise; a skip is not a failure.
 
 A trace file written from a successful call contains exactly one `call_evidence` line whose
-`data.evidence.status` is `CallSucceeded`. A trace file from a failed call contains exactly one,
-with `status` `CallFailed` and a non-null `errorInfo`. A trace file from a call whose consumer
-abandoned the stream contains exactly one, with `status` `CallAborted`.
+`evidence.status` is `succeeded`. A trace file from a failed call contains exactly one, with
+`status` `failed` and a non-null `error_info`. A trace file from a call whose consumer abandoned
+the stream contains exactly one, with `status` `aborted`.
 
 For every one of those three cases the file also contains exactly one `call_started` line and
 exactly one of `call_finished` or `call_failed` — that is, the existing trace contract is
 unchanged and the evidence is purely additive.
 
-Every `call_evidence` record produced by this plan has `strength` equal to
-`EvidenceRequestedOnly`, `observedModel` equal to `"unobserved"`, `responseId` equal to
-`"unobserved"`, and a non-empty `requestCommitment` and `requestConfiguration` each beginning with
-`sha256:`. That exact combination is the proof that the channel works and that nothing was
-backfilled from the request.
+Every `call_evidence` record produced by this plan has `strength` equal to `requested_only`,
+`observed_model` equal to `"unobserved"`, `response_id` equal to `"unobserved"`, and a non-empty
+`request_commitment` and `request_configuration` each beginning with `sha256:`. That exact
+combination is the proof that the channel works and that nothing was backfilled from the
+request.
 
 **A call whose `Options.evidence` is `Nothing` produces no `call_evidence` line at all**, in every
 one of the five termination cases, and its remaining trace events match the golden fixture

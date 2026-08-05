@@ -32,6 +32,8 @@ import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError, decodeError, processError, providerError)
+import Baikai.Evidence qualified as Ev
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -215,16 +217,37 @@ runClaudeCli cfg m ctx opts = do
           & setNoStdin
           & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
   end <- getCurrentTime
+  -- The argument vector is the envelope: for a subprocess it is what
+  -- crossed the boundary, and there is nothing else to describe the
+  -- launch with. Built lazily and dropped unforced when the caller
+  -- asked for no evidence.
+  let evidenceFor st =
+        Build.minimalEvidence
+          m
+          opts
+          Ev.TransportSubprocess
+          Ev.noThinkingRequested
+          (Internal.argvEnvelope exe args)
+          start
+          end
+          st
+      failedWith err = do
+        ev <- evidenceFor Ev.CallFailed
+        let resp = Resp.errorResponse m end (millisBetween start end) err
+        pure resp {Resp.evidence = ev}
   case executed of
-    Left ex -> pure (Resp.errorResponse m end (millisBetween start end) (exceptionToError ex))
+    Left ex -> failedWith (exceptionToError ex)
     Right (exitCode, StdoutRaw out, StderrRaw err) -> case exitCode of
-      ExitFailure n -> pure (Resp.errorResponse m end (millisBetween start end) (processError n (Internal.decodeUtf8Lenient err)))
+      ExitFailure n -> failedWith (processError n (Internal.decodeUtf8Lenient err))
       ExitSuccess -> case decodeResult out of
-        Left e -> pure (Resp.errorResponse m end (millisBetween start end) e)
+        Left e -> failedWith e
         Right r ->
           if is_error r
-            then pure (Resp.errorResponse m end (millisBetween start end) (providerError (result r)))
-            else pure (mkResponse m start end (result r))
+            then failedWith (providerError (result r))
+            else do
+              ev <- evidenceFor Ev.CallSucceeded
+              let resp = mkResponse m start end (result r)
+              pure resp {Resp.evidence = ev}
 
 mkResponse :: Model -> UTCTime -> UTCTime -> Text -> Resp.Response
 mkResponse m start end body =

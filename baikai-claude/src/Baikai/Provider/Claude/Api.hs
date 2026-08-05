@@ -42,6 +42,8 @@ import Baikai.Context (Context (..))
 import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, invalidRequest, providerError)
+import Baikai.Evidence qualified as Ev
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
@@ -141,19 +143,32 @@ claudeMessagesStream m ctx opts =
     setupResult <- trySync (prepareCall m ctx opts)
     let setup = either (Left . exceptionToError) id setupResult
     case setup of
-      Left err -> Stream.fromList <$> immediateError err
+      Left err -> Stream.fromList <$> immediateError m opts err
       Right call -> do
         ch <- newChan :: IO (Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)))
         tref <- newIORef False
         _ <- forkIO (worker call ch)
         startTime <- getCurrentTime
+        -- The request body is the envelope the two digests commit to:
+        -- it is exactly the JSON this call is about to put on the wire.
+        -- Credentials are not in it — they travel in the headers built
+        -- separately by 'Transport.requestHeaders'.
+        mkEvidence <-
+          Build.prepareEvidence
+            m
+            opts
+            Ev.TransportHttpApi
+            Ev.noThinkingRequested
+            (call ^. #requestBody)
+            startTime
         let initialState =
               ProducerState
                 { chan = ch,
                   pending = [],
                   assembler = emptyAssembler m startTime,
                   finished = False,
-                  terminalRef = tref
+                  terminalRef = tref,
+                  evidence = mkEvidence
                 }
         pure (Stream.unfoldrM step initialState)
 
@@ -222,20 +237,25 @@ data ProducerState = ProducerState
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
-    terminalRef :: !(IORef Bool)
+    terminalRef :: !(IORef Bool),
+    -- | Everything about this call's evidence that was knowable before
+    -- the first byte came back, waiting on the terminal timestamp and
+    -- outcome. 'Nothing' when the caller did not ask for evidence.
+    -- 'sealTerminal' applies it.
+    evidence :: !(Maybe (UTCTime -> Ev.CallStatus -> Ev.ModelCallEvidence))
   }
   deriving stock (Generic)
 
 step :: ProducerState -> IO (Maybe (AssistantMessageEvent, ProducerState))
 step s
   | (e : rest) <- s ^. #pending = do
-      writeTerminal s e
+      sealed <- sealTerminal s e
       pure
         ( Just
-            ( e,
+            ( sealed,
               s
                 & #pending .~ rest
-                & #finished .~ (s ^. #finished || terminal e)
+                & #finished .~ (s ^. #finished || terminal sealed)
             )
         )
   | s ^. #finished = pure Nothing
@@ -249,10 +269,10 @@ step s
             else do
               now <- getCurrentTime
               let (ev, ass') = unexpectedEoS now (s ^. #assembler)
-              writeTerminal s ev
+              sealed <- sealTerminal s ev
               pure
                 ( Just
-                    ( ev,
+                    ( sealed,
                       s & #assembler .~ ass' & #finished .~ True
                     )
                 )
@@ -262,21 +282,52 @@ step s
           case events of
             [] -> step (s & #assembler .~ ass')
             (e : rest) -> do
-              writeTerminal s e
+              sealed <- sealTerminal s e
               pure
                 ( Just
-                    ( e,
+                    ( sealed,
                       s
                         & #pending .~ rest
                         & #assembler .~ ass'
-                        & #finished .~ (s ^. #finished || terminal e)
+                        & #finished .~ (s ^. #finished || terminal sealed)
                     )
                 )
 
-writeTerminal :: ProducerState -> AssistantMessageEvent -> IO ()
-writeTerminal s ev
-  | terminal ev = writeIORef (s ^. #terminalRef) True
-  | otherwise = pure ()
+-- | Mark the stream terminated and attach the call's evidence to the
+-- terminal event.
+--
+-- Every event this producer yields goes through here, and the three
+-- sites that can produce a terminal — a translated upstream event, a
+-- queued event drained from 'pending', and the unexpected-end-of-stream
+-- recovery — therefore all seal identically. Doing it here rather than
+-- inside 'translate' keeps that function pure; evidence construction
+-- needs 'IO' for the call identifier.
+--
+-- A non-terminal event passes through unchanged, and so does a terminal
+-- on a call whose caller asked for no evidence.
+sealTerminal :: ProducerState -> AssistantMessageEvent -> IO AssistantMessageEvent
+sealTerminal s ev
+  | not (terminal ev) = pure ev
+  | otherwise = do
+      writeIORef (s ^. #terminalRef) True
+      case s ^. #evidence of
+        Nothing -> pure ev
+        Just finish -> do
+          now <- getCurrentTime
+          let record = finish now (statusOf ev)
+          pure (withEvidence record ev)
+  where
+    statusOf = \case
+      EventDone {} -> Ev.CallSucceeded
+      _ -> Ev.CallFailed
+    -- Set through the generic-lens label rather than a record update:
+    -- 'Baikai.Options.Options' also has an @evidence@ field, so under
+    -- @DuplicateRecordFields@ a bare @p {evidence = ...}@ has no unique
+    -- constructor to resolve to.
+    withEvidence record = \case
+      EventDone p -> EventDone (p & #evidence .~ Just record)
+      EventError p -> EventError (p & #evidence .~ Just record)
+      other -> other
 
 terminal :: AssistantMessageEvent -> Bool
 terminal = \case
@@ -568,8 +619,12 @@ blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 -- | The immediate "request invalid" stream — emitted when
 -- 'mapRequest' fails or 'prepareCall' is otherwise unable to build
 -- a valid SDK request.
-immediateError :: BaikaiError -> IO [AssistantMessageEvent]
-immediateError err = do
+-- | The immediate "request invalid" stream.
+--
+-- Nothing was sent, so there is no wire body to digest and the evidence
+-- commits to 'Build.dispatchEnvelope' instead — see its documentation.
+immediateError :: Model -> Options -> BaikaiError -> IO [AssistantMessageEvent]
+immediateError m opts err = do
   now <- getCurrentTime
   let errText = err ^. #message
   let msg =
@@ -581,9 +636,19 @@ immediateError err = do
               Msg.errorMessage = Just errText,
               Msg.timestamp = Just now
             }
+  ev <-
+    Build.minimalEvidence
+      m
+      opts
+      Ev.TransportHttpApi
+      Ev.noThinkingRequested
+      (Build.dispatchEnvelope m opts)
+      now
+      now
+      Ev.CallFailed
   pure
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
-      EventError (errorTerminal Nothing Nothing Stop.ErrorReason msg err)
+      EventError (errorTerminal ev Nothing Stop.ErrorReason msg err)
     ]
 
 trySync :: IO a -> IO (Either SomeException a)

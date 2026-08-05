@@ -35,6 +35,9 @@ import Baikai.Api (Api, renderApi)
 import Baikai.Content (AssistantContent (..), ToolCall)
 import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
+import Baikai.Evidence (noThinkingRequested)
+import Baikai.Evidence qualified as Evidence
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), ToolResult, toolResultErrorText, user)
 import Baikai.Model (Model)
 import Baikai.Model qualified as Model
@@ -139,12 +142,22 @@ completeRequestWith reg m ctx opts = do
     Just p -> complete p m ctx opts
     Nothing -> do
       now <- getCurrentTime
-      pure $
-        errorResponse
+      -- "No provider was registered" is a fact about the call, so a
+      -- caller who asked for evidence gets a record of it. Nothing was
+      -- sent, so the digests are over 'Build.dispatchEnvelope'.
+      ev <-
+        Build.minimalEvidence
           m
+          opts
+          (Build.transportForModel m)
+          noThinkingRequested
+          (Build.dispatchEnvelope m opts)
           now
-          0
-          (providerUnavailable ("No provider registered for API: " <> renderApi (Model.api m)))
+          now
+          Evidence.CallFailed
+      let detail = "No provider registered for API: " <> renderApi (Model.api m)
+          resp = errorResponse m now 0 (providerUnavailable detail)
+      pure resp {evidence = ev}
 
 -- | Dispatch a synchronous request through the process-global registry.
 completeRequest :: Model -> Context -> Options -> IO Response
