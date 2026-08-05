@@ -139,8 +139,55 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `docs/user/cli-providers.md` and `docs/user/interactive-launches.md` link to
   it, and the capability mapping tables moved there from the latter.
 
+- `baikai`: new exposed module `Baikai.Evidence`, the vocabulary for
+  **verifiable model-call evidence** — a record of what actually crossed the
+  boundary to a provider, as opposed to what the process was configured to ask
+  for. It defines `ModelCallEvidence` and the `evidenceSchemaVersion` string
+  consumers pin against, `Observed` (a deliberate non-`Maybe` for a value the
+  provider either did or did not report, with no function that supplies a
+  default), `ThinkingTranslation` with its `ThinkingMode` and
+  `ThinkingAdjustment` enumerations describing what a requested
+  reasoning-effort level actually became on the wire and every clamp, collapse,
+  or drop applied on the way, `EndpointIdentity` and `TransportKind`,
+  `CallStatus`, and the ascending `EvidenceStrength` scale.
+
+  It also provides the canonical hashing core: `canonicalEncode` gives a JSON
+  value exactly one byte representation (object keys sorted, no insignificant
+  whitespace, numbers normalised so `1`, `1.0`, `1.00`, and `1e0` all encode as
+  `1`, and a hand-written string escaper so an aeson upgrade cannot silently
+  invalidate a recorded digest); `commitmentDigest` hashes a full request
+  envelope, and `configurationDigest` hashes an allow-list projection
+  (`configurationProjection`) that keeps configuration and replaces content with
+  structural summaries, so two calls that ask the same model the same way about
+  different subjects agree. The two digests are separate on purpose: the first
+  binds a record to a particular request, the second is safe to compare across
+  runs that legitimately differ in content.
+
+  Nothing constructs a `ModelCallEvidence` from a real call yet, and no existing
+  behaviour changed. New dependencies: `cryptohash-sha256` and
+  `base16-bytestring`, both single-purpose packages chosen over a full
+  cryptographic framework.
+- `baikai`: `Options` gains an `evidence` field carrying an optional
+  `EvidenceRequest` — the caller's run identifier, retry provenance, and how
+  strictly they need evidence. A call whose `evidence` is `Nothing`, which is
+  every call that does not opt in, behaves exactly as it did before: no digest
+  is computed and no evidence is emitted.
+
 ### Changed
 
+- `baikai`: call identifiers on the trace path are now globally unique.
+  `Baikai.Evidence.newCallId` produces 32 lowercase hexadecimal characters
+  carrying 128 bits — 48 bits of Unix time in milliseconds, 48 bits of a
+  per-process random seed drawn once from `/dev/urandom`, and a 32-bit counter.
+  The previous generator combined the process-start *second* with a
+  process-local counter into 16 characters, so two processes started within the
+  same second emitted identical identifier sequences; its own documentation
+  claimed only per-process uniqueness. Identifiers still sort chronologically
+  and are still not secrets.
+
+  `Baikai.Trace.newEventId` keeps its name and signature, delegates to
+  `newCallId`, and is now deprecated. Anything that pinned the 16-character
+  width — a log parser, a fixture, a column type — must widen to 32.
 - `baikai`: `renderCeilingViolation` no longer prints the raw provider arguments
   a `ProviderArgsForbidden` violation carries. It reports how many were
   requested and states that their values are not shown. Raw provider arguments

@@ -5,11 +5,14 @@
 module EvidenceSpec (tests) where
 
 import Baikai.Evidence
+import Control.Concurrent (threadDelay)
+import Control.Monad (replicateM)
 import Data.Aeson (Value (Number, Object, String), object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BS8
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -21,7 +24,8 @@ tests =
     [ canonicalTests,
       digestTests,
       redactionTests,
-      observedTests
+      observedTests,
+      callIdTests
     ]
 
 -- ============================================================
@@ -266,6 +270,39 @@ observedTests =
     roundTrip v = case Aeson.fromJSON (Aeson.toJSON v) of
       Aeson.Success v' -> v' @?= v
       Aeson.Error e -> assertFailure ("round trip failed: " <> e)
+
+-- ============================================================
+-- Identifiers
+-- ============================================================
+
+callIdTests :: TestTree
+callIdTests =
+  testGroup
+    "call ids"
+    [ -- Generated in a tight loop, so most of these share a
+      -- millisecond. If the counter were dropped from the layout, this
+      -- would collapse to a handful of distinct values.
+      testCase "70000 ids generated back to back are all distinct" $ do
+        ids <- replicateM 70000 newCallId
+        length (nub' ids) @?= 70000,
+      testCase "an id is 32 lowercase hex characters" $ do
+        cid <- newCallId
+        Text.length cid @?= 32
+        assertBool
+          ("expected lowercase hex, got " <> Text.unpack cid)
+          (Text.all (`elem` ("0123456789abcdef" :: String)) cid),
+      -- The millisecond prefix occupies the high bits, so ids minted
+      -- later never sort before ids minted earlier.
+      testCase "ids sort chronologically" $ do
+        earlier <- newCallId
+        threadDelay 2000
+        later <- newCallId
+        assertBool
+          (Text.unpack earlier <> " should sort before " <> Text.unpack later)
+          (earlier < later)
+    ]
+  where
+    nub' = Set.toList . Set.fromList
 
 -- ============================================================
 -- Fixture loading

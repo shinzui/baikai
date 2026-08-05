@@ -60,12 +60,16 @@ module Baikai.Evidence
     commitmentDigest,
     configurationDigest,
     configurationProjection,
+
+    -- * Identifiers
+    newCallId,
   )
 where
 
 import Baikai.Error (BaikaiError)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Baikai.Usage (Usage)
+import Control.Exception (SomeException, try)
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson
   ( FromJSON (parseJSON),
@@ -85,13 +89,15 @@ import Data.Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (typeMismatch)
-import Data.Bits (shiftR, (.&.))
+import Data.Bits (Bits, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as ByteString
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Builder (Builder)
 import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (ord)
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.List (intersperse)
 import Data.Scientific (FPFormat (Fixed), Scientific)
 import Data.Scientific qualified as Scientific
@@ -101,9 +107,13 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TextEncoding
 import Data.Time (UTCTime, diffUTCTime)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector qualified as Vector
+import Data.Word (Word64)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
+import System.IO (IOMode (ReadMode), withBinaryFile)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- ============================================================
 -- Observation
@@ -860,9 +870,11 @@ escapeChar = \case
     | otherwise -> Builder.charUtf8 c
 
 hex4 :: Int -> Builder
-hex4 n = mconcat [nibble (n `shiftR` s) | s <- [12, 8, 4, 0]]
-  where
-    nibble v = Builder.char7 ("0123456789abcdef" !! (v .&. 0xF))
+hex4 n = mconcat [Builder.char7 (hexDigit (n `shiftR` s)) | s <- [12, 8, 4, 0]]
+
+-- | The low nibble of a value as a lowercase hexadecimal character.
+hexDigit :: (Integral a, Bits a) => a -> Char
+hexDigit v = "0123456789abcdef" !! fromIntegral (v .&. 0xF)
 
 -- | SHA-256 of the canonical encoding, rendered as 64 lowercase
 -- hexadecimal characters and prefixed with the algorithm so the string
@@ -1030,3 +1042,78 @@ summariseTool = \case
           Just n@(String _) -> n
           _ -> Null
         _ -> Null
+
+-- ============================================================
+-- Identifiers
+-- ============================================================
+
+-- | A globally unique call identifier: 32 lowercase hexadecimal
+-- characters carrying 128 bits, laid out as 48 bits of Unix time in
+-- milliseconds, then 48 bits of a per-process random seed drawn once
+-- at first use, then a 32-bit process-local counter.
+--
+-- The time prefix comes first so that identifiers sort
+-- chronologically. The seed is what distinguishes two processes; the
+-- counter is what distinguishes two calls within one. The counter
+-- wrapping after 2^32 calls is harmless, because the millisecond
+-- prefix will have moved on long before.
+--
+-- This replaces the previous generator, which combined the process
+-- start /second/ with a process-local counter and therefore produced
+-- identical identifier sequences in two processes started within the
+-- same second. For ordinary tracing that was a minor collision hazard;
+-- for evidence that another system correlates into a run, it was a
+-- correctness defect.
+--
+-- Generating an identifier costs one atomic counter increment and one
+-- clock read, and performs no syscall for randomness. That matters
+-- because this function sits on the trace path for every call whether
+-- or not the caller asked for evidence, and a per-call read from the
+-- system random source would charge people who never asked for one.
+--
+-- These identifiers are __not secrets__. They are not capabilities,
+-- they are not unguessable, and they must not be used as one. Their
+-- only job is to correlate records.
+newCallId :: IO Text
+newCallId = do
+  n <- atomicModifyIORef' callIdCounter (\k -> (k + 1, k))
+  now <- getPOSIXTime
+  let millis = floor (now * 1000) :: Word64
+      seed = callIdSeed .&. 0xFFFFFFFFFFFF
+      high = ((millis .&. 0xFFFFFFFFFFFF) `shiftL` 16) .|. (seed `shiftR` 32)
+      low = ((seed .&. 0xFFFFFFFF) `shiftL` 32) .|. (n .&. 0xFFFFFFFF)
+  pure (hex16 high <> hex16 low)
+
+hex16 :: Word64 -> Text
+hex16 w = Text.pack [hexDigit (w `shiftR` s) | s <- [60, 56 .. 0]]
+
+callIdCounter :: IORef Word64
+callIdCounter = unsafePerformIO (newIORef 0)
+{-# NOINLINE callIdCounter #-}
+
+-- | Sixty-four bits drawn once from @\/dev\/urandom@, of which
+-- 'newCallId' uses the low forty-eight.
+--
+-- Read with 'hGet' rather than @ByteString.readFile@: @readFile@ asks
+-- for the file's size, gets zero for a character device, and then
+-- reads until end of file — which @\/dev\/urandom@ never reaches.
+--
+-- If the read fails for any reason, the seed falls back to the current
+-- time in nanoseconds. That is weaker — two processes starting within
+-- the same nanosecond would share a seed — but it is still far
+-- stronger than the per-second base this generator replaced, and it
+-- keeps a failure to open a device file from taking down a library
+-- that only wanted to name a call.
+callIdSeed :: Word64
+callIdSeed = unsafePerformIO $ do
+  drawn <-
+    try (withBinaryFile "/dev/urandom" ReadMode (\h -> ByteString.hGet h 8)) ::
+      IO (Either SomeException ByteString)
+  case drawn of
+    Right bytes
+      | ByteString.length bytes == 8 ->
+          pure (ByteString.foldl' (\acc b -> (acc `shiftL` 8) .|. fromIntegral b) 0 bytes)
+    _ -> do
+      now <- getPOSIXTime
+      pure (floor (now * 1000000000))
+{-# NOINLINE callIdSeed #-}

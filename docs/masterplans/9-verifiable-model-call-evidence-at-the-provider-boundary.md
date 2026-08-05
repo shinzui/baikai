@@ -193,7 +193,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | In Progress |
+| EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | Complete |
 | EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Not Started |
 | EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Not Started |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Not Started |
@@ -314,13 +314,13 @@ sign, does not hold sanctioning policy, and does not own retries.
 
 ## Progress
 
-- [ ] EP-1: Define `Baikai.Evidence` — the `ModelCallEvidence` record, `Observed`,
-      `ThinkingTranslation`, `EvidenceStrength`, and the schema version constant.
-- [ ] EP-1: Replace the process-local call-id generator with a globally unique one and add the
-      caller-supplied run id to `Baikai.Options`.
-- [ ] EP-1: Implement canonical JSON encoding and the two digests, with golden tests proving
+- [x] EP-1: Define `Baikai.Evidence` — the `ModelCallEvidence` record, `Observed`,
+      `ThinkingTranslation`, `EvidenceStrength`, and the schema version constant. (2026-08-05)
+- [x] EP-1: Replace the process-local call-id generator with a globally unique one and add the
+      caller-supplied run id to `Baikai.Options`. (2026-08-05)
+- [x] EP-1: Implement canonical JSON encoding and the two digests, with golden tests proving
       stability across map ordering and encoder differences and proving no credential, prompt
-      body, thinking text, or tool payload appears in the envelope.
+      body, thinking text, or tool payload appears in the envelope. (2026-08-05)
 - [ ] EP-2: Widen the provider-to-trace channel so an adapter returns the evidence it built.
 - [ ] EP-2: Prove the opt-out path is free — a call with no evidence request produces trace output
       byte-identical to the pre-initiative output and computes no digest.
@@ -452,6 +452,42 @@ or `CallLog` across `baikai-agent/src` and `baikai-kit/src` returns nothing. `Ag
 carries a provider, an exit code, two captured output streams, and a duration — no usage, no
 identifiers, no model. EP-6 is building an evidence path where none exists, which is why it is
 sized as its own plan rather than treated as an extension of EP-5.
+
+
+### Found while implementing EP-1
+
+These four affect what later plans must do, so they are recorded here as well as in
+[docs/plans/51](../plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md).
+
+**`ModelCallEvidence` is `ToJSON`-only, and every later plan must read emitted evidence as a
+plain `Aeson.Value`.** `Baikai.Usage.Usage` embeds `Baikai.Cost.Cost`, whose exact `Rational`
+amounts encode through an approximating `Scientific` (`ratToSci = fst .
+fromRationalRepetendUnlimited`, `baikai/src/Baikai/Cost.hs:84`). A `FromJSON` would decode to a
+different value than was encoded. EP-2 through EP-7 must not write one, and their tests should
+assert against decoded `Value` fields rather than against a Haskell mirror of the record — which
+is the better test anyway, because the JSON is the actual contract Shikigami pins against.
+
+**`EndpointIdentity.baikaiVersion` has no source yet, and EP-2 owns choosing one.** EP-1 defines
+the field but does not wire up a `Paths_baikai` autogen module, because the version string is
+needed by adapters in five packages and deciding where it comes from is a transport-layer
+concern rather than a vocabulary one. EP-2 must resolve it once and centrally. If each adapter
+hardcodes a literal instead, the field becomes a lie the first time one of them is not updated
+during a release.
+
+**Bare field selectors on the evidence types are ambiguous; use the `generic-lens` labels.**
+`ModelCallEvidence` and `EvidenceRequest` both carry `runId`, `attempt`, and `supersedes`, which
+is correct — they are the same three facts travelling from caller into record, and the
+repository's convention forbids prefixing a field with its record's name. Under
+`DuplicateRecordFields`, GHC 9.12 rejects `runId r` as an ambiguous occurrence rather than
+resolving it by type. Provider adapters should write `req ^. #runId`, as the rest of the codebase
+does; only code reaching for a bare selector is affected.
+
+**Changing `canonicalEncode` after this point is a schema break, not a fix.** The golden test in
+`baikai/test/EvidenceSpec.hs` pins both digests of
+`baikai/test/fixtures/evidence-request.json` against literal values. If a later plan changes key
+ordering, number normalisation, or string escaping, that test fails — and the correct response is
+a major bump of `evidenceSchemaVersion`, because every digest recorded by an earlier build
+becomes unverifiable. The test's own comment says this. Do not paste a new value over it.
 
 
 ## Decision Log

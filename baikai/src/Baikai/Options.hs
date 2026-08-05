@@ -32,6 +32,14 @@
 -- for the mappings). EP-2 (shikumi) adds @responseFormat@, the
 -- provider-agnostic structured-output preference — see
 -- 'Baikai.ResponseFormat'.
+--
+-- 'evidence' is the per-call request for verifiable model-call
+-- evidence — see 'Baikai.Evidence.EvidenceRequest'. It carries the
+-- caller's run identifier and how strictly they need the evidence.
+-- A call whose 'evidence' is 'Nothing', which is every call that does
+-- not opt in, behaves exactly as it did before the field existed: no
+-- digest is computed, no evidence is emitted, and the trace output is
+-- unchanged.
 module Baikai.Options
   ( Options,
     maxTokens,
@@ -44,6 +52,7 @@ module Baikai.Options
     cacheRetention,
     thinking,
     responseFormat,
+    evidence,
     topP,
     stopSequences,
     seed,
@@ -56,6 +65,7 @@ where
 
 import Baikai.Auth (ApiKeySource)
 import Baikai.CacheRetention (CacheRetention)
+import Baikai.Evidence (EvidenceRequest)
 import Baikai.ResponseFormat (ResponseFormat)
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
@@ -78,6 +88,7 @@ data Options = Options
     cacheRetention :: !(Maybe CacheRetention),
     thinking :: !(Maybe ThinkingLevel),
     responseFormat :: !(Maybe ResponseFormat),
+    evidence :: !(Maybe EvidenceRequest),
     topP :: !(Maybe Double),
     stopSequences :: !(Maybe (Vector Text)),
     seed :: !(Maybe Integer),
@@ -100,6 +111,7 @@ emptyOptions =
       cacheRetention = Nothing,
       thinking = Nothing,
       responseFormat = Nothing,
+      evidence = Nothing,
       topP = Nothing,
       stopSequences = Nothing,
       seed = Nothing,

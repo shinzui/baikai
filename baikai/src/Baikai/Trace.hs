@@ -50,6 +50,7 @@ import Baikai.Cost.Log
     appendEntry,
     summarizeContext,
   )
+import Baikai.Evidence (newCallId)
 import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -68,19 +69,13 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM_, unless)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
-import Data.Bits (unsafeShiftL, (.&.), (.|.))
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe)
-import Data.Text qualified as Text
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
-import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Word (Word64)
 import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
-import Numeric (showHex)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import System.IO (hPutStrLn, stderr)
-import System.IO.Unsafe (unsafePerformIO)
 
 -- ============================================================
 -- Stream-shaped trace bridge
@@ -133,7 +128,7 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
           Left e -> writeIORef (state ^. #sinkError) (Just e)
           Right () -> pure ()
         putMVar d ()
-    eid <- newEventId
+    eid <- newCallId
     start <- getCurrentTime
     writeChan c $
       Just
@@ -381,27 +376,14 @@ millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
 -- Event id
 -- ============================================================
 
--- | Generate a 16-character lowercase hexadecimal event id. The high
--- 32 bits are derived from process-start POSIX seconds and the low
--- 32 bits are a process-local counter, so ids are unique within a
--- process for 2^32 calls.
+-- | Generate an identifier for one traced call.
+--
+-- Delegates to 'newCallId'. The previous implementation combined the
+-- process-start POSIX /second/ with a process-local counter and
+-- produced 16 hexadecimal characters, which meant two processes
+-- started within the same second emitted identical identifier
+-- sequences. 'newCallId' produces 32 characters and is unique across
+-- processes.
 newEventId :: IO Text
-newEventId = do
-  n <- atomicModifyIORef' eventCounter (\k -> (k + 1, k))
-  let raw :: Word64
-      raw =
-        (fromIntegral eventBase .&. 0xFFFFFFFF) `unsafeShiftL` 32
-          .|. (fromIntegral n .&. 0xFFFFFFFF)
-      hex = showHex raw ""
-      padded = replicate (16 - length hex) '0' <> hex
-  pure (Text.pack padded)
-
-eventCounter :: IORef Word
-eventCounter = unsafePerformIO (newIORef 0)
-{-# NOINLINE eventCounter #-}
-
-eventBase :: Word
-eventBase = unsafePerformIO $ do
-  t <- getPOSIXTime
-  pure (fromIntegral (floor t :: Integer))
-{-# NOINLINE eventBase #-}
+newEventId = newCallId
+{-# DEPRECATED newEventId "Use Baikai.Evidence.newCallId; newEventId's ids were only unique within one process." #-}

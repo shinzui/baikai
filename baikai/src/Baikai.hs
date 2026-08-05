@@ -30,6 +30,7 @@ module Baikai
     module Baikai.Usage,
     module Baikai.Cost,
     module Baikai.Error,
+    module Baikai.Evidence,
     module Baikai.Interactive,
 
     -- * Per-API compat shims and call-time options
@@ -56,6 +57,7 @@ import Baikai.Content
 import Baikai.Context
 import Baikai.Cost
 import Baikai.Error
+import Baikai.Evidence
 import Baikai.Interactive
 import Baikai.Message
 import Baikai.Model

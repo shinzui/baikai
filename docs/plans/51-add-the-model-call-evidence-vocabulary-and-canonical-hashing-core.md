@@ -71,17 +71,18 @@ or tool payload ever appears anywhere in the encoded envelope.
       (2026-08-05)
 - [x] Implement canonical JSON encoding (`canonicalEncode`). (2026-08-05)
 - [x] Implement `commitmentDigest` and `configurationDigest`. (2026-08-05)
-- [ ] Replace the call-identifier generator and expose `newCallId`.
-- [ ] Add the `evidence` field to `Baikai.Options`.
-- [ ] Export `Baikai.Evidence` from the umbrella `Baikai` module and add it to the cabal
-      `exposed-modules` list.
+- [x] Replace the call-identifier generator and expose `newCallId`. (2026-08-05)
+- [x] Add the `evidence` field to `Baikai.Options`. (2026-08-05)
+- [x] Export `Baikai.Evidence` from the umbrella `Baikai` module and add it to the cabal
+      `exposed-modules` list. (2026-08-05)
 - [x] Write `baikai/test/EvidenceSpec.hs` covering canonicality, redaction, and `Observed`
       semantics; wire it into `baikai/test/Main.hs`. (2026-08-05)
-- [ ] Add the identifier-uniqueness cases to `baikai/test/EvidenceSpec.hs` (deferred with
-      `newCallId` itself to Milestone 4).
+- [x] Add the identifier-uniqueness cases to `baikai/test/EvidenceSpec.hs`. (2026-08-05)
+- [x] Update `baikai/test/TraceSpec.hs`'s identifier-width assertion from 16 to 32 characters and
+      record why in the Decision Log. (2026-08-05)
 - [x] Add the golden digest fixture at `baikai/test/fixtures/evidence-request.json`. One fixture
       serves both the golden-digest and the redaction tests. (2026-08-05)
-- [ ] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading.
+- [x] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading. (2026-08-05)
 
 
 ## Surprises & Discoveries
@@ -128,6 +129,26 @@ digests. `Scientific.normalize` strips the trailing zeros first. The test case
 `normalises integral and fractional number spellings` pins nine spellings against their canonical
 forms.
 
+**`ModelCallEvidence` and `EvidenceRequest` share three field names, so bare selectors are
+ambiguous.** Both records carry `runId`, `attempt`, and `supersedes` — deliberately, since they
+are the same three facts travelling from the caller into the record, and the repository's
+convention forbids prefixing a field with its record's name. Under `DuplicateRecordFields` that
+makes `runId r` an ambiguous occurrence rather than a type-directed lookup, which GHC 9.12 no
+longer resolves:
+
+```text
+test/EvidenceSpec.hs:242:9: error: [GHC-87543]
+    Ambiguous occurrence ‘runId’.
+    It could refer to
+       either the field ‘runId’ of record ‘EvidenceRequest’,
+           or the field ‘runId’ of record ‘ModelCallEvidence’,
+```
+
+This is not a problem for library code, which reaches fields through the `generic-lens` labels
+(`r ^. #runId`) that the rest of the codebase already uses; it only bites code that reaches for a
+bare selector. The test destructures with a record pattern instead, and says so in a comment.
+Later plans in this initiative should use the label form.
+
 **The plan's `/dev/urandom` seeding instruction would hang the process.** Milestone 4 specifies
 reading the seed with `Data.ByteString.readFile`. `BS.readFile` asks for the file's size, gets
 zero for a character device, and then reads in a loop until EOF — and `/dev/urandom` never
@@ -154,6 +175,20 @@ before writing the code rather than by observing a hang.
   asked for evidence. Seeding once fixes the actual defect — the old generator produced identical
   sequences in two processes started in the same second — at no per-call cost. These identifiers
   correlate records; they are not secrets and unguessability is not a requirement.
+  Date: 2026-08-05
+
+- Decision: Change `baikai/test/TraceSpec.hs`'s identifier-width assertion from 16 to 32
+  characters, and keep the test pointed at the deprecated `newEventId`.
+  Rationale: The plan's Validation section anticipated this. The assertion in question read
+  `assertBool "every id is 16 chars" (all ((== 16) . Text.length) ids)`, and its test was named
+  "newEventId yields 70000 distinct 16-char ids". Sixteen characters is exactly the property the
+  replacement removes: the old generator's 64 bits were half process-start seconds, which is what
+  made two processes collide. The uniqueness assertion — the part that carries the actual
+  behavioural claim — is unchanged, and the count stays at 70000. The comment above the test now
+  quotes the old assertion and says why it moved, so the change is legible as a decision rather
+  than as drift. `TraceSpec` keeps importing `newEventId` under a file-scoped
+  `-Wno-deprecations`, because the alias is still public surface and deleting its only test to
+  silence a warning would trade real coverage for tidiness.
   Date: 2026-08-05
 
 - Decision: Give `ModelCallEvidence` a `ToJSON` instance only, not the `FromJSON` instance
@@ -184,6 +219,64 @@ before writing the code rather than by observing a hang.
   `fromMaybe`-shaped helper, and a name that says what it means makes the mistake visible at the
   call site and in review.
   Date: 2026-08-05
+
+
+## Outcomes & Retrospective
+
+This section was absent from the file as generated; it is required by the ExecPlan
+specification and was added when the plan was completed.
+
+**What was achieved.** `baikai` exposes `Baikai.Evidence`, holding the whole vocabulary for
+describing one completed provider call — `ModelCallEvidence` and `evidenceSchemaVersion`,
+`Observed`, `ThinkingTranslation` with `ThinkingMode` and `ThinkingAdjustment`,
+`EndpointIdentity`, `TransportKind`, `CallStatus`, the ascending `EvidenceStrength`,
+`EvidenceRequest` with `EvidenceStrictness`, and the `baseEvidence` smart constructor — plus the
+canonical hashing core (`canonicalEncode`, `commitmentDigest`, `configurationDigest`,
+`configurationProjection`) and the replacement identifier generator `newCallId`. `Options` gained
+its `evidence` field, `Baikai.Trace.newEventId` became a deprecated delegate, and the umbrella
+`Baikai` module re-exports the new module.
+
+**Proof.** `cabal test all` passes every suite: `baikai` 193 (168 before this plan, 25 new),
+`baikai-claude` 174, `baikai-openai` 81, `baikai-agent` 65, `baikai-kit` 29, `baikai-effectful` 4,
+`baikai-trace-otel` 3, and `baikai-smoke` skipping its live providers for want of credentials as
+designed. `cabal build all` emits no warning. The interactive checks the Validation section calls
+for were run in `cabal repl baikai`:
+
+```text
+digests equal across key order: True
+rendered: "sha256:d3626ac30a87e6f7a6428233b3c68299976865fa5508e4267c5415c76af7a772"
+configuration digests equal: True
+commitment digests equal: False
+1000 ids all distinct: True
+run id round-trips: Just "run-42"
+```
+
+The third and fourth lines are the pair that matters: equal configuration digests prove the
+projection removed the content, and unequal commitment digests prove the commitment did not.
+
+**What remains for later plans.** Nothing constructs a `ModelCallEvidence` from a real call, by
+design. Two things this plan deliberately left undone are worth naming so a later plan does not
+rediscover them as gaps. `EndpointIdentity.baikaiVersion` has no source: this plan did not wire
+up a `Paths_baikai` autogen module, so
+[docs/plans/52](52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md) owns
+deciding where the version string comes from and must do it once, centrally, rather than letting
+each adapter hardcode a literal. And `EvidenceStrictness` is inert: the field round-trips and
+providers can read it, but nothing enforces it until
+[docs/plans/57](57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md).
+
+**Lessons.** Three of this plan's concrete instructions were wrong in ways that only reading the
+dependency's source could catch — the `encodeBase16` export, the `readFile`-on-`/dev/urandom`
+hang, and the missing `Scientific.normalize`. Each was cheap to fix at implementation time and
+would have been expensive to discover later; the `/dev/urandom` one would have shipped as a hang.
+The general lesson is the one already in this repository's habits: verify an API against the
+installed source rather than against recollection of it, especially for a function whose output
+becomes a durable recorded value.
+
+The other lesson is about the `FromJSON` that could not be written. The plan asked for a
+round-trip instance and the type system happily would have accepted one; only tracing `Usage`
+down through `Cost` to `fromRationalRepetendUnlimited` showed that the round trip would silently
+lie. An initiative whose whole premise is that a record must not claim more than it observed has
+to hold its own serialisation to the same standard.
 
 
 ## Context and Orientation
