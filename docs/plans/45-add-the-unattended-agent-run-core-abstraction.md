@@ -73,8 +73,12 @@ This section must always reflect the actual current state of the work.
       capability and ceiling pair, every refusal, and every canonical rendering; register it in
       `baikai/baikai.cabal` and `baikai/test/Main.hs`. `cabal test baikai-test` reports
       `All 168 tests passed`, with eleven cases in the new `Baikai.Agent` group.
-- [ ] Milestone 5: Document the new surface in `docs/user/interactive-launches.md`, add
-      changelog bullets, and run the full offline validation.
+- [x] Milestone 5 (2026-08-05): Document the new surface in
+      `docs/user/interactive-launches.md`, add the `README.md` highlight bullet and the
+      `baikai`-scoped `[Unreleased]` changelog bullets, and run the full offline validation.
+      `nix fmt`, `git diff --check`, `cabal build all`, the key- and CLI-scrubbed
+      `cabal test all`, and `nix flake check` all succeed; the smoke suite reports
+      `no provider keys or CLI binaries available; skipping all cases`.
 
 
 ## Surprises & Discoveries
@@ -208,12 +212,59 @@ Record every decision made while working on the plan.
   caller can do.
   Date: 2026-08-05
 
+- Decision (2026-08-05): do not create `docs/adr/` as part of this plan.
+  Rationale: this repository has no ADR corpus at all — there is no `docs/adr/` directory and
+  `mori.dhall` declares exactly one OKF bundle, `improvement-requests` at
+  `docs/improvement-requests`, with no bundle whose path is `docs/adr`.
+  `agents/skills/exec-plan/ADR.md` says to preserve the repository's established filesystem
+  convention when no profiled bundle exists and not to invent OKF frontmatter or Mori identity
+  as an incidental plan edit; adopting a corpus is separate work through the
+  `adopt-architecture-decisions` Seihou blueprint. Establishing the repository's first ADR
+  bundle inside a wave-one child plan would be exactly that incidental structural change.
+  The durable decisions this plan settled — core stays pure, the ceiling refuses rather than
+  clamps, the two policy types stay separate, the failure taxonomies do not reuse
+  `Baikai.Error` — are recorded in this plan's Decision Log and in the parent MasterPlan's,
+  and the parent's completion pass is where they should be promoted if the corpus is adopted.
+  Date: 2026-08-05
+
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 Compare the result against the original purpose.
 
-(To be filled during and after implementation.)
+Outcome (2026-08-05): complete, and it matches the stated purpose. `baikai/src/Baikai/Agent.hs`
+exists with every name and signature the Interfaces and Dependencies section promised, so the
+five downstream plans can be written against it without reinterpretation. The observable
+outcome the Purpose section named is real: `cabal test baikai-test` reports
+`All 168 tests passed`, and inside it the `Baikai.Agent` group demonstrates that a request
+asking for `AgentFullAccess` is refused by `defaultAgentCeiling` with exactly
+`[CapabilityExceeded AgentFullAccess AgentEditWorkspace]` while the same request asking for
+`AgentEditWorkspace` comes back equal to its input value. Eleven test cases were written where
+the plan sketched ten; the extra one splits the raw-provider-argument channel into its own
+case, since it is the only field whose acceptance depends on an operator flag rather than on an
+ordering comparison.
+
+No dependency was added, and `baikai` still depends on none of `process`, `directory`, or
+`filepath`. No existing module changed, and every pre-existing test passes unchanged.
+
+Gaps, all of them deliberate and none of them blocking a downstream plan. Nothing renders a
+flag or spawns a process yet, so the `AgentCommand` prompt-transport contract is documented
+and typed but not yet exercised by a real renderer — EP-2 and EP-4 are where it earns its
+keep. `AgentRenderError`'s `SafetyNotExpressible` constructor is exported and rendered but
+unused in tree until `docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md`
+consumes it; that is by design and the constructor must not be pruned as dead code.
+`docs/user/unattended-agent-runs.md` does not exist yet and is EP-6's to write; this plan
+added the third-surface section to `docs/user/interactive-launches.md` instead, as scoped.
+
+Lessons worth carrying forward. First, the export shape cost more care than the code: a field
+name shared by two records in one module cannot be exported bare at all, so the abstract
+records use the subordinate-name form. Any later plan adding a record to `Baikai.Agent` whose
+field names collide with an existing one must use the same form rather than reaching for a type
+prefix, which repository convention forbids. Second, deriving `Ord` on `AgentCapability` in
+ascending authority order is load-bearing security logic, not a convenience — a reordering
+would silently invert the ceiling check, and the multiple-violation and refusal tests are what
+would catch it. Third, the plan's own instruction to sort `AgentSpec` before `AgentAssetsSpec`
+was wrong; where a plan's specific instruction contradicts the rule it cites, the rule wins.
 
 
 ## Context and Orientation

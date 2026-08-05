@@ -7,6 +7,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai`: new exposed module `Baikai.Agent`, the provider-neutral vocabulary
+  for an **unattended coding-agent run** — a run with no terminal and no human,
+  which owns its own tool loop, may change files inside directories the caller
+  authorized, and returns a process result rather than a `Response`. It defines
+  `AgentRunRequest` (with a required `workingDir`), `AgentRunResult`, the
+  `AgentCapability` profile (`read-only`, `edit-workspace`, `full-access`),
+  `AgentSafety`, the `AgentOutputMode` and `AgentCapturedOutput` output
+  discipline, the `AgentCommand` renderer/runner boundary with an explicit
+  prompt transport, and the `AgentRenderError` / `AgentRunFailure` taxonomies.
+- `baikai`: the operator policy ceiling — `AgentCeiling`,
+  `defaultAgentCeiling`, `CeilingViolation`, and the pure `applyAgentCeiling`.
+  It returns a request unchanged when it is within the ceiling and reports
+  every violation when it is not; it never clamps an over-broad request to the
+  permitted value. The default ceiling permits read-only and edit-workspace
+  authority and refuses full access and raw provider arguments.
+
+  This release adds vocabulary only. `Baikai.Agent` spawns no process and
+  renders no command-line flags, and no existing surface changed: `Baikai.Agent`
+  is deliberately not re-exported from the umbrella `Baikai` module, so
+  `import Baikai` continues to compile unchanged.
+
 ## [baikai-claude 0.4.0.1] - 2026-07-30
 
 ### Fixed

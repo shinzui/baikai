@@ -142,7 +142,7 @@ exactly the load-bearing parts of improvement-request safety requirements 3 and 
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Add the unattended agent-run core abstraction | docs/plans/45-add-the-unattended-agent-run-core-abstraction.md | None | None | In Progress |
+| EP-1 | Add the unattended agent-run core abstraction | docs/plans/45-add-the-unattended-agent-run-core-abstraction.md | None | None | Complete |
 | EP-2 | Render Claude and Codex unattended agent commands | docs/plans/46-render-claude-and-codex-unattended-agent-commands.md | EP-1 | None | Not Started |
 | EP-3 | Make interactive launch safety mapping fail visibly | docs/plans/47-make-interactive-launch-safety-mapping-fail-visibly.md | EP-1 | EP-2 | Not Started |
 | EP-4 | Build the baikai-agent package and unattended process runner | docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md | EP-1 | EP-2 | Not Started |
@@ -271,10 +271,10 @@ observable behavior updates the root `README.md` highlight list.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-1: Define `Baikai.Agent` request, result, capability profile, output discipline, and provider identity.
-- [ ] EP-1: Define the policy ceiling and the pure ceiling-intersection function that refuses rather than clamps.
-- [ ] EP-1: Define the render-error and run-failure taxonomies distinguishing refusal, spawn failure, timeout, malformed output, and non-zero exit.
-- [ ] EP-1: Add pure tests covering every capability/ceiling pair, including every refusal.
+- [x] EP-1 (2026-08-05): Define `Baikai.Agent` request, result, capability profile, output discipline, and provider identity.
+- [x] EP-1 (2026-08-05): Define the policy ceiling and the pure ceiling-intersection function that refuses rather than clamps.
+- [x] EP-1 (2026-08-05): Define the render-error and run-failure taxonomies distinguishing refusal, spawn failure, timeout, malformed output, and non-zero exit.
+- [x] EP-1 (2026-08-05): Add pure tests covering every capability/ceiling pair, including every refusal.
 - [ ] EP-2: Render Claude Code unattended argument vectors, including permission mode, tool allow-list, and additional directories.
 - [ ] EP-2: Render Codex unattended argument vectors, including sandbox mode, working root, and additional directories.
 - [ ] EP-2: Prove both renderers refuse unsupported policy before any process would be created.
@@ -368,6 +368,40 @@ interactions between child plans. Provide concise evidence.
   Consequence: the shared `extraDirs` field grants read-or-write authority on Claude and
   write authority on Codex, and EP-2 and EP-6 must document the divergence rather than
   claim the field is fully neutral.
+
+- Discovery (EP-1, 2026-08-05): the shared vocabulary in `baikai/src/Baikai/Agent.hs` exports
+  the accessors of its abstract records — `AgentRunRequest`, `AgentSafety`, and `AgentCeiling`
+  — through the subordinate-name form, `AgentRunRequest (provider, prompt, …)`, not as bare
+  top-level names. GHC 9.12.4 rejects a bare export of a field name that two records in one
+  module define, and `provider` is defined by both the request and the result:
+  `error: [GHC-87543] Ambiguous occurrence ‘provider’`. The subordinate form still hides the
+  data constructor, so the "extend by adding a defaulted field, never by widening a
+  constructor" property this MasterPlan's Integration Points section requires is intact, and
+  consumers see no difference because they read fields through `generic-lens` labels. Every
+  consuming plan — EP-2, EP-3, EP-4, EP-5, EP-6 — is unaffected in practice. Consequence for
+  any plan that adds a record to `Baikai.Agent`: use the same export form when a field name
+  collides, and do not reach for a type prefix, which repository convention forbids.
+
+- Discovery (EP-1, 2026-08-05): no capability profile turned out to be inexpressible, so EP-2
+  starts from the vocabulary as designed. EP-1 renders no flags and therefore proves nothing
+  about expressibility; it only confirms that nothing in the *shape* of the three profiles
+  forced a change. The refusal path EP-2 needs is in place and exported:
+  `UnsupportedCapability`, `UnsupportedToolRestriction`, and `ProviderMismatch`, each carrying
+  a human-readable explanation the renderer supplies.
+
+- Discovery (EP-1, 2026-08-05): this repository has no ADR corpus, so cross-plan durable
+  context has nowhere to be promoted to yet. There is no `docs/adr/` directory, and
+  `mori.dhall` declares exactly one OKF bundle — `improvement-requests` at
+  `docs/improvement-requests`, profiled by `mori/improvement-requests-profile.dhall` — with no
+  bundle whose path is `docs/adr`. Per `agents/skills/exec-plan/ADR.md`, adopting a corpus is
+  separate work through the `adopt-architecture-decisions` Seihou blueprint and must not be an
+  incidental plan edit. Consequence: EP-2 through EP-6 should keep recording durable decisions
+  in their Decision Logs and in this MasterPlan, and the MasterPlan's completion ADR
+  distillation pass has a prerequisite — either adopt the bundle first, or record explicitly
+  that the durable context stays in the plans. Candidates already identified for promotion:
+  core stays pure while spawning and configuration live in `baikai-agent`; a ceiling refuses
+  rather than clamps; the interactive and unattended policy types stay separate and share only
+  the refusal type; unattended failures do not reuse `Baikai.Error`.
 
 - Discovery: both providers can take the prompt on standard input, which removes the
   dash-leading-prompt hazard entirely, but Codex has a trap. `codex exec --help` states that

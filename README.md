@@ -46,6 +46,12 @@ flow regardless of which provider is on the other side.
   opening a real Claude Code / Codex terminal session with explicit
   model and reasoning-effort controls, and pure layout/path helpers for
   provider-native skills and custom agents.
+- **Unattended agent-run vocabulary.** `Baikai.Agent` describes a
+  coding-agent run with no terminal and no human: a working directory it
+  is authorized to modify, a provider-neutral capability profile, and a
+  pure operator ceiling that refuses an over-broad request instead of
+  quietly weakening it. Flag rendering and process spawning are not part
+  of this module yet.
 - **Pluggable observability.** A `TraceSink` interface with an optional
   OpenTelemetry adapter that emits one span per provider call.
 - **Custom providers.** Register your own handler under a `Custom` tag

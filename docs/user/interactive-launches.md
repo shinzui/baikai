@@ -11,6 +11,64 @@ single `Response` value. Use an interactive launcher when your program
 wants to open a real local session for a human or another terminal owner
 to drive.
 
+## The Third Surface: Unattended Runs
+
+There is a third case, and it is neither of the two above: an
+**unattended run**. The coding agent starts with no terminal and no
+human present, drives its own internal tool loop, changes files inside
+directories the caller explicitly authorized, and finishes with a
+process result rather than a `Response`. The interesting output is the
+changed working tree, not the text.
+
+`Baikai.Agent` is the provider-neutral vocabulary for that case:
+
+- `AgentRunRequest` names the provider, the prompt, a **required**
+  working directory, extra directories the run may reach, a safety
+  policy, a timeout, an output discipline, an output byte limit, and the
+  environment variables the job declares it requires.
+- `AgentSafety` carries a `AgentCapability` — `AgentReadOnly`,
+  `AgentEditWorkspace`, or `AgentFullAccess` — plus an optional tool
+  allow-list and a raw provider-argument escape hatch.
+- `AgentCeiling` is the limit an *operator* places on what any job may
+  request, because a job description checked into a repository is
+  untrusted input. `applyAgentCeiling` is a pure check that returns the
+  request unchanged when it is within the ceiling and reports every
+  violation when it is not. It never clamps an over-broad request to the
+  permitted value: a job that asked for more authority than it may have
+  is an error to report, not a request to quietly weaken.
+  `defaultAgentCeiling` permits read-only and edit-workspace authority,
+  and refuses full access and raw provider arguments.
+- `AgentRunResult` reports the exit code, the duration, and each stream
+  as `OutputNotCaptured`, `OutputCaptured`, or `OutputTruncated`. A
+  non-zero exit code is a normal result, not a failure: a coding agent
+  that fails its task and exits 1 has still run.
+- `AgentRenderError` is a refusal raised before anything is spawned,
+  and `AgentRunFailure` is a failure while spawning or waiting.
+
+This module deliberately spawns nothing and renders no flags, so there
+is no runnable example yet. Translating a request into Claude Code and
+Codex argument vectors arrives in
+`docs/plans/46-render-claude-and-codex-unattended-agent-commands.md`,
+and the process runner arrives in
+`docs/plans/48-build-the-baikai-agent-package-and-unattended-process-runner.md`.
+
+`Baikai.Agent` is not re-exported from the umbrella `Baikai` module,
+because its field accessors deliberately share names with
+`Baikai.Interactive`. Import it directly, qualified if you need both
+surfaces at once:
+
+```haskell
+import Baikai.Agent
+import Baikai.Agent qualified as Agent
+```
+
+The two surfaces keep separate policy types on purpose.
+`InteractiveSafety` has no notion of a capability profile or an operator
+ceiling, and the unattended vocabulary has no notion of an inherited
+terminal or of interactive approval prompts. What they will share is the
+*refusal* type: an unsupported policy fails visibly on both surfaces
+rather than silently becoming a weaker policy.
+
 ## Claude Code
 
 The Claude Code launcher lives in `baikai-claude`:
