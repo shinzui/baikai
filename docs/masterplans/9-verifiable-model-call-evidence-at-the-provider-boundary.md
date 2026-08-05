@@ -195,7 +195,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | Complete |
 | EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Complete |
-| EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | In Progress |
+| EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Complete |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Not Started |
 | EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Not Started |
 | EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | Not Started |
@@ -329,12 +329,12 @@ sign, does not hold sanctioning policy, and does not own retries.
       caller level, early consumer termination, and sink failure. (2026-08-05)
 - [x] EP-2: Stop eliding usage and cost fidelity in the trace path; propagate the mechanical
       updates through `baikai-effectful` and `baikai-trace-otel`. (2026-08-05)
-- [ ] EP-3: Promote the Anthropic `ThinkingPlan` into the shared `ThinkingTranslation` and record
-      every Anthropic downgrade site.
-- [ ] EP-3: Capture the Anthropic response correlation header and the provider-reported model
-      through the local SSE transport.
-- [ ] EP-3: Prove all six canonical thinking levels against both Anthropic thinking styles with
-      recorded fixtures.
+- [x] EP-3: Promote the Anthropic `ThinkingPlan` into the shared `ThinkingTranslation` and record
+      every Anthropic downgrade site. (2026-08-05)
+- [x] EP-3: Capture the Anthropic response correlation header and the provider-reported model
+      through the local SSE transport. (2026-08-05)
+- [x] EP-3: Prove all six canonical thinking levels against both Anthropic thinking styles with
+      recorded fixtures. (2026-08-05)
 - [ ] EP-4: Build the OpenAI-compatible translation record across all seven wire shapes.
 - [ ] EP-4: Correct the stale `ThinkingFormatOpenAI` Haddock, leaving the native effort mapping —
       which is deliberate and test-guarded — unchanged.
@@ -542,6 +542,54 @@ Inside, the evidence record spells its fields in snake_case and renders absent f
 `null`, which is the opposite of the trace event's own encoding and is deliberate. Any plan
 writing a `jq` filter or a user-facing example must use `.evidence.requested_model`, not
 `.data.evidence.requestedModel`.
+
+
+### Found while implementing EP-3
+
+These change what EP-4 through EP-7 must do.
+
+**A provider plan cannot honestly describe the no-dispatch path, and EP-7 must resolve it.** When
+`mapRequest` fails or setup throws, no request is built and no translation exists, so the adapter
+emits `noThinkingRequested` — which asserts the caller asked for no thinking level. For a caller
+who did set one, that is false. Every honest alternative needs a `ThinkingMode` the vocabulary does
+not have: "a level was requested and nothing was dispatched at all" is neither `absent` (no level
+was asked for) nor `unsupported` (the transport cannot express it). EP-3 left it alone rather than
+extend EP-1's vocabulary unilaterally. EP-4 hits the identical case and should also leave it. EP-7
+owns pre-dispatch refusal and is where the decision belongs; if it adds a mode, EP-1's plan file
+and this MasterPlan's Integration Points must be updated in the same change.
+
+**Test a replayed call by replacing only the socket, not the provider.** EP-3's end-to-end test
+runs through `claudeMessagesStreamWith`, a seam that swaps just the function opening the HTTP
+connection, so the request mapper, SSE decoder, header allow-list, assembler, evidence builder,
+trace layer, and sink under test are all the real ones. The rejected alternatives were a local HTTP
+server, which needs a dependency and tests the socket rather than the evidence, and a fake
+`ApiProvider`, which proves only that the test's own evidence assembly works. EP-4 should copy the
+seam rather than invent a second technique; EP-5 and EP-6 spawn subprocesses and need something
+different.
+
+**`usage` is now populated on the Anthropic path, and the mechanism generalises.** The assembler
+carries a `usageReported` flag set when a provider event actually carried token counts, so a
+reported zero is distinguishable from silence and a failed call reports `"unobserved"` rather than
+claiming the provider said it consumed nothing. EP-4, EP-5, and EP-6 each need the equivalent flag;
+none of them can just read whether their accumulator happens to be zero.
+
+**Derive a translation's adjustments from the mapping function, never from a table beside it.**
+EP-3's `adaptiveAdjustments` reads what `adaptiveEffort` produced and compares it with
+`renderThinkingLevel`, so a `Nothing` becomes `EffortOmitted` and a differing word becomes
+`EffortClamped`. EP-4 faces seven wire shapes and the same temptation to hand-write a second table;
+a table that must be kept in agreement by hand is exactly the failure this initiative exists to
+eliminate.
+
+**Response-header capture is an allow-list whose order is also the preference order.** EP-3
+established `request-id`, then `x-request-id`, then `cf-ray`, with the adapter taking the first
+present. EP-4 should match that spelling and that rule for the OpenAI-compatible hosts rather than
+maintaining a separate preference list. `ResponseMetadata` also carries the HTTP status, which no
+field of `ModelCallEvidence` currently holds; EP-7 may want one.
+
+**A tasty `--pattern` that matches nothing reports "All 0 tests passed".** EP-3's documented
+verification command initially selected zero tests and reported success. Every later plan in this
+MasterPlan documents a `--pattern` command; check the run actually selected tests, because the
+failure mode is indistinguishable from a pass.
 
 
 ## Decision Log

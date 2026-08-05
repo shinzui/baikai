@@ -752,3 +752,43 @@ The `ThinkingTranslation`, `ThinkingMode`, and `ThinkingAdjustment` types are ow
 turns out to need an adjustment case that does not exist, that is a change to
 [docs/plans/51](51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md) and to
 the MasterPlan's Integration Points section, and both must be updated before the code is written.
+
+
+## Outcomes & Retrospective
+
+Complete. `cabal build all` produces zero warnings and all eight test suites pass, including
+`baikai-smoke`, which has no credentials present and therefore skips the live path.
+
+Every acceptance criterion holds. The translation table covers all twelve level-by-style
+combinations plus the two conditional downgrades, asserting exact effort text, exact budget, and
+exact adjustment list on every row. A replayed successful call produces exactly one `CallEvidence`
+record whose `observed_model` is `Observed` carrying a value different from `requested_model` —
+the fixture's reported model is deliberately not any model in the catalog, so a bug that read the
+caller's configuration cannot pass. A replayed 429 produces one record with `status: failed`, a
+populated `error_info`, an `Observed` `provider_request_id`, and `"unobserved"` for the model, the
+response id, the usage, and the response commitment. All three thinking downgrades are now visible
+where none of them was before.
+
+Nothing regressed and no existing assertion changed meaning. Four existing call sites were edited
+mechanically: `SseSpec`'s two pre-existing cases gained the new metadata callback argument, and
+three `mapRequest` call sites take `fst` of the pair. The assertions in all of them are unchanged.
+
+Three things are worth carrying forward.
+
+**The transport seam is reusable and EP-4 should copy it rather than invent another.** Replacing
+exactly one function — the one that opens the socket — let the end-to-end test exercise the real
+request mapper, the real SSE decoder, the real header allow-list, the real assembler, the real
+evidence builder, the real trace layer, and the real sink. A fake `ApiProvider` would have proved
+only that the test's own evidence assembly works, which is worth nothing.
+
+**Two of this plan's design rules were derived rather than tabulated, and both should be
+preferred.** `adaptiveAdjustments` reads what `adaptiveEffort` produced instead of restating it,
+and the correlation-header preference order *is* the allow-list rather than a second list beside
+it. In both cases the alternative is two things that must be kept in agreement by hand, and this
+initiative exists precisely because a value that quietly stopped describing reality was never
+noticed.
+
+**One infidelity was left in place on purpose**, and it is recorded under Surprises & Discoveries:
+the immediate-error path still reports `noThinkingRequested` for a caller who did request a level.
+Fixing it needs a `ThinkingMode` the vocabulary does not have, which is EP-1's to define and EP-7's
+to decide on, and this plan is explicitly forbidden to extend the vocabulary.
