@@ -173,7 +173,7 @@ openaiChatStream m ctx opts =
             m
             opts
             Ev.TransportHttpApi
-            Ev.noThinkingRequested
+            (call ^. #thinking)
             (call ^. #requestBody)
             startTime
         let initialState =
@@ -203,7 +203,12 @@ data OpenAICall = OpenAICall
   { clientEnv :: !Client.ClientEnv,
     requestHeaders :: !RequestHeaders,
     timeoutMs :: !(Maybe Int),
-    requestBody :: !Aeson.Value
+    requestBody :: !Aeson.Value,
+    -- | What the caller's reasoning-effort preference became on this
+    -- request, as 'streamRequestBody' described it. Carried from here
+    -- rather than recomputed at the terminal: only the shaping step
+    -- knows which of the seven host wire shapes was used.
+    thinking :: !Ev.ThinkingTranslation
   }
   deriving stock (Generic)
 
@@ -217,7 +222,7 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
     key <- Transport.resolveKey url opts
     env <- Transport.getClientEnvCached url
     let compat = openaiCompletionsCompatFor m
-        body = streamRequestBody compat opts req
+        (body, translation) = streamRequestBody compat opts req
         headers = Transport.requestHeaders key m opts
     pure
       ( Right
@@ -225,7 +230,8 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
             { clientEnv = env,
               requestHeaders = headers,
               timeoutMs = opts ^. #timeoutMs,
-              requestBody = body
+              requestBody = body,
+              thinking = translation
             }
       )
 

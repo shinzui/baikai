@@ -33,6 +33,8 @@ tests =
     [ deepseekShapeTest,
       nativeHigherEffortTests,
       compatibleHigherEffortClampTest,
+      translationTableTests,
+      nativeVersusCompatibleTests,
       openRouterCacheControlTest,
       strictModeGateTest,
       usageStreamingGateTest,
@@ -80,6 +82,199 @@ compatibleHigherEffortClampTest =
         (emptyOptions & #thinking .~ Just ThinkingMax)
         emptyContext
     lookupTop "reasoning_effort" value @?= Just (String "high")
+
+-- ============================================================
+-- The forty-two-row translation table
+-- ============================================================
+
+-- | Every canonical level against every wire shape: what goes on the
+-- wire, and what the evidence record says went on it.
+--
+-- Both halves are asserted on every row. Checking only the description
+-- would let it drift away from the request it claims to describe, which
+-- is the one failure this whole record exists to prevent.
+translationTableTests :: TestTree
+translationTableTests =
+  testGroup
+    "thinking translation across all seven wire shapes"
+    [ testCase (shapeName fmt <> " at " <> Text.unpack (renderThinkingLevel lvl)) $ do
+        (body, translation) <-
+          shapedCall (hostWith fmt) (emptyOptions & #thinking .~ Just lvl) emptyContext
+        translation @?= expected
+        mapM_ (\(k, v) -> lookupTop k body @?= Just v) present
+        mapM_ (\k -> lookupTop k body @?= Nothing) absent
+    | (lvl, nativeWord, compatWord, clamps) <- effortRows,
+      fmt <- everyThinkingFormat,
+      let (expected, present, absent) = expectationFor fmt lvl nativeWord compatWord clamps
+    ]
+
+-- | The seven shapes, listed so a new constructor added to
+-- 'ThinkingFormat' shows up here as a missing case in 'expectationFor'
+-- and 'shapeName' rather than as a silently untested shape.
+everyThinkingFormat :: [ThinkingFormat]
+everyThinkingFormat =
+  [ ThinkingFormatOpenAI,
+    ThinkingFormatOpenRouter,
+    ThinkingFormatDeepseek,
+    ThinkingFormatTogether,
+    ThinkingFormatZai,
+    ThinkingFormatQwen,
+    ThinkingFormatNone
+  ]
+
+-- | The exact effort word each of the two vocabularies sends for each
+-- canonical level, and the adjustment a clamping vocabulary records.
+--
+-- Every value is written out rather than computed from the code under
+-- test, so this is an independent statement of the intended behaviour
+-- and not a second copy of the implementation. The native column never
+-- clamps: it forwards the canonical name, which is exactly what an
+-- empty adjustment list means.
+effortRows :: [(ThinkingLevel, Text.Text, Text.Text, [ThinkingAdjustment])]
+effortRows =
+  [ (ThinkingMinimal, "minimal", "low", [EffortClamped ThinkingMinimal "low"]),
+    (ThinkingLow, "low", "low", []),
+    (ThinkingMedium, "medium", "medium", []),
+    (ThinkingHigh, "high", "high", []),
+    (ThinkingXHigh, "xhigh", "high", [EffortClamped ThinkingXHigh "high"]),
+    (ThinkingMax, "max", "high", [EffortClamped ThinkingMax "high"])
+  ]
+
+-- | The translation, the body keys that must be present, and the body
+-- keys that must be absent, for one shape at one level.
+expectationFor ::
+  ThinkingFormat ->
+  ThinkingLevel ->
+  -- | The word the native vocabulary sends.
+  Text.Text ->
+  -- | The word the compatible vocabulary sends.
+  Text.Text ->
+  -- | The adjustment the compatible vocabulary records, if any.
+  [ThinkingAdjustment] ->
+  (ThinkingTranslation, [(Text.Text, Value)], [Text.Text])
+expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
+  ThinkingFormatOpenAI ->
+    ( adaptiveTranslation lvl nativeWord "reasoning_effort" [],
+      [("reasoning_effort", String nativeWord)],
+      ["reasoning", "thinking", "enable_thinking"]
+    )
+  ThinkingFormatOpenRouter ->
+    ( adaptiveTranslation lvl compatWord "reasoning" clamps,
+      [("reasoning", Aeson.object ["effort" .= compatWord])],
+      ["reasoning_effort", "thinking", "enable_thinking"]
+    )
+  ThinkingFormatDeepseek ->
+    ( adaptiveTranslation lvl compatWord "reasoning_effort" clamps,
+      [ ("reasoning_effort", String compatWord),
+        ("thinking", Aeson.object ["type" .= ("enabled" :: Text.Text)])
+      ],
+      ["reasoning", "enable_thinking"]
+    )
+  ThinkingFormatTogether ->
+    ( adaptiveTranslation lvl compatWord "reasoning_effort" clamps,
+      [ ("reasoning_effort", String compatWord),
+        ("reasoning", Aeson.object ["enabled" .= True])
+      ],
+      ["thinking", "enable_thinking"]
+    )
+  ThinkingFormatZai -> collapsed
+  ThinkingFormatQwen -> collapsed
+  ThinkingFormatNone ->
+    ( ThinkingTranslation
+        { requested = Just lvl,
+          mode = ThinkingModeUnsupported,
+          effortText = Nothing,
+          budgetTokens = Nothing,
+          wireField = Nothing,
+          adjustments = [ThinkingDroppedUnsupportedHost lvl]
+        },
+      [],
+      ["reasoning_effort", "reasoning", "thinking", "enable_thinking"]
+    )
+  where
+    -- Z.ai and Qwen carry no depth at all, so every level collapses --
+    -- including the ones a richer host would have accepted verbatim.
+    collapsed =
+      ( ThinkingTranslation
+          { requested = Just lvl,
+            mode = ThinkingModeToggle,
+            effortText = Nothing,
+            budgetTokens = Nothing,
+            wireField = Just "enable_thinking",
+            adjustments = [EffortCollapsedToToggle lvl]
+          },
+        [("enable_thinking", Bool True)],
+        ["reasoning_effort", "reasoning", "thinking"]
+      )
+
+adaptiveTranslation ::
+  ThinkingLevel -> Text.Text -> Text.Text -> [ThinkingAdjustment] -> ThinkingTranslation
+adaptiveTranslation lvl wire field adjs =
+  ThinkingTranslation
+    { requested = Just lvl,
+      mode = ThinkingModeAdaptive,
+      effortText = Just wire,
+      budgetTokens = Nothing,
+      wireField = Just field,
+      adjustments = adjs
+    }
+
+shapeName :: ThinkingFormat -> String
+shapeName = \case
+  ThinkingFormatOpenAI -> "openai-native"
+  ThinkingFormatOpenRouter -> "openrouter"
+  ThinkingFormatDeepseek -> "deepseek"
+  ThinkingFormatTogether -> "together"
+  ThinkingFormatZai -> "zai"
+  ThinkingFormatQwen -> "qwen"
+  ThinkingFormatNone -> "no-reasoning-controls"
+
+-- | A reasoning-capable model pinned to one wire shape, so the table
+-- exercises a shape rather than whichever host a catalog entry happens
+-- to point at.
+hostWith :: ThinkingFormat -> Model
+hostWith fmt =
+  Models.openai_gpt_5_6_terra
+    & #compat
+      .~ CompatOpenAICompletions
+        defaultOpenAICompletionsCompat {thinkingFormat = fmt}
+
+-- | The same request against a native host and against a clamping one,
+-- written side by side because the contrast is the design.
+--
+-- The native rows are the ones that look wrong at a glance and are not:
+-- `xhigh` and `max` reach the wire intact and the translation records no
+-- adjustment, because nothing was adjusted. Clamping them here would
+-- silently weaken every high-effort request against a current OpenAI
+-- model.
+nativeVersusCompatibleTests :: TestTree
+nativeVersusCompatibleTests =
+  testGroup
+    "the native vocabulary forwards what the compatible one clamps"
+    [ testCase "native xhigh reaches the wire and adjusts nothing" $
+        assertEffort Models.openai_gpt_5_6_terra ThinkingXHigh "xhigh" [],
+      testCase "deepseek xhigh clamps to high and records it" $
+        assertEffort
+          Models.deepseek_deepseek_chat
+          ThinkingXHigh
+          "high"
+          [EffortClamped ThinkingXHigh "high"],
+      testCase "native max reaches the wire and adjusts nothing" $
+        assertEffort Models.openai_gpt_5_6_terra ThinkingMax "max" [],
+      testCase "deepseek max clamps to high and records it" $
+        assertEffort
+          Models.deepseek_deepseek_chat
+          ThinkingMax
+          "high"
+          [EffortClamped ThinkingMax "high"]
+    ]
+  where
+    assertEffort model lvl wire adjs = do
+      (body, translation) <-
+        shapedCall model (emptyOptions & #thinking .~ Just lvl) emptyContext
+      lookupTop "reasoning_effort" body @?= Just (String wire)
+      effortText translation @?= Just wire
+      adjustments translation @?= adjs
 
 openRouterCacheControlTest :: TestTree
 openRouterCacheControlTest =
@@ -184,7 +379,12 @@ indexlessToolDeltaTest =
           ]
 
 shapedBody :: Model -> Options -> Context -> IO Value
-shapedBody model opts ctx = do
+shapedBody model opts ctx = fst <$> shapedCall model opts ctx
+
+-- | The shaped request body together with the description of what the
+-- caller's reasoning-effort preference became inside it.
+shapedCall :: Model -> Options -> Context -> IO (Value, ThinkingTranslation)
+shapedCall model opts ctx = do
   req <- either (assertFailure . Text.unpack) pure (mapRequest model ctx opts)
   pure (streamRequestBody (openaiCompletionsCompatFor model) opts req)
 

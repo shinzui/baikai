@@ -244,6 +244,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `anthropicStrength`. Response-header capture is an **allow-list**
   (`request-id`, `x-request-id`, `cf-ray`, in that preference order), not a
   denylist, so a header a future gateway adds is not recorded by default.
+- `baikai-openai`: an evidence record's `thinking` field now describes what the
+  caller's reasoning-effort preference became on the wire for the specific host
+  the call went to, across **all seven** OpenAI-compatible wire shapes. The
+  OpenAI-native shape sends the canonical level verbatim and records no
+  adjustment, because it expresses every level exactly. The four shapes that
+  carry an effort word for a non-native host record `effort_clamped` whenever
+  the word differs from the canonical name — `minimal` becomes `low`, and both
+  `xhigh` and `max` become `high`. Z.ai and Qwen accept a bare
+  `enable_thinking: true` with no depth, so **every** level records
+  `effort_collapsed_to_toggle`: a caller asking for `max` and a caller asking
+  for `low` produce byte-identical requests there, and only the evidence record
+  can tell them apart. A host with no reasoning controls records
+  `thinking_dropped_unsupported_host` where the option previously vanished with
+  no trace. A forty-two-row table test pins the translation and the shaped
+  request body for every shape at every level.
+
+### Fixed
+
+- `baikai`: the `ThinkingFormatOpenAI` Haddock in `Baikai.Compat` listed the
+  native `reasoning_effort` vocabulary as `minimal | low | medium | high`, which
+  predates `xhigh` and `max`. It now lists all six and states that this shape
+  alone sends the canonical baikai level verbatim while the other six clamp
+  through `compatibleEffort`. No behaviour changed: the native path's exclusion
+  from that clamp is deliberate and is guarded by two named tests in
+  `baikai-openai/test/ShapeSpec.hs`. A reader who consulted the comment to
+  decide whether `xhigh` was safe to use against OpenAI has until now been told
+  something untrue.
 
 ### Changed
 
@@ -293,6 +320,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   debugging and its header states it is not covered by PVP compatibility
   guarantees, but the change is recorded here because that is not a licence to
   break a consumer silently.
+- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Shape`'s
+  `shapeRequestBody`, `streamRequestBody`, and `injectThinkingShape` now return
+  `(Aeson.Value, ThinkingTranslation)` instead of a bare body. Take `fst` to
+  keep the previous value. The description has to travel out of the shaping step
+  because nothing downstream can recompute it: it depends on the host's
+  `ThinkingFormat`, which only the compat lookup knows. **No request body
+  changed** — every one of the seven shapes puts exactly the same bytes on the
+  wire as before.
 - `baikai`: `Baikai.Trace.Sink.renderHuman` renders a `CallEvidence` event as a
   single `EVIDENCE run=… call=… strength=…` line rather than the whole record. A
   human-readable sink is for watching calls go by; the full record is meant to

@@ -77,7 +77,16 @@ data MaxTokensField
 -- shapes land as new constructors.
 data ThinkingFormat
   = -- | OpenAI-native: top-level @reasoning_effort: "minimal" | "low"
-    --   | "medium" | "high"@.
+    --   | "medium" | "high" | "xhigh" | "max"@.
+    --
+    --   This shape sends the canonical baikai level verbatim. The other
+    --   six route through @Baikai.Provider.OpenAI.Shape.compatibleEffort@,
+    --   which clamps @minimal@ to @low@ and both @xhigh@ and @max@ to
+    --   @high@ — a lowest-common-denominator vocabulary for hosts that
+    --   do not accept the full one. The exclusion is deliberate and
+    --   guarded by @nativeHigherEffortTests@ in
+    --   @baikai-openai/test/ShapeSpec.hs@: clamping here would silently
+    --   weaken every high-effort request against a current OpenAI model.
     ThinkingFormatOpenAI
   | -- | OpenRouter: nested @reasoning: { effort: "..." }@.
     ThinkingFormatOpenRouter
@@ -91,8 +100,10 @@ data ThinkingFormat
     ThinkingFormatZai
   | -- | Qwen chat-template: top-level @enable_thinking: true@.
     ThinkingFormatQwen
-  | -- | Host does not expose reasoning controls; the option is
-    --   silently dropped.
+  | -- | Host does not expose reasoning controls, so the option is
+    --   dropped from the request. Nothing about the wire says so — the
+    --   drop is recorded in the call's evidence as
+    --   @thinking_dropped_unsupported_host@ rather than left invisible.
     ThinkingFormatNone
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)

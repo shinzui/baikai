@@ -60,17 +60,18 @@ cabal test baikai-openai
 
 ## Progress
 
-- [ ] Reify the thinking translation: make `injectThinkingShape` return a `ThinkingTranslation`
-      alongside the shaped body, across all seven wire shapes.
-- [ ] Record every OpenAI-compatible downgrade as a `ThinkingAdjustment` — and record *no*
-      adjustment on the native path, which expresses every level exactly.
-- [ ] Correct the stale `ThinkingFormatOpenAI` Haddock in `baikai/src/Baikai/Compat.hs`.
+- [x] Reify the thinking translation: make `injectThinkingShape` return a `ThinkingTranslation`
+      alongside the shaped body, across all seven wire shapes. (2026-08-05)
+- [x] Record every OpenAI-compatible downgrade as a `ThinkingAdjustment` — and record *no*
+      adjustment on the native path, which expresses every level exactly. (2026-08-05)
+- [x] Correct the stale `ThinkingFormatOpenAI` Haddock in `baikai/src/Baikai/Compat.hs`.
+      (2026-08-05)
 - [ ] Widen the SSE transport callback so response metadata reaches the adapter.
 - [ ] Capture the correlation header and the HTTP status.
 - [ ] Read the provider-reported model out of the streamed chunks.
 - [ ] Populate the evidence record and derive the strength from what was observed.
 - [ ] Add the response commitment digest.
-- [ ] Write the forty-two-case translation table test (seven shapes by six levels).
+- [x] Write the forty-two-case translation table test (seven shapes by six levels). (2026-08-05)
 - [ ] Write the header-capture and observed-model fixture tests.
 - [ ] Write the end-to-end evidence tests, including the toggle-host indistinguishability case.
 - [ ] Add `CHANGELOG.md` entries under `### Added`, plus a `### Fixed` line for the corrected
@@ -80,7 +81,35 @@ cabal test baikai-openai
 
 ## Surprises & Discoveries
 
-(None yet.)
+### Found while implementing Milestone 1
+
+**This plan's own Context section still carried two sentences from the draft it reversed.** One read
+"Reading the two together shows the bug plainly", and the Interfaces section said `compatibleEffort`
+"gains one new caller: the `ThinkingFormatOpenAI` branch" — which is precisely the change the
+Decision Log forbids. Both are corrected in place. They are worth recording rather than quietly
+editing: a plan that argues against itself in two places is a plan an implementer can follow into
+the exact mistake it was rewritten to prevent, and the surviving instruction was the harmful one.
+
+**All forty-two rows passed on their first run.** As with
+[docs/plans/53](53-emit-anthropic-messages-api-call-evidence.md), the shapes were undescribed rather
+than wrong: this milestone added a description of existing behaviour and changed no request body.
+The four contrast cases and the two pre-existing guard tests
+(`nativeHigherEffortTests`, `compatibleHigherEffortClampTest`) pass untouched.
+
+**`streamRequestBody` had to change its return type too, which the plan's Interfaces section did not
+list.** It wraps `shapeRequestBody`, and `Baikai.Provider.OpenAI.Api` calls it rather than
+`shapeRequestBody`, so the translation could not otherwise reach the adapter. The alternative —
+leaving `streamRequestBody` alone and adding a second entry point returning the pair — is the
+parallel-entry-point pattern the MasterPlan's Decision Log rejects. One test helper,
+`shapedBody` in `baikai-openai/test/ShapeSpec.hs`, gained an `fst`; no assertion in the existing
+suite changed.
+
+**One derivation covers five of the seven shapes.** `effortTranslation` compares the word that went
+on the wire with `renderThinkingLevel` and records `EffortClamped` when they differ, so the native
+path's empty adjustment list is a computed consequence of forwarding the canonical name rather than
+a special case someone has to remember. Adding an eighth wire shape cannot leave a stale table
+behind, which is the failure mode
+[docs/plans/53](53-emit-anthropic-messages-api-call-evidence.md) warned this plan about.
 
 
 ## Decision Log
@@ -101,6 +130,18 @@ cabal test baikai-openai
   comment is in scope; changing the behaviour is not. Had the clamp been implemented, it would
   have silently weakened every `xhigh` and `max` request against a current OpenAI model — the
   precise failure mode this whole initiative exists to eliminate.
+  Date: 2026-08-05
+
+- Decision: Record the signature change under `### Changed` as breaking, even though this plan's
+  Concrete Steps say nothing belongs there.
+  Rationale: That instruction is about the wire, and it holds — no host receives anything different
+  after this plan. But `Baikai.Provider.OpenAI.Shape` is an exposed module, and
+  `shapeRequestBody`, `streamRequestBody`, and `injectThinkingShape` changing their return type is
+  source-breaking for anyone who calls them.
+  [docs/plans/53](53-emit-anthropic-messages-api-call-evidence.md) set the precedent when
+  `mapRequest` gained a tuple: recorded under `### Changed` as **Breaking**, with the one-token
+  migration spelled out. Leaving it out of the changelog because the wire is unchanged would break
+  a consumer silently, which is the thing a changelog exists to prevent.
   Date: 2026-08-05
 
 - Decision: The native path records no `ThinkingAdjustment` for any level.
@@ -202,8 +243,9 @@ compatibleEffort = \case
   ThinkingMax     -> "high"
 ```
 
-Reading the two together shows the bug plainly: `ThinkingFormatOpenAI` is the one branch that does
-not call `compatibleEffort`.
+Reading the two together shows the design: `ThinkingFormatOpenAI` is the one branch that does not
+call `compatibleEffort`, because it is the one host that accepts the whole vocabulary. That is
+what the helper's docstring means by scoping itself to the non-native shapes.
 
 `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs` is the streaming adapter, structurally parallel
 to the Anthropic one. It holds an `Assembler` record carrying translation state across a call —
@@ -648,8 +690,20 @@ injectThinkingShape ::
   OpenAICompletionsCompat -> Options -> Aeson.Value -> (Aeson.Value, ThinkingTranslation)
 ```
 
-`compatibleEffort` keeps its current signature and gains one new caller: the
-`ThinkingFormatOpenAI` branch.
+`compatibleEffort` keeps its current signature and its current five callers. The
+`ThinkingFormatOpenAI` branch must not become a sixth.
+
+Two private helpers describe what the effort mapping did:
+
+```haskell
+effortTranslation :: ThinkingLevel -> Text -> Text -> ThinkingTranslation
+toggleTranslation :: ThinkingLevel -> ThinkingTranslation
+```
+
+`effortTranslation` takes the level, the word that actually went on the wire, and the field name it
+went in, and derives the adjustment list by comparing that word with `renderThinkingLevel` — so the
+native path's empty list is computed rather than asserted, and no hand-maintained table sits beside
+the mapping.
 
 In `baikai-openai/src/Baikai/Provider/OpenAI/Sse.hs`:
 

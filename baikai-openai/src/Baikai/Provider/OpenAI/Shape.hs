@@ -25,6 +25,12 @@ import Baikai.Compat
       ),
     ThinkingFormat (..),
   )
+import Baikai.Evidence
+  ( ThinkingAdjustment (..),
+    ThinkingMode (..),
+    ThinkingTranslation (..),
+    noThinkingRequested,
+  )
 import Baikai.Options (Options, cacheRetention, thinking)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Data.Aeson (Value (..), (.=))
@@ -37,19 +43,28 @@ import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import OpenAI.V1.Chat.Completions qualified as Chat
 
+-- | Reshape a request body for the target host, and describe what the
+-- caller's reasoning-effort preference became while doing it.
+--
+-- The translation travels back out rather than staying inside
+-- 'injectThinkingShape' because nothing downstream can recompute it: it
+-- depends on the host's 'ThinkingFormat', which only the compat lookup
+-- knows. Written as an explicit pipeline rather than the point-free
+-- composition it used to be, so the description has somewhere to escape
+-- to.
 shapeRequestBody ::
-  OpenAICompletionsCompat -> Options -> Aeson.Value -> Aeson.Value
-shapeRequestBody compat opts =
-  injectCacheControl compat opts
-    . injectThinkingShape compat opts
-    . dropUnsupportedStrict compat
-    . renameMaxTokens compat
+  OpenAICompletionsCompat -> Options -> Aeson.Value -> (Aeson.Value, ThinkingTranslation)
+shapeRequestBody compat opts body =
+  let renamed = renameMaxTokens compat body
+      stripped = dropUnsupportedStrict compat renamed
+      (thought, translation) = injectThinkingShape compat opts stripped
+   in (injectCacheControl compat opts thought, translation)
 
 streamRequestBody ::
   OpenAICompletionsCompat ->
   Options ->
   Chat.CreateChatCompletion ->
-  Aeson.Value
+  (Aeson.Value, ThinkingTranslation)
 streamRequestBody compat opts req =
   shapeRequestBody compat opts (Aeson.toJSON req')
   where
@@ -87,26 +102,105 @@ dropUnsupportedStrict compat
             adjustKey (key "json_schema") $
               mapObject (KeyMap.delete (key "strict"))
 
-injectThinkingShape :: OpenAICompletionsCompat -> Options -> Aeson.Value -> Aeson.Value
+-- | Place the caller's reasoning-effort preference in whichever of the
+-- seven shapes the host accepts, and describe what that did to it.
+--
+-- The body this produces is byte-for-byte what it produced before the
+-- description existed. The three shapes that express less than the
+-- caller asked for now say so: the five non-native effort shapes clamp
+-- through 'compatibleEffort', the two toggle shapes carry no depth at
+-- all, and 'ThinkingFormatNone' drops the request entirely.
+--
+-- The native shape is the one that records __no__ adjustment, because
+-- it forwards the canonical level verbatim and therefore expresses all
+-- six exactly. That is deliberate and guarded by @nativeHigherEffortTests@
+-- in @baikai-openai/test/ShapeSpec.hs@; 'compatibleEffort' is scoped by
+-- its own documentation to the non-native shapes and must not be
+-- applied here.
+injectThinkingShape ::
+  OpenAICompletionsCompat -> Options -> Aeson.Value -> (Aeson.Value, ThinkingTranslation)
 injectThinkingShape compat opts body =
   case thinking opts of
-    Nothing -> body
+    Nothing -> (body, noThinkingRequested)
     Just lvl -> case thinkingFormat compat of
       ThinkingFormatOpenAI ->
-        insertTop "reasoning_effort" (String (renderThinkingLevel lvl)) body
-      ThinkingFormatNone -> body
+        let e = renderThinkingLevel lvl
+         in ( insertTop "reasoning_effort" (String e) body,
+              effortTranslation lvl e "reasoning_effort"
+            )
+      ThinkingFormatNone ->
+        ( body,
+          ThinkingTranslation
+            { requested = Just lvl,
+              mode = ThinkingModeUnsupported,
+              effortText = Nothing,
+              budgetTokens = Nothing,
+              wireField = Nothing,
+              adjustments = [ThinkingDroppedUnsupportedHost lvl]
+            }
+        )
       ThinkingFormatOpenRouter ->
-        insertTop "reasoning" (Aeson.object ["effort" .= compatibleEffort lvl]) body
+        let e = compatibleEffort lvl
+         in ( insertTop "reasoning" (Aeson.object ["effort" .= e]) body,
+              effortTranslation lvl e "reasoning"
+            )
       ThinkingFormatDeepseek ->
-        insertTop "reasoning_effort" (String (compatibleEffort lvl)) $
-          insertTop "thinking" (Aeson.object ["type" .= ("enabled" :: Text)]) body
+        let e = compatibleEffort lvl
+         in ( insertTop "reasoning_effort" (String e) $
+                insertTop "thinking" (Aeson.object ["type" .= ("enabled" :: Text)]) body,
+              effortTranslation lvl e "reasoning_effort"
+            )
       ThinkingFormatTogether ->
-        insertTop "reasoning_effort" (String (compatibleEffort lvl)) $
-          insertTop "reasoning" (Aeson.object ["enabled" .= True]) body
+        let e = compatibleEffort lvl
+         in ( insertTop "reasoning_effort" (String e) $
+                insertTop "reasoning" (Aeson.object ["enabled" .= True]) body,
+              effortTranslation lvl e "reasoning_effort"
+            )
       ThinkingFormatZai ->
-        insertTop "enable_thinking" (Bool True) body
+        ( insertTop "enable_thinking" (Bool True) body,
+          toggleTranslation lvl
+        )
       ThinkingFormatQwen ->
-        insertTop "enable_thinking" (Bool True) body
+        ( insertTop "enable_thinking" (Bool True) body,
+          toggleTranslation lvl
+        )
+
+-- | A host that steers its own depth from an effort word.
+--
+-- The adjustment list is derived from the word that actually went on
+-- the wire, never from a second table beside the mapping: a word equal
+-- to the canonical level name expressed the request exactly, and any
+-- other word replaced it with something weaker the host accepts. Seven
+-- wire shapes share this one derivation precisely so that adding an
+-- eighth cannot leave a hand-written table behind.
+effortTranslation :: ThinkingLevel -> Text -> Text -> ThinkingTranslation
+effortTranslation lvl wire field =
+  ThinkingTranslation
+    { requested = Just lvl,
+      mode = ThinkingModeAdaptive,
+      effortText = Just wire,
+      budgetTokens = Nothing,
+      wireField = Just field,
+      adjustments =
+        [EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
+    }
+
+-- | A host that accepts thinking on or off and nothing more.
+--
+-- Every level collapses, including the ones whose canonical name a
+-- richer host would have accepted, because the wire carries no depth:
+-- a caller asking for @max@ and a caller asking for @low@ produce
+-- byte-identical requests here.
+toggleTranslation :: ThinkingLevel -> ThinkingTranslation
+toggleTranslation lvl =
+  ThinkingTranslation
+    { requested = Just lvl,
+      mode = ThinkingModeToggle,
+      effortText = Nothing,
+      budgetTokens = Nothing,
+      wireField = Just "enable_thinking",
+      adjustments = [EffortCollapsedToToggle lvl]
+    }
 
 injectCacheControl :: OpenAICompletionsCompat -> Options -> Aeson.Value -> Aeson.Value
 injectCacheControl compat opts body =
