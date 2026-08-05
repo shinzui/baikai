@@ -13,6 +13,7 @@ import Baikai.Agent
     capturedBytes,
   )
 import Baikai.Agent.Run (runAgentCommand, timeoutMicros)
+import ConfigTests (configTests)
 import Control.Concurrent (threadDelay)
 import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS
@@ -37,21 +38,29 @@ main :: IO ()
 main =
   defaultMain $
     testGroup
-      "Baikai.Agent.Run"
-      [ promptRoundTripTest,
-        streamSeparationTest,
-        workingDirectoryTest,
-        nonZeroExitTest,
-        spawnFailureTest,
-        missingWorkingDirectoryTest,
-        missingEnvironmentTest,
-        timeoutTest,
-        processGroupTest,
-        outputLimitTest,
-        inheritOutputTest,
-        promptAsArgumentTest,
-        timeoutMicrosTests
+      "baikai-agent"
+      [ runTests,
+        configTests
       ]
+
+runTests :: TestTree
+runTests =
+  testGroup
+    "Baikai.Agent.Run"
+    [ promptRoundTripTest,
+      streamSeparationTest,
+      workingDirectoryTest,
+      nonZeroExitTest,
+      spawnFailureTest,
+      missingWorkingDirectoryTest,
+      missingEnvironmentTest,
+      timeoutTest,
+      processGroupTest,
+      outputLimitTest,
+      inheritOutputTest,
+      promptAsArgumentTest,
+      timeoutMicrosTests
+    ]
 
 -- | Write a tiny shell script into a temporary directory, make it
 -- executable, and hand its path to the action. Every process-level

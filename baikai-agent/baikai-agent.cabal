@@ -35,17 +35,26 @@ common common-options
 library
   import:          common-options
   hs-source-dirs:  src
-  exposed-modules: Baikai.Agent.Run
+  exposed-modules:
+    Baikai.Agent.Config
+    Baikai.Agent.Run
+
   build-depends:
-    , baikai        ^>=0.4.1
-    , base          >=4.20   && <5
-    , bytestring    ^>=0.12
-    , directory     ^>=1.3
-    , generic-lens  ^>=2.3
-    , lens          ^>=5.3
-    , process       ^>=1.6
-    , text          ^>=2.1
-    , time          ^>=1.14
+    , baikai                       ^>=0.4.1
+    , base                         >=4.20   && <5
+    , bytestring                   ^>=0.12
+    , containers                   ^>=0.7
+    , directory                    ^>=1.3
+    , filepath                     ^>=1.5
+    , generic-lens                 ^>=2.3
+    , lens                         ^>=5.3
+    , process                      ^>=1.6
+    , settei                       ^>=0.2
+    , settei-env                   ^>=0.2
+    , settei-kdl                   ^>=0.2
+    , settei-optparse-applicative  ^>=0.2
+    , text                         ^>=2.1
+    , time                         ^>=1.14
 
   -- The process package offers a group-wide interrupt but no group-wide
   -- terminate, which a timeout needs to reach a coding agent's own
@@ -59,6 +68,7 @@ test-suite baikai-agent-test
   type:           exitcode-stdio-1.0
   hs-source-dirs: test
   main-is:        Main.hs
+  other-modules:  ConfigTests
 
   -- -threaded is not optional here: the runner forks threads to drain
   -- pipes and relies on System.Timeout interrupting a blocking wait.
@@ -68,11 +78,16 @@ test-suite baikai-agent-test
     , baikai-agent
     , base
     , bytestring
+    , containers
     , directory
     , filepath
     , generic-lens
     , lens
     , process
+    , settei
+    , settei-env
+    , settei-kdl
+    , settei-optparse-applicative
     , tasty
     , tasty-hunit
     , temporary
