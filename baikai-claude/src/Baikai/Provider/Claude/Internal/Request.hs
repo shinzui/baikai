@@ -15,15 +15,21 @@ import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Compat (AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
+import Baikai.Evidence
+  ( ThinkingAdjustment (..),
+    ThinkingMode (..),
+    ThinkingTranslation (..),
+    noThinkingRequested,
+  )
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.ResponseFormat (ResponseFormat (..))
-import Baikai.ThinkingLevel (ThinkingLevel (..), thinkingTokenBudget)
+import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Claude.V1.Messages qualified as Messages
 import Claude.V1.Tool qualified as ClaudeTool
-import Control.Lens ((^.))
+import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
@@ -43,19 +49,38 @@ import Numeric.Natural (Natural)
 -- accept Context/Options directly).
 -- ============================================================
 
-mapRequest :: Model -> Context -> Options -> Either Text Messages.CreateMessage
+-- | Map a baikai request onto the SDK's 'Messages.CreateMessage', and
+-- describe what the caller's reasoning-effort preference became on the
+-- way.
+--
+-- The 'ThinkingTranslation' is returned rather than reconstructed
+-- downstream because this is the only place that knows all of it: the
+-- host compatibility lookup, the model's reasoning capability, the
+-- adaptive effort vocabulary, and the max-tokens interaction below all
+-- feed into it. A trace sink asked to re-derive it would have to
+-- reimplement every one of them.
+mapRequest ::
+  Model -> Context -> Options -> Either Text (Messages.CreateMessage, ThinkingTranslation)
 mapRequest m ctx opts = do
   msgs <- traverse mapMessage (Vector.toList (ctx ^. #messages))
   let compat = anthropicMessagesCompatFor m
       cap = m ^. #maxOutputTokens
       baseTokens = fromMaybe cap (opts ^. #maxTokens)
       clamp n = if cap == 0 then n else min n cap
-      plan0 = computeThinking compat m (opts ^. #thinking)
-      requested = clamp (baseTokens + fromMaybe 0 (budget plan0))
-      plan = case budget plan0 of
-        Just b
-          | requested <= b -> emptyThinkingPlan
-        _ -> plan0
+      (plan0, translation0) = computeThinking compat m (opts ^. #thinking)
+      -- The output-token ceiling this request resolves to while the
+      -- thinking budget is still part of it. The budget has to fit
+      -- inside this number, and when it does not the entire thinking
+      -- plan is dropped — a caller who lowered maxTokens silently loses
+      -- thinking, which is why the two colliding numbers are recorded.
+      resolvedCeiling = clamp (baseTokens + fromMaybe 0 (budget plan0))
+      (plan, translation) = case (budget plan0, translation0 ^. #requested) of
+        (Just b, Just lvl)
+          | resolvedCeiling <= b ->
+              ( emptyThinkingPlan,
+                dropThinking (ThinkingDroppedBudgetExceeded lvl b resolvedCeiling) translation0
+              )
+        _ -> (plan0, translation0)
       maxTokensField_ = case budget plan of
         Just b -> clamp (baseTokens + b)
         Nothing -> clamp baseTokens
@@ -71,20 +96,22 @@ mapRequest m ctx opts = do
         Nothing -> Nothing
       outputConfigField = mergeEffort (effort plan) (fmap mkAnthropicOutputConfig (opts ^. #responseFormat))
   pure
-    Messages._CreateMessage
-      { Messages.model = m ^. #modelId,
-        Messages.messages = Vector.fromList msgs,
-        Messages.max_tokens = maxTokensField_,
-        Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
-        Messages.temperature = opts ^. #temperature,
-        Messages.top_p = opts ^. #topP,
-        Messages.stop_sequences = opts ^. #stopSequences,
-        Messages.tools = toolsField,
-        Messages.tool_choice = toolChoiceField,
-        Messages.cache_control = cacheControlField,
-        Messages.thinking = field plan,
-        Messages.output_config = outputConfigField
-      }
+    ( Messages._CreateMessage
+        { Messages.model = m ^. #modelId,
+          Messages.messages = Vector.fromList msgs,
+          Messages.max_tokens = maxTokensField_,
+          Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
+          Messages.temperature = opts ^. #temperature,
+          Messages.top_p = opts ^. #topP,
+          Messages.stop_sequences = opts ^. #stopSequences,
+          Messages.tools = toolsField,
+          Messages.tool_choice = toolChoiceField,
+          Messages.cache_control = cacheControlField,
+          Messages.thinking = field plan,
+          Messages.output_config = outputConfigField
+        },
+      translation
+    )
 
 mergeEffort :: Maybe Text -> Maybe Messages.OutputConfig -> Maybe Messages.OutputConfig
 mergeEffort Nothing cfg = cfg
@@ -156,27 +183,64 @@ emptyThinkingPlan =
       budget = Nothing
     }
 
+-- | Build the SDK's thinking configuration and, beside it, the
+-- provider-neutral description of what the caller's level became.
+--
+-- The two travel together because they are two views of one decision.
+-- Returning only the first is what this provider used to do, and it is
+-- why a caller could never tell an honoured request from a dropped one.
 computeThinking ::
   AnthropicMessagesCompat ->
   Model ->
   Maybe ThinkingLevel ->
-  ThinkingPlan
-computeThinking _ _ Nothing = emptyThinkingPlan
+  (ThinkingPlan, ThinkingTranslation)
+computeThinking _ _ Nothing = (emptyThinkingPlan, noThinkingRequested)
 computeThinking compat m (Just lvl)
-  | not (m ^. #reasoning) = emptyThinkingPlan
+  | not (m ^. #reasoning) =
+      ( emptyThinkingPlan,
+        ThinkingTranslation
+          { requested = Just lvl,
+            mode = ThinkingModeUnsupported,
+            effortText = Nothing,
+            budgetTokens = Nothing,
+            wireField = Nothing,
+            adjustments = [ThinkingDroppedUnsupportedModel lvl]
+          }
+      )
   | thinkingStyle compat == AnthropicThinkingAdaptive =
-      ThinkingPlan
-        { field = Just Messages.ThinkingAdaptive,
-          effort = adaptiveEffort lvl,
-          budget = Nothing
-        }
+      let e = adaptiveEffort lvl
+       in ( ThinkingPlan
+              { field = Just Messages.ThinkingAdaptive,
+                effort = e,
+                budget = Nothing
+              },
+            ThinkingTranslation
+              { requested = Just lvl,
+                mode = ThinkingModeAdaptive,
+                effortText = e,
+                budgetTokens = Nothing,
+                wireField = Just "thinking",
+                adjustments = adaptiveAdjustments lvl e
+              }
+          )
   | otherwise =
       let b = thinkingTokenBudget lvl
-       in ThinkingPlan
-            { field = Just Messages.ThinkingEnabled {Messages.budget_tokens = b},
-              effort = Nothing,
-              budget = Just b
-            }
+       in ( ThinkingPlan
+              { field = Just Messages.ThinkingEnabled {Messages.budget_tokens = b},
+                effort = Nothing,
+                budget = Just b
+              },
+            ThinkingTranslation
+              { requested = Just lvl,
+                mode = ThinkingModeBudget,
+                effortText = Nothing,
+                budgetTokens = Just b,
+                -- A budget expresses the requested level exactly, so
+                -- there is nothing to adjust.
+                wireField = Just "thinking",
+                adjustments = []
+              }
+          )
 
 adaptiveEffort :: ThinkingLevel -> Maybe Text
 adaptiveEffort = \case
@@ -186,6 +250,36 @@ adaptiveEffort = \case
   ThinkingHigh -> Nothing
   ThinkingXHigh -> Just "xhigh"
   ThinkingMax -> Just "max"
+
+-- | What Anthropic's adaptive vocabulary did to the requested level.
+--
+-- Derived from what 'adaptiveEffort' actually produced rather than from
+-- a second table beside it, so the two cannot drift. 'Nothing' means no
+-- effort field is sent at all, which leaves the request
+-- wire-indistinguishable from a caller who expressed no preference and
+-- took Anthropic's own default depth. An effort word that differs from
+-- the level's canonical name is a clamp onto the nearest word the
+-- adaptive vocabulary has — Anthropic's has no @minimal@.
+adaptiveAdjustments :: ThinkingLevel -> Maybe Text -> [ThinkingAdjustment]
+adaptiveAdjustments lvl = \case
+  Nothing -> [EffortOmitted lvl]
+  Just wire
+    | wire == renderThinkingLevel lvl -> []
+    | otherwise -> [EffortClamped lvl wire]
+
+-- | Record that, after all, nothing about thinking reached the wire.
+--
+-- Every field describing a wire value is cleared, because after the drop
+-- there is none. The adjustment is appended rather than replacing the
+-- list so a reader sees the order things were applied in.
+dropThinking :: ThinkingAdjustment -> ThinkingTranslation -> ThinkingTranslation
+dropThinking adj t =
+  t
+    & #mode .~ ThinkingModeUnsupported
+    & #effortText .~ Nothing
+    & #budgetTokens .~ Nothing
+    & #wireField .~ Nothing
+    & #adjustments %~ (<> [adj])
 
 -- | Map a baikai 'Tool.Tool' into the upstream Anthropic
 -- 'ClaudeTool.ToolDefinition'. The SDK helper is used to populate

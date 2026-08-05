@@ -158,7 +158,7 @@ claudeMessagesStream m ctx opts =
             m
             opts
             Ev.TransportHttpApi
-            Ev.noThinkingRequested
+            (call ^. #thinking)
             (call ^. #requestBody)
             startTime
         let initialState =
@@ -178,7 +178,13 @@ data ClaudeCall = ClaudeCall
   { clientEnv :: !Client.ClientEnv,
     requestHeaders :: !RequestHeaders,
     timeoutMs :: !(Maybe Int),
-    requestBody :: !Aeson.Value
+    requestBody :: !Aeson.Value,
+    -- | What the caller's reasoning-effort preference became on this
+    -- request, as 'mapRequest' described it. Carried from here rather
+    -- than recomputed at the terminal: only the request mapper knows
+    -- the host compat lookup and the max-tokens interaction that
+    -- produced it.
+    thinking :: !Ev.ThinkingTranslation
   }
   deriving stock (Generic)
 
@@ -187,7 +193,7 @@ prepareCall ::
 prepareCall m ctx opts = do
   case mapRequest m ctx opts of
     Left e -> pure (Left (invalidRequest e))
-    Right req -> do
+    Right (req, translation) -> do
       let url = case m ^. #baseUrl of
             "" -> "https://api.anthropic.com"
             u -> u
@@ -203,7 +209,8 @@ prepareCall m ctx opts = do
               { clientEnv = env,
                 requestHeaders = headers,
                 timeoutMs = opts ^. #timeoutMs,
-                requestBody = body
+                requestBody = body,
+                thinking = translation
               }
         )
 

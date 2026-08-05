@@ -102,7 +102,7 @@ toolCacheControlCompatGateTest =
 
 shapedBody :: Model -> Context -> Options -> IO Value
 shapedBody model ctx opts = do
-  req <- either (assertFailure . Text.unpack) pure (mapRequest model ctx opts)
+  (req, _) <- either (assertFailure . Text.unpack) pure (mapRequest model ctx opts)
   pure (streamRequestBody (anthropicMessagesCompatFor model) ctx opts req)
 
 objectSchema :: Value

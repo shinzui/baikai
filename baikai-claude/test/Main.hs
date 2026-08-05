@@ -74,7 +74,7 @@ main =
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto Anthropic's
 -- native @output_config@, forwarding the schema 'Value' verbatim via
 -- 'Messages.jsonSchemaConfig'. Pure: 'mapRequest' is
--- 'Either Text Messages.CreateMessage'.
+-- 'Either Text (Messages.CreateMessage, ThinkingTranslation)'.
 responseFormatMappingTest :: TestTree
 responseFormatMappingTest =
   testCase "responseFormat JsonSchema maps onto Anthropic output_config" $ do
@@ -101,7 +101,7 @@ responseFormatMappingTest =
               .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
     case mapRequest model ctx opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
-      Right req ->
+      Right (req, _) ->
         Messages.output_config req
           @?= Just (Messages.jsonSchemaConfig personSchema)
 
@@ -122,7 +122,7 @@ optionsMappingTest =
             & #presencePenalty .~ Just 0.3
     case mapRequest model emptyContext opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
-      Right req -> do
+      Right (req, _) -> do
         Messages.top_p req @?= Just 0.9
         Messages.stop_sequences req @?= Just (Vector.fromList ["END", "STOP"])
 

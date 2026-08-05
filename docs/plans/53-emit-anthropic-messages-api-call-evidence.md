@@ -58,11 +58,13 @@ and against a live account, if you have one, through the existing smoke suite.
 - [ ] Widen the SSE transport callback so response metadata reaches the adapter.
 - [ ] Capture the Anthropic correlation header and the HTTP status in the adapter.
 - [ ] Read the provider-reported model out of `message_start`.
-- [ ] Turn `ThinkingPlan` into a `ThinkingTranslation` and return it from `mapRequest`.
-- [ ] Record the three Anthropic thinking-downgrade cases as `ThinkingAdjustment` values.
+- [x] Turn `ThinkingPlan` into a `ThinkingTranslation` and return it from `mapRequest`.
+      (2026-08-05)
+- [x] Record the three Anthropic thinking-downgrade cases as `ThinkingAdjustment` values.
+      (2026-08-05)
 - [ ] Populate the evidence record and derive the evidence strength from what was observed.
 - [ ] Add the response commitment digest.
-- [ ] Write the fourteen-case translation table test.
+- [x] Write the fourteen-case translation table test. (2026-08-05)
 - [ ] Write the header-capture and observed-model fixture tests.
 - [ ] Write the end-to-end evidence test for a successful call and a 429.
 - [ ] Add a `CHANGELOG.md` entry under the existing `[Unreleased]` heading.
@@ -70,7 +72,27 @@ and against a live account, if you have one, through the existing smoke suite.
 
 ## Surprises & Discoveries
 
-(None yet.)
+**The fourteen-row translation table passed on its first run.** The plan warned that a failing row
+would be either a transcription error or a real bug and that the two must be told apart. Neither
+happened: every expected value read out of the code matched what the code produced. That is worth
+recording as a negative result, because it means the three downgrade sites this plan makes visible
+were already behaving exactly as the code reads — they were invisible, not wrong.
+
+**The adaptive adjustment is derived from `adaptiveEffort`, not from a second table.**
+`adaptiveAdjustments` compares what `adaptiveEffort` produced against
+`renderThinkingLevel`, so `Nothing` becomes `EffortOmitted` and any effort word that differs from
+the level's canonical name becomes `EffortClamped`. The alternative — a hand-written case listing
+`ThinkingMinimal` and `ThinkingHigh` — would silently stop describing reality the first time
+someone edited `adaptiveEffort` and not its twin. EP-4 populates the same record from a mapping
+with seven wire shapes and should consider the same shape.
+
+**The two numbers in `ThinkingDroppedBudgetExceeded` are the budget and the *resolved* ceiling,
+not the max-tokens value finally sent.** The discard fires when
+`clamp (baseTokens + budget) <= budget`, so those are the two values that actually collided. After
+the discard the request goes out with `clamp baseTokens`, which is a smaller and different number.
+Recording the ceiling that the budget failed to fit inside is what tells an operator why thinking
+vanished; recording what was ultimately sent would not. The adjustment's JSON spells this field
+`max_tokens`, which EP-7's user documentation should disambiguate.
 
 
 ## Decision Log

@@ -195,7 +195,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Add the model-call evidence vocabulary and canonical hashing core | docs/plans/51-add-the-model-call-evidence-vocabulary-and-canonical-hashing-core.md | None | None | Complete |
 | EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Complete |
-| EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Not Started |
+| EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | In Progress |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Not Started |
 | EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Not Started |
 | EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | Not Started |

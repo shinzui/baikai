@@ -15,6 +15,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
+import Numeric.Natural (Natural)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -23,6 +24,8 @@ tests =
   testGroup
     "ThinkingSpec"
     [ testGroup "mapRequest max_tokens" (neverExceedsCapTests <> styleTests),
+      translationTableTests,
+      conditionalDowngradeTests,
       adaptiveHigherEffortTests,
       maxBudgetTest,
       explicitMaxTokensTest,
@@ -85,6 +88,110 @@ styleTests =
   | (name, model, style) <- anthropicModels,
     (levelName, level) <- thinkingLevels
   ]
+
+-- | Every canonical level against both Anthropic thinking styles, with
+-- the exact effort text, exact budget, and exact adjustment list each
+-- one produces.
+--
+-- The expected values are written out rather than computed from the
+-- functions under test, so a change to either mapping fails a row here
+-- instead of quietly agreeing with itself. A failing row is either a
+-- transcription error or a real behaviour change, and the two must be
+-- told apart before either side is edited.
+translationTable ::
+  [(AnthropicThinkingStyle, ThinkingLevel, Maybe Text.Text, Maybe Natural, [ThinkingAdjustment])]
+translationTable =
+  [ -- A token budget expresses every level exactly: nothing is adjusted.
+    (AnthropicThinkingBudget, ThinkingMinimal, Nothing, Just 1024, []),
+    (AnthropicThinkingBudget, ThinkingLow, Nothing, Just 2048, []),
+    (AnthropicThinkingBudget, ThinkingMedium, Nothing, Just 8192, []),
+    (AnthropicThinkingBudget, ThinkingHigh, Nothing, Just 16384, []),
+    (AnthropicThinkingBudget, ThinkingXHigh, Nothing, Just 24576, []),
+    (AnthropicThinkingBudget, ThinkingMax, Nothing, Just 32768, []),
+    -- Anthropic's adaptive vocabulary has no "minimal", so the lowest
+    -- level is clamped up to "low" and says so.
+    ( AnthropicThinkingAdaptive,
+      ThinkingMinimal,
+      Just "low",
+      Nothing,
+      [EffortClamped ThinkingMinimal "low"]
+    ),
+    (AnthropicThinkingAdaptive, ThinkingLow, Just "low", Nothing, []),
+    (AnthropicThinkingAdaptive, ThinkingMedium, Just "medium", Nothing, []),
+    -- "high" sends no effort field at all, which on the wire is
+    -- indistinguishable from expressing no preference.
+    ( AnthropicThinkingAdaptive,
+      ThinkingHigh,
+      Nothing,
+      Nothing,
+      [EffortOmitted ThinkingHigh]
+    ),
+    (AnthropicThinkingAdaptive, ThinkingXHigh, Just "xhigh", Nothing, []),
+    (AnthropicThinkingAdaptive, ThinkingMax, Just "max", Nothing, [])
+  ]
+
+translationTableTests :: TestTree
+translationTableTests =
+  testGroup
+    "thinking translation table"
+    [ testCase (show style <> " " <> Text.unpack (renderThinkingLevel level)) $ do
+        t <- translationFor (modelWithStyle style) (emptyOptions & #thinking .~ Just level)
+        t ^. #requested @?= Just level
+        t ^. #mode @?= expectedMode
+        t ^. #effortText @?= expectedEffort
+        t ^. #budgetTokens @?= expectedBudget
+        t ^. #wireField @?= Just "thinking"
+        t ^. #adjustments @?= expectedAdjustments
+    | (style, level, expectedEffort, expectedBudget, expectedAdjustments) <- translationTable,
+      let expectedMode = case style of
+            AnthropicThinkingBudget -> ThinkingModeBudget
+            AnthropicThinkingAdaptive -> ThinkingModeAdaptive
+    ]
+
+-- | A reasoning model whose thinking style is pinned explicitly, so a
+-- row of the table above depends on the style it names rather than on
+-- which model generation happens to default to it.
+modelWithStyle :: AnthropicThinkingStyle -> Model
+modelWithStyle style =
+  anthropic_claude_haiku_4_5
+    & #compat .~ CompatAnthropicMessages (defaultAnthropicMessagesCompat {thinkingStyle = style})
+
+-- | The two downgrades that depend on the model rather than the level:
+-- a model that cannot reason at all, and an output ceiling too small to
+-- hold the budget the level asks for. Neither was visible anywhere in
+-- baikai's output before this plan.
+conditionalDowngradeTests :: TestTree
+conditionalDowngradeTests =
+  testGroup
+    "conditional thinking downgrades"
+    [ testCase "a non-reasoning model drops thinking and records why" $ do
+        let model = anthropic_claude_haiku_4_5 & #reasoning .~ False
+        req <- requestFor model (emptyOptions & #thinking .~ Just ThinkingMedium)
+        requestThinking req @?= Nothing
+        t <- translationFor model (emptyOptions & #thinking .~ Just ThinkingMedium)
+        t ^. #requested @?= Just ThinkingMedium
+        t ^. #mode @?= ThinkingModeUnsupported
+        t ^. #wireField @?= Nothing
+        t ^. #budgetTokens @?= Nothing
+        t ^. #adjustments @?= [ThinkingDroppedUnsupportedModel ThinkingMedium],
+      testCase "an output ceiling at or below the budget drops thinking and names both numbers" $ do
+        -- 1000 is below ThinkingMinimal's 1024-token budget, so the
+        -- resolved ceiling collapses onto the cap and the budget can no
+        -- longer fit inside it.
+        let model = anthropic_claude_haiku_4_5 & #maxOutputTokens .~ 1000
+            opts = emptyOptions & #thinking .~ Just ThinkingMinimal
+        req <- requestFor model opts
+        requestThinking req @?= Nothing
+        Messages.max_tokens req @?= 1000
+        t <- translationFor model opts
+        t ^. #requested @?= Just ThinkingMinimal
+        t ^. #mode @?= ThinkingModeUnsupported
+        t ^. #wireField @?= Nothing
+        t ^. #budgetTokens @?= Nothing
+        t ^. #effortText @?= Nothing
+        t ^. #adjustments
+          @?= [ThinkingDroppedBudgetExceeded ThinkingMinimal 1024 1000]
+    ]
 
 adaptiveHigherEffortTests :: TestTree
 adaptiveHigherEffortTests =
@@ -188,9 +295,16 @@ explicitCompatOverridesDefaultTest =
     (Messages.output_config req >>= Messages.effort) @?= Just "low"
 
 requestFor :: Model -> Options -> IO Messages.CreateMessage
-requestFor model opts = case mapRequest model emptyContext opts of
+requestFor model opts = fst <$> mappedFor model emptyContext opts
+
+translationFor :: Model -> Options -> IO ThinkingTranslation
+translationFor model opts = snd <$> mappedFor model emptyContext opts
+
+mappedFor ::
+  Model -> Context -> Options -> IO (Messages.CreateMessage, ThinkingTranslation)
+mappedFor model ctx opts = case mapRequest model ctx opts of
   Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
-  Right req -> pure req
+  Right mapped -> pure mapped
 
 requestThinking :: Messages.CreateMessage -> Maybe Messages.Thinking
 requestThinking Messages.CreateMessage {Messages.thinking = t} = t
@@ -400,9 +514,7 @@ terminalMessage events =
     _ -> error "last event was not terminal"
 
 requestForContext :: Model -> Context -> Options -> IO Messages.CreateMessage
-requestForContext model ctx opts = case mapRequest model ctx opts of
-  Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
-  Right req -> pure req
+requestForContext model ctx opts = fst <$> mappedFor model ctx opts
 
 requestMessages :: Messages.CreateMessage -> Vector.Vector Messages.Message
 requestMessages Messages.CreateMessage {Messages.messages = msgs} = msgs
