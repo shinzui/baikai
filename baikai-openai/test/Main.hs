@@ -1,8 +1,20 @@
 module Main (main) where
 
 import Baikai
+import Baikai.Agent
+  ( AgentCapability (..),
+    AgentCommand,
+    AgentPromptTransport (..),
+    AgentProvider (..),
+    AgentRenderError (..),
+    AgentRunRequest,
+    agentRunRequest,
+    agentSafety,
+    renderAgentRenderError,
+  )
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Pricing (computeCost)
+import Baikai.Provider.OpenAI.Agent qualified as CodexAgent
 import Baikai.Provider.OpenAI.Api
   ( RawChunk (..),
     closeOpenStream,
@@ -45,6 +57,14 @@ main =
       "Baikai.Provider.OpenAI"
       [ commandRenderingTest,
         effortRenderingTests,
+        agentCommandRenderingTest,
+        agentCapabilityRenderingTests,
+        agentEffortRenderingTests,
+        agentToolRestrictionRefusalTest,
+        agentPromptTransportTest,
+        agentBlankModelTest,
+        agentConfigBooleanTest,
+        agentProviderGuardTest,
         batchCommandRenderingTest,
         batchEffortRenderingTest,
         batchSystemPromptTest,
@@ -214,6 +234,195 @@ usageCostModel =
           cacheReadCost = 1 / 10,
           cacheWriteCost = 5 / 4
         }
+
+-- | Render an unattended command or fail the test with the refusal's
+-- own message.
+renderedAgentCommand ::
+  CodexAgent.CodexAgentConfig -> AgentRunRequest -> IO AgentCommand
+renderedAgentCommand cfg req =
+  either
+    (assertFailure . Text.unpack . renderAgentRenderError)
+    pure
+    (CodexAgent.codexAgentCommand cfg req)
+
+agentCommandRenderingTest :: TestTree
+agentCommandRenderingTest =
+  testCase "unattended codex argv renders every structured flag in a fixed order" $ do
+    let cfg =
+          CodexAgent.defaultCodexAgentConfig
+            & #executable .~ "/bin/codex"
+            & #extraArgs .~ ["--color", "never"]
+        req =
+          agentRunRequest AgentCodex "/work/project" "reconcile the grammar"
+            & #modelId .~ Just "gpt-5.6-terra"
+            & #effort .~ Just ThinkingMedium
+            & #extraDirs .~ ["/work/shared"]
+            & #safety .~ agentSafety AgentEditWorkspace
+    cmd <- renderedAgentCommand cfg req
+    cmd ^. #executable @?= "/bin/codex"
+    cmd ^. #arguments
+      @?= [ "exec",
+            "--model",
+            "gpt-5.6-terra",
+            "-c",
+            "model_reasoning_effort=medium",
+            "--sandbox",
+            "workspace-write",
+            "--cd",
+            "/work/project",
+            "--add-dir",
+            "/work/shared",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--color",
+            "never"
+          ]
+    cmd ^. #promptTransport @?= PromptOnStdin
+    cmd ^. #promptText @?= "reconcile the grammar"
+
+agentCapabilityRenderingTests :: TestTree
+agentCapabilityRenderingTests =
+  testGroup
+    "unattended codex argv maps every capability onto a sandbox mode"
+    [ testCase name $ do
+        let req =
+              agentRunRequest AgentCodex "/work/project" "prompt"
+                & #safety .~ agentSafety cap
+        cmd <- renderedAgentCommand CodexAgent.defaultCodexAgentConfig req
+        cmd ^. #arguments
+          @?= [ "exec",
+                "--sandbox",
+                expected,
+                "--cd",
+                "/work/project",
+                "--skip-git-repo-check",
+                "--ephemeral"
+              ]
+    | (name, cap, expected) <-
+        [ ("read-only", AgentReadOnly, "read-only"),
+          ("edit-workspace as workspace-write", AgentEditWorkspace, "workspace-write"),
+          ("full-access as danger-full-access", AgentFullAccess, "danger-full-access")
+        ]
+    ]
+
+-- | Codex accepts all six canonical levels through its config
+-- override, so nothing is clamped here — unlike Claude, whose
+-- @--effort@ has no @minimal@ value. Pinning both sides stops someone
+-- later \"unifying\" them.
+agentEffortRenderingTests :: TestTree
+agentEffortRenderingTests =
+  testGroup
+    "unattended codex argv passes every reasoning level through unclamped"
+    [ testCase name $ do
+        let req =
+              agentRunRequest AgentCodex "/work/project" "prompt"
+                & #effort .~ Just level
+        cmd <- renderedAgentCommand CodexAgent.defaultCodexAgentConfig req
+        cmd ^. #arguments
+          @?= [ "exec",
+                "-c",
+                "model_reasoning_effort=" <> expected,
+                "--sandbox",
+                "read-only",
+                "--cd",
+                "/work/project",
+                "--skip-git-repo-check",
+                "--ephemeral"
+              ]
+    | (name, level, expected) <-
+        [ ("minimal", ThinkingMinimal, "minimal"),
+          ("low", ThinkingLow, "low"),
+          ("medium", ThinkingMedium, "medium"),
+          ("high", ThinkingHigh, "high"),
+          ("xhigh", ThinkingXHigh, "xhigh"),
+          ("max", ThinkingMax, "max")
+        ]
+    ]
+
+-- | @codex exec@ has no tool allow-list flag, so a narrowed tool set is
+-- refused rather than run with every tool available. The message must
+-- name the alternative.
+agentToolRestrictionRefusalTest :: TestTree
+agentToolRestrictionRefusalTest =
+  testCase "the codex renderer refuses a tool allow-list it cannot express" $ do
+    let req =
+          agentRunRequest AgentCodex "/work/project" "prompt"
+            & #safety .~ (agentSafety AgentEditWorkspace & #allowedTools .~ ["Read", "Edit"])
+    case CodexAgent.codexAgentCommand CodexAgent.defaultCodexAgentConfig req of
+      Right cmd ->
+        assertFailure ("expected a refusal, rendered: " <> show (cmd ^. #arguments))
+      Left (UnsupportedToolRestriction provider message) -> do
+        provider @?= AgentCodex
+        assertBool
+          ("expected the sandbox alternative in: " <> Text.unpack message)
+          ("sandbox" `Text.isInfixOf` message)
+      Left other ->
+        assertFailure ("unexpected refusal: " <> Text.unpack (renderAgentRenderError other))
+
+-- | The prompt travels on standard input, so a prompt that begins with
+-- a dash cannot be parsed as a flag, and Codex's documented
+-- @\<stdin\>@-block behavior — which appends piped input when a
+-- positional prompt is also given — can never be triggered.
+agentPromptTransportTest :: TestTree
+agentPromptTransportTest =
+  testCase "unattended codex argv never contains the prompt, even a dash-leading one" $ do
+    let dashPrompt = "-rm -rf /"
+        req =
+          agentRunRequest AgentCodex "-/work/dashdir" dashPrompt
+            & #extraDirs .~ ["-/work/dashshared"]
+    cmd <- renderedAgentCommand CodexAgent.defaultCodexAgentConfig req
+    assertBool
+      ("prompt leaked into argv: " <> show (cmd ^. #arguments))
+      (Text.unpack dashPrompt `notElem` cmd ^. #arguments)
+    cmd ^. #promptText @?= dashPrompt
+    cmd ^. #promptTransport @?= PromptOnStdin
+    cmd ^. #arguments
+      @?= [ "exec",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            "-/work/dashdir",
+            "--add-dir",
+            "-/work/dashshared",
+            "--skip-git-repo-check",
+            "--ephemeral"
+          ]
+
+agentBlankModelTest :: TestTree
+agentBlankModelTest =
+  testCase "unattended codex argv omits --model for a blank model value" $ do
+    let req =
+          agentRunRequest AgentCodex "/work/project" "prompt"
+            & #modelId .~ Just "   "
+    cmd <- renderedAgentCommand CodexAgent.defaultCodexAgentConfig req
+    cmd ^. #arguments
+      @?= [ "exec",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            "/work/project",
+            "--skip-git-repo-check",
+            "--ephemeral"
+          ]
+
+agentConfigBooleanTest :: TestTree
+agentConfigBooleanTest =
+  testCase "unattended codex argv omits the git-check and ephemeral flags when disabled" $ do
+    let cfg =
+          CodexAgent.defaultCodexAgentConfig
+            & #skipGitRepoCheck .~ False
+            & #ephemeral .~ False
+        req = agentRunRequest AgentCodex "/work/project" "prompt"
+    cmd <- renderedAgentCommand cfg req
+    cmd ^. #arguments
+      @?= ["exec", "--sandbox", "read-only", "--cd", "/work/project"]
+
+agentProviderGuardTest :: TestTree
+agentProviderGuardTest =
+  testCase "the codex renderer refuses a request that names claude" $ do
+    let req = agentRunRequest AgentClaude "/work/project" "prompt"
+    CodexAgent.codexAgentCommand CodexAgent.defaultCodexAgentConfig req
+      @?= Left (ProviderMismatch AgentCodex AgentClaude)
 
 commandRenderingTest :: TestTree
 commandRenderingTest =

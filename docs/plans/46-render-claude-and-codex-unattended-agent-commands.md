@@ -64,8 +64,11 @@ This section must always reflect the actual current state of the work.
 - [x] Milestone 3 (2026-08-05): Add `Baikai.Provider.OpenAI.Agent` with `CodexAgentConfig` and
       `codexAgentCommand`; register it in `baikai-openai/baikai-openai.cabal`.
       `cabal build baikai-openai` succeeds with no warnings.
-- [ ] Milestone 4: Add exact whole-argument-vector tests for both renderers, covering every
-      capability, every refusal, dash-leading prompts and paths, and both prompt transports.
+- [x] Milestone 4 (2026-08-05): Add exact whole-argument-vector tests for both renderers,
+      covering every capability, every effort level, both refusals, blank model values,
+      configuration booleans, and dash-leading prompts and paths.
+      `cabal test baikai-claude-test baikai-openai-test` passes; both suites build with no
+      warnings.
 - [ ] Milestone 5: Document the mapping tables, add changelog bullets, and run the full
       offline validation.
 

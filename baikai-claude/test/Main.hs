@@ -1,6 +1,18 @@
 module Main (main) where
 
 import Baikai
+import Baikai.Agent
+  ( AgentCapability (..),
+    AgentCommand,
+    AgentPromptTransport (..),
+    AgentProvider (..),
+    AgentRenderError (..),
+    AgentRunRequest,
+    agentRunRequest,
+    agentSafety,
+    renderAgentRenderError,
+  )
+import Baikai.Provider.Claude.Agent qualified as ClaudeAgent
 import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
@@ -33,6 +45,14 @@ main =
       "Baikai.Provider.Claude"
       [ commandRenderingTest,
         effortRenderingTests,
+        agentCommandRenderingTest,
+        agentCapabilityRenderingTests,
+        agentEffortRenderingTests,
+        agentPromptTransportTest,
+        agentBlankModelTest,
+        agentSessionPersistenceTest,
+        agentProviderGuardTest,
+        agentKeiroFixtureTest,
         batchCommandRenderingTest,
         batchEffortRenderingTests,
         stderrFloodTest,
@@ -157,6 +177,197 @@ effortRenderingTests =
           ("max", ThinkingMax, "max")
         ]
     ]
+
+-- | Render an unattended command or fail the test with the refusal's
+-- own message.
+renderedAgentCommand ::
+  ClaudeAgent.ClaudeAgentConfig -> AgentRunRequest -> IO AgentCommand
+renderedAgentCommand cfg req =
+  either
+    (assertFailure . Text.unpack . renderAgentRenderError)
+    pure
+    (ClaudeAgent.claudeAgentCommand cfg req)
+
+agentCommandRenderingTest :: TestTree
+agentCommandRenderingTest =
+  testCase "unattended claude argv renders every structured flag in a fixed order" $ do
+    let cfg =
+          ClaudeAgent.defaultClaudeAgentConfig
+            & #executable .~ "/bin/claude"
+            & #extraArgs .~ ["--debug"]
+        req =
+          agentRunRequest AgentClaude "/work/project" "reconcile the grammar"
+            & #modelId .~ Just "sonnet"
+            & #effort .~ Just ThinkingHigh
+            & #extraDirs .~ ["/work/shared", "/work/docs"]
+            & #safety .~ (agentSafety AgentEditWorkspace & #allowedTools .~ ["Read", "Write"])
+            & #safety . #providerArgs .~ ["--betas", "context-1m"]
+    cmd <- renderedAgentCommand cfg req
+    cmd ^. #executable @?= "/bin/claude"
+    cmd ^. #arguments
+      @?= [ "-p",
+            "--no-session-persistence",
+            "--model",
+            "sonnet",
+            "--effort",
+            "high",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Read,Write",
+            "--add-dir",
+            "/work/shared",
+            "--add-dir",
+            "/work/docs",
+            "--debug",
+            "--betas",
+            "context-1m"
+          ]
+    cmd ^. #promptTransport @?= PromptOnStdin
+    cmd ^. #promptText @?= "reconcile the grammar"
+
+agentCapabilityRenderingTests :: TestTree
+agentCapabilityRenderingTests =
+  testGroup
+    "unattended claude argv maps every capability onto a permission mode"
+    [ testCase name $ do
+        let req =
+              agentRunRequest AgentClaude "/work/project" "prompt"
+                & #safety .~ agentSafety cap
+        cmd <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+        cmd ^. #arguments
+          @?= ["-p", "--no-session-persistence", "--permission-mode", expected]
+    | (name, cap, expected) <-
+        [ ("read-only as plan", AgentReadOnly, "plan"),
+          ("edit-workspace as acceptEdits", AgentEditWorkspace, "acceptEdits"),
+          ("full-access as bypassPermissions", AgentFullAccess, "bypassPermissions")
+        ]
+    ]
+
+-- | Claude's @--effort@ has no @minimal@ value, so the lowest level
+-- maps up to @low@. Codex passes all six through unchanged; pinning
+-- both sides stops someone later \"unifying\" them.
+agentEffortRenderingTests :: TestTree
+agentEffortRenderingTests =
+  testGroup
+    "unattended claude argv clamps minimal effort up to low"
+    [ testCase name $ do
+        let req =
+              agentRunRequest AgentClaude "/work/project" "prompt"
+                & #effort .~ Just level
+        cmd <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+        cmd ^. #arguments
+          @?= [ "-p",
+                "--no-session-persistence",
+                "--effort",
+                expected,
+                "--permission-mode",
+                "plan"
+              ]
+    | (name, level, expected) <-
+        [ ("minimal as low", ThinkingMinimal, "low"),
+          ("low", ThinkingLow, "low"),
+          ("medium", ThinkingMedium, "medium"),
+          ("high", ThinkingHigh, "high"),
+          ("xhigh", ThinkingXHigh, "xhigh"),
+          ("max", ThinkingMax, "max")
+        ]
+    ]
+
+-- | The prompt travels on standard input, so a prompt that begins with
+-- a dash cannot be parsed as a flag and cannot be swallowed by a
+-- preceding variadic flag. Dash-leading directories still appear as
+-- ordinary arguments following their own flag.
+agentPromptTransportTest :: TestTree
+agentPromptTransportTest =
+  testCase "unattended claude argv never contains the prompt, even a dash-leading one" $ do
+    let dashPrompt = "-rm -rf /"
+        req =
+          agentRunRequest AgentClaude "-/work/dashdir" dashPrompt
+            & #extraDirs .~ ["-/work/dashshared"]
+            & #safety .~ (agentSafety AgentEditWorkspace & #allowedTools .~ ["Read"])
+    cmd <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+    assertBool
+      ("prompt leaked into argv: " <> show (cmd ^. #arguments))
+      (Text.unpack dashPrompt `notElem` cmd ^. #arguments)
+    cmd ^. #promptText @?= dashPrompt
+    cmd ^. #promptTransport @?= PromptOnStdin
+    cmd ^. #arguments
+      @?= [ "-p",
+            "--no-session-persistence",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Read",
+            "--add-dir",
+            "-/work/dashshared"
+          ]
+
+agentBlankModelTest :: TestTree
+agentBlankModelTest =
+  testCase "unattended claude argv omits --model for a blank model value" $ do
+    let req =
+          agentRunRequest AgentClaude "/work/project" "prompt"
+            & #modelId .~ Just "   "
+    cmd <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+    cmd ^. #arguments
+      @?= ["-p", "--no-session-persistence", "--permission-mode", "plan"]
+
+agentSessionPersistenceTest :: TestTree
+agentSessionPersistenceTest =
+  testCase "unattended claude argv persists a session only when asked" $ do
+    let req = agentRunRequest AgentClaude "/work/project" "prompt"
+        persisting = ClaudeAgent.defaultClaudeAgentConfig & #persistSession .~ True
+    byDefault <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+    byDefault ^. #arguments
+      @?= ["-p", "--no-session-persistence", "--permission-mode", "plan"]
+    persisted <- renderedAgentCommand persisting req
+    persisted ^. #arguments @?= ["-p", "--permission-mode", "plan"]
+
+agentProviderGuardTest :: TestTree
+agentProviderGuardTest =
+  testCase "the claude renderer refuses a request that names codex" $ do
+    let req = agentRunRequest AgentCodex "/work/project" "prompt"
+    ClaudeAgent.claudeAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+      @?= Left (ProviderMismatch AgentClaude AgentCodex)
+
+-- | The launch shape this initiative's first consumer embeds today in
+-- @scripts/sync-keiro-dsl.sh@ in the @shinzui/keiro-syntax@ repository,
+-- rendered from a provider-neutral request instead of Claude-specific
+-- flags written into the script.
+agentKeiroFixtureTest :: TestTree
+agentKeiroFixtureTest =
+  testCase "the sync-keiro-dsl launch shape renders without script-level claude flags" $ do
+    let req =
+          agentRunRequest AgentClaude "/work/keiro-syntax" "reconcile the Keiro DSL"
+            & #extraDirs .~ ["/work/keiro"]
+            & #safety
+              .~ ( agentSafety AgentEditWorkspace
+                     & #allowedTools
+                       .~ [ "Read",
+                            "Write",
+                            "Edit",
+                            "Glob",
+                            "Grep",
+                            "Bash",
+                            "Skill",
+                            "TodoWrite"
+                          ]
+                 )
+    cmd <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+    cmd ^. #executable @?= "claude"
+    cmd ^. #arguments
+      @?= [ "-p",
+            "--no-session-persistence",
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            "Read,Write,Edit,Glob,Grep,Bash,Skill,TodoWrite",
+            "--add-dir",
+            "/work/keiro"
+          ]
+    cmd ^. #promptTransport @?= PromptOnStdin
+    cmd ^. #promptText @?= "reconcile the Keiro DSL"
 
 batchCommandRenderingTest :: TestTree
 batchCommandRenderingTest =
