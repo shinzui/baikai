@@ -53,7 +53,8 @@ main =
       [ successSpanTest,
         failureSpanTest,
         abortSpanTest,
-        evidenceSpanTest
+        evidenceSpanTest,
+        liveEvidenceSpanTest
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses
@@ -245,6 +246,80 @@ awaitSpans getSpans n = go (100 :: Int)
 -- behaviour, and it is the only way to reach the attach path at all:
 -- "Baikai.Trace" pushes the evidence event /after/ the terminal, by
 -- which point the span has been ended and removed from the map.
+-- | The evidence attributes reach a span from a __live__ call, not only
+-- from a hand-fed stream.
+--
+-- They did not until "Baikai.Trace" was changed to emit @CallEvidence@
+-- before the terminal event. Before that the span had already been
+-- ended and removed by the time the evidence arrived, so the sink's
+-- attach branch was unreachable outside a replay and every real
+-- OpenTelemetry backend saw a span with no evidence on it. Nothing
+-- failed; the attributes were simply never there.
+--
+-- This is the test that would catch a revert of that ordering. The
+-- hand-fed 'evidenceSpanTest' above would not: it feeds the events in
+-- the order it chooses.
+liveEvidenceSpanTest :: TestTree
+liveEvidenceSpanTest =
+  testCase "A REAL CALL'S EVIDENCE REACHES ITS SPAN" $ do
+    let a = Custom "baikai-otel-live-evidence"
+    registerOkWithEvidence a
+    (tracer, getSpans) <- newTracerWithInMemory
+    _ <-
+      withTrace
+        (otelSink tracer)
+        (stubModel a)
+        stubContext
+        (stubOptions & #evidence .~ Just (evidenceRequest "run-otel-live" :: EvidenceRequest))
+    spans <- getSpans
+    assertEqual "exactly one span recorded" 1 (length spans)
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
+        mapM_
+          ( \k ->
+              assertBool
+                ( "evidence attribute "
+                    <> Text.unpack k
+                    <> " missing from a live call's span; got: "
+                    <> show (HashMap.keys attrs)
+                )
+                (HashMap.member k attrs)
+          )
+          [ "baikai.evidence.run_id",
+            "baikai.evidence.call_id",
+            "baikai.evidence.strength"
+          ]
+      _ -> assertFailure "expected exactly one span"
+
+-- | A provider that builds evidence the way a real adapter does, so the
+-- record reaches the trace layer through the terminal event rather than
+-- being fed in by hand.
+registerOkWithEvidence :: Api -> IO ()
+registerOkWithEvidence a =
+  let handler m _ctx opts = do
+        now <- getCurrentTime
+        ev <-
+          minimalEvidence
+            m
+            opts
+            TransportHttpApi
+            noThinkingRequested
+            (Aeson.object ["model" Aeson..= (m ^. #modelId :: Text)])
+            now
+            now
+            CallSucceeded
+            Nothing
+        pure (stubResponse a & #evidence .~ ev)
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
+          }
+
 evidenceSpanTest :: TestTree
 evidenceSpanTest =
   testCase "a CallEvidence event neither opens nor closes a span" $ do

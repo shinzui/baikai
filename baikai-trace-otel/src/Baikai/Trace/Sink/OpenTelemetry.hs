@@ -153,14 +153,17 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
     -- nothing from the prompt, the thinking text, or a tool payload
     -- appears in an evidence record at all.
     --
-    -- Note that under "Baikai.Trace"'s emission order this event
-    -- arrives /after/ the matching 'CallFinished' or 'CallFailed', by
-    -- which point the span has been ended and removed from the map, so
-    -- the lookup below misses and nothing is attached. That is
-    -- deliberate: reordering the trace events to suit this sink would
-    -- change when a terminal event reaches every other consumer. The
-    -- attach path is live for hand-fed and replayed event streams,
-    -- which is what the sink's tests drive.
+    -- "Baikai.Trace" emits this event /before/ the matching
+    -- 'CallFinished' or 'CallFailed', which is what makes the lookup
+    -- below find an open span. It did not always: the terminal came
+    -- first, the span was ended and removed, and this branch was
+    -- unreachable from a live stream. If that ordering is ever changed
+    -- back, these attributes silently stop appearing — the lookup
+    -- misses and nothing fails.
+    --
+    -- A miss is still tolerated rather than treated as an error,
+    -- because a hand-fed or replayed stream may legitimately carry
+    -- evidence for a call this sink never saw start.
     case Map.lookup eventId m of
       Nothing -> pure m
       Just sp -> do

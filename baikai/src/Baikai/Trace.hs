@@ -246,16 +246,15 @@ finalizeTrace s eid start m opts = do
       unless sent $ do
         now <- getCurrentTime
         let abortText = "aborted: stream consumer stopped before the terminal event"
-        writeChan (s ^. #chan) $
-          Just
-            CallFailed
-              { eventId = eid,
-                timestamp = now,
-                provider = m ^. #provider,
-                model = m ^. #modelId,
-                latencyMs = millisBetween start now,
-                errorMessage = abortText
-              }
+            aborted =
+              CallFailed
+                { eventId = eid,
+                  timestamp = now,
+                  provider = m ^. #provider,
+                  model = m ^. #modelId,
+                  latencyMs = millisBetween start now,
+                  errorMessage = abortText
+                }
         -- The consumer stopped before the terminal event, so no adapter
         -- ever handed evidence back and this layer has to build it. The
         -- status is 'CallAborted' rather than 'CallFailed': an abort is
@@ -280,6 +279,7 @@ finalizeTrace s eid start m opts = do
             -- stopped reading. The message says exactly that.
             (Just (providerError abortText))
         pushEvidence s eid now m mev
+        writeChan (s ^. #chan) (Just aborted)
       writeChan (s ^. #chan) Nothing
       takeMVar (s ^. #done)
       fatal <- reportSinkError s opts
@@ -388,8 +388,13 @@ traceEvent state eid start m opts ev = do
                 -- common case rather than a corner.
                 usd = fmap (usdAsScientific . Usage.cost) mu
               }
-      writeChan (state ^. #chan) (Just finished)
+      -- Evidence goes out *before* the terminal, so a sink that keys
+      -- per-call state off the started/terminal pair still has the
+      -- call's state open when it arrives. The OpenTelemetry sink ends
+      -- and removes its span on the terminal, so the other order left
+      -- its evidence branch unreachable from a live stream.
       pushEvidence state eid now m mev
+      writeChan (state ^. #chan) (Just finished)
       writeIORef (state ^. #terminalSent) True
       fatal <- finalizeTrace state eid start m opts
       -- A strict caller whose record did not survive gets a failed call
@@ -412,8 +417,8 @@ traceEvent state eid start m opts ev = do
                 latencyMs = latency,
                 errorMessage = errMsg
               }
-      writeChan (state ^. #chan) (Just failed)
       pushEvidence state eid now m mev
+      writeChan (state ^. #chan) (Just failed)
       writeIORef (state ^. #terminalSent) True
       -- Already an error: a sink failure on top changes nothing the
       -- caller can act on, and overwriting the provider's own error with
