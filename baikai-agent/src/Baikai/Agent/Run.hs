@@ -64,9 +64,7 @@ import Baikai.Evidence
 import Baikai.Evidence.Build (baikaiPackageVersion, renderEvidenceRefusal)
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Provider.Cli.Internal
-  ( ClaudeCliReport (..),
-    CodexRunReport (..),
-    ExecutableIdentity (..),
+  ( ExecutableIdentity (..),
     cliResponseEnvelope,
     decodeClaudeCliResult,
     executableIdentity,

@@ -12,10 +12,6 @@ import Baikai.Agent
     agentSafety,
     renderAgentRenderError,
   )
-import Baikai.Evidence.Build
-  ( EvidenceRefusal (..),
-    checkEvidenceRequirements,
-  )
 import Baikai.Provider.Claude.Agent qualified as ClaudeAgent
 import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli

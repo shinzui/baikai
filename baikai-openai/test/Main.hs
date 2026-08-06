@@ -12,17 +12,8 @@ import Baikai.Agent
     agentSafety,
     renderAgentRenderError,
   )
-import Baikai.Compat
-  ( OpenAICompletionsCompat (thinkingFormat),
-    ThinkingFormat (..),
-    defaultOpenAICompletionsCompat,
-  )
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Pricing (computeCost)
-import Baikai.Evidence.Build
-  ( EvidenceRefusal (..),
-    checkEvidenceRequirements,
-  )
 import Baikai.Provider.OpenAI.Agent qualified as CodexAgent
 import Baikai.Provider.OpenAI.Api
   ( RawChunk (..),

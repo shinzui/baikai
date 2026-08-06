@@ -25,6 +25,21 @@ common common-options
     -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
     -Wmissing-deriving-strategies
 
+  -- Exhaustiveness is an error, not a warning. A non-exhaustive match
+  -- is a crash the compiler already found: it fails at runtime, on
+  -- whichever input reaches the missing branch, usually in front of a
+  -- user. This is not hypothetical here — adding a constructor to
+  -- AgentRunFailure left `failureExitCode` non-exhaustive and shipped a
+  -- pattern-match failure on `baikai agent run --require-evidence`,
+  -- because the warning scrolled past in a build log.
+  --
+  -- Promoted individually rather than through -Werror, which would also
+  -- fail the build on warnings that are stylistic or that a future GHC
+  -- invents, and would push people toward blanket suppression.
+  ghc-options:
+    -Werror=incomplete-patterns -Werror=incomplete-uni-patterns
+    -Werror=incomplete-record-updates
+
   default-language:   GHC2024
   default-extensions:
     DeriveAnyClass
