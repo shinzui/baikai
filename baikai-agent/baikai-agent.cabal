@@ -94,11 +94,13 @@ test-suite baikai-agent-test
   other-modules:
     CliTests
     ConfigTests
+    EvidenceTests
 
   -- -threaded is not optional here: the runner forks threads to drain
   -- pipes and relies on System.Timeout interrupting a blocking wait.
   ghc-options:    -threaded -with-rtsopts=-N
   build-depends:
+    , aeson
     , baikai
     , baikai-agent
     , base

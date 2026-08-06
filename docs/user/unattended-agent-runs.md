@@ -156,6 +156,72 @@ The prompt is read as bytes and decoded as UTF-8 explicitly, not through the
 handle's locale encoding, so a prompt containing interpolated paths or
 non-ASCII text survives a machine without a UTF-8 locale.
 
+### Recording what a run was
+
+Two options ask Baikai to write down what it did, so an automation job produces
+a reviewable record as a side effect of running:
+
+| option | meaning |
+|--------|---------|
+| `--evidence-file PATH` | write the run's evidence record to `PATH` as one JSON object |
+| `--run-id TEXT` | the identifier for the logical run this invocation belongs to |
+
+Supplying neither leaves the run exactly as it was before evidence existed, and
+costs exactly what it cost before: nothing is hashed, no identifier is
+generated, and the tool is not invoked a second time to read its version.
+Supplying either turns the recording on. With `--evidence-file` but no
+`--run-id`, the job's own name stands in as the run identifier; Baikai treats
+that value as opaque text and never parses it.
+
+The record is written atomically — a staging file beside the destination,
+followed by a rename — so a reader polling the path never sees a half-written
+object. It is never appended to: each run writes one complete record, so a
+script wanting a log of many runs should point each run at its own path. A run
+that never started, because the executable was missing or a precondition
+failed, writes nothing at all; an empty file would claim a run happened.
+Failing to write the file is reported on standard error and never changes the
+exit code, because the agent's own status is what a calling script branches on.
+
+A run that was killed by its timeout **does** get a record, with a status of
+`aborted`. That run started, consumed tokens, and may have changed the working
+tree, which is precisely the case where an operator most wants to know what
+happened.
+
+```bash
+baikai agent run sync-keiro-dsl \
+  --prompt-stdin \
+  --run-id nightly-2026-08-05 \
+  --evidence-file /var/log/baikai/nightly.json < prompt.txt
+```
+
+#### What the record proves, and what it does not
+
+The record states what Baikai **requested**, what it **translated** that request
+into on the tool's command line, and what it **observed** the tool report back.
+Those three are kept separate and are never collapsed: a field the tool did not
+report reads as `"unobserved"` and is never filled in from the request.
+
+It is not a claim about what happened inside the provider, and it is not signed.
+A tool that exits zero has demonstrated that it ran and did not crash — it has
+not stated which model served the request, so a clean exit never raises the
+record's `strength`. Since almost every unattended run exits zero, that rule is
+the difference between a record that means something and one that does not.
+
+The two digests are worth understanding. `request_commitment` covers the
+argument vector **and the prompt**, so anyone who independently holds the prompt
+can confirm that a given record describes that run; publishing the digest
+discloses nothing about the prompt itself. `request_configuration` covers the
+request with its content removed, so it is safe to compare across runs that
+legitimately differ in what they asked.
+
+Getting a `strength` above `requested_only` from an unattended run takes two
+things, and neither is the default. The job must **capture** output — under
+`inherit` the agent's bytes went to your terminal and Baikai never held them —
+and the tool must be configured to print a structured format, which means adding
+`--output-format json` for `claude` or `--json` for `codex exec` through the
+job's `provider-args`. Without both, the tool's session identifier, model, and
+token counts are genuinely unavailable and the record says so.
+
 ### Exit codes
 
 The agent's own exit code **passes through unchanged**. Baikai's own failures

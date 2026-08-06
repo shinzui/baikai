@@ -27,7 +27,10 @@ import Baikai.Agent.Cli
     usageExitCode,
   )
 import Baikai.Agent.Config (AgentConfigPaths (..), AgentJob, resolveAgentJob)
+import Baikai.Evidence (evidenceSchemaVersion)
 import Control.Lens ((^.))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -84,7 +87,9 @@ cliTests =
         [ propagatesTheAgentExitCodeTest,
           inheritModeCapturesNothingTest,
           reportsAMissingExecutableTest,
-          refusesAnEmptyPromptTest
+          refusesAnEmptyPromptTest,
+          writesTheEvidenceFileTest,
+          writesNoEvidenceFileByDefaultTest
         ],
       testGroup
         "prompts"
@@ -127,6 +132,11 @@ withOverride key value opts =
     { overrides =
         (opts ^. #overrides) <> [cliOverride (either (error . show) id (parseKey key)) value]
     }
+
+-- | Ask for evidence, naming both a destination and an outer run.
+withEvidence :: FilePath -> Text -> AgentCliOptions -> AgentCliOptions
+withEvidence path outerRun opts =
+  opts {evidenceFile = Just path, runId = Just outerRun}
 
 -- | Paths naming only a repository document, which is the normal state
 -- for an operator who has written no policy file.
@@ -675,6 +685,61 @@ reportsAMissingExecutableTest =
       assertBool
         ("the missing program is named: " <> Text.unpack (finished ^. #standardError))
         ("not-installed" `Text.isInfixOf` (finished ^. #standardError))
+
+writesTheEvidenceFileTest :: TestTree
+writesTheEvidenceFileTest =
+  testCase "--evidence-file writes one schema-valid record for the run" $
+    -- The point of the option: an automation job gets a reviewable
+    -- record as a side effect of running, without the script having to
+    -- know anything about evidence.
+    withWorkspace $ \dir -> do
+      let evidencePath = dir </> "evidence.json"
+      executable <-
+        writeFakeAgent
+          dir
+          "claude"
+          "#!/bin/sh\ncat > /dev/null\necho 'the task is done'\n"
+      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "capture")
+      finished <-
+        run
+          (repositoryOnly configPath)
+          (withEvidence evidencePath "outer-run-7" (options (AgentRun "demo" (PromptInline "do the thing"))))
+      finished ^. #exitCode @?= 0
+      -- Nothing about the evidence file leaks onto the agent's own
+      -- output, which a script may be capturing.
+      finished ^. #standardOutput @?= "the task is done\n"
+      recorded <- Aeson.eitherDecodeFileStrict evidencePath
+      case recorded of
+        Left problem -> assertFailure ("the record did not parse as JSON: " <> problem)
+        Right (Aeson.Object o) -> do
+          KeyMap.lookup "schema_version" o @?= Just (Aeson.String evidenceSchemaVersion)
+          KeyMap.lookup "run_id" o @?= Just (Aeson.String "outer-run-7")
+          KeyMap.lookup "status" o @?= Just (Aeson.String "succeeded")
+          -- The fake reports nothing about itself, so the record says so
+          -- rather than inferring anything from its clean exit.
+          KeyMap.lookup "strength" o @?= Just (Aeson.String "requested_only")
+          assertBool
+            ("a call id was generated: " <> show (KeyMap.lookup "call_id" o))
+            (KeyMap.lookup "call_id" o /= Nothing)
+        Right other -> assertFailure ("expected one JSON object, got: " <> show other)
+      -- The write is atomic through a staging file, which must not be
+      -- left behind.
+      leftover <- doesFileExist (evidencePath <> ".partial")
+      assertBool "the staging file was renamed away" (not leftover)
+
+writesNoEvidenceFileByDefaultTest :: TestTree
+writesNoEvidenceFileByDefaultTest =
+  testCase "a run that named no evidence destination writes nothing" $
+    withWorkspace $ \dir -> do
+      let evidencePath = dir </> "evidence.json"
+      executable <-
+        writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\necho 'the task is done'\n"
+      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "capture")
+      finished <-
+        run (repositoryOnly configPath) (options (AgentRun "demo" (PromptInline "do the thing")))
+      finished ^. #exitCode @?= 0
+      written <- doesFileExist evidencePath
+      assertBool "no evidence file appeared" (not written)
 
 refusesAnEmptyPromptTest :: TestTree
 refusesAnEmptyPromptTest =

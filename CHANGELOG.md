@@ -347,6 +347,65 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `model_reasoning_effort`, and **no** adjustments at any level. Codex is the
   only transport in baikai that expresses all six canonical levels exactly, and
   a test asserts each one reaches the command line verbatim.
+- `baikai`: `Baikai.Agent` gains `AgentRunOutcome` and `agentRunOutcome`. It
+  pairs what an unattended run did — the existing
+  `Either AgentRunFailure AgentRunResult` — with the evidence the runner built
+  for it. The evidence is a sibling of the outcome rather than a field on
+  `AgentRunResult` because the run that most needs a record is one that did not
+  produce a result: a run killed by its own timeout reports
+  `Left (RunTimedOut …)`, so a record hanging off the `Right` would be
+  unreachable exactly there.
+- `baikai-agent`: **an unattended coding-agent run now produces model-call
+  evidence.** This surface previously had no observability of any kind: no trace
+  sink, no `Response`, no usage, no identifiers. An operator could show that a
+  process started, exited, and took some time; they could not show which model
+  ran, which reasoning effort was applied, or which agent session the run
+  corresponds to in the vendor's records.
+
+  A record carries the run and call identifiers, the resolved executable and its
+  own reported version, digests over the request, the requested model and what
+  the reasoning-effort request became on the command line, whatever the tool
+  reported about itself, the outcome, and an honest strength.
+
+  **A zero exit status never raises the strength.** On this surface that rule
+  matters more than anywhere else, because almost every unattended run exits
+  zero. A coding agent that exits zero has demonstrated that it ran, not which
+  model served it.
+
+  Two things gate what a record can prove, and neither is the default. The job
+  must **capture** output — under `inherit` the agent's bytes went to the
+  operator's terminal and baikai never held them — and the tool must be
+  configured to print a structured format, which means `--output-format json`
+  for `claude` or `--json` for `codex exec` through the job's `provider-args`.
+  Without both, the tool's session identifier, model, and token counts are
+  genuinely unavailable and the record says `"unobserved"` rather than inferring
+  anything. A timed-out run records `aborted`; a run that never started records
+  nothing at all.
+- **Breaking:** `baikai-agent`: `Baikai.Agent.Run.runAgentCommand` takes two new
+  leading arguments and returns the new outcome type:
+  `Maybe EvidenceRequest -> ThinkingTranslation -> AgentRunRequest -> AgentCommand -> IO AgentRunOutcome`.
+  A caller who wants the previous behaviour passes `Nothing` and
+  `Baikai.Evidence.noThinkingRequested` and reads the `outcome` field; that path
+  is byte-for-byte what it was, and costs what it cost — no digest is computed,
+  no call identifier is generated, and the tool is not invoked a second time to
+  read its version.
+- **Breaking:** `baikai-claude` and `baikai-openai`: `claudeAgentCommand` and
+  `codexAgentCommand` return `(AgentCommand, ThinkingTranslation)` rather than
+  `AgentCommand`. The runner deliberately imports no vendor renderer, so it
+  cannot derive the translation and has to be handed it. A caller that only
+  wants the command writes `fmap fst`. Both modules also export the translation
+  function alone — `claudeAgentThinking` and `codexAgentThinking` — for asking
+  what a level would become without rendering anything.
+- `baikai-agent`: `baikai agent run` gains `--evidence-file PATH` and
+  `--run-id TEXT`. Supplying neither leaves the run on the pre-existing path at
+  the pre-existing cost; supplying either turns recording on, with the job's own
+  name standing in as the run identifier when only a destination is given. The
+  file is written atomically — a staging file beside the destination, then a
+  rename — so a reader polling the path never sees a half-written object, and it
+  is never appended to. A failed write is reported on standard error and never
+  changes the exit code, because the agent's own status is what a calling script
+  branches on. `docs/user/unattended-agent-runs.md` documents both options and,
+  more importantly, what the record does and does not prove.
 
 ### Fixed
 

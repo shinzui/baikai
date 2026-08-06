@@ -24,6 +24,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
+import EvidenceTests (evidenceTests)
 import System.Directory
   ( doesFileExist,
     getPermissions,
@@ -62,7 +63,8 @@ runTests =
       outputLimitTest,
       inheritOutputTest,
       promptAsArgumentTest,
-      timeoutMicrosTests
+      timeoutMicrosTests,
+      evidenceTests
     ]
 
 -- | Write a tiny shell script into a temporary directory, make it
