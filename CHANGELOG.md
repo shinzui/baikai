@@ -7,6 +7,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.5.0.0] - 2026-08-05
+
 ### Added
 
 - `baikai`: new exposed module `Baikai.Agent`, the provider-neutral vocabulary
@@ -18,6 +20,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `AgentSafety`, the `AgentOutputMode` and `AgentCapturedOutput` output
   discipline, the `AgentCommand` renderer/runner boundary with an explicit
   prompt transport, and the `AgentRenderError` / `AgentRunFailure` taxonomies.
+
 - `baikai`: the operator policy ceiling — `AgentCeiling`,
   `defaultAgentCeiling`, `CeilingViolation`, and the pure `applyAgentCeiling`.
   It returns a request unchanged when it is within the ceiling and reports
@@ -30,6 +33,207 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and in `baikai-agent`, below. The module is deliberately not re-exported from
   the umbrella `Baikai` module, because its field accessors share names with
   `Baikai.Interactive`, so `import Baikai` continues to compile unchanged.
+
+- `baikai`: new exposed module `Baikai.Evidence`, the vocabulary for
+  **verifiable model-call evidence** — a record of what actually crossed the
+  boundary to a provider, as opposed to what the process was configured to ask
+  for. It defines `ModelCallEvidence` and the `evidenceSchemaVersion` string
+  consumers pin against, `Observed` (a deliberate non-`Maybe` for a value the
+  provider either did or did not report, with no function that supplies a
+  default), `ThinkingTranslation` with its `ThinkingMode` and
+  `ThinkingAdjustment` enumerations describing what a requested
+  reasoning-effort level actually became on the wire and every clamp, collapse,
+  or drop applied on the way, `EndpointIdentity` and `TransportKind`,
+  `CallStatus`, and the ascending `EvidenceStrength` scale.
+
+  It also provides the canonical hashing core: `canonicalEncode` gives a JSON
+  value exactly one byte representation (object keys sorted, no insignificant
+  whitespace, numbers normalised so `1`, `1.0`, `1.00`, and `1e0` all encode as
+  `1`, and a hand-written string escaper so an aeson upgrade cannot silently
+  invalidate a recorded digest); `commitmentDigest` hashes a full request
+  envelope, and `configurationDigest` hashes an allow-list projection
+  (`configurationProjection`) that keeps configuration and replaces content with
+  structural summaries, so two calls that ask the same model the same way about
+  different subjects agree. The two digests are separate on purpose: the first
+  binds a record to a particular request, the second is safe to compare across
+  runs that legitimately differ in content.
+
+  Nothing constructs a `ModelCallEvidence` from a real call yet, and no existing
+  behaviour changed. New dependencies: `cryptohash-sha256` and
+  `base16-bytestring`, both single-purpose packages chosen over a full
+  cryptographic framework.
+
+- `baikai`: `Options` gains an `evidence` field carrying an optional
+  `EvidenceRequest` — the caller's run identifier, retry provenance, and how
+  strictly they need evidence. A call whose `evidence` is `Nothing`, which is
+  every call that does not opt in, behaves exactly as it did before: no digest
+  is computed and no evidence is emitted.
+
+- `baikai`: model-call evidence is now **produced and emitted**. A caller who
+  sets `Options.evidence` gets exactly one `call_evidence` line per call from
+  their trace sink, under every way a call can end: success, provider failure, a
+  consumer that abandons the stream (status `aborted`, not `failed` — an abort
+  is the consumer's doing and reporting it as a provider failure would
+  misattribute it), and dispatch that found no registered handler.
+
+  New exposed module `Baikai.Evidence.Build` bridges the vocabulary to the
+  `Model` and `Options` records: `minimalEvidence` and `prepareEvidence` build a
+  record, `dispatchEnvelope` supplies the request envelope for the paths where
+  no adapter ran, `sanitizeEndpoint` reduces a base URL to scheme/host/port/path
+  with the query string and any userinfo dropped wholesale, and `onSinkFailure`
+  is the hook a future release replaces to make a strict caller's call fail when
+  the trace sink does.
+
+  Every record this release produces has `strength` `requested_only` and every
+  provider-observed field set to `"unobserved"`. That is not a placeholder: it
+  is a truthful record for a transport that has not yet been taught to observe
+  anything. Later releases teach each transport to observe more.
+
+  **A caller who does not opt in pays nothing.** With `Options.evidence` absent
+  no digest is computed, no call identifier is generated, no evidence event is
+  emitted, and the request envelope is never even forced — the gate lives inside
+  the shared builder rather than at each adapter's call site, and the envelope
+  parameter is deliberately lazy. Both facts are guarded by tests.
+
+- `baikai`: `TraceEvent` gains a `CallEvidence` constructor, encoded as
+  `{"kind":"call_evidence", …}`. A consumer whose pattern match over `TraceEvent`
+  is exhaustive must add a branch; one with a wildcard is unaffected. Filter for
+  it with `jq 'select(.kind == "call_evidence") | .evidence'`. Note that a trace
+  line carries its fields alongside the `kind` discriminator rather than nested
+  under a `data` key, and that the evidence record inside spells its own fields
+  in snake_case — the two encodings differ deliberately, because an evidence
+  record must render an absent field as explicit `null` while a trace line drops
+  it to stay small.
+
+- `baikai`: `Baikai.Provider.Cli.Internal` — the module the two subprocess
+  providers share — gains the vocabulary for reading what a coding-agent CLI
+  reported about its own run. `CodexRunReport` and the new
+  `parseCodexJsonlStream :: Stream IO ByteString -> IO CodexRunReport` fold the
+  `codex exec --json` event stream into its assistant text, its thread
+  identifier, and its token counts, instead of concatenating agent-message text
+  and discarding everything else. `ClaudeCliReport` and
+  `decodeClaudeCliResult` do the same for `claude -p --output-format json`.
+  Every field but the message text is optional, because both tools' event
+  schemas have changed across versions and an absent field is a genuine absence
+  rather than a parse failure. **Breaking** for anyone calling
+  `parseCodexJsonlStream` directly: its result type is no longer `Text`. This is
+  an internal module and is documented as outside the PVP guarantee.
+
+- `baikai`: `Baikai.Provider.Cli.Internal` also gains `ExecutableIdentity` and
+  `executableIdentity`, which resolve a configured executable name to an
+  absolute path and read the tool's own `--version` line. The probe is cached
+  per resolved name for the lifetime of the process, because spawning it per
+  model call would roughly double the process cost of the cheapest possible
+  call, and it is bounded by a two-second timeout so a tool that hangs on
+  `--version` cannot wedge a model call. A probe that fails records the version
+  as absent rather than failing the call. It is only ever called from inside
+  the evidence branch: a caller who asked for no evidence must not pay for a
+  process whose only purpose is to describe a tool they were about to run
+  anyway.
+
+- `baikai`: `subprocessStrength` and `cliResponseEnvelope`, also in
+  `Baikai.Provider.Cli.Internal`. The former derives a subprocess call's
+  evidence strength from what the tool reported and **nothing else** — the exit
+  status is deliberately not one of its arguments. The latter spells the
+  response-commitment envelope with the same three keys, in the same shapes, as
+  the two API transports build by hand, so a verifier holding a response can
+  recompute the digest without first knowing which transport served it.
+
+- `baikai`: `Baikai.Agent` gains `AgentRunOutcome` and `agentRunOutcome`. It
+  pairs what an unattended run did — the existing
+  `Either AgentRunFailure AgentRunResult` — with the evidence the runner built
+  for it. The evidence is a sibling of the outcome rather than a field on
+  `AgentRunResult` because the run that most needs a record is one that did not
+  produce a result: a run killed by its own timeout reports
+  `Left (RunTimedOut …)`, so a record hanging off the `Right` would be
+  unreachable exactly there.
+
+### Fixed
+
+- `baikai`: a `call_evidence` event is now emitted **before** its call's
+  terminal `call_finished` or `call_failed`, rather than after. The
+  OpenTelemetry sink ends and removes a call's span on the terminal, so under
+  the old order its evidence-attribute branch was unreachable from any real
+  call and every backend saw a span with no evidence on it — nothing failed,
+  the attributes were simply never there. No consumer can have depended on the
+  old order, because no consumer has ever seen a `call_evidence` line.
+
+- `baikai`: the `ThinkingFormatOpenAI` Haddock in `Baikai.Compat` listed the
+  native `reasoning_effort` vocabulary as `minimal | low | medium | high`, which
+  predates `xhigh` and `max`. It now lists all six and states that this shape
+  alone sends the canonical baikai level verbatim while the other six clamp
+  through `compatibleEffort`. No behaviour changed: the native path's exclusion
+  from that clamp is deliberate and is guarded by two named tests in
+  `baikai-openai/test/ShapeSpec.hs`. A reader who consulted the comment to
+  decide whether `xhigh` was safe to use against OpenAI has until now been told
+  something untrue.
+
+### Changed
+
+- **Breaking:** `baikai`: `TerminalPayload` gains an `evidence` field and the two
+  terminal smart constructors take it as their new first argument:
+  `doneTerminal :: Maybe ModelCallEvidence -> Maybe Text -> StopReason -> Message -> TerminalPayload`
+  and `errorTerminal` likewise. `Response` gains the same field. A custom
+  provider implementation must pass `Nothing` (or a record it builds through
+  `Baikai.Evidence.Build`); a custom `Response` built with the record
+  constructor must add `evidence = Nothing`. Code that only pattern-matches on
+  these types is unaffected.
+
+- **Breaking:** `baikai`: `CallFinished` gains `cachedInputTokens`,
+  `cacheWriteTokens`, `reasoningTokens`, and `totalTokens`. The trace path used
+  to drop counts that `Baikai.Cost.Log.CallLogEntry` kept from the same `Usage`
+  value, which made the cost log strictly more faithful than the trace.
+
+- **Breaking:** `baikai`: a computed cost of **zero is now reported as zero**
+  rather than suppressed, in `CallFinished` and at all three `CallLogEntry`
+  construction sites. Previously `usd` was omitted whenever the cost came out at
+  zero, so "this call was free" and "baikai could not price this call" were
+  indistinguishable — and the subscription-based CLI providers always price at
+  zero, so that was the common case rather than a corner. **A cost dashboard
+  that treated an absent `usd` as "unpriced" will now count those calls as
+  costing zero.** That is the correct reading, but it changes what such a
+  dashboard shows.
+
+- **Breaking:** `baikai`: `FromJSON TraceEvent` is written out by hand instead of
+  derived. The three pre-existing kinds decode exactly as before; a
+  `call_evidence` line fails to parse with a message saying to read it as a
+  plain `Data.Aeson.Value`. `ModelCallEvidence` has no `FromJSON` on purpose —
+  it embeds a `Cost` whose exact `Rational` amounts encode through an
+  approximating `Scientific`, so a decoder would return a different value than
+  was encoded — and manufacturing that fidelity would be the precise failure
+  this vocabulary exists to eliminate.
+
+- `baikai`: `Baikai.Trace.Sink.renderHuman` renders a `CallEvidence` event as a
+  single `EVIDENCE run=… call=… strength=…` line rather than the whole record. A
+  human-readable sink is for watching calls go by; the full record is meant to
+  be read out of `fileSink` output by a machine.
+
+- `baikai`: call identifiers on the trace path are now globally unique.
+  `Baikai.Evidence.newCallId` produces 32 lowercase hexadecimal characters
+  carrying 128 bits — 48 bits of Unix time in milliseconds, 48 bits of a
+  per-process random seed drawn once from `/dev/urandom`, and a 32-bit counter.
+  The previous generator combined the process-start *second* with a
+  process-local counter into 16 characters, so two processes started within the
+  same second emitted identical identifier sequences; its own documentation
+  claimed only per-process uniqueness. Identifiers still sort chronologically
+  and are still not secrets.
+
+  `Baikai.Trace.newEventId` keeps its name and signature, delegates to
+  `newCallId`, and is now deprecated. Anything that pinned the 16-character
+  width — a log parser, a fixture, a column type — must widen to 32.
+
+- `baikai`: `renderCeilingViolation` no longer prints the raw provider arguments
+  a `ProviderArgsForbidden` violation carries. It reports how many were
+  requested and states that their values are not shown. Raw provider arguments
+  are the one part of a job description that can hold a credential — the
+  configuration layer classifies the setting secret for that reason — and a
+  refusal message that quoted them defeated the classification. The constructor
+  keeps its `[Text]` payload so a programmatic caller can still inspect it.
+
+## [baikai-claude 0.5.0.0] - 2026-08-05
+
+### Added
+
 - `baikai-claude`: new exposed module `Baikai.Provider.Claude.Agent` with
   `ClaudeAgentConfig`, `defaultClaudeAgentConfig`, and `claudeAgentCommand`, a
   pure renderer from an unattended `AgentRunRequest` to the `claude` argument
@@ -40,6 +244,147 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   set. The prompt travels on standard input and appears nowhere in the argument
   vector. A request naming a different provider is refused with
   `ProviderMismatch`. Nothing is spawned.
+
+- `baikai-claude`: the Anthropic Messages provider now fills in the evidence
+  record it previously left blank. It records the model **Anthropic reported
+  running** (read from the `message_start` event, which the adapter already
+  decoded for the response id and then discarded), Anthropic's `request-id`
+  correlation header, the response id, the token counts Anthropic actually
+  reported, and a commitment digest over the assembled response. A field the
+  provider did not report stays `"unobserved"` and is never backfilled from the
+  request — in particular, a stream that fails before `message_start` reports no
+  observed model at all. `strength` is `model_observed` when both the model and a
+  correlation identifier arrived, `correlated` when only the identifier did, and
+  `requested_only` otherwise; a 2xx status never raises it, because a 200 means
+  the request was accepted, not that any particular model ran.
+  `fully_observed` is unreachable on this transport, since Anthropic does not
+  echo the thinking configuration it applied.
+
+- `baikai-claude`: an evidence record's `thinking` field now describes what the
+  caller's reasoning-effort preference actually became on the wire, including
+  three downgrades that were previously invisible everywhere in baikai's output:
+  asking for thinking on a model that does not advertise `reasoning`
+  (`thinking_dropped_unsupported_model`); asking for a level whose token budget
+  does not fit under the resolved output-token ceiling
+  (`thinking_dropped_budget_exceeded`, carrying both colliding numbers), which is
+  reachable by lowering `maxTokens` alone; and asking for `high` on an
+  adaptive-thinking model, which sends no effort field and so is
+  wire-indistinguishable from taking Anthropic's default depth
+  (`effort_omitted`). `minimal` on an adaptive model reports `effort_clamped`,
+  because Anthropic's adaptive vocabulary has no `minimal`.
+
+- `baikai-claude`: new exports from `Baikai.Provider.Claude.Sse` —
+  `ResponseMetadata` and `capturedHeaderNames` — and from
+  `Baikai.Provider.Claude.Api` — `claudeMessagesStreamWith`, `SseDriver`, and
+  `anthropicStrength`. Response-header capture is an **allow-list**
+  (`request-id`, `x-request-id`, `cf-ray`, in that preference order), not a
+  denylist, so a header a future gateway adds is not recorded by default.
+
+- `baikai-claude` and `baikai-openai`: both subprocess providers now fill in the
+  evidence record they previously left blank, and both export the translation
+  function that describes it — `claudeCliThinking` and `codexCliThinking`. They
+  record the session or thread identifier the tool reported, the token counts it
+  reported, the model it named when it names one, the resolved executable path
+  in place of an endpoint URL, the tool's own `--version` string as the
+  implementation version (for this transport the tool *is* the implementation),
+  a request commitment over the rendered argument vector, and a response
+  commitment over the assembled answer.
+
+  **A zero exit status never raises the strength.** A coding-agent CLI that
+  exits zero has demonstrated that it ran and did not crash; it has not stated
+  which model served the request. Subprocess calls almost always exit zero, so
+  encoding that as corroboration would make the weakest evidence in the system
+  look like the strongest. `strength` is `model_observed` only when the tool
+  named both an identifier and a model, `correlated` when it named only an
+  identifier, and `requested_only` otherwise.
+
+  The two transports differ in how far they can get. `claude` names the model
+  that consumed tokens in its result event's `modelUsage` map, complete with a
+  context-window variant marker such as `[1m]`, so a Claude CLI run can reach
+  `model_observed`. `codex-cli 0.146.0` names no model anywhere in its event
+  stream, so **no** Codex CLI run can exceed `correlated` — backfilling the
+  `--model` flag baikai passed would report the request as an observation.
+
+- `baikai-claude`: an evidence record's `thinking` field now describes what a
+  reasoning-effort request became on the `claude` command line: mode `flag`,
+  wire field `--effort`, and an `effort_clamped` adjustment recording the
+  `minimal` → `low` collapse, because the tool's `--effort` flag has no
+  `minimal`. A caller asking for `minimal` and a caller asking for `low` produce
+  byte-identical argument vectors — and therefore identical request commitment
+  digests — so the translation is the only place that difference survives.
+
+- **Breaking:** `baikai-claude` and `baikai-openai`: `claudeAgentCommand` and
+  `codexAgentCommand` return `(AgentCommand, ThinkingTranslation)` rather than
+  `AgentCommand`. The runner deliberately imports no vendor renderer, so it
+  cannot derive the translation and has to be handed it. A caller that only
+  wants the command writes `fmap fst`. Both modules also export the translation
+  function alone — `claudeAgentThinking` and `codexAgentThinking` — for asking
+  what a level would become without rendering anything.
+
+### Fixed
+
+- **Loud:** `baikai-claude` and `baikai-openai`: both subprocess providers
+  hardcoded `usage = zeroUsage` on every call, so a cost dashboard saw every
+  `claude -p` and `codex exec` call as consuming no tokens and costing nothing.
+  Both tools report their own token counts and baikai now carries them through,
+  normalized into the disjoint `Usage` convention: `claude`'s counts are
+  Anthropic-shaped and already disjoint, while `codex` reports OpenAI-style
+  inclusive prompt counts, so its cached tokens are subtracted out of
+  `inputTokens`. `claude` additionally reports a `total_cost_usd`, which now
+  populates `Usage.cost` exactly rather than being reported as zero.
+
+  **A dashboard that read these calls as free will now see real tokens and, for
+  `claude`, a real cost.** That is the correction, not a regression — but it
+  changes what existing reports show, and totals over historical data will not
+  match totals over new data.
+
+- `baikai-claude`: `Response.responseId` was always `Nothing` on the `claude -p`
+  transport even though `ClaudeCliResult` decoded the tool's `session_id` one
+  screen earlier and then dropped it. It now carries that identifier, on both
+  the successful and the failed terminal. `baikai-openai`: the same for
+  `codex exec`, whose thread identifier was filtered out of the event stream
+  along with everything that was not an `agent_message`. These are the handles
+  each vendor's support tooling looks a run up by.
+
+### Changed
+
+- **Breaking:** `baikai-claude`: `Baikai.Provider.Claude.Sse`'s four streaming
+  entry points — `claudeSseStream`, `claudeSseStreamValue`,
+  `claudeSseStreamValueWithHeaders`, and `sseFromResponse` — take a new
+  `ResponseMetadata -> IO ()` callback immediately before the existing per-event
+  callback. It fires exactly once, before the first event, on both the success
+  and the non-2xx path. Pass `(\_ -> pure ())` to keep the previous behaviour.
+  The callback is separate rather than a widening of the per-event one because
+  the per-event callback runs once per SSE frame and response-level data does not
+  belong on that path.
+
+- **Breaking:** `baikai-claude`: `Baikai.Provider.Claude.Internal.Request`'s
+  `mapRequest` now returns
+  `Either Text (Messages.CreateMessage, ThinkingTranslation)` and
+  `computeThinking` returns `(ThinkingPlan, ThinkingTranslation)`. Take `fst` to
+  keep the previous value. This module is exposed for provider tests and
+  debugging and its header states it is not covered by PVP compatibility
+  guarantees, but the change is recorded here because that is not a licence to
+  break a consumer silently.
+
+- **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns
+  `Either AgentRenderError (FilePath, [String])` and `launchClaudeInteractive`
+  returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
+  whose `safety` is a `CodexSandbox` policy — which Claude Code cannot express
+  — is refused with `SafetyNotExpressible AgentClaude`, naming the rejected
+  sandbox mode and approval policy and suggesting `ClaudeAllowedTools` or
+  `DefaultSafety`. Previously the policy was silently discarded and an
+  **unrestricted** Claude session was started and reported as a success. A
+  `Left` means no process was started; a `Right` with a non-zero exit code
+  means the session ran and exited non-zero. `DefaultSafety` and an empty
+  `ClaudeAllowedTools` list still render no safety flag and are never refused,
+  and no previously rendered argument vector changed. Callers must handle the
+  refusal branch.
+
+## [baikai-openai 0.5.0.0] - 2026-08-05
+
+### Added
+
 - `baikai-openai`: new exposed module `Baikai.Provider.OpenAI.Agent` with
   `CodexAgentConfig`, `defaultCodexAgentConfig`, and `codexAgentCommand`, the
   same renderer for `codex exec`. It maps the capability profile onto
@@ -49,6 +394,135 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `UnsupportedToolRestriction`, because `codex exec` has no such flag and running
   it with unrestricted tools would grant more authority than the caller asked
   for. Nothing is spawned.
+
+- `baikai-openai`: an evidence record's `thinking` field now describes what the
+  caller's reasoning-effort preference became on the wire for the specific host
+  the call went to, across **all seven** OpenAI-compatible wire shapes. The
+  OpenAI-native shape sends the canonical level verbatim and records no
+  adjustment, because it expresses every level exactly. The four shapes that
+  carry an effort word for a non-native host record `effort_clamped` whenever
+  the word differs from the canonical name — `minimal` becomes `low`, and both
+  `xhigh` and `max` become `high`. Z.ai and Qwen accept a bare
+  `enable_thinking: true` with no depth, so **every** level records
+  `effort_collapsed_to_toggle`: a caller asking for `max` and a caller asking
+  for `low` produce byte-identical requests there, and only the evidence record
+  can tell them apart. A host with no reasoning controls records
+  `thinking_dropped_unsupported_host` where the option previously vanished with
+  no trace. A forty-two-row table test pins the translation and the shaped
+  request body for every shape at every level.
+
+- `baikai-openai`: the Chat Completions provider now fills in the evidence record
+  it previously left blank. It records the model **the host reported running**
+  (read from the first streamed chunk carrying a top-level `model` field and
+  never overwritten by a later one), the host's `x-request-id` correlation
+  header, the response id, the token counts the host actually reported, and a
+  commitment digest over the assembled response. A field the host did not report
+  stays `"unobserved"` and is never backfilled from the request — in particular,
+  a call that fails before any chunk arrives reports no observed model at all.
+  `strength` is `model_observed` when both the model and a correlation
+  identifier arrived, `correlated` when only the identifier did, and
+  `requested_only` otherwise; a 2xx status never raises it, because a 200 means
+  the request was accepted, not that any particular model ran.
+  `fully_observed` is unreachable on this transport, since no host in this
+  ecosystem echoes the reasoning configuration it applied.
+
+- `baikai-openai`: new exports from `Baikai.Provider.OpenAI.Sse` —
+  `ResponseMetadata` and `capturedHeaderNames` — and from
+  `Baikai.Provider.OpenAI.Api` — `openaiChatStreamWith` and `SseDriver`.
+  Response-header capture is an **allow-list** (`x-request-id`, `request-id`,
+  `x-amzn-requestid`, `x-ms-request-id`, `cf-ray`, in that preference order),
+  not a denylist, so a header a future gateway adds is not recorded by default.
+  The list is longer than the Anthropic one because this transport speaks to an
+  open-ended set of hosts and the gateways commonly in front of them.
+
+- `baikai-openai`: the same field for `codex exec`: mode `flag`, wire field
+  `model_reasoning_effort`, and **no** adjustments at any level. Codex is the
+  only transport in baikai that expresses all six canonical levels exactly, and
+  a test asserts each one reaches the command line verbatim.
+
+### Fixed
+
+- `baikai-openai`: `Response.responseId` was always `Nothing` on the Chat
+  Completions transport, although every compatible host sends a top-level `id`
+  on every streamed chunk. It now carries the identifier the host reported, on
+  both the successful and the failed terminal.
+
+### Changed
+
+- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Sse`'s four streaming
+  entry points — `openaiSseStream`, `openaiSseStreamValue`,
+  `openaiSseStreamValueWithHeaders`, and `sseFromResponse` — take a new
+  `ResponseMetadata -> IO ()` callback immediately before the existing per-chunk
+  callback. It fires exactly once, before the first chunk, on both the success
+  and the non-2xx path — a failed call's correlation identifier is if anything
+  more valuable than a successful one's. Pass `(\_ -> pure ())` to keep the
+  previous behaviour. The callback is separate rather than a widening of the
+  per-chunk one because that one runs once per SSE frame and response-level data
+  does not belong on that path.
+
+- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Api`'s `RawChunk` gains
+  `model` and `responseId` fields, both `Maybe Text`. Code that pattern-matches
+  on `RawChunk` is unaffected; code that constructs one with record syntax must
+  add them.
+
+- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Shape`'s
+  `shapeRequestBody`, `streamRequestBody`, and `injectThinkingShape` now return
+  `(Aeson.Value, ThinkingTranslation)` instead of a bare body. Take `fst` to
+  keep the previous value. The description has to travel out of the shaping step
+  because nothing downstream can recompute it: it depends on the host's
+  `ThinkingFormat`, which only the compat lookup knows. **No request body
+  changed** — every one of the seven shapes puts exactly the same bytes on the
+  wire as before.
+
+- **Breaking:** `baikai-openai`: `codexInteractiveCommand` now returns
+  `Either AgentRenderError (FilePath, [String])` and `launchCodexInteractive`
+  returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
+  whose `safety` is a non-empty `ClaudeAllowedTools` list — which `codex` has
+  no flag for — is refused with `SafetyNotExpressible AgentCodex`, quoting the
+  rejected tools and suggesting `CodexSandbox` or `DefaultSafety`. Previously
+  the allow-list was silently discarded and Codex was started with its default
+  sandbox. The same `Left`/`Right` reading applies, `DefaultSafety` and an
+  empty allow-list are never refused, and no previously rendered argument
+  vector changed. Callers must handle the refusal branch.
+
+  Both changes make the interactive surface honor the same contract as the new
+  unattended surface: a safety policy the chosen provider cannot express fails
+  visibly instead of silently becoming a weaker policy. Downstream consumers
+  must adapt before upgrading; the known one is `shinzui/seihou`, whose
+  `Seihou.CLI.AgentLaunchExec` module builds interactive launch requests.
+
+## [baikai-trace-otel 0.3.0.3] - 2026-08-05
+
+### Added
+
+- `baikai-trace-otel`: the sink attaches an evidence record's salient fields to
+  the open span as flat attributes (`baikai.evidence.run_id`,
+  `baikai.evidence.call_id`, `baikai.evidence.strength`, the two digests, and
+  `gen_ai.response.model` only when the provider actually reported one) rather
+  than serialising the record into one blob. A `CallEvidence` event neither
+  opens nor closes a span.
+
+### Changed
+
+- `baikai-trace-otel`: widened its `baikai` bound to admit `0.5`. No API change.
+
+## [baikai-effectful 0.3.0.3] - 2026-08-05
+
+### Changed
+
+- Widened its `baikai` bound to admit `0.5`. No API change; the package's
+  own surface is untouched.
+
+## [baikai-kit 0.1.0.4] - 2026-08-05
+
+### Changed
+
+- Widened its `baikai` bound to admit `0.5`. No API change; the package's
+  own surface is untouched.
+
+## [baikai-agent 0.1.0.0] - 2026-08-05
+
+### Added
 
 - `baikai-agent`: **new package** (`0.1.0.0`) holding the unattended
   coding-agent runner. `Baikai.Agent.Run.runAgentCommand` takes an
@@ -139,222 +613,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `docs/user/cli-providers.md` and `docs/user/interactive-launches.md` link to
   it, and the capability mapping tables moved there from the latter.
 
-- `baikai`: new exposed module `Baikai.Evidence`, the vocabulary for
-  **verifiable model-call evidence** — a record of what actually crossed the
-  boundary to a provider, as opposed to what the process was configured to ask
-  for. It defines `ModelCallEvidence` and the `evidenceSchemaVersion` string
-  consumers pin against, `Observed` (a deliberate non-`Maybe` for a value the
-  provider either did or did not report, with no function that supplies a
-  default), `ThinkingTranslation` with its `ThinkingMode` and
-  `ThinkingAdjustment` enumerations describing what a requested
-  reasoning-effort level actually became on the wire and every clamp, collapse,
-  or drop applied on the way, `EndpointIdentity` and `TransportKind`,
-  `CallStatus`, and the ascending `EvidenceStrength` scale.
-
-  It also provides the canonical hashing core: `canonicalEncode` gives a JSON
-  value exactly one byte representation (object keys sorted, no insignificant
-  whitespace, numbers normalised so `1`, `1.0`, `1.00`, and `1e0` all encode as
-  `1`, and a hand-written string escaper so an aeson upgrade cannot silently
-  invalidate a recorded digest); `commitmentDigest` hashes a full request
-  envelope, and `configurationDigest` hashes an allow-list projection
-  (`configurationProjection`) that keeps configuration and replaces content with
-  structural summaries, so two calls that ask the same model the same way about
-  different subjects agree. The two digests are separate on purpose: the first
-  binds a record to a particular request, the second is safe to compare across
-  runs that legitimately differ in content.
-
-  Nothing constructs a `ModelCallEvidence` from a real call yet, and no existing
-  behaviour changed. New dependencies: `cryptohash-sha256` and
-  `base16-bytestring`, both single-purpose packages chosen over a full
-  cryptographic framework.
-- `baikai`: `Options` gains an `evidence` field carrying an optional
-  `EvidenceRequest` — the caller's run identifier, retry provenance, and how
-  strictly they need evidence. A call whose `evidence` is `Nothing`, which is
-  every call that does not opt in, behaves exactly as it did before: no digest
-  is computed and no evidence is emitted.
-- `baikai`: model-call evidence is now **produced and emitted**. A caller who
-  sets `Options.evidence` gets exactly one `call_evidence` line per call from
-  their trace sink, under every way a call can end: success, provider failure, a
-  consumer that abandons the stream (status `aborted`, not `failed` — an abort
-  is the consumer's doing and reporting it as a provider failure would
-  misattribute it), and dispatch that found no registered handler.
-
-  New exposed module `Baikai.Evidence.Build` bridges the vocabulary to the
-  `Model` and `Options` records: `minimalEvidence` and `prepareEvidence` build a
-  record, `dispatchEnvelope` supplies the request envelope for the paths where
-  no adapter ran, `sanitizeEndpoint` reduces a base URL to scheme/host/port/path
-  with the query string and any userinfo dropped wholesale, and `onSinkFailure`
-  is the hook a future release replaces to make a strict caller's call fail when
-  the trace sink does.
-
-  Every record this release produces has `strength` `requested_only` and every
-  provider-observed field set to `"unobserved"`. That is not a placeholder: it
-  is a truthful record for a transport that has not yet been taught to observe
-  anything. Later releases teach each transport to observe more.
-
-  **A caller who does not opt in pays nothing.** With `Options.evidence` absent
-  no digest is computed, no call identifier is generated, no evidence event is
-  emitted, and the request envelope is never even forced — the gate lives inside
-  the shared builder rather than at each adapter's call site, and the envelope
-  parameter is deliberately lazy. Both facts are guarded by tests.
-- `baikai`: `TraceEvent` gains a `CallEvidence` constructor, encoded as
-  `{"kind":"call_evidence", …}`. A consumer whose pattern match over `TraceEvent`
-  is exhaustive must add a branch; one with a wildcard is unaffected. Filter for
-  it with `jq 'select(.kind == "call_evidence") | .evidence'`. Note that a trace
-  line carries its fields alongside the `kind` discriminator rather than nested
-  under a `data` key, and that the evidence record inside spells its own fields
-  in snake_case — the two encodings differ deliberately, because an evidence
-  record must render an absent field as explicit `null` while a trace line drops
-  it to stay small.
-- `baikai-trace-otel`: the sink attaches an evidence record's salient fields to
-  the open span as flat attributes (`baikai.evidence.run_id`,
-  `baikai.evidence.call_id`, `baikai.evidence.strength`, the two digests, and
-  `gen_ai.response.model` only when the provider actually reported one) rather
-  than serialising the record into one blob. A `CallEvidence` event neither
-  opens nor closes a span.
-- `baikai-claude`: the Anthropic Messages provider now fills in the evidence
-  record it previously left blank. It records the model **Anthropic reported
-  running** (read from the `message_start` event, which the adapter already
-  decoded for the response id and then discarded), Anthropic's `request-id`
-  correlation header, the response id, the token counts Anthropic actually
-  reported, and a commitment digest over the assembled response. A field the
-  provider did not report stays `"unobserved"` and is never backfilled from the
-  request — in particular, a stream that fails before `message_start` reports no
-  observed model at all. `strength` is `model_observed` when both the model and a
-  correlation identifier arrived, `correlated` when only the identifier did, and
-  `requested_only` otherwise; a 2xx status never raises it, because a 200 means
-  the request was accepted, not that any particular model ran.
-  `fully_observed` is unreachable on this transport, since Anthropic does not
-  echo the thinking configuration it applied.
-- `baikai-claude`: an evidence record's `thinking` field now describes what the
-  caller's reasoning-effort preference actually became on the wire, including
-  three downgrades that were previously invisible everywhere in baikai's output:
-  asking for thinking on a model that does not advertise `reasoning`
-  (`thinking_dropped_unsupported_model`); asking for a level whose token budget
-  does not fit under the resolved output-token ceiling
-  (`thinking_dropped_budget_exceeded`, carrying both colliding numbers), which is
-  reachable by lowering `maxTokens` alone; and asking for `high` on an
-  adaptive-thinking model, which sends no effort field and so is
-  wire-indistinguishable from taking Anthropic's default depth
-  (`effort_omitted`). `minimal` on an adaptive model reports `effort_clamped`,
-  because Anthropic's adaptive vocabulary has no `minimal`.
-- `baikai-claude`: new exports from `Baikai.Provider.Claude.Sse` —
-  `ResponseMetadata` and `capturedHeaderNames` — and from
-  `Baikai.Provider.Claude.Api` — `claudeMessagesStreamWith`, `SseDriver`, and
-  `anthropicStrength`. Response-header capture is an **allow-list**
-  (`request-id`, `x-request-id`, `cf-ray`, in that preference order), not a
-  denylist, so a header a future gateway adds is not recorded by default.
-- `baikai-openai`: an evidence record's `thinking` field now describes what the
-  caller's reasoning-effort preference became on the wire for the specific host
-  the call went to, across **all seven** OpenAI-compatible wire shapes. The
-  OpenAI-native shape sends the canonical level verbatim and records no
-  adjustment, because it expresses every level exactly. The four shapes that
-  carry an effort word for a non-native host record `effort_clamped` whenever
-  the word differs from the canonical name — `minimal` becomes `low`, and both
-  `xhigh` and `max` become `high`. Z.ai and Qwen accept a bare
-  `enable_thinking: true` with no depth, so **every** level records
-  `effort_collapsed_to_toggle`: a caller asking for `max` and a caller asking
-  for `low` produce byte-identical requests there, and only the evidence record
-  can tell them apart. A host with no reasoning controls records
-  `thinking_dropped_unsupported_host` where the option previously vanished with
-  no trace. A forty-two-row table test pins the translation and the shaped
-  request body for every shape at every level.
-- `baikai-openai`: the Chat Completions provider now fills in the evidence record
-  it previously left blank. It records the model **the host reported running**
-  (read from the first streamed chunk carrying a top-level `model` field and
-  never overwritten by a later one), the host's `x-request-id` correlation
-  header, the response id, the token counts the host actually reported, and a
-  commitment digest over the assembled response. A field the host did not report
-  stays `"unobserved"` and is never backfilled from the request — in particular,
-  a call that fails before any chunk arrives reports no observed model at all.
-  `strength` is `model_observed` when both the model and a correlation
-  identifier arrived, `correlated` when only the identifier did, and
-  `requested_only` otherwise; a 2xx status never raises it, because a 200 means
-  the request was accepted, not that any particular model ran.
-  `fully_observed` is unreachable on this transport, since no host in this
-  ecosystem echoes the reasoning configuration it applied.
-- `baikai-openai`: new exports from `Baikai.Provider.OpenAI.Sse` —
-  `ResponseMetadata` and `capturedHeaderNames` — and from
-  `Baikai.Provider.OpenAI.Api` — `openaiChatStreamWith` and `SseDriver`.
-  Response-header capture is an **allow-list** (`x-request-id`, `request-id`,
-  `x-amzn-requestid`, `x-ms-request-id`, `cf-ray`, in that preference order),
-  not a denylist, so a header a future gateway adds is not recorded by default.
-  The list is longer than the Anthropic one because this transport speaks to an
-  open-ended set of hosts and the gateways commonly in front of them.
-- `baikai`: `Baikai.Provider.Cli.Internal` — the module the two subprocess
-  providers share — gains the vocabulary for reading what a coding-agent CLI
-  reported about its own run. `CodexRunReport` and the new
-  `parseCodexJsonlStream :: Stream IO ByteString -> IO CodexRunReport` fold the
-  `codex exec --json` event stream into its assistant text, its thread
-  identifier, and its token counts, instead of concatenating agent-message text
-  and discarding everything else. `ClaudeCliReport` and
-  `decodeClaudeCliResult` do the same for `claude -p --output-format json`.
-  Every field but the message text is optional, because both tools' event
-  schemas have changed across versions and an absent field is a genuine absence
-  rather than a parse failure. **Breaking** for anyone calling
-  `parseCodexJsonlStream` directly: its result type is no longer `Text`. This is
-  an internal module and is documented as outside the PVP guarantee.
-- `baikai`: `Baikai.Provider.Cli.Internal` also gains `ExecutableIdentity` and
-  `executableIdentity`, which resolve a configured executable name to an
-  absolute path and read the tool's own `--version` line. The probe is cached
-  per resolved name for the lifetime of the process, because spawning it per
-  model call would roughly double the process cost of the cheapest possible
-  call, and it is bounded by a two-second timeout so a tool that hangs on
-  `--version` cannot wedge a model call. A probe that fails records the version
-  as absent rather than failing the call. It is only ever called from inside
-  the evidence branch: a caller who asked for no evidence must not pay for a
-  process whose only purpose is to describe a tool they were about to run
-  anyway.
-- `baikai`: `subprocessStrength` and `cliResponseEnvelope`, also in
-  `Baikai.Provider.Cli.Internal`. The former derives a subprocess call's
-  evidence strength from what the tool reported and **nothing else** — the exit
-  status is deliberately not one of its arguments. The latter spells the
-  response-commitment envelope with the same three keys, in the same shapes, as
-  the two API transports build by hand, so a verifier holding a response can
-  recompute the digest without first knowing which transport served it.
-- `baikai-claude` and `baikai-openai`: both subprocess providers now fill in the
-  evidence record they previously left blank, and both export the translation
-  function that describes it — `claudeCliThinking` and `codexCliThinking`. They
-  record the session or thread identifier the tool reported, the token counts it
-  reported, the model it named when it names one, the resolved executable path
-  in place of an endpoint URL, the tool's own `--version` string as the
-  implementation version (for this transport the tool *is* the implementation),
-  a request commitment over the rendered argument vector, and a response
-  commitment over the assembled answer.
-
-  **A zero exit status never raises the strength.** A coding-agent CLI that
-  exits zero has demonstrated that it ran and did not crash; it has not stated
-  which model served the request. Subprocess calls almost always exit zero, so
-  encoding that as corroboration would make the weakest evidence in the system
-  look like the strongest. `strength` is `model_observed` only when the tool
-  named both an identifier and a model, `correlated` when it named only an
-  identifier, and `requested_only` otherwise.
-
-  The two transports differ in how far they can get. `claude` names the model
-  that consumed tokens in its result event's `modelUsage` map, complete with a
-  context-window variant marker such as `[1m]`, so a Claude CLI run can reach
-  `model_observed`. `codex-cli 0.146.0` names no model anywhere in its event
-  stream, so **no** Codex CLI run can exceed `correlated` — backfilling the
-  `--model` flag baikai passed would report the request as an observation.
-- `baikai-claude`: an evidence record's `thinking` field now describes what a
-  reasoning-effort request became on the `claude` command line: mode `flag`,
-  wire field `--effort`, and an `effort_clamped` adjustment recording the
-  `minimal` → `low` collapse, because the tool's `--effort` flag has no
-  `minimal`. A caller asking for `minimal` and a caller asking for `low` produce
-  byte-identical argument vectors — and therefore identical request commitment
-  digests — so the translation is the only place that difference survives.
-- `baikai-openai`: the same field for `codex exec`: mode `flag`, wire field
-  `model_reasoning_effort`, and **no** adjustments at any level. Codex is the
-  only transport in baikai that expresses all six canonical levels exactly, and
-  a test asserts each one reaches the command line verbatim.
-- `baikai`: `Baikai.Agent` gains `AgentRunOutcome` and `agentRunOutcome`. It
-  pairs what an unattended run did — the existing
-  `Either AgentRunFailure AgentRunResult` — with the evidence the runner built
-  for it. The evidence is a sibling of the outcome rather than a field on
-  `AgentRunResult` because the run that most needs a record is one that did not
-  produce a result: a run killed by its own timeout reports
-  `Left (RunTimedOut …)`, so a record hanging off the `Right` would be
-  unreachable exactly there.
 - `baikai-agent`: **an unattended coding-agent run now produces model-call
   evidence.** This surface previously had no observability of any kind: no trace
   sink, no `Response`, no usage, no identifiers. An operator could show that a
@@ -381,6 +639,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   genuinely unavailable and the record says `"unobserved"` rather than inferring
   anything. A timed-out run records `aborted`; a run that never started records
   nothing at all.
+
 - **Breaking:** `baikai-agent`: `Baikai.Agent.Run.runAgentCommand` takes two new
   leading arguments and returns the new outcome type:
   `Maybe EvidenceRequest -> ThinkingTranslation -> AgentRunRequest -> AgentCommand -> IO AgentRunOutcome`.
@@ -389,13 +648,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   is byte-for-byte what it was, and costs what it cost — no digest is computed,
   no call identifier is generated, and the tool is not invoked a second time to
   read its version.
-- **Breaking:** `baikai-claude` and `baikai-openai`: `claudeAgentCommand` and
-  `codexAgentCommand` return `(AgentCommand, ThinkingTranslation)` rather than
-  `AgentCommand`. The runner deliberately imports no vendor renderer, so it
-  cannot derive the translation and has to be handed it. A caller that only
-  wants the command writes `fmap fst`. Both modules also export the translation
-  function alone — `claudeAgentThinking` and `codexAgentThinking` — for asking
-  what a level would become without rendering anything.
+
 - `baikai-agent`: `baikai agent run` gains `--evidence-file PATH` and
   `--run-id TEXT`. Supplying neither leaves the run on the pre-existing path at
   the pre-existing cost; supplying either turns recording on, with the job's own
@@ -406,169 +659,6 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   changes the exit code, because the agent's own status is what a calling script
   branches on. `docs/user/unattended-agent-runs.md` documents both options and,
   more importantly, what the record does and does not prove.
-
-### Fixed
-
-- `baikai-openai`: `Response.responseId` was always `Nothing` on the Chat
-  Completions transport, although every compatible host sends a top-level `id`
-  on every streamed chunk. It now carries the identifier the host reported, on
-  both the successful and the failed terminal.
-
-- **Loud:** `baikai-claude` and `baikai-openai`: both subprocess providers
-  hardcoded `usage = zeroUsage` on every call, so a cost dashboard saw every
-  `claude -p` and `codex exec` call as consuming no tokens and costing nothing.
-  Both tools report their own token counts and baikai now carries them through,
-  normalized into the disjoint `Usage` convention: `claude`'s counts are
-  Anthropic-shaped and already disjoint, while `codex` reports OpenAI-style
-  inclusive prompt counts, so its cached tokens are subtracted out of
-  `inputTokens`. `claude` additionally reports a `total_cost_usd`, which now
-  populates `Usage.cost` exactly rather than being reported as zero.
-
-  **A dashboard that read these calls as free will now see real tokens and, for
-  `claude`, a real cost.** That is the correction, not a regression — but it
-  changes what existing reports show, and totals over historical data will not
-  match totals over new data.
-- `baikai-claude`: `Response.responseId` was always `Nothing` on the `claude -p`
-  transport even though `ClaudeCliResult` decoded the tool's `session_id` one
-  screen earlier and then dropped it. It now carries that identifier, on both
-  the successful and the failed terminal. `baikai-openai`: the same for
-  `codex exec`, whose thread identifier was filtered out of the event stream
-  along with everything that was not an `agent_message`. These are the handles
-  each vendor's support tooling looks a run up by.
-- `baikai`: the `ThinkingFormatOpenAI` Haddock in `Baikai.Compat` listed the
-  native `reasoning_effort` vocabulary as `minimal | low | medium | high`, which
-  predates `xhigh` and `max`. It now lists all six and states that this shape
-  alone sends the canonical baikai level verbatim while the other six clamp
-  through `compatibleEffort`. No behaviour changed: the native path's exclusion
-  from that clamp is deliberate and is guarded by two named tests in
-  `baikai-openai/test/ShapeSpec.hs`. A reader who consulted the comment to
-  decide whether `xhigh` was safe to use against OpenAI has until now been told
-  something untrue.
-
-### Changed
-
-- **Breaking:** `baikai`: `TerminalPayload` gains an `evidence` field and the two
-  terminal smart constructors take it as their new first argument:
-  `doneTerminal :: Maybe ModelCallEvidence -> Maybe Text -> StopReason -> Message -> TerminalPayload`
-  and `errorTerminal` likewise. `Response` gains the same field. A custom
-  provider implementation must pass `Nothing` (or a record it builds through
-  `Baikai.Evidence.Build`); a custom `Response` built with the record
-  constructor must add `evidence = Nothing`. Code that only pattern-matches on
-  these types is unaffected.
-- **Breaking:** `baikai`: `CallFinished` gains `cachedInputTokens`,
-  `cacheWriteTokens`, `reasoningTokens`, and `totalTokens`. The trace path used
-  to drop counts that `Baikai.Cost.Log.CallLogEntry` kept from the same `Usage`
-  value, which made the cost log strictly more faithful than the trace.
-- **Breaking:** `baikai`: a computed cost of **zero is now reported as zero**
-  rather than suppressed, in `CallFinished` and at all three `CallLogEntry`
-  construction sites. Previously `usd` was omitted whenever the cost came out at
-  zero, so "this call was free" and "baikai could not price this call" were
-  indistinguishable — and the subscription-based CLI providers always price at
-  zero, so that was the common case rather than a corner. **A cost dashboard
-  that treated an absent `usd` as "unpriced" will now count those calls as
-  costing zero.** That is the correct reading, but it changes what such a
-  dashboard shows.
-- **Breaking:** `baikai`: `FromJSON TraceEvent` is written out by hand instead of
-  derived. The three pre-existing kinds decode exactly as before; a
-  `call_evidence` line fails to parse with a message saying to read it as a
-  plain `Data.Aeson.Value`. `ModelCallEvidence` has no `FromJSON` on purpose —
-  it embeds a `Cost` whose exact `Rational` amounts encode through an
-  approximating `Scientific`, so a decoder would return a different value than
-  was encoded — and manufacturing that fidelity would be the precise failure
-  this vocabulary exists to eliminate.
-- **Breaking:** `baikai-claude`: `Baikai.Provider.Claude.Sse`'s four streaming
-  entry points — `claudeSseStream`, `claudeSseStreamValue`,
-  `claudeSseStreamValueWithHeaders`, and `sseFromResponse` — take a new
-  `ResponseMetadata -> IO ()` callback immediately before the existing per-event
-  callback. It fires exactly once, before the first event, on both the success
-  and the non-2xx path. Pass `(\_ -> pure ())` to keep the previous behaviour.
-  The callback is separate rather than a widening of the per-event one because
-  the per-event callback runs once per SSE frame and response-level data does not
-  belong on that path.
-- **Breaking:** `baikai-claude`: `Baikai.Provider.Claude.Internal.Request`'s
-  `mapRequest` now returns
-  `Either Text (Messages.CreateMessage, ThinkingTranslation)` and
-  `computeThinking` returns `(ThinkingPlan, ThinkingTranslation)`. Take `fst` to
-  keep the previous value. This module is exposed for provider tests and
-  debugging and its header states it is not covered by PVP compatibility
-  guarantees, but the change is recorded here because that is not a licence to
-  break a consumer silently.
-- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Sse`'s four streaming
-  entry points — `openaiSseStream`, `openaiSseStreamValue`,
-  `openaiSseStreamValueWithHeaders`, and `sseFromResponse` — take a new
-  `ResponseMetadata -> IO ()` callback immediately before the existing per-chunk
-  callback. It fires exactly once, before the first chunk, on both the success
-  and the non-2xx path — a failed call's correlation identifier is if anything
-  more valuable than a successful one's. Pass `(\_ -> pure ())` to keep the
-  previous behaviour. The callback is separate rather than a widening of the
-  per-chunk one because that one runs once per SSE frame and response-level data
-  does not belong on that path.
-- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Api`'s `RawChunk` gains
-  `model` and `responseId` fields, both `Maybe Text`. Code that pattern-matches
-  on `RawChunk` is unaffected; code that constructs one with record syntax must
-  add them.
-- **Breaking:** `baikai-openai`: `Baikai.Provider.OpenAI.Shape`'s
-  `shapeRequestBody`, `streamRequestBody`, and `injectThinkingShape` now return
-  `(Aeson.Value, ThinkingTranslation)` instead of a bare body. Take `fst` to
-  keep the previous value. The description has to travel out of the shaping step
-  because nothing downstream can recompute it: it depends on the host's
-  `ThinkingFormat`, which only the compat lookup knows. **No request body
-  changed** — every one of the seven shapes puts exactly the same bytes on the
-  wire as before.
-- `baikai`: `Baikai.Trace.Sink.renderHuman` renders a `CallEvidence` event as a
-  single `EVIDENCE run=… call=… strength=…` line rather than the whole record. A
-  human-readable sink is for watching calls go by; the full record is meant to
-  be read out of `fileSink` output by a machine.
-- `baikai`: call identifiers on the trace path are now globally unique.
-  `Baikai.Evidence.newCallId` produces 32 lowercase hexadecimal characters
-  carrying 128 bits — 48 bits of Unix time in milliseconds, 48 bits of a
-  per-process random seed drawn once from `/dev/urandom`, and a 32-bit counter.
-  The previous generator combined the process-start *second* with a
-  process-local counter into 16 characters, so two processes started within the
-  same second emitted identical identifier sequences; its own documentation
-  claimed only per-process uniqueness. Identifiers still sort chronologically
-  and are still not secrets.
-
-  `Baikai.Trace.newEventId` keeps its name and signature, delegates to
-  `newCallId`, and is now deprecated. Anything that pinned the 16-character
-  width — a log parser, a fixture, a column type — must widen to 32.
-- `baikai`: `renderCeilingViolation` no longer prints the raw provider arguments
-  a `ProviderArgsForbidden` violation carries. It reports how many were
-  requested and states that their values are not shown. Raw provider arguments
-  are the one part of a job description that can hold a credential — the
-  configuration layer classifies the setting secret for that reason — and a
-  refusal message that quoted them defeated the classification. The constructor
-  keeps its `[Text]` payload so a programmatic caller can still inspect it.
-
-- **Breaking:** `baikai-claude`: `claudeInteractiveCommand` now returns
-  `Either AgentRenderError (FilePath, [String])` and `launchClaudeInteractive`
-  returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
-  whose `safety` is a `CodexSandbox` policy — which Claude Code cannot express
-  — is refused with `SafetyNotExpressible AgentClaude`, naming the rejected
-  sandbox mode and approval policy and suggesting `ClaudeAllowedTools` or
-  `DefaultSafety`. Previously the policy was silently discarded and an
-  **unrestricted** Claude session was started and reported as a success. A
-  `Left` means no process was started; a `Right` with a non-zero exit code
-  means the session ran and exited non-zero. `DefaultSafety` and an empty
-  `ClaudeAllowedTools` list still render no safety flag and are never refused,
-  and no previously rendered argument vector changed. Callers must handle the
-  refusal branch.
-- **Breaking:** `baikai-openai`: `codexInteractiveCommand` now returns
-  `Either AgentRenderError (FilePath, [String])` and `launchCodexInteractive`
-  returns `IO (Either AgentRenderError InteractiveLaunchResult)`. A request
-  whose `safety` is a non-empty `ClaudeAllowedTools` list — which `codex` has
-  no flag for — is refused with `SafetyNotExpressible AgentCodex`, quoting the
-  rejected tools and suggesting `CodexSandbox` or `DefaultSafety`. Previously
-  the allow-list was silently discarded and Codex was started with its default
-  sandbox. The same `Left`/`Right` reading applies, `DefaultSafety` and an
-  empty allow-list are never refused, and no previously rendered argument
-  vector changed. Callers must handle the refusal branch.
-
-  Both changes make the interactive surface honor the same contract as the new
-  unattended surface: a safety policy the chosen provider cannot express fails
-  visibly instead of silently becoming a weaker policy. Downstream consumers
-  must adapt before upgrading; the known one is `shinzui/seihou`, whose
-  `Seihou.CLI.AgentLaunchExec` module builds interactive launch requests.
 
 ## [baikai-claude 0.4.0.1] - 2026-07-30
 
