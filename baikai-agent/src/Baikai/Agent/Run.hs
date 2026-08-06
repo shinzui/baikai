@@ -43,21 +43,26 @@ import Baikai.Agent
     renderAgentProvider,
     renderAgentRunFailure,
   )
+import Baikai.Api (Api (..))
 import Baikai.Error (BaikaiError, processError, providerError)
 import Baikai.Evidence
   ( CallStatus (..),
     EndpointIdentity (..),
     EvidenceRequest,
+    EvidenceStrength (..),
+    EvidenceStrictness (..),
     ModelCallEvidence (..),
     Observed (..),
-    ThinkingTranslation,
+    ThinkingTranslation (..),
     TransportKind (..),
     baseEvidence,
     commitmentDigest,
     configurationDigest,
+    declaredStrength,
     newCallId,
   )
-import Baikai.Evidence.Build (baikaiPackageVersion)
+import Baikai.Evidence.Build (baikaiPackageVersion, renderEvidenceRefusal)
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Provider.Cli.Internal
   ( ClaudeCliReport (..),
     CodexRunReport (..),
@@ -157,30 +162,36 @@ runAgentCommand ::
   AgentRunRequest ->
   AgentCommand ->
   IO AgentRunOutcome
-runAgentCommand evidenceReq translation req cmd = do
-  -- Preconditions first, cheapest and most informative before costliest.
-  -- Without the directory check a missing directory surfaces as an
-  -- opaque spawn failure that appears to blame the coding-agent binary.
-  --
-  -- A precondition that fails means nothing started, so there is no run
-  -- to describe and no evidence is built — which is also why the opt-in
-  -- check below sits after them rather than before.
-  dirExists <- doesDirectoryExist (req ^. #workingDir)
-  if not dirExists
-    then pure (agentRunOutcome (Left (WorkingDirMissing (req ^. #workingDir))))
-    else do
-      missing <- missingEnvironment (req ^. #envPassthrough)
-      if not (null missing)
-        then pure (agentRunOutcome (Left (MissingEnvironment missing)))
+runAgentCommand evidenceReq translation req cmd
+  | not (null refusals) =
+      pure (agentRunOutcome (Left (EvidenceRefused (map renderEvidenceRefusal refusals))))
+  | otherwise = do
+      -- Preconditions first, cheapest and most informative before costliest.
+      -- Without the directory check a missing directory surfaces as an
+      -- opaque spawn failure that appears to blame the coding-agent
+      -- binary.
+      --
+      -- A precondition that fails means nothing started, so there is no
+      -- run to describe and no evidence is built — which is also why the
+      -- opt-in check below sits after them rather than before.
+      dirExists <- doesDirectoryExist (req ^. #workingDir)
+      if not dirExists
+        then pure (agentRunOutcome (Left (WorkingDirMissing (req ^. #workingDir))))
         else do
-          start <- getCurrentTime
-          result <- spawn req cmd
-          end <- getCurrentTime
-          case evidenceReq of
-            Nothing -> pure (agentRunOutcome result)
-            Just wanted -> do
-              built <- buildEvidence wanted translation req cmd start end result
-              pure AgentRunOutcome {outcome = result, evidence = built}
+          missing <- missingEnvironment (req ^. #envPassthrough)
+          if not (null missing)
+            then pure (agentRunOutcome (Left (MissingEnvironment missing)))
+            else do
+              start <- getCurrentTime
+              result <- spawn req cmd
+              end <- getCurrentTime
+              case evidenceReq of
+                Nothing -> pure (agentRunOutcome result)
+                Just wanted -> do
+                  built <- buildEvidence wanted translation req cmd start end result
+                  pure AgentRunOutcome {outcome = result, evidence = built}
+  where
+    refusals = agentEvidenceRefusals evidenceReq translation req
 
 -- | Every declared variable that is unset or empty, collected rather
 -- than short-circuited so an operator fixing a job configuration sees
@@ -193,6 +204,62 @@ missingEnvironment names = do
     check name = do
       value <- lookupEnv (Text.unpack name)
       pure (name, maybe True null value)
+
+-- ====================================================================
+-- Strict evidence: the pre-dispatch gate for this surface
+-- ====================================================================
+
+-- | Every reason this run cannot produce the evidence it was required
+-- to, or an empty list.
+--
+-- The agent surface never touches 'Baikai.Provider.Registry.ApiProvider'
+-- and has no trace sink, so neither of the gates
+-- 'Baikai.Evidence.Build.checkEvidenceRequirements' is wired into
+-- reaches it. This is its own, built from the same two halves.
+--
+-- __Structural, never predictive.__ It refuses when the requirement is
+-- impossible with this configuration — an @inherit@ job can observe
+-- nothing at all, and a @codex@ job can never learn a model — and stays
+-- silent when the requirement is merely uncertain. A run that could have
+-- reported what the caller needed and did not says so in its own
+-- record's @strength@; failing it after the fact would destroy a report
+-- of work that really happened, and the caller has the record to check.
+agentEvidenceRefusals ::
+  Maybe EvidenceRequest -> ThinkingTranslation -> AgentRunRequest -> [Build.EvidenceRefusal]
+agentEvidenceRefusals Nothing _ _ = []
+agentEvidenceRefusals (Just wanted) translation req = case wanted ^. #strictness of
+  EvidenceBestEffort -> []
+  EvidenceRequired needed ->
+    [Build.StrengthUnreachable needed reachable | reachable < needed]
+      <> [Build.ThinkingWouldDowngrade downgrades | not (null downgrades)]
+    where
+      reachable = agentReachableStrength req
+      downgrades = translation ^. #adjustments
+
+-- | The highest strength an unattended run with this configuration
+-- could reach.
+--
+-- Under 'InheritOutput' the agent's bytes go to the operator's terminal
+-- and baikai never holds them, so nothing the tool says can be observed
+-- and the ceiling is 'EvidenceRequestedOnly' whatever the tool is. That
+-- is the single most useful refusal on this surface: an operator who
+-- wants a correlated record from an @inherit@ job has misconfigured it,
+-- and finding out before the run rather than from an empty record is the
+-- whole point.
+--
+-- Otherwise it is the tool's own ceiling, the same one
+-- 'Baikai.Evidence.declaredStrength' states for that tool's completion
+-- transport — read from there rather than restated, so the two surfaces
+-- that drive the same binary cannot disagree about what it can tell you.
+agentReachableStrength :: AgentRunRequest -> EvidenceStrength
+agentReachableStrength req = case req ^. #output of
+  InheritOutput -> EvidenceRequestedOnly
+  CaptureOutput -> toolCeiling
+  TeeOutput -> toolCeiling
+  where
+    toolCeiling = declaredStrength $ case req ^. #provider of
+      AgentClaude -> AnthropicMessagesCli
+      AgentCodex -> OpenAICompletionsCli
 
 -- ====================================================================
 -- Evidence

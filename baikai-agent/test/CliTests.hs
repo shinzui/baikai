@@ -123,7 +123,8 @@ options command =
       repoConfig = Nothing,
       jsonOutput = False,
       evidenceFile = Nothing,
-      runId = Nothing
+      runId = Nothing,
+      requiredEvidence = Nothing
     }
 
 withOverride :: Text -> Text -> AgentCliOptions -> AgentCliOptions

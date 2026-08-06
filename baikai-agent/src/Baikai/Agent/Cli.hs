@@ -81,7 +81,9 @@ import Baikai.Agent.Config
   )
 import Baikai.Agent.Run (runAgentCommand)
 import Baikai.Evidence
-  ( EvidenceRequest,
+  ( EvidenceRequest (..),
+    EvidenceStrength (..),
+    EvidenceStrictness (..),
     ModelCallEvidence,
     ThinkingTranslation,
     evidenceRequest,
@@ -105,6 +107,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Char (isControl, ord)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -167,7 +170,12 @@ data AgentCliOptions = AgentCliOptions
     evidenceFile :: !(Maybe FilePath),
     -- | The caller's identifier for the logical run this invocation
     -- belongs to, from @--run-id@.
-    runId :: !(Maybe Text)
+    runId :: !(Maybe Text),
+    -- | The evidence strength this run must reach, from
+    -- @--require-evidence@. Setting it turns recording on and makes the
+    -- run refuse rather than start when the configuration cannot
+    -- produce it.
+    requiredEvidence :: !(Maybe EvidenceStrength)
   }
   deriving stock (Generic)
 
@@ -283,17 +291,28 @@ runOptionsParser =
     <*> jsonSwitch
     <*> Options.optional evidenceFileOption
     <*> Options.optional runIdOption
+    <*> Options.optional requireEvidenceOption
   where
-    assemble jobName promptSource overrides userConfig repoConfig jsonOutput evidenceFile runId =
-      AgentCliOptions
-        { command = AgentRun jobName promptSource,
-          overrides,
-          userConfig,
-          repoConfig,
-          jsonOutput,
-          evidenceFile,
-          runId
-        }
+    assemble
+      jobName
+      promptSource
+      overrides
+      userConfig
+      repoConfig
+      jsonOutput
+      evidenceFile
+      runId
+      requiredEvidence =
+        AgentCliOptions
+          { command = AgentRun jobName promptSource,
+            overrides,
+            userConfig,
+            repoConfig,
+            jsonOutput,
+            evidenceFile,
+            runId,
+            requiredEvidence
+          }
 
 showOptionsParser :: Parser AgentCliOptions
 showOptionsParser =
@@ -312,7 +331,8 @@ showOptionsParser =
           repoConfig,
           jsonOutput,
           evidenceFile = Nothing,
-          runId = Nothing
+          runId = Nothing,
+          requiredEvidence = Nothing
         }
 
 listOptionsParser :: Parser AgentCliOptions
@@ -330,7 +350,8 @@ listOptionsParser =
           repoConfig,
           jsonOutput,
           evidenceFile = Nothing,
-          runId = Nothing
+          runId = Nothing,
+          requiredEvidence = Nothing
         }
 
 jobArgument :: Parser Text
@@ -429,6 +450,34 @@ runIdOption =
         <> Options.metavar "TEXT"
         <> Options.help "Identifier for the logical run this invocation belongs to"
     )
+
+-- | @--require-evidence@ takes a strength name and refuses the run when
+-- the configuration cannot reach it.
+--
+-- The names are the ones an evidence record spells, so an operator reads
+-- a record's @strength@ and passes that word back verbatim.
+requireEvidenceOption :: Parser EvidenceStrength
+requireEvidenceOption =
+  Options.option
+    (Options.eitherReader parse)
+    ( Options.long "require-evidence"
+        <> Options.metavar "STRENGTH"
+        <> Options.help
+          "Refuse to start unless the run can produce evidence of at least this \
+          \strength: requested_only, correlated, model_observed, or fully_observed"
+    )
+  where
+    parse = \case
+      "requested_only" -> Right EvidenceRequestedOnly
+      "correlated" -> Right EvidenceCorrelated
+      "model_observed" -> Right EvidenceModelObserved
+      "fully_observed" -> Right EvidenceFullyObserved
+      other ->
+        Left
+          ( "unknown evidence strength: "
+              <> other
+              <> " (expected requested_only, correlated, model_observed, or fully_observed)"
+          )
 
 -- --------------------------------------------------------------------
 -- Provider dispatch
@@ -994,10 +1043,14 @@ interpret options staged request result evidenceNote = case result of
 -- string — would be a field a consumer has to special-case.
 evidenceRequestFor :: AgentCliOptions -> Maybe EvidenceRequest
 evidenceRequestFor options =
-  case (options ^. #evidenceFile, options ^. #runId) of
-    (Nothing, Nothing) -> Nothing
-    (_, Just supplied) -> Just (evidenceRequest supplied)
-    (Just _, Nothing) -> Just (evidenceRequest (jobNameOf (options ^. #command)))
+  case (options ^. #evidenceFile, options ^. #runId, options ^. #requiredEvidence) of
+    (Nothing, Nothing, Nothing) -> Nothing
+    (_, _, strictness) ->
+      Just
+        ( (evidenceRequest (fromMaybe (jobNameOf (options ^. #command)) (options ^. #runId)))
+            { strictness = maybe EvidenceBestEffort EvidenceRequired strictness
+            }
+        )
   where
     jobNameOf = \case
       AgentRun name _ -> name

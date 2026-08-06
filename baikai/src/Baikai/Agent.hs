@@ -585,6 +585,17 @@ data AgentRunFailure
     WorkingDirMissing !FilePath
   | -- | The run produced output the caller could not interpret.
     OutputMalformed !Text
+  | -- | The caller required evidence this configuration cannot produce,
+    -- so nothing was started. Carries one rendered explanation per
+    -- reason, from
+    -- 'Baikai.Evidence.Build.renderEvidenceRefusal'.
+    --
+    -- Structural rather than predictive: it fires when the requirement
+    -- is /impossible/ here, never when it merely might not be met. A run
+    -- that could have reported what the caller needed and did not says
+    -- so in its own record's @strength@; refusing it after the fact
+    -- would destroy a report of work that actually happened.
+    EvidenceRefused ![Text]
   deriving stock (Eq, Show, Generic)
 
 renderAgentRunFailure :: AgentRunFailure -> Text
@@ -600,3 +611,7 @@ renderAgentRunFailure (WorkingDirMissing path) =
     <> Text.pack path
 renderAgentRunFailure (OutputMalformed why) =
   "the run produced malformed output: " <> why
+renderAgentRunFailure (EvidenceRefused reasons) =
+  "refused before starting, because this run cannot produce the evidence it \
+  \\required: "
+    <> Text.intercalate "; " reasons

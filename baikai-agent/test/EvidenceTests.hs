@@ -18,6 +18,7 @@ import Baikai.Agent
     AgentOutputMode (..),
     AgentPromptTransport (..),
     AgentProvider (..),
+    AgentRunFailure (..),
     AgentRunOutcome (..),
     AgentRunRequest,
     agentRunRequest,
@@ -29,6 +30,8 @@ import Baikai.Agent.Run
   )
 import Baikai.Evidence
   ( EvidenceRequest,
+    EvidenceStrength (..),
+    EvidenceStrictness (..),
     ModelCallEvidence,
     ThinkingTranslation,
     canonicalEncode,
@@ -67,6 +70,7 @@ evidenceTests =
       inheritedOutputTest,
       nothingStartedTest,
       optOutTest,
+      strictRefusalTests,
       digestTests
     ]
 
@@ -221,6 +225,83 @@ optOutTest =
       assertBool
         ("the opted-in run also probed the executable, saw " <> show afterOptIn)
         (afterOptIn > afterOptOut + 1)
+
+-- ====================================================================
+-- Strict evidence on this surface
+-- ====================================================================
+
+strictRefusalTests :: TestTree
+strictRefusalTests =
+  testGroup
+    -- The agent surface never touches ApiProvider and has no trace
+    -- sink, so neither of the gates the completion path uses reaches
+    -- it. These prove its own.
+    "a run that cannot produce the required evidence is refused before it starts"
+    [ testCase "AN INHERIT JOB DEMANDING A CORRELATED RECORD IS REFUSED" $
+        -- The most useful refusal on this surface. Under inherit the
+        -- agent's bytes go to the operator's terminal and baikai never
+        -- holds them, so nothing the tool says can be observed however
+        -- well the run goes. Finding that out before the run rather than
+        -- from an empty record is the point.
+        withFake "#!/bin/sh\ncat > /dev/null\necho '" "ok" "'\n" $ \dir exe -> do
+          let ledger = dir </> "invocations"
+          recording <- writeFakeExecutable dir "counted" ("#!/bin/sh\necho x >> '" <> ledger <> "'\n")
+          outcome <-
+            runWith
+              (requiring EvidenceCorrelated)
+              dir
+              recording
+              []
+              (\req -> req & #output .~ InheritOutput)
+          case outcome ^. #outcome of
+            Right ran -> assertFailure ("expected a refusal, the run started: " <> show ran)
+            Left failure -> case failure of
+              EvidenceRefused reasons ->
+                assertBool
+                  ("the refusal explains itself: " <> show reasons)
+                  (any ("requested_only" `Text.isInfixOf`) reasons)
+              other -> assertFailure ("expected EvidenceRefused, got: " <> show other)
+          outcome ^. #evidence @?= Nothing
+          started <- invocationCount ledger
+          started @?= 0
+          -- `exe` is unused on this path; naming it keeps withFake's
+          -- shape rather than adding a second helper.
+          assertBool "the fixture executable exists" (not (null exe)),
+      testCase "a codex job demanding a model is refused, because codex names none" $
+        withFake "#!/bin/sh\n" "exit 0" "\n" $ \dir exe -> do
+          outcome <-
+            runWith
+              (requiring EvidenceModelObserved)
+              dir
+              exe
+              []
+              (\req -> req & #provider .~ AgentCodex)
+          case outcome ^. #outcome of
+            Left (EvidenceRefused _) -> pure ()
+            other -> assertFailure ("expected EvidenceRefused, got: " <> show other),
+      testCase "a capturing claude job demanding a model is allowed to try" $
+        -- Structural, not predictive: this run may or may not report a
+        -- model, and the gate must not pretend to know. The record's own
+        -- strength is where the caller reads what actually happened.
+        withFake "#!/bin/sh\ncat > /dev/null\necho '" claudeResultJson "'\n" $ \dir exe -> do
+          outcome <- run (requiring EvidenceModelObserved) dir exe []
+          case outcome ^. #outcome of
+            Left failure -> assertFailure ("expected the run to start: " <> show failure)
+            Right _ -> pure ()
+          ev <- oneEvidence outcome
+          field "strength" ev @?= Just (String "model_observed"),
+      testCase "a best-effort caller is never refused, whatever the configuration" $
+        withFake "#!/bin/sh\n" "exit 0" "\n" $ \dir exe -> do
+          outcome <-
+            runWith (wanted "run-56") dir exe [] (\req -> req & #output .~ InheritOutput)
+          case outcome ^. #outcome of
+            Left failure -> assertFailure ("a best-effort run must not be refused: " <> show failure)
+            Right _ -> pure ()
+    ]
+
+requiring :: EvidenceStrength -> Maybe EvidenceRequest
+requiring needed =
+  Just (evidenceRequest "run-57" & #strictness .~ EvidenceRequired needed)
 
 -- ====================================================================
 -- The digests
