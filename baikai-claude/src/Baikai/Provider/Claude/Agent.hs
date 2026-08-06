@@ -18,6 +18,7 @@ module Baikai.Provider.Claude.Agent
   ( ClaudeAgentConfig (executable, extraArgs, persistSession),
     defaultClaudeAgentConfig,
     claudeAgentCommand,
+    claudeAgentThinking,
   )
 where
 
@@ -28,6 +29,12 @@ import Baikai.Agent
     AgentProvider (..),
     AgentRenderError (..),
     AgentRunRequest,
+  )
+import Baikai.Evidence
+  ( ThinkingAdjustment (..),
+    ThinkingMode (..),
+    ThinkingTranslation (..),
+    noThinkingRequested,
   )
 import Baikai.Prelude
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
@@ -71,28 +78,65 @@ defaultClaudeAgentConfig =
 -- No working-directory flag is rendered, because Claude Code has none.
 -- The runner sets the child's working directory from the request's
 -- @workingDir@ field.
+--
+-- The second half of the pair describes what the request's reasoning
+-- effort became on that command line, including the one collapse this
+-- renderer applies. The runner cannot derive it — it never imports a
+-- vendor renderer — so it travels alongside the command.
 claudeAgentCommand ::
-  ClaudeAgentConfig -> AgentRunRequest -> Either AgentRenderError AgentCommand
+  ClaudeAgentConfig ->
+  AgentRunRequest ->
+  Either AgentRenderError (AgentCommand, ThinkingTranslation)
 claudeAgentCommand cfg req
   | req ^. #provider /= AgentClaude =
       Left (ProviderMismatch AgentClaude (req ^. #provider))
   | otherwise = do
       permission <- permissionModeArgs (req ^. #safety . #capability)
       pure
-        AgentCommand
-          { executable = cfg ^. #executable,
-            arguments =
-              ["-p"]
-                <> sessionArgs cfg
-                <> modelArgs req
-                <> effortArgs req
-                <> permission
-                <> allowedToolArgs req
-                <> extraDirArgs req
-                <> fmap Text.unpack (cfg ^. #extraArgs)
-                <> fmap Text.unpack (req ^. #safety . #providerArgs),
-            promptTransport = PromptOnStdin,
-            promptText = req ^. #prompt
+        ( AgentCommand
+            { executable = cfg ^. #executable,
+              arguments =
+                ["-p"]
+                  <> sessionArgs cfg
+                  <> modelArgs req
+                  <> effortArgs req
+                  <> permission
+                  <> allowedToolArgs req
+                  <> extraDirArgs req
+                  <> fmap Text.unpack (cfg ^. #extraArgs)
+                  <> fmap Text.unpack (req ^. #safety . #providerArgs),
+              promptTransport = PromptOnStdin,
+              promptText = req ^. #prompt
+            },
+          claudeAgentThinking req
+        )
+
+-- | What the request's reasoning effort became on the @claude@ command
+-- line.
+--
+-- The adjustment is derived from 'claudeEffortValue' itself — recorded
+-- exactly when the word that reaches @--effort@ differs from the
+-- canonical level name — rather than from a table written beside it, so
+-- the description cannot drift away from what the argument vector
+-- actually carries. Today that is the single @minimal@ collapse, which
+-- makes a run at @minimal@ and a run at @low@ produce byte-identical
+-- command lines.
+--
+-- A request with no effort at all yields 'noThinkingRequested'. That is
+-- a different fact from a request whose level the tool weakened: the
+-- tool then applies its own default, and nothing was downgraded.
+claudeAgentThinking :: AgentRunRequest -> ThinkingTranslation
+claudeAgentThinking req = case req ^. #effort of
+  Nothing -> noThinkingRequested
+  Just lvl ->
+    let wire = claudeEffortValue lvl
+     in ThinkingTranslation
+          { requested = Just lvl,
+            mode = ThinkingModeFlag,
+            effortText = Just wire,
+            budgetTokens = Nothing,
+            wireField = Just "--effort",
+            adjustments = [EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
           }
 
 -- | Map a capability profile onto Claude Code's @--permission-mode@.

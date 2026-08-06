@@ -18,6 +18,7 @@ module Baikai.Provider.OpenAI.Agent
   ( CodexAgentConfig (executable, extraArgs, skipGitRepoCheck, ephemeral),
     defaultCodexAgentConfig,
     codexAgentCommand,
+    codexAgentThinking,
   )
 where
 
@@ -29,8 +30,14 @@ import Baikai.Agent
     AgentRenderError (..),
     AgentRunRequest,
   )
+import Baikai.Evidence
+  ( ThinkingAdjustment (..),
+    ThinkingMode (..),
+    ThinkingTranslation (..),
+    noThinkingRequested,
+  )
 import Baikai.Prelude
-import Baikai.ThinkingLevel (renderThinkingLevel)
+import Baikai.ThinkingLevel (ThinkingLevel, renderThinkingLevel)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 
@@ -73,8 +80,13 @@ defaultCodexAgentConfig =
 -- Long flag spellings are used throughout, @--sandbox@ and @--cd@
 -- rather than @-s@ and @-C@, because the rendered vector is printed to
 -- operators and a long flag is self-describing.
+-- The second half of the pair describes what the request's reasoning
+-- effort became on that command line. The runner cannot derive it — it
+-- never imports a vendor renderer — so it travels alongside the command.
 codexAgentCommand ::
-  CodexAgentConfig -> AgentRunRequest -> Either AgentRenderError AgentCommand
+  CodexAgentConfig ->
+  AgentRunRequest ->
+  Either AgentRenderError (AgentCommand, ThinkingTranslation)
 codexAgentCommand cfg req
   | req ^. #provider /= AgentCodex =
       Left (ProviderMismatch AgentCodex (req ^. #provider))
@@ -82,21 +94,49 @@ codexAgentCommand cfg req
       toolRestrictionGuard req
       sandbox <- sandboxArgs (req ^. #safety . #capability)
       pure
-        AgentCommand
-          { executable = cfg ^. #executable,
-            arguments =
-              ["exec"]
-                <> modelArgs req
-                <> effortArgs req
-                <> sandbox
-                <> ["--cd", req ^. #workingDir]
-                <> extraDirArgs req
-                <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
-                <> ["--ephemeral" | cfg ^. #ephemeral]
-                <> fmap Text.unpack (cfg ^. #extraArgs)
-                <> fmap Text.unpack (req ^. #safety . #providerArgs),
-            promptTransport = PromptOnStdin,
-            promptText = req ^. #prompt
+        ( AgentCommand
+            { executable = cfg ^. #executable,
+              arguments =
+                ["exec"]
+                  <> modelArgs req
+                  <> effortArgs req
+                  <> sandbox
+                  <> ["--cd", req ^. #workingDir]
+                  <> extraDirArgs req
+                  <> ["--skip-git-repo-check" | cfg ^. #skipGitRepoCheck]
+                  <> ["--ephemeral" | cfg ^. #ephemeral]
+                  <> fmap Text.unpack (cfg ^. #extraArgs)
+                  <> fmap Text.unpack (req ^. #safety . #providerArgs),
+              promptTransport = PromptOnStdin,
+              promptText = req ^. #prompt
+            },
+          codexAgentThinking req
+        )
+
+-- | What the request's reasoning effort became on the @codex exec@
+-- command line.
+--
+-- The adjustment list is derived by comparing what 'effortArgs' actually
+-- sends — through the same 'codexEffortValue' — with the canonical level
+-- name, rather than being hardcoded empty. It is empty at every level,
+-- because codex is the one tool baikai drives that accepts all six
+-- verbatim; writing @[]@ by hand would keep claiming that after someone
+-- changed the mapping.
+--
+-- A request with no effort at all yields 'noThinkingRequested', which is
+-- a different fact from a request whose level the tool weakened.
+codexAgentThinking :: AgentRunRequest -> ThinkingTranslation
+codexAgentThinking req = case req ^. #effort of
+  Nothing -> noThinkingRequested
+  Just lvl ->
+    let wire = codexEffortValue lvl
+     in ThinkingTranslation
+          { requested = Just lvl,
+            mode = ThinkingModeFlag,
+            effortText = Just wire,
+            budgetTokens = Nothing,
+            wireField = Just "model_reasoning_effort",
+            adjustments = [EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
           }
 
 -- | Map a capability profile onto @codex exec@'s @--sandbox@. Kept an
@@ -143,7 +183,12 @@ effortArgs :: AgentRunRequest -> [String]
 effortArgs req = case req ^. #effort of
   Nothing -> []
   Just lvl ->
-    ["-c", "model_reasoning_effort=" <> Text.unpack (renderThinkingLevel lvl)]
+    ["-c", "model_reasoning_effort=" <> Text.unpack (codexEffortValue lvl)]
+
+-- | The word codex's @model_reasoning_effort@ override receives. Codex
+-- accepts all six baikai levels verbatim, which makes this the identity.
+codexEffortValue :: ThinkingLevel -> Text
+codexEffortValue = renderThinkingLevel
 
 -- | On @codex exec@ @--add-dir@ grants /write/ access alongside the
 -- primary workspace. The identically named Claude Code flag grants tool

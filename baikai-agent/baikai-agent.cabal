@@ -41,6 +41,7 @@ library
     Baikai.Agent.Run
 
   build-depends:
+    , aeson                        ^>=2.2
     , baikai                       ^>=0.4.1
     , baikai-claude                ^>=0.4
     , baikai-openai                ^>=0.4
@@ -57,6 +58,7 @@ library
     , settei-env                   ^>=0.2
     , settei-kdl                   ^>=0.2
     , settei-optparse-applicative  ^>=0.2
+    , streamly-core                >=0.3    && <0.5
     , text                         ^>=2.1
     , time                         ^>=1.14
 

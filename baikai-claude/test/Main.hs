@@ -52,6 +52,7 @@ main =
         agentCommandRenderingTest,
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
+        agentThinkingTranslationTests,
         agentPromptTransportTest,
         agentBlankModelTest,
         agentSessionPersistenceTest,
@@ -230,7 +231,15 @@ safetyStillRendersTest =
 -- own message.
 renderedAgentCommand ::
   ClaudeAgent.ClaudeAgentConfig -> AgentRunRequest -> IO AgentCommand
-renderedAgentCommand cfg req =
+renderedAgentCommand cfg req = fst <$> renderedAgentPair cfg req
+
+-- | The command and the reasoning-effort translation the renderer
+-- produced together.
+renderedAgentPair ::
+  ClaudeAgent.ClaudeAgentConfig ->
+  AgentRunRequest ->
+  IO (AgentCommand, ThinkingTranslation)
+renderedAgentPair cfg req =
   either
     (assertFailure . Text.unpack . renderAgentRenderError)
     pure
@@ -372,11 +381,73 @@ agentSessionPersistenceTest =
     persisted <- renderedAgentCommand persisting req
     persisted ^. #arguments @?= ["-p", "--permission-mode", "plan"]
 
+-- | The unattended renderer describes what it did with the caller's
+-- reasoning-effort request, and the description agrees with the argument
+-- vector it produced.
+--
+-- Asserted together on purpose: the whole value of the translation is
+-- that it survives a collapse the command line cannot express, and two
+-- separate tests could drift apart without either failing.
+agentThinkingTranslationTests :: TestTree
+agentThinkingTranslationTests =
+  testGroup
+    "the unattended claude renderer records what --effort actually received"
+    ( testCase
+        "no effort requested is not a downgrade"
+        ( do
+            (cmd, translation) <- renderedAgentPair ClaudeAgent.defaultClaudeAgentConfig (effortRequest Nothing)
+            assertBool
+              ("no --effort flag is rendered: " <> show (cmd ^. #arguments))
+              ("--effort" `notElem` (cmd ^. #arguments))
+            translation @?= noThinkingRequested
+        )
+        : [ testCase (Text.unpack (renderThinkingLevel level)) $ do
+              (cmd, translation) <-
+                renderedAgentPair ClaudeAgent.defaultClaudeAgentConfig (effortRequest (Just level))
+              assertBool
+                ("--effort " <> Text.unpack wire <> " in " <> show (cmd ^. #arguments))
+                (["--effort", Text.unpack wire] `isConsecutiveIn` (cmd ^. #arguments))
+              translation
+                @?= ThinkingTranslation
+                  { requested = Just level,
+                    mode = ThinkingModeFlag,
+                    effortText = Just wire,
+                    budgetTokens = Nothing,
+                    wireField = Just "--effort",
+                    adjustments = expected
+                  }
+          | (level, wire, expected) <-
+              [ -- claude's --effort has no minimal, so the lowest level
+                -- collapses and a run at minimal is wire-identical to a
+                -- run at low.
+                (ThinkingMinimal, "low", [EffortClamped ThinkingMinimal "low"]),
+                (ThinkingLow, "low", []),
+                (ThinkingMedium, "medium", []),
+                (ThinkingHigh, "high", []),
+                (ThinkingXHigh, "xhigh", []),
+                (ThinkingMax, "max", [])
+              ]
+          ]
+    )
+  where
+    effortRequest level =
+      agentRunRequest AgentClaude "/work/project" "prompt" & #effort .~ level
+
+-- | Whether the needle appears as consecutive elements of the haystack.
+isConsecutiveIn :: (Eq a) => [a] -> [a] -> Bool
+isConsecutiveIn needle haystack =
+  any (\suffix -> needle == take (length needle) suffix) (suffixes haystack)
+  where
+    suffixes xs =
+      xs : case xs of
+        [] -> []
+        (_ : rest) -> suffixes rest
+
 agentProviderGuardTest :: TestTree
 agentProviderGuardTest =
   testCase "the claude renderer refuses a request that names codex" $ do
     let req = agentRunRequest AgentCodex "/work/project" "prompt"
-    ClaudeAgent.claudeAgentCommand ClaudeAgent.defaultClaudeAgentConfig req
+    fmap fst (ClaudeAgent.claudeAgentCommand ClaudeAgent.defaultClaudeAgentConfig req)
       @?= Left (ProviderMismatch AgentClaude AgentCodex)
 
 -- | The launch shape this initiative's first consumer embeds today in

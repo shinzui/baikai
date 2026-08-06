@@ -69,6 +69,8 @@ module Baikai.Agent
     -- * The run result
     AgentRunResult,
     agentRunResult,
+    AgentRunOutcome (..),
+    agentRunOutcome,
 
     -- * Failures
     AgentRenderError (..),
@@ -78,6 +80,7 @@ module Baikai.Agent
   )
 where
 
+import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Prelude
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Data.ByteString (ByteString)
@@ -479,6 +482,32 @@ agentRunResult p code elapsed =
       stderr = OutputNotCaptured,
       duration = elapsed
     }
+
+-- | Everything one finished unattended run produced: what happened, and
+-- the evidence the runner built for it.
+--
+-- The two are siblings rather than the evidence living inside
+-- 'AgentRunResult', because the run that most needs a record is one that
+-- did not produce a result. A run killed by its own timeout started, ran,
+-- consumed tokens, and possibly changed the working tree, and it reports
+-- @Left ('RunTimedOut' …)@ — so evidence hanging off the @Right@ would be
+-- unreachable in exactly the case an operator most wants it.
+--
+-- 'evidence' is 'Nothing' in two situations that must not be confused.
+-- The caller asked for none, which is the default and costs nothing. Or
+-- nothing ever started — a missing working directory, an unset declared
+-- environment variable, an executable that could not be spawned — and
+-- there is no run to describe.
+data AgentRunOutcome = AgentRunOutcome
+  { outcome :: !(Either AgentRunFailure AgentRunResult),
+    evidence :: !(Maybe ModelCallEvidence)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | An outcome carrying no evidence, for the paths where none was asked
+-- for or none exists.
+agentRunOutcome :: Either AgentRunFailure AgentRunResult -> AgentRunOutcome
+agentRunOutcome result = AgentRunOutcome {outcome = result, evidence = Nothing}
 
 -- | A refusal raised before any process is created: the requested
 -- policy cannot be expressed honestly for the chosen provider, so the

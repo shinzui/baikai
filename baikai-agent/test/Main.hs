@@ -13,6 +13,7 @@ import Baikai.Agent
     capturedBytes,
   )
 import Baikai.Agent.Run (runAgentCommand, timeoutMicros)
+import Baikai.Evidence (noThinkingRequested)
 import CliTests (cliTests)
 import ConfigTests (configTests)
 import Control.Concurrent (threadDelay)
@@ -102,6 +103,17 @@ expectRan (Left failure) =
   assertFailure ("expected the run to start: " <> show failure)
 expectRan (Right result) = pure result
 
+-- | The runner as every case in this module uses it: no evidence
+-- requested, and therefore no reasoning-effort translation to describe.
+--
+-- The evidence path has its own module. Keeping it out of here means
+-- these cases still assert exactly what they asserted before evidence
+-- existed, which is what makes them a regression guard for it.
+runPlain ::
+  AgentRunRequest -> AgentCommand -> IO (Either AgentRunFailure AgentRunResult)
+runPlain req cmd =
+  (^. #outcome) <$> runAgentCommand Nothing noThinkingRequested req cmd
+
 promptRoundTripTest :: TestTree
 promptRoundTripTest =
   testCase "delivers the prompt on stdin and captures stdout" $
@@ -110,7 +122,7 @@ promptRoundTripTest =
     withFakeExecutable "echo-stdin" "#!/bin/sh\nexec cat\n" $ \dir exe -> do
       let promptBody = "réconcilier la grammaire — 文法" :: Text.Text
       result <-
-        runAgentCommand
+        runPlain
           (capturingRequest dir promptBody)
           (stdinCommand exe [] promptBody)
           >>= expectRan
@@ -125,7 +137,7 @@ streamSeparationTest =
       "#!/bin/sh\nprintf 'to-stdout' \nprintf 'to-stderr' >&2\n"
     $ \dir exe -> do
       result <-
-        runAgentCommand (capturingRequest dir "ignored") (stdinCommand exe [] "ignored")
+        runPlain (capturingRequest dir "ignored") (stdinCommand exe [] "ignored")
           >>= expectRan
       capturedBytes (result ^. #stdout) @?= Just "to-stdout"
       capturedBytes (result ^. #stderr) @?= Just "to-stderr"
@@ -137,7 +149,7 @@ workingDirectoryTest =
     -- evidence that the request's one reaches the child.
     withFakeExecutable "print-cwd" "#!/bin/sh\nexec pwd\n" $ \dir exe -> do
       result <-
-        runAgentCommand (capturingRequest dir "ignored") (stdinCommand exe [] "ignored")
+        runPlain (capturingRequest dir "ignored") (stdinCommand exe [] "ignored")
           >>= expectRan
       let reported = maybe "" (BS8.unpack . stripTrailingNewline) (capturedBytes (result ^. #stdout))
       -- Compare on the basename: macOS resolves /var to /private/var, so
@@ -152,7 +164,7 @@ nonZeroExitTest =
     -- attempts its task and fails has still run.
     withFakeExecutable "exit-three" "#!/bin/sh\nexit 3\n" $ \dir exe -> do
       result <-
-        runAgentCommand (capturingRequest dir "ignored") (stdinCommand exe [] "ignored")
+        runPlain (capturingRequest dir "ignored") (stdinCommand exe [] "ignored")
           >>= expectRan
       result ^. #exitCode @?= ExitFailure 3
 
@@ -162,7 +174,7 @@ spawnFailureTest =
     withSystemTempDirectory "baikai-agent-test" $ \dir -> do
       let missing = dir </> "not-installed"
       outcome <-
-        runAgentCommand (capturingRequest dir "ignored") (stdinCommand missing [] "ignored")
+        runPlain (capturingRequest dir "ignored") (stdinCommand missing [] "ignored")
       case outcome of
         Left (SpawnFailed path _) -> path @?= missing
         other -> assertFailure ("expected SpawnFailed, got: " <> show other)
@@ -177,7 +189,7 @@ missingWorkingDirectoryTest =
       let absentDir = dir </> "no-such-directory"
           absentExe = dir </> "no-such-executable"
       outcome <-
-        runAgentCommand
+        runPlain
           (capturingRequest absentDir "ignored")
           (stdinCommand absentExe [] "ignored")
       case outcome of
@@ -192,7 +204,7 @@ missingEnvironmentTest =
       -- never mutates the suite's own environment.
       let names = ["BAIKAI_AGENT_TEST_ABSENT_ONE", "BAIKAI_AGENT_TEST_ABSENT_TWO"]
           req = capturingRequest dir "ignored" & #envPassthrough .~ names
-      outcome <- runAgentCommand req (stdinCommand (dir </> "unused") [] "ignored")
+      outcome <- runPlain req (stdinCommand (dir </> "unused") [] "ignored")
       case outcome of
         Left (MissingEnvironment missing) -> missing @?= names
         other -> assertFailure ("expected MissingEnvironment, got: " <> show other)
@@ -203,7 +215,7 @@ timeoutTest =
     withFakeExecutable "sleeper" "#!/bin/sh\nsleep 5\n" $ \dir exe -> do
       let req = capturingRequest dir "ignored" & #timeout .~ Just 1
       start <- getCurrentTime
-      outcome <- runAgentCommand req (stdinCommand exe [] "ignored")
+      outcome <- runPlain req (stdinCommand exe [] "ignored")
       end <- getCurrentTime
       case outcome of
         Left (RunTimedOut limit) -> limit @?= 1
@@ -227,7 +239,7 @@ processGroupTest =
     $ \dir exe -> do
       let marker = dir </> "grandchild-survived"
           req = capturingRequest dir "ignored" & #timeout .~ Just 1
-      outcome <- runAgentCommand req (stdinCommand exe [marker] "ignored")
+      outcome <- runPlain req (stdinCommand exe [marker] "ignored")
       case outcome of
         Left (RunTimedOut _) -> pure ()
         other -> assertFailure ("expected RunTimedOut, got: " <> show other)
@@ -246,7 +258,7 @@ outputLimitTest =
     $ \dir exe -> do
       let req = capturingRequest dir "ignored" & #outputLimit .~ Just 1024
       result <-
-        runAgentCommand req (stdinCommand exe [] "ignored") >>= expectRan
+        runPlain req (stdinCommand exe [] "ignored") >>= expectRan
       case result ^. #stdout of
         OutputTruncated bytes -> BS.length bytes @?= 1024
         other -> assertFailure ("expected OutputTruncated, got: " <> show other)
@@ -260,7 +272,7 @@ inheritOutputTest =
     withFakeExecutable "chatty" "#!/bin/sh\nprintf 'inherited line\\n'\n" $ \dir exe -> do
       -- The line goes to the test runner's own output, which is expected.
       let req = agentRunRequest AgentClaude dir "ignored"
-      result <- runAgentCommand req (stdinCommand exe [] "ignored") >>= expectRan
+      result <- runPlain req (stdinCommand exe [] "ignored") >>= expectRan
       result ^. #stdout @?= OutputNotCaptured
       result ^. #stderr @?= OutputNotCaptured
       result ^. #exitCode @?= ExitSuccess
@@ -292,7 +304,7 @@ promptAsArgumentTest =
                 promptText = promptBody
               }
       result <-
-        runAgentCommand (capturingRequest dir promptBody) cmd >>= expectRan
+        runPlain (capturingRequest dir promptBody) cmd >>= expectRan
       capturedBytes (result ^. #stdout) @?= Just (Text.encodeUtf8 promptBody)
       result ^. #exitCode @?= ExitSuccess
 

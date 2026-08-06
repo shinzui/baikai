@@ -80,6 +80,12 @@ import Baikai.Agent.Config
     resolveAgentJob,
   )
 import Baikai.Agent.Run (runAgentCommand)
+import Baikai.Evidence
+  ( EvidenceRequest,
+    ModelCallEvidence,
+    ThinkingTranslation,
+    evidenceRequest,
+  )
 import Baikai.Provider.Claude.Agent
   ( ClaudeAgentConfig,
     claudeAgentCommand,
@@ -91,8 +97,11 @@ import Baikai.Provider.OpenAI.Agent
     defaultCodexAgentConfig,
   )
 import Control.Applicative ((<|>))
+import Control.Exception (IOException, displayException, try)
 import Control.Lens ((&), (.~), (^.))
+import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Data.Char (isControl, ord)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
@@ -115,7 +124,7 @@ import Settei.Report
     reportNodes,
   )
 import Settei.Value (RawValue (..))
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, renameFile)
 import System.Exit (ExitCode (..))
 import System.IO (stdin)
 
@@ -151,7 +160,14 @@ data AgentCliOptions = AgentCliOptions
     userConfig :: !(Maybe FilePath),
     -- | Explicit repository-scope file, overriding discovery.
     repoConfig :: !(Maybe FilePath),
-    jsonOutput :: !Bool
+    jsonOutput :: !Bool,
+    -- | Where to write the run's evidence record, from
+    -- @--evidence-file@. Only @run@ accepts it; the other two commands
+    -- start nothing and so have nothing to record.
+    evidenceFile :: !(Maybe FilePath),
+    -- | The caller's identifier for the logical run this invocation
+    -- belongs to, from @--run-id@.
+    runId :: !(Maybe Text)
   }
   deriving stock (Generic)
 
@@ -265,14 +281,18 @@ runOptionsParser =
     <*> Options.optional userConfigOption
     <*> Options.optional repoConfigOption
     <*> jsonSwitch
+    <*> Options.optional evidenceFileOption
+    <*> Options.optional runIdOption
   where
-    assemble jobName promptSource overrides userConfig repoConfig jsonOutput =
+    assemble jobName promptSource overrides userConfig repoConfig jsonOutput evidenceFile runId =
       AgentCliOptions
         { command = AgentRun jobName promptSource,
           overrides,
           userConfig,
           repoConfig,
-          jsonOutput
+          jsonOutput,
+          evidenceFile,
+          runId
         }
 
 showOptionsParser :: Parser AgentCliOptions
@@ -290,7 +310,9 @@ showOptionsParser =
           overrides,
           userConfig,
           repoConfig,
-          jsonOutput
+          jsonOutput,
+          evidenceFile = Nothing,
+          runId = Nothing
         }
 
 listOptionsParser :: Parser AgentCliOptions
@@ -306,7 +328,9 @@ listOptionsParser =
           overrides = [],
           userConfig,
           repoConfig,
-          jsonOutput
+          jsonOutput,
+          evidenceFile = Nothing,
+          runId = Nothing
         }
 
 jobArgument :: Parser Text
@@ -390,6 +414,22 @@ jsonSwitch =
   Options.switch
     (Options.long "json" <> Options.help "Emit machine-readable JSON")
 
+evidenceFileOption :: Parser FilePath
+evidenceFileOption =
+  Options.strOption
+    ( Options.long "evidence-file"
+        <> Options.metavar "PATH"
+        <> Options.help "Write the run's evidence record to PATH as one JSON object"
+    )
+
+runIdOption :: Parser Text
+runIdOption =
+  Options.strOption
+    ( Options.long "run-id"
+        <> Options.metavar "TEXT"
+        <> Options.help "Identifier for the logical run this invocation belongs to"
+    )
+
 -- --------------------------------------------------------------------
 -- Provider dispatch
 -- --------------------------------------------------------------------
@@ -407,7 +447,15 @@ jsonSwitch =
 -- the executable override, for which 'AgentRunRequest' has no field
 -- because it is a configuration concern rather than a run description.
 -- The redundancy looks like an accident and is not.
-renderJobCommand :: AgentJob -> AgentRunRequest -> Either AgentRenderError AgentCommand
+--
+-- The translation half of the pair says what the request's reasoning
+-- effort became on that provider's command line. It is threaded through
+-- rather than discarded here, because the runner cannot derive it: it
+-- deliberately imports no vendor renderer.
+renderJobCommand ::
+  AgentJob ->
+  AgentRunRequest ->
+  Either AgentRenderError (AgentCommand, ThinkingTranslation)
 renderJobCommand job request = case request ^. #provider of
   AgentClaude -> claudeAgentCommand (claudeConfigFor job) request
   AgentCodex -> codexAgentCommand (codexConfigFor job) request
@@ -684,7 +732,7 @@ explain options jobName staged =
           .~ ["<redacted>" | _ <- staged ^. #job . #providerArgs]
     rendered = do
       _ <- applyCeilingToJob (staged ^. #ceiling) request
-      renderJobCommand (staged ^. #job) displayRequest
+      fst <$> renderJobCommand (staged ^. #job) displayRequest
     textSections =
       "job \""
         <> jobName
@@ -849,15 +897,16 @@ execute :: AgentCliOptions -> StagedJob -> Text -> IO AgentCliRun
 execute options staged promptBody =
   case prepared of
     Left refusal -> pure (refusedRun (renderAgentRenderError refusal))
-    Right (request, command) -> do
-      outcome <- runAgentCommand request command
-      pure (interpret options staged request outcome)
+    Right (request, command, translation) -> do
+      ran <- runAgentCommand (evidenceRequestFor options) translation request command
+      written <- writeEvidenceFile (options ^. #evidenceFile) (ran ^. #evidence)
+      pure (interpret options staged request (ran ^. #outcome) written)
   where
     request0 = agentJobRequest (staged ^. #job) promptBody
     prepared = do
       permitted <- applyCeilingToJob (staged ^. #ceiling) request0
-      command <- renderJobCommand (staged ^. #job) permitted
-      pure (permitted, command)
+      (command, translation) <- renderJobCommand (staged ^. #job) permitted
+      pure (permitted, command, translation)
     refusedRun message
       | options ^. #jsonOutput =
           AgentCliRun
@@ -879,8 +928,14 @@ interpret ::
   StagedJob ->
   AgentRunRequest ->
   Either AgentRunFailure AgentRunResult ->
+  -- | Whatever went wrong writing the evidence file, appended to
+  -- standard error. A failed write never changes the exit code: the
+  -- agent's own status is what a calling script branches on, and
+  -- silently turning a successful run into a failure because a log could
+  -- not be written would be the worse surprise.
+  Text ->
   AgentCliRun
-interpret options staged request = \case
+interpret options staged request result evidenceNote = case result of
   Left failure
     | options ^. #jsonOutput ->
         AgentCliRun
@@ -892,37 +947,94 @@ interpret options staged request = \case
                   ("message", jsonString (renderAgentRunFailure failure))
                 ]
                 <> "\n",
-            standardError = staged ^. #warnings
+            standardError = staged ^. #warnings <> evidenceNote
           }
     | otherwise ->
         failedRun
           (failureExitCode failure)
-          (staged ^. #warnings <> renderAgentRunFailure failure <> "\n")
-  Right result
+          (staged ^. #warnings <> evidenceNote <> renderAgentRunFailure failure <> "\n")
+  Right ran
     | options ^. #jsonOutput ->
         AgentCliRun
-          { exitCode = resultExitCode result,
-            standardOutput = resultJson result <> "\n",
-            standardError = staged ^. #warnings <> truncationNotes result
+          { exitCode = resultExitCode ran,
+            standardOutput = resultJson ran <> "\n",
+            standardError = staged ^. #warnings <> evidenceNote <> truncationNotes ran
           }
     | otherwise ->
         AgentCliRun
-          { exitCode = resultExitCode result,
+          { exitCode = resultExitCode ran,
             -- Only a captured stream reaches this record. Under `tee`
             -- the runner already echoed the bytes to the real streams
             -- while draining, so re-emitting them here would print
             -- everything twice.
-            standardOutput = if capturing then decoded (result ^. #stdout) else "",
+            standardOutput = if capturing then decoded (ran ^. #stdout) else "",
             standardError =
               staged ^. #warnings
-                <> (if capturing then decoded (result ^. #stderr) else "")
-                <> truncationNotes result
+                <> evidenceNote
+                <> (if capturing then decoded (ran ^. #stderr) else "")
+                <> truncationNotes ran
           }
   where
     -- Only a captured stream is Baikai's to re-emit. `tee` already wrote
     -- the bytes to the real streams while draining, and `inherit`
     -- captured nothing at all.
     capturing = request ^. #output == CaptureOutput
+
+-- | The caller's evidence request, or 'Nothing' when they asked for
+-- none.
+--
+-- Evidence is built exactly when the operator named a destination for it
+-- or an outer run to correlate it with. Anyone who supplies neither gets
+-- the behaviour they had before evidence existed, at the cost they had
+-- before it existed: no digest, no call identifier, and no @--version@
+-- probe of the tool.
+--
+-- With @--evidence-file@ but no @--run-id@ the job's own name stands in.
+-- It is opaque text baikai never parses, and the alternative — an empty
+-- string — would be a field a consumer has to special-case.
+evidenceRequestFor :: AgentCliOptions -> Maybe EvidenceRequest
+evidenceRequestFor options =
+  case (options ^. #evidenceFile, options ^. #runId) of
+    (Nothing, Nothing) -> Nothing
+    (_, Just supplied) -> Just (evidenceRequest supplied)
+    (Just _, Nothing) -> Just (evidenceRequest (jobNameOf (options ^. #command)))
+  where
+    jobNameOf = \case
+      AgentRun name _ -> name
+      AgentShow name -> name
+      AgentList -> "agent"
+
+-- | Write one evidence record to the operator's chosen path, returning
+-- whatever went wrong.
+--
+-- The write is atomic — a temporary file beside the destination, then a
+-- rename — so a reader polling the path never sees a half-written
+-- record. It never appends: each run writes one complete object, and an
+-- operator wanting a log of many runs points each at its own path.
+--
+-- Nothing is written when the operator named no path, and nothing is
+-- written when the run produced no evidence, which is the case where the
+-- tool never started. An empty file would claim a run happened.
+writeEvidenceFile :: Maybe FilePath -> Maybe ModelCallEvidence -> IO Text
+writeEvidenceFile Nothing _ = pure ""
+writeEvidenceFile (Just _) Nothing = pure ""
+writeEvidenceFile (Just path) (Just record) = do
+  let staging = path <> ".partial"
+  written <-
+    try
+      ( do
+          BSL.writeFile staging (Aeson.encode record)
+          renameFile staging path
+      ) ::
+      IO (Either IOException ())
+  pure $ case written of
+    Right () -> ""
+    Left problem ->
+      "could not write the evidence record to "
+        <> Text.pack path
+        <> ": "
+        <> Text.pack (displayException problem)
+        <> "\n"
 
 resultExitCode :: AgentRunResult -> Int
 resultExitCode result = case result ^. #exitCode of

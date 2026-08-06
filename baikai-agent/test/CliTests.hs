@@ -116,7 +116,9 @@ options command =
       overrides = [],
       userConfig = Nothing,
       repoConfig = Nothing,
-      jsonOutput = False
+      jsonOutput = False,
+      evidenceFile = Nothing,
+      runId = Nothing
     }
 
 withOverride :: Text -> Text -> AgentCliOptions -> AgentCliOptions
@@ -219,7 +221,7 @@ renderedFor provider extra = do
   let request = agentRunRequest (job ^. #provider) (job ^. #workingDir) "a prompt"
   case renderJobCommand job request of
     Left refusal -> assertFailure ("expected a rendered command: " <> show refusal)
-    Right command -> pure command
+    Right (command, _) -> pure command
 
 dispatchesToClaudeTest :: TestTree
 dispatchesToClaudeTest =

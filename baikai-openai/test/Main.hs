@@ -64,6 +64,7 @@ main =
         agentCommandRenderingTest,
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
+        agentThinkingTranslationTests,
         agentToolRestrictionRefusalTest,
         agentPromptTransportTest,
         agentBlankModelTest,
@@ -245,7 +246,15 @@ usageCostModel =
 -- own message.
 renderedAgentCommand ::
   CodexAgent.CodexAgentConfig -> AgentRunRequest -> IO AgentCommand
-renderedAgentCommand cfg req =
+renderedAgentCommand cfg req = fst <$> renderedAgentPair cfg req
+
+-- | The command and the reasoning-effort translation the renderer
+-- produced together.
+renderedAgentPair ::
+  CodexAgent.CodexAgentConfig ->
+  AgentRunRequest ->
+  IO (AgentCommand, ThinkingTranslation)
+renderedAgentPair cfg req =
   either
     (assertFailure . Text.unpack . renderAgentRenderError)
     pure
@@ -355,7 +364,7 @@ agentToolRestrictionRefusalTest =
           agentRunRequest AgentCodex "/work/project" "prompt"
             & #safety .~ (agentSafety AgentEditWorkspace & #allowedTools .~ ["Read", "Edit"])
     case CodexAgent.codexAgentCommand CodexAgent.defaultCodexAgentConfig req of
-      Right cmd ->
+      Right (cmd, _) ->
         assertFailure ("expected a refusal, rendered: " <> show (cmd ^. #arguments))
       Left (UnsupportedToolRestriction provider message) -> do
         provider @?= AgentCodex
@@ -423,11 +432,72 @@ agentConfigBooleanTest =
     cmd ^. #arguments
       @?= ["exec", "--sandbox", "read-only", "--cd", "/work/project"]
 
+-- | The unattended renderer describes what it did with the caller's
+-- reasoning-effort request, and the description agrees with the argument
+-- vector it produced.
+--
+-- Every level records an empty adjustment list, because codex is the one
+-- tool baikai drives that accepts all six verbatim. That is worth
+-- asserting precisely because every other transport clamps, collapses,
+-- or drops something.
+agentThinkingTranslationTests :: TestTree
+agentThinkingTranslationTests =
+  testGroup
+    "the unattended codex renderer records what model_reasoning_effort received"
+    ( testCase
+        "no effort requested is not a downgrade"
+        ( do
+            (cmd, translation) <- renderedAgentPair CodexAgent.defaultCodexAgentConfig (effortRequest Nothing)
+            assertBool
+              ("no effort override is rendered: " <> show (cmd ^. #arguments))
+              (not (any (Text.isInfixOf "model_reasoning_effort" . Text.pack) (cmd ^. #arguments)))
+            translation @?= noThinkingRequested
+        )
+        : [ testCase (Text.unpack (renderThinkingLevel level)) $ do
+              (cmd, translation) <-
+                renderedAgentPair CodexAgent.defaultCodexAgentConfig (effortRequest (Just level))
+              let override = "model_reasoning_effort=" <> Text.unpack (renderThinkingLevel level)
+              assertBool
+                ("-c " <> override <> " in " <> show (cmd ^. #arguments))
+                (["-c", override] `isConsecutiveIn` (cmd ^. #arguments))
+              translation
+                @?= ThinkingTranslation
+                  { requested = Just level,
+                    mode = ThinkingModeFlag,
+                    effortText = Just (renderThinkingLevel level),
+                    budgetTokens = Nothing,
+                    wireField = Just "model_reasoning_effort",
+                    adjustments = []
+                  }
+          | level <-
+              [ ThinkingMinimal,
+                ThinkingLow,
+                ThinkingMedium,
+                ThinkingHigh,
+                ThinkingXHigh,
+                ThinkingMax
+              ]
+          ]
+    )
+  where
+    effortRequest level =
+      agentRunRequest AgentCodex "/work/project" "prompt" & #effort .~ level
+
+-- | Whether the needle appears as consecutive elements of the haystack.
+isConsecutiveIn :: (Eq a) => [a] -> [a] -> Bool
+isConsecutiveIn needle haystack =
+  any (\suffix -> needle == take (length needle) suffix) (suffixes haystack)
+  where
+    suffixes xs =
+      xs : case xs of
+        [] -> []
+        (_ : rest) -> suffixes rest
+
 agentProviderGuardTest :: TestTree
 agentProviderGuardTest =
   testCase "the codex renderer refuses a request that names claude" $ do
     let req = agentRunRequest AgentClaude "/work/project" "prompt"
-    CodexAgent.codexAgentCommand CodexAgent.defaultCodexAgentConfig req
+    fmap fst (CodexAgent.codexAgentCommand CodexAgent.defaultCodexAgentConfig req)
       @?= Left (ProviderMismatch AgentCodex AgentClaude)
 
 commandRenderingTest :: TestTree
