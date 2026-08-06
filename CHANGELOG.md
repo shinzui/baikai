@@ -660,6 +660,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   branches on. `docs/user/unattended-agent-runs.md` documents both options and,
   more importantly, what the record does and does not prove.
 
+- `baikai-agent`: `baikai agent run` gains `--require-evidence STRENGTH`, taking
+  `requested_only`, `correlated`, `model_observed`, or `fully_observed` — the
+  same words a record's `strength` field spells, so what one record showed can
+  be passed back as the next run's requirement. A job whose configuration cannot
+  produce evidence of at least that strength is refused before anything is
+  spawned, exiting 77 — the code a ceiling violation and an inexpressible safety
+  policy already use, so a script branching on 77 needs no new case.
+
 ## [baikai-claude 0.4.0.1] - 2026-07-30
 
 ### Fixed

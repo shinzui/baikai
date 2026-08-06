@@ -163,7 +163,7 @@ turns capability into contract. Strict evidence mode is deliberately last: it ca
 specified honestly once every provider's real evidence strength is known, and its acceptance
 criterion — that it refuses a downgrade — requires all the downgrade sites to be enumerated and
 recorded first. This plan also owns the migration guidance for existing trace and cost consumers,
-the user documentation, the coordinated version bumps across five packages, and the ADR
+the user documentation, the coordinated version bumps across every affected package, and the ADR
 distillation pass.
 
 ### Alternatives considered and rejected
@@ -932,12 +932,38 @@ a lookup miss is tolerated by design. The existing test passed throughout becaus
 events in the order it chose. A test that constructs its own inputs cannot catch an ordering bug
 in whatever normally produces them.
 
-**One unreproduced test failure.** A single seven-suite `cabal test` run reported
-`baikai-test: FAIL` during EP-7's second milestone; every subsequent run passed — the suite
-alone, three forced full re-runs, six direct binary runs, and the release gate. The log was
-overwritten before it could be read, so it is recorded rather than declared fixed. The suspects
-are the subprocess-spawning and `timeout`-based tests under parallel load, the same sensitivity
-EP-5 found in its version probe.
+**An unreproduced test failure under parallel suite runs — observed twice.** A single
+seven-suite `cabal test` run reported `baikai-test: FAIL` during EP-7's second milestone; every
+subsequent run passed — the suite alone, three forced full re-runs, six direct binary runs, and
+the release gate. The log was overwritten before it could be read, so it is recorded rather
+than declared fixed. The suspects are the subprocess-spawning and `timeout`-based tests under
+parallel load, the same sensitivity EP-5 found in its version probe. A second occurrence during
+pre-release verification (2026-08-05, after this MasterPlan was closed): a scrubbed parallel
+`cabal test all` failed `baikai-openai-test`, which then passed all 158 tests in isolation, and
+a repeat parallel run passed every suite. The log was lost the same way — overwritten by the
+diagnostic re-run before anyone read it. Two different suites failing once each under the same
+conditions make this a parallel-load sensitivity, not a one-off. When a gate run fails, copy
+the tasty log aside *before* re-running anything.
+
+
+### Found after the MasterPlan was closed
+
+**Two defects in EP-7's central deliverable survived every gate and surfaced only on a real
+invocation, fifteen minutes after this MasterPlan was closed** (fixed in commit `45e9205`).
+Adding `EvidenceRefused` to `AgentRunFailure` left `failureExitCode` non-exhaustive, so
+`baikai agent run --require-evidence` crashed with a pattern-match failure instead of refusing
+— the refusal that is the plan's whole point, failing in exactly the way it exists to prevent.
+And the refusal message carried a literal carriage return where the word "required" was meant,
+from a mis-escaped string gap that a prefix-asserting test stopped just short of. The existing
+coverage drove `runAgentCommand` directly and never took a refused run through the command
+surface, which is this MasterPlan's own lesson wearing new clothes: the acceptance criterion
+existed as a sentence, not as a test at the surface where it mattered. A refused run now exits
+77 — the code a ceiling violation and an inexpressible safety policy already use — the test
+asserts the whole phrase, and a CLI-level refusal case exists. GHC had warned about the
+non-exhaustive match throughout; the warning was lost in a build log. In response, the
+workspace promotes `-Werror=incomplete-patterns`, `-Werror=incomplete-uni-patterns`, and
+`-Werror=incomplete-record-updates` in every package's cabal file, so the next missing branch
+is a build failure rather than a crash in front of a user.
 
 
 ## Outcomes & Retrospective
@@ -1011,8 +1037,9 @@ not any fixture — is what caught the behaviour change when the CLI providers s
 ### What remains
 
 The release is prepared and not published: tag, push, and upload in dependency order with
-`baikai` first, per `agents/skills/release/SKILL.md` steps 5 through 7. It is held for operator
-approval because a published Hackage version cannot be withdrawn, only deprecated.
+`baikai` first, per `agents/skills/release/SKILL.md` steps 5 through 8 — the last applies
+because releasing `baikai-agent` obliges verifying the installed `baikai` tool. It is held for
+operator approval because a published Hackage version cannot be withdrawn, only deprecated.
 
 Two things this initiative deliberately left for later, both recorded in EP-7's Surprises:
 `requestConfiguration` is degenerate on all three subprocess transports, because the

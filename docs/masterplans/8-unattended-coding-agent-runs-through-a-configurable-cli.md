@@ -49,7 +49,7 @@ in Baikai and the policy living in a repository-owned KDL file:
 ```bash
 printf '%s' "$prompt" | baikai agent run sync-keiro-dsl \
   --prompt-stdin \
-  --set extra-dir="$keiro_path"
+  --set extra-dirs="$keiro_path"
 ```
 
 Switching that job from Claude Code to Codex becomes a one-line configuration edit rather
