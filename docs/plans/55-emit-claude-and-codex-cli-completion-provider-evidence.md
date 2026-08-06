@@ -50,25 +50,143 @@ cabal test baikai-claude baikai-openai
 
 ## Progress
 
-- [ ] Extend `ClaudeCliResult` to decode the fields the tool already reports, and stop discarding
-      `session_id`.
-- [ ] Parse the Codex event stream for the thread identifier, token counts, and model, instead of
-      discarding everything but the message text.
-- [ ] Move the shared coding-agent result parsing into
-      `baikai/src/Baikai/Provider/Cli/Internal.hs`.
-- [ ] Capture executable identity, resolved path, and version for both tools, with caching.
-- [ ] Build the argument-vector digest and confirm the configuration projection drops the prompt.
-- [ ] Build the thinking translation for both CLI effort flags, recording the Claude `minimal`
-      collapse.
-- [ ] Populate both evidence records and derive the strength, capped so a zero exit cannot raise
-      it.
-- [ ] Write fixture tests driving fake executables for both tools.
-- [ ] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading.
+- [x] Run both installed tools once and record what they actually emit. (2026-08-05)
+- [x] Replace `ClaudeCliResult` with `ClaudeCliReport`, decoding the session id, the usage block,
+      the reported cost, and the model — and stop discarding `session_id`. (2026-08-05)
+- [x] Fold the Codex event stream into a `CodexRunReport` carrying the thread identifier and the
+      token counts, instead of discarding everything but the message text. (2026-08-05)
+- [x] Move both parsers into `baikai/src/Baikai/Provider/Cli/Internal.hs`. (2026-08-05)
+- [x] Capture executable identity, resolved path, and version for both tools, with caching and a
+      timeout. (2026-08-05)
+- [x] Build the argument-vector digest and prove the configuration projection drops the prompt.
+      (2026-08-05)
+- [x] Build the thinking translation for both CLI effort flags, recording the Claude `minimal`
+      collapse. (2026-08-05)
+- [x] Populate both evidence records and derive the strength, capped so a zero exit cannot raise
+      it. (2026-08-05)
+- [x] Write fixture tests driving fake executables for both tools. (2026-08-05)
+- [x] Correct the `baikai-smoke` assertion that pinned the `zeroUsage` behaviour this plan fixes,
+      and confirm the fix against the real installed tools. (2026-08-05)
+- [x] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading. (2026-08-05)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+### What the installed tools actually emit
+
+Captured by running each tool once against the prompt `say ok`, per Concrete Steps.
+`claude --version` reported `2.1.222 (Claude Code)` and `codex --version` reported
+`codex-cli 0.146.0`, matching what this plan was written against.
+
+**`claude -p --output-format json` returns an array, not an object.** At 2.1.222 the document is
+`[system, assistant, rate_limit_event, result]`, and the existing `findResultEvent` already
+handled that. The `result` event carries twenty-two keys; the ones that matter are:
+
+```json
+{
+  "type": "result", "subtype": "success", "is_error": false, "result": "ok",
+  "session_id": "…", "uuid": "…", "stop_reason": "end_turn",
+  "total_cost_usd": 0.0823025,
+  "usage": { "input_tokens": 2, "cache_creation_input_tokens": 7455,
+             "cache_read_input_tokens": 15185, "output_tokens": 6 },
+  "modelUsage": { "claude-opus-5[1m]": { "inputTokens": 2, "outputTokens": 6,
+                                         "canonicalModel": "claude-opus-5" } }
+}
+```
+
+Two things here were not anticipated. The tool reports a **total cost**, which the provider
+module's own Haddock said did not apply because the CLI runs under a flat subscription. And the
+model is not a scalar field anywhere — it is the **key** of the `modelUsage` map, spelled with its
+context-window variant marker (`claude-opus-5[1m]`) rather than the canonical name that map's
+`canonicalModel` field carries.
+
+**`codex exec --json` at 0.146.0 emits four event kinds and names no model.** The complete
+stream for a trivial prompt:
+
+```json
+{"type":"thread.started","thread_id":"019fd471-4a48-7c83-be67-6b7c49646e43"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}
+{"type":"turn.completed","usage":{"input_tokens":16071,"cached_input_tokens":6912,
+ "cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}}
+```
+
+The `item`-nested `agent_message` shape is the first of the three variants `extractAgentMessage`
+already tolerates, so that function needed no change. But **no event in the stream names a
+model**, which is a harder limit than this plan assumed when it said "the model when the tool
+names one". It means no Codex CLI run can ever exceed `EvidenceCorrelated`, however well it goes.
+That is now asserted directly, because it is exactly the kind of fact strict evidence mode has to
+be able to state.
+
+Trimmed recordings of both are checked in at `baikai/test/fixtures/claude-cli-result.json` and
+`baikai/test/fixtures/codex-events.jsonl`. They keep the exact field spellings and nesting;
+identifiers are scrubbed and the local configuration the `claude` init event carries — `cwd`,
+`memory_paths`, `skills`, `mcp_servers`, `plugins` — is dropped, because none of it is what the
+parsers read and none of it belongs in a committed fixture.
+
+### Codex's `cache_write_input_tokens` has no observable inclusion semantics
+
+The recorded run reports it as `0`, so the recording cannot distinguish whether it is part of the
+inclusive `input_tokens` total or disjoint from it, and codex's source is not in the local Mori
+corpus (`mori registry search codex` finds no project). The Decision Log below records which way
+this was resolved and why. If a later contributor obtains the answer, the place to change is
+`codexUsage` in `baikai/src/Baikai/Provider/Cli/Internal.hs`, and the test
+`a recorded run yields its text, thread id, and token counts` pins the current arithmetic.
+
+### The request commitment digest covers the executable path
+
+The first version of the "two calls the tool cannot tell apart" test wrote a fresh fake into a
+fresh temporary directory per call, and the two commitment digests differed:
+
+```text
+expected: Just (String "sha256:2755e811f34b3eb2110b7e6a8f6b4cd451062a0474856da596775248b381edc9")
+ but got: Just (String "sha256:fbf52e0654e6abece30e5f27176b03d06a85cea9906bc8ce2e6cd3d17a514b05")
+```
+
+That is correct behaviour — `argvEnvelope` puts the executable first, and two different binaries
+are two different calls — but it means any test comparing digests across calls must reuse one
+executable. The harness now writes the fake once and hands back a function that runs calls against
+it. Plan 56 will hit the same thing.
+
+### A version probe races a fake executable's own argv recording
+
+The evidence path invokes the configured executable a second time, with `--version`. A fake that
+records its argument vector unconditionally therefore overwrites the recording the test is about
+to assert on, with `["--version"]`. Both fakes now answer `--version` and exit before recording
+anything, exactly as a real tool does.
+
+### `baikai-smoke` pinned the behaviour this plan corrects
+
+`baikai-smoke/test/Smoke.hs` computed `usageZero = (u ^. #inputTokens) == 0 && (u ^. #outputTokens)
+== 0` and failed the CLI case unless it held. It is a live test, so it caught the change against
+the real tools rather than against a fixture:
+
+```text
+[baikai-smoke] failed for sonnet via /Users/shinzui/.local/bin/claude;
+  content_nonempty=True usage_zero=False latency_positive=True
+```
+
+That assertion was a decision, not an accident — it documented the old contract — so it was
+inverted deliberately rather than deleted, and the Decision Log records why. It now asserts that
+usage and the response identifier are reported, and it passes against both real binaries.
+
+### A two-second version-probe bound is load-sensitive
+
+Run alone, `executableIdentity` completes in under 0.2s. Run with four `cabal test` suites in
+parallel on this machine, individual subprocess-spawning cases were observed taking over five
+seconds, and the probe's own two-second timeout fired — leaving the version absent and the probe's
+side effect never happening at all. The bound exists to stop a tool that *never* answers from
+wedging a model call, so any finite value serves that purpose; a tight one only buys a wrongly
+absent version. It is now five seconds.
+
+### The no-dispatch infidelity EP-3 and EP-4 found does not arise here
+
+Both API transports emit `noThinkingRequested` when `mapRequest` fails, which falsely asserts the
+caller requested no thinking level. The subprocess transports do not have this problem: their
+translation is a pure function of `Options` computed *before* the process is spawned, so a failed
+launch, a nonzero exit, and a malformed result all still carry the real translation. The failing
+test in each `CliEvidenceSpec` asserts the record is otherwise honest on that path. Plan 57 should
+know that only two of the four completion transports need its fix.
 
 
 ## Decision Log
@@ -103,6 +221,156 @@ cabal test baikai-claude baikai-openai
   additional fields are lookups in a value that already exists. Gating a free bug fix behind an
   opt-in flag would be the wrong trade in the opposite direction.
   Date: 2026-08-05
+
+- Decision: Normalize codex's usage by subtracting only `cached_input_tokens` from
+  `input_tokens`, and carry `cache_write_input_tokens` through unmodified.
+  Rationale: Codex reports OpenAI-style inclusive prompt counts, and its own display arithmetic
+  computes non-cached input as exactly `input_tokens - cached_input_tokens` — which is the same
+  normalization `rawUsageToUsage` already performs in
+  `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`. `cache_write_input_tokens` is newer and its
+  inclusion semantics could not be established: the recorded run reports it as zero, so the
+  recording cannot distinguish the two readings, and codex's source is not in the local Mori
+  corpus. Of the two possible errors, subtracting a disjoint counter *undercounts* input on a call
+  that really consumed those tokens, while not subtracting an inclusive one overcounts. An
+  undercount is the worse failure for evidence, because it shrinks a call that happened; the
+  overcount at least never claims less than what was used. The subtraction is clamped at zero
+  because `Natural` subtraction throws.
+  Date: 2026-08-05
+
+- Decision: Read the Claude CLI's observed model from `modelUsage`'s sole key, verbatim, and record
+  nothing when there is more than one key.
+  Rationale: `modelUsage` names every model that actually billed tokens on the run, which is a
+  statement about what ran rather than about what was asked for — unlike the `system` init event's
+  `model` field, which is closer to a configuration echo. The key is kept verbatim, including a
+  context-window variant marker such as `[1m]`, because baikai can request the 1m variant
+  separately from the base model and truncating to the `canonicalModel` field would discard a real
+  distinction. Several keys means several models ran; `ModelCallEvidence` has one `observedModel`
+  slot, so picking one of them would fabricate specificity that the tool never claimed.
+  Date: 2026-08-05
+
+- Decision: Read a model from a codex event only when that same event also carries token counts.
+  Rationale: codex-cli 0.146.0 names no model anywhere, so any extractor written now is
+  forward-looking, and a naive "find a `model` field" would latch onto a future event that merely
+  echoes the `--model` flag baikai passed. Recording a request echo as an observation is precisely
+  the conflation this initiative exists to prevent. A model named beside its token accounting is
+  saying which model consumed them, which is an observation. The rule degrades to `Nothing` today
+  and picks a model up only where one belongs.
+  Date: 2026-08-05
+
+- Decision: Populate `Usage.cost` from the Claude CLI's `total_cost_usd`, and correct the module
+  Haddock that said per-token billing does not apply.
+  Rationale: This widens Milestone 1 slightly beyond the letter of the plan, which named only
+  token counts. It is the same correction for the same reason: a hardcoded `zeroCost` tells a cost
+  dashboard the call was free, which is a claim the tool never made — the tool reported
+  `0.0823025`. `Usage.cost` is part of the value being corrected and `Baikai.Trace` reads it
+  directly rather than recomputing, so leaving it zero while reporting real tokens would produce a
+  report that is internally inconsistent. Codex reports no cost and keeps `zeroCost`. The amount is
+  carried as an exact `Rational`, not through a `Double`, which is why `Cost` holds a `Rational` at
+  all. The per-class `breakdown` stays zero because the tool reports one total and no breakdown.
+  Date: 2026-08-05
+
+- Decision: Invert the `baikai-smoke` assertion that required CLI usage to be zero, rather than
+  removing the case.
+  Rationale: `usageZero` documented the old contract deliberately, so it is a decision to be
+  changed rather than an accident to be deleted. Removing it would leave the only live check of
+  these two transports asserting nothing about what they report. It now asserts the two facts this
+  plan establishes — that usage is reported and that the response identifier is present — and it
+  passes against the real `claude 2.1.222` and `codex-cli 0.146.0`, which is stronger evidence of
+  the fix than any fixture.
+  Date: 2026-08-05
+
+- Decision: Leave `configurationProjection` alone rather than extending it to handle an
+  argv-shaped input.
+  Rationale: Milestone 2 offered a choice between extending plan 51's projection and having each
+  provider build a separate prompt-free configuration value. Neither is needed: the projection
+  admits named fields from an object, and a JSON array has none, so an argv envelope already
+  projects to `null` wholesale. That is the allow-list failing in the safe direction, which is what
+  it is for, and it is the behaviour plan 51's own test in `baikai/test/EvidenceSpec.hs` pins. The
+  property the plan asked for — that the prompt does not appear in the bytes the configuration
+  digest is computed over — holds by construction rather than by a rule someone has to maintain.
+  A test in `baikai/test/CliInternalSpec.hs` asserts it directly on the encoded bytes with a
+  distinctive prompt marker.
+  Date: 2026-08-05
+
+- Decision: Spell the subprocess response-commitment envelope with the same three keys as the two
+  API transports, and put the helper that does it in the shared internal module.
+  Rationale: EP-4 recorded that both API transports write `{"content", "stop_reason", "usage"}` by
+  hand and that nothing enforces the agreement, and asked EP-5 for a deliberate answer rather than
+  a third guess. The value of that agreement is that a verifier holding a response can recompute
+  the digest without first knowing which transport served it, so the subprocess spelling has to
+  match. `cliResponseEnvelope` builds it from the same `AssistantContent`, `StopReason`, and
+  `Usage` types the API transports encode, so the three spellings agree by construction rather
+  than by comment. Plan 57, which owns consolidating the duplicated evidence helpers, should fold
+  the API transports' hand-written copies into this one.
+  Date: 2026-08-05
+
+- Decision: Move `trySync` into `Baikai.Provider.Cli.Internal` and delete both providers' copies.
+  Rationale: The version probe needs to catch a synchronous failure without swallowing a
+  cancellation, which is exactly what the two providers' byte-identical local `trySync` already
+  did. Writing a third copy is what EP-4's "four transports and the duplication starts to drift"
+  discovery warns against, and this module is the plan's agreed shared home. `exceptionToError` is
+  left duplicated: it is two lines and plan 57 owns the cross-provider consolidation pass.
+  Date: 2026-08-05
+
+- Decision: Bound the version probe at five seconds rather than the two the plan suggested.
+  Rationale: Two seconds proved load-sensitive — see Surprises & Discoveries — and the tighter
+  bound buys nothing. The bound's purpose is to stop a tool that never answers from wedging a model
+  call, and any finite value achieves that. Its cost is paid only on the pathological path, at most
+  once per executable per process, and only on a call that opted into evidence. A version recorded
+  as absent because the machine was busy is a worse outcome than a five-second wait on a tool that
+  is broken anyway.
+  Date: 2026-08-05
+
+
+## Outcomes & Retrospective
+
+Both subprocess providers now emit complete evidence records, and both `Response` values they
+build carry what their tool reported rather than a placeholder. `cabal build all` is clean with no
+new warnings and every test suite passes, including `baikai-smoke`, which drove the change against
+the real `claude 2.1.222` and `codex-cli 0.146.0` binaries rather than against a fixture.
+
+What a reader can see that they could not before: a `call_evidence` line from a `claude -p` call
+naming the model the tool actually ran — `claude-opus-5[1m]`, not the `sonnet` the caller
+configured — the tool's session identifier, its real token counts, its reported cost, the resolved
+path of the binary that ran, and that binary's own version string. From a `codex exec` call, the
+thread identifier and the token counts, and an honest `"correlated"` strength that says the tool
+never named a model.
+
+The single assertion the plan was written for holds:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/baikai
+cabal test baikai-claude baikai-openai --test-options='--pattern CliEvidence'
+```
+
+selects sixteen tests, among them
+`A ZERO EXIT WITH NO IDENTIFIER AND NO MODEL STAYS AT requested_only` in both packages. Check that
+the run selected tests rather than reporting "All 0 tests passed"; the module names begin with
+`CliEvidenceSpec:` precisely so that pattern matches.
+
+Three things are worth carrying forward. The first is that the most valuable test in each package
+was the one about a *pair* of calls rather than a single one — for `claude`, that `minimal` and
+`low` produce byte-identical argument vectors and identical request-commitment digests, so the
+translation record is the only place the collapse survives; for `codex`, the inverse, that no run
+however successful can exceed `correlated`. Asserting a field is populated proves the code ran.
+Asserting that two indistinguishable calls produce distinguishable evidence proves the record is
+worth having.
+
+The second is that running the real tools first was not optional. The plan's own prose predicted
+a bare result object from `claude`; the installed version returns an array, reports a total cost
+the provider module's Haddock said could not exist, and hides the model in a map's keys. Codex
+turned out to name no model at all, which is a harder limit than "the model when the tool names
+one" and became one of the plan's headline assertions.
+
+The third is that the live smoke suite is where the behaviour change was caught. Every fixture
+test passed while `baikai-smoke` failed against the real binaries, and its failure named exactly
+the assertion that had pinned the bug.
+
+What remains for later plans: `Baikai.Provider.Cli.Internal` now owns the parsing helpers plan 56
+needs, so plan 56 should import them rather than write a second copy. Plan 57 inherits the
+duplicated evidence helpers across four transports that EP-4 flagged and this plan did not
+consolidate, plus the observation that only the two API transports have the no-dispatch
+translation infidelity.
 
 
 ## Context and Orientation
@@ -583,10 +851,14 @@ and dropping it silently would defeat the plan.
 
 ## Interfaces and Dependencies
 
-New dependencies: `directory` for `findExecutable`, in whichever package hosts
-`executableIdentity`; check `baikai/baikai.cabal` first, since `directory` is already a dependency
-of the package's two generator executables and may only need adding to the library stanza.
-`System.Timeout` and `System.Process` are in `base` and `process`, both already available.
+New dependencies, all added to `baikai`'s **library** stanza in `baikai/baikai.cabal`, which
+previously had none of them: `directory ^>=1.3` for executable resolution, `filepath ^>=1.5` for
+`isPathSeparator`, and `process ^>=1.6` for the version probe. All three were already dependencies
+of the package's generator executables or its test suite, so no new package enters the build plan.
+`System.Timeout` is in `base`.
+
+The two vendor test suites additionally gained `temporary`, for the temporary directory the fake
+executables are written into.
 
 The surface that must exist when this plan is complete:
 
@@ -623,9 +895,26 @@ executableIdentity :: FilePath -> IO ExecutableIdentity
 subprocessStrength :: Observed Text -> Observed Text -> EvidenceStrength
 ```
 
+Two further names were added to that module during implementation and are part of the surface:
+
+```haskell
+-- The response envelope both subprocess transports commit to, spelled
+-- with the same three keys as the two API transports.
+cliResponseEnvelope :: Text -> Usage -> Value
+
+-- 'try' for synchronous failures only, moved here from the two
+-- providers' byte-identical local copies.
+trySync :: IO a -> IO (Either SomeException a)
+```
+
 Note that `ClaudeCliReport` uses `isError` where the tool's JSON field is `is_error`; the record
 field follows Haskell naming and the aeson instance does the mapping. Do not name the Haskell
 field `is_error` to match the wire.
+
+Both providers also export the translation function that describes their effort flag —
+`ClaudeCli.claudeCliThinking` and `CodexCli.codexCliThinking`, each `Options ->
+ThinkingTranslation` — so a caller or a later plan can ask what a level would become on that
+command line without spawning anything.
 
 In `baikai-claude/src/Baikai/Provider/Claude/Cli.hs`, `mkResponse` carries the session identifier
 and parsed usage instead of `Nothing` and `zeroUsage`, and the provider builds a

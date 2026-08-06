@@ -197,7 +197,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 | EP-2 | Carry evidence from the provider adapter to the trace boundary | docs/plans/52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md | EP-1 | None | Complete |
 | EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Complete |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Complete |
-| EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | In Progress |
+| EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Complete |
 | EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | Not Started |
 | EP-7 | Enforce strict evidence mode and release the evidence surface | docs/plans/57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md | EP-2, EP-3, EP-4, EP-5, EP-6 | None | Not Started |
 
@@ -341,10 +341,12 @@ sign, does not hold sanctioning policy, and does not own retries.
       which is deliberate and test-guarded — unchanged. (2026-08-05)
 - [x] EP-4: Capture the OpenAI-compatible response correlation header and provider-reported
       model. (2026-08-05)
-- [ ] EP-5: Preserve the Claude CLI session identifier and parse its reported usage.
-- [ ] EP-5: Parse the Codex CLI thread identifier and token counts from its event stream.
-- [ ] EP-5: Record executable identity, version, and argument-vector digest, at explicitly weaker
-      evidence strength.
+- [x] EP-5: Preserve the Claude CLI session identifier and parse its reported usage, its reported
+      cost, and the model it names in `modelUsage`. (2026-08-05)
+- [x] EP-5: Parse the Codex CLI thread identifier and token counts from its event stream, and
+      establish that it names no model at all. (2026-08-05)
+- [x] EP-5: Record executable identity, version, and argument-vector digest, at explicitly weaker
+      evidence strength that a zero exit status cannot raise. (2026-08-05)
 - [ ] EP-6: Add the unattended agent-run evidence path and its emission point.
 - [ ] EP-6: Capture agent-run executable identity, version, argv digest, and structured result
       identifiers.
@@ -634,6 +636,68 @@ class of cheap unconditional observation the Decision Log's opt-in gate delibera
 gating. EP-5 has two known instances of the same shape waiting for it: the Claude CLI session
 identifier that is decoded and discarded, and the Codex thread identifier that is filtered out of
 the event stream.
+
+
+### Found while implementing EP-5
+
+These change what EP-6 and EP-7 must do.
+
+**The Codex CLI names no model anywhere, so its evidence can never exceed `EvidenceCorrelated`.**
+This is harder than IR-3 or this MasterPlan assumed. `codex exec --json` at 0.146.0 emits exactly
+four event kinds — `thread.started`, `turn.started`, `item.completed`, `turn.completed` — and not
+one of them carries a model identifier. The only model string anywhere near the call is the one
+baikai put on the command line, and recording that would be reporting the request as an
+observation. EP-7's strict mode must therefore treat `EvidenceRequired EvidenceModelObserved` as a
+*pre-dispatch refusal* for the Codex transport unconditionally, not as something that might
+succeed depending on the run. The Claude CLI is the opposite: it names the model that consumed
+tokens in its result event's `modelUsage` keys, so it reaches `EvidenceModelObserved` routinely.
+
+**The subprocess transports do not have the no-dispatch translation infidelity EP-3 and EP-4
+found.** Both API transports emit `noThinkingRequested` when `mapRequest` fails, falsely asserting
+the caller requested no level. A CLI provider's translation is a pure function of `Options`
+computed *before* the process is spawned, so a failed launch, a nonzero exit, and an unparseable
+result all still carry the real translation. EP-7 owns the fix, and now knows it applies to two of
+the four completion transports rather than all four — which also means adding a new `ThinkingMode`
+for that case would leave two transports never using it.
+
+**The Claude CLI reports a total cost, and the trace layer does not recompute cost.**
+`claude -p`'s result event carries `total_cost_usd`, which EP-5 now carries into `Usage.cost`
+exactly, as a `Rational` rather than through a `Double`. Together with the token counts this is the
+second unconditional cost-visible behaviour change in this initiative, after EP-2's always-present
+zero. `Baikai.Trace` reads `Usage.cost` directly rather than recomputing it from pricing
+(`Trace.hs:358` and `:431`), so this reaches every cost consumer immediately. EP-7's release notes
+must lead with both together: a dashboard that showed these calls as free now shows real tokens and
+a real dollar figure, and totals over historical data will not match totals over new data.
+
+**Codex's `cache_write_input_tokens` has undetermined inclusion semantics.** Its recorded value is
+zero, so the recording cannot say whether it is part of the inclusive `input_tokens` total, and
+codex's source is not in the local Mori corpus. EP-5 resolved it by subtracting only
+`cached_input_tokens` — matching both codex's own non-cached-input arithmetic and this
+repository's existing OpenAI normalization — and carrying the cache-write count through unchanged,
+on the grounds that an undercount is the worse error for evidence. EP-6 parses the same tool and
+should reuse `codexUsage` rather than deciding this again.
+
+**A digest comparison across two calls must hold the executable fixed.** The subprocess request
+envelope is the argument vector with the executable first, so two calls through two different
+binaries produce different commitment digests for a reason unrelated to what a test is usually
+asking about. EP-6 spawns the same tools and will hit this.
+
+**A fake executable used in a test must answer `--version` before doing anything else.** The
+evidence path invokes the configured executable a second time to read its version, so a fake that
+records its argument vector unconditionally overwrites the recording under test with
+`["--version"]`. EP-6 drives fake executables too.
+
+**A live smoke assertion pinned the behaviour EP-5 corrects, and caught it.** `baikai-smoke`
+required `usage_zero` for both CLI providers; every fixture test passed while it failed against
+the real binaries. It was inverted deliberately rather than deleted, and it now asserts that usage
+and the response identifier are reported. EP-6 changes `AgentRunResult`, which `baikai-smoke` also
+exercises; check it rather than assuming the unit suites are the whole story.
+
+**A two-second subprocess timeout is load-sensitive in this repository's test runs.** EP-5's
+version probe was bounded at two seconds per the plan and failed intermittently when four `cabal
+test` suites ran in parallel; individual subprocess cases were observed taking over five seconds.
+It is now five. Any later plan bounding a subprocess should pick the bound from "what stops an
+infinite hang", not from "what feels fast".
 
 
 ## Decision Log
