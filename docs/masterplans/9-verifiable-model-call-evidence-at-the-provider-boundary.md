@@ -199,7 +199,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Complete |
 | EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Complete |
 | EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | Complete |
-| EP-7 | Enforce strict evidence mode and release the evidence surface | docs/plans/57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md | EP-2, EP-3, EP-4, EP-5, EP-6 | None | In Progress |
+| EP-7 | Enforce strict evidence mode and release the evidence surface | docs/plans/57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md | EP-2, EP-3, EP-4, EP-5, EP-6 | None | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -302,14 +302,22 @@ existing `[Unreleased]` heading in `CHANGELOG.md` and none creates a dated relea
 owns the coordinated version computation and the release, following
 `agents/skills/release/SKILL.md`.
 
-### Cross-plan decisions that should become ADRs
+### Cross-plan decisions that became ADRs
 
-EP-7 must create `docs/adr/` and promote at least the following, per
-`agents/skills/exec-plan/ADR.md`: the requested/effective/observed three-way split and the rule
-that an unobserved field is never backfilled; the boundary that the provider adapter owns
-translation description and no downstream layer may re-derive it; the two-digest hashing contract
-and what each digest does and does not prove; and the deliberate exclusions — Baikai does not
-sign, does not hold sanctioning policy, and does not own retries.
+EP-7 created `docs/adr/` and promoted five records, per `agents/skills/exec-plan/ADR.md`:
+
+- [docs/adr/0001](../adr/0001-architecture-decision-record-convention.md) — the convention
+  itself, and why this corpus is plain files rather than a profiled OKF bundle.
+- [docs/adr/0002](../adr/0002-requested-translated-observed-are-never-collapsed.md) — the
+  three-way split, the rule that an unobserved field is never backfilled, and why `Observed` is
+  a distinct type rather than `Maybe`.
+- [docs/adr/0003](../adr/0003-the-adapter-owns-the-translation-description.md) — the adapter
+  owning its translation description, and the sharper half of the rule: derive the adjustment
+  list from the mapping function, never from a table beside it.
+- [docs/adr/0004](../adr/0004-two-digests-commitment-and-configuration.md) — the two-digest
+  contract, what each proves, and why the projection is an allow-list.
+- [docs/adr/0005](../adr/0005-what-baikai-deliberately-does-not-do.md) — the deliberate
+  exclusions, and where each of those responsibilities does live.
 
 
 ## Progress
@@ -353,14 +361,21 @@ sign, does not hold sanctioning policy, and does not own retries.
       structured result identifiers the tool reports when configured to print any. (2026-08-05)
 - [x] EP-6: Surface evidence through the `baikai agent run` command, with `--evidence-file` and
       `--run-id`. (2026-08-05)
-- [ ] EP-7: Implement strict evidence mode with pre-dispatch refusal across every enumerated
-      downgrade site.
-- [ ] EP-7: Make strict mode fail the call on trace-sink failure while best-effort mode keeps
-      today's behavior.
-- [ ] EP-7: Write `docs/user/model-call-evidence.md` and the migration guidance for existing
-      trace and cost consumers.
-- [ ] EP-7: Create `docs/adr/`, promote the durable decisions, and coordinate the release across
-      every affected package.
+- [x] EP-7: Implement strict evidence mode with pre-dispatch refusal across every downgrade site
+      — eleven construction sites, not the six this MasterPlan enumerated. (2026-08-05)
+- [x] EP-7: Make strict mode fail the call on trace-sink failure while best-effort mode keeps
+      today's behavior. (2026-08-05)
+- [x] EP-7: Give the unattended agent surface its own pre-dispatch gate, since neither the
+      `describeThinking` gate nor the sink rule reaches it. (2026-08-05)
+- [x] EP-7: Fix the OpenTelemetry gap EP-2 left — emit `CallEvidence` before the terminal so it
+      reaches an open span. (2026-08-05)
+- [x] EP-7: Write `docs/user/model-call-evidence.md` and the migration guidance for existing
+      trace and cost consumers. (2026-08-05)
+- [x] EP-7: Create `docs/adr/` and promote the durable decisions. (2026-08-05)
+- [x] EP-7: Compute the coordinated version bumps across every affected package, convert the
+      changelog, and pass all four release gates. (2026-08-05)
+- [ ] EP-7: Tag, push, and publish to Hackage. Held for operator approval; the release is
+      irreversible and the gates are already green.
 
 
 ## Surprises & Discoveries
@@ -892,6 +907,116 @@ implies.
   Date: 2026-08-05
 
 
+### Found while implementing EP-7
+
+**There are eleven downgrade construction sites, not six.** This MasterPlan enumerated six and
+EP-7 told its implementer to re-derive the count. Four live in `Claude/Internal/Request.hs`,
+three in `OpenAI/Shape.hs`, and four more were added by the provider plans themselves — both CLI
+completion providers and both agent renderers — after this enumeration was written. It changed
+nothing, because the gate is driven by the adjustment *list* rather than by a table of sites.
+That is exactly why an enumeration going stale was survivable; a site table would have shipped
+wrong.
+
+**Two plans in this initiative specified a signature that could not express their own acceptance
+criterion.** EP-6 put the evidence on `AgentRunResult` while requiring a timed-out run — which
+returns `Left` — to record `CallAborted`. EP-7 specified
+`onSinkFailure :: EvidenceStrictness -> SomeException -> IO ()` while requiring a strict sink
+failure to fail the call. Both surfaced only when the criterion was written as a failing test
+rather than as a sentence, and both fixes were small. For a future MasterPlan: a plan's
+Interfaces section is a prediction, and the acceptance criteria are the specification.
+
+**The OpenTelemetry evidence branch had been dead since EP-2 with no failing test.** The sink
+ends and removes a call's span on the terminal event, and `Baikai.Trace` pushed `CallEvidence`
+after it, so the attribute-attaching branch was unreachable from any real call — silently, since
+a lookup miss is tolerated by design. The existing test passed throughout because it fed the
+events in the order it chose. A test that constructs its own inputs cannot catch an ordering bug
+in whatever normally produces them.
+
+**One unreproduced test failure.** A single seven-suite `cabal test` run reported
+`baikai-test: FAIL` during EP-7's second milestone; every subsequent run passed — the suite
+alone, three forced full re-runs, six direct binary runs, and the release gate. The log was
+overwritten before it could be read, so it is recorded rather than declared fixed. The suspects
+are the subprocess-spawning and `timeout`-based tests under parallel load, the same sensitivity
+EP-5 found in its version probe.
+
+
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Every one of Baikai's five transports now emits a versioned `ModelCallEvidence` record, a caller
+can demand a strength and be refused before spending anything, and the whole surface costs
+nothing to a caller who ignores it. Seven ExecPlans, seven packages versioned, all four release
+gates green, IR-3 closed.
+
+What someone can do that they could not before:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/baikai
+cabal test baikai baikai-claude baikai-openai baikai-agent
+```
+
+and, in an application, ask for a record and get one — or, with a strictness set, a refusal
+naming both the strength the chosen transport can reach and every downgrade the request would
+have suffered. The Vision & Scope section above sketched
+`withEvidence sink runId model ctx (opts & #evidence .~ Just strictEvidence)`; the shipped
+surface is `Options.evidence` carrying an `EvidenceRequest`, which needed no new entry point and
+reaches every transport including the two that never touch `Baikai.Trace`.
+
+### What the decomposition got right
+
+Ordering by functional concern along the path a call takes was correct, and the two deliberate
+dependency choices both paid. EP-6 depending only on EP-1 let the unattended agent surface —
+which shares no plumbing with the completion path — proceed without waiting on the transport
+channel. Landing EP-2 with every adapter supplying a minimal, honest evidence value kept every
+commit green rather than producing a long-lived branch that did not compile.
+
+Splitting the three provider plans was right for a reason the decomposition only half
+anticipated. It was justified on "their translation vocabularies share nothing", which is true;
+what actually mattered is that each plan *discovered* something the others needed. EP-3 found
+that a `--pattern` matching nothing reports success. EP-4 found that its most valuable test was
+the pair of calls its transport cannot tell apart. EP-5 found that `codex` names no model
+anywhere, which became a hard limit in EP-7's strictness gate. A merged plan would have found
+those later or not at all.
+
+### What it got wrong
+
+The MasterPlan enumerated six downgrade sites and shipped eleven. It predicted `ApiProvider`
+would be untouched by EP-2 and gained a field in EP-7 — that part it got right, and stated
+explicitly, which is why EP-7's deviation was a footnote rather than a surprise.
+
+The enumeration going stale is the general lesson: a MasterPlan written before implementation
+should say what shape a thing has, not how many of it there are. "Every site where a request is
+weakened records an adjustment, and strict mode refuses any non-empty adjustment list" survived
+the count changing. "There are six sites" did not.
+
+### The three lessons worth keeping
+
+**A named test is a record of a decision; a doc comment is a record of a belief.** The IR review
+called the OpenAI-native effort mapping a live wire bug on the strength of a stale Haddock, and
+the reversal is kept visible in the Decision Log rather than edited away. Implementing that
+clamp would have silently weakened every `xhigh` and `max` request against a current OpenAI
+model — the precise failure this initiative exists to eliminate.
+
+**The most valuable test is usually the one about a pair.** Asserting a field is populated proves
+the code ran. Asserting that two calls a transport cannot tell apart produce evidence that can —
+`minimal` against `low` on the Claude CLI, `low` against `max` on a Z.ai host — proves the record
+is worth having. Every provider plan found its own version of that, and EP-7's exhaustive
+"a best-effort caller is refused nothing" is the same idea inverted.
+
+**Verify against the real thing before writing the parser.** EP-5's plan predicted a bare result
+object from `claude`; the installed version returns an array, reports a cost the module's own
+Haddock said could not exist, and hides the model in a map's keys. And the live smoke suite —
+not any fixture — is what caught the behaviour change when the CLI providers stopped reporting
+`zeroUsage`.
+
+### What remains
+
+The release is prepared and not published: tag, push, and upload in dependency order with
+`baikai` first, per `agents/skills/release/SKILL.md` steps 5 through 7. It is held for operator
+approval because a published Hackage version cannot be withdrawn, only deprecated.
+
+Two things this initiative deliberately left for later, both recorded in EP-7's Surprises:
+`requestConfiguration` is degenerate on all three subprocess transports, because the
+configuration projection admits named object fields and an argument vector has none; and
+`ModelCallEvidence.requestedModel` cannot express "no model was requested", which the unattended
+agent surface needs. Both are schema changes and belong together in one major bump rather than
+separately.

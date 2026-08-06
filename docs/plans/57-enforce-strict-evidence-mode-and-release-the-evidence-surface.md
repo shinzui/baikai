@@ -60,21 +60,99 @@ meet.
 
 ## Progress
 
-- [ ] Implement the pre-dispatch strictness check and its error type.
-- [ ] Enumerate and cover all six downgrade sites in the check.
-- [ ] Publish each transport's declared maximum evidence strength.
-- [ ] Make strict mode fail the call on trace-sink failure; leave best-effort unchanged.
-- [ ] Add the strict-mode flag to `baikai agent run`.
-- [ ] Write `docs/user/model-call-evidence.md`.
-- [ ] Write the migration guidance for existing trace, cost-log, and OpenTelemetry consumers.
-- [ ] Create `docs/adr/` and promote the initiative's durable decisions.
-- [ ] Update the IR's status and the improvement-request log.
-- [ ] Compute per-package version bumps and prepare the coordinated release.
+- [x] Implement the pre-dispatch strictness check, its refusal type, and the
+      `describeThinking` field it needs on `ApiProvider`. (2026-08-05)
+- [x] Enumerate and cover every downgrade site in the check — eleven construction sites
+      across four transports, not the six this plan predicted. (2026-08-05)
+- [x] Publish each transport's declared maximum evidence strength, each tied mechanically to a
+      test that drives that transport to it. (2026-08-05)
+- [x] Make strict mode fail the call on trace-sink failure; leave best-effort unchanged.
+      (2026-08-05)
+- [x] Add `--require-evidence` to `baikai agent run`, with the surface's own pre-dispatch gate
+      behind it. (2026-08-05)
+- [x] Fix the OpenTelemetry gap EP-2 left: emit `CallEvidence` before the terminal so it reaches
+      an open span. (2026-08-05)
+- [x] Write `docs/user/model-call-evidence.md`, including the migration guidance for existing
+      trace, cost-log, and OpenTelemetry consumers. (2026-08-05)
+- [x] Create `docs/adr/` and promote five durable decisions. (2026-08-05)
+- [x] Update IR-3's status and add its completion entry to the improvement-request log.
+      (2026-08-05)
+- [x] Compute per-package version bumps, convert the changelog, and run all four release gates.
+      (2026-08-05)
+- [ ] Tag, push, and publish to Hackage. Held pending operator approval — see Surprises &
+      Discoveries.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+### There are eleven downgrade construction sites, not six
+
+This plan told the implementer to re-derive the count from the code and to record a discrepancy.
+The count is eleven:
+
+```bash
+rg -n 'ThinkingDropped|EffortClamped|EffortOmitted|EffortCollapsedToToggle' \
+  --glob '*.hs' --glob '!**/test/**' baikai/src baikai-claude/src baikai-openai/src
+```
+
+Four in `Claude/Internal/Request.hs` (budget-exceeded, unsupported-model, adaptive omission,
+adaptive clamp), three in `OpenAI/Shape.hs` (unsupported-host, compatible-effort clamp,
+toggle collapse), and four more the provider plans added that the MasterPlan's enumeration
+predates: the Claude and Codex CLI completion providers and both agent renderers.
+
+It changed nothing about the gate, which is driven by the *adjustment list* rather than by a
+table of sites — that is precisely why it survived the count being wrong. It would have
+invalidated a site-table implementation.
+
+### The plan's `onSinkFailure` signature could not express failing the call
+
+`onSinkFailure :: EvidenceStrictness -> SomeException -> IO ()` was specified in the Interfaces
+section and returns nothing, so it cannot tell a caller to fail. Rather than change it, the
+policy and the error became two functions beside it — `sinkFailureIsFatal` and
+`sinkFailureError` — and the trace layer decides. That turned out better than a widened
+signature: the stderr report and the failed call serve different audiences, and keeping them
+separate makes it obvious that a strict caller gets both rather than one instead of the other.
+
+### The OpenTelemetry evidence branch was dead code, and only a live test finds that
+
+EP-2 recorded it and left it here. The sink ends and removes a call's span on the terminal
+event, and `Baikai.Trace` pushed `CallEvidence` after it, so the attribute-attaching branch was
+unreachable from any real call — every backend saw a span with no evidence on it, and nothing
+failed. The existing test passed throughout, because it feeds the events in the order it
+chooses. The fix is one line of reordering; the test that would catch a revert had to drive
+`withTrace` with an evidence-building provider and assert on the exported span.
+
+### The agent surface needed its own gate, and it must be structural rather than predictive
+
+`runAgentCommand` ignored `strictness` entirely, and neither the `describeThinking` gate nor the
+sink-failure rule reaches a surface with no `ApiProvider` and no trace sink. Its gate refuses
+what is *impossible* — an `inherit` job can observe nothing at all, and a `codex` job can never
+learn a model — and stays silent when the requirement is merely uncertain.
+
+Post-hoc failure was considered and rejected: the run has already happened and may have changed
+the working tree, and turning that into a `Left` would destroy the report of it. The plan's own
+Decision Log gives the reason — a post-hoc annotation is unenforceable — and the same logic says
+a post-hoc *failure* is destructive. The achieved strength is in the record for the caller to
+check.
+
+### One unreproduced test failure
+
+A single `cabal test` run across seven suites reported `baikai-test: FAIL` during Milestone 2.
+Every subsequent run passed: the suite alone (441 tests), three forced full re-runs of all seven
+suites, six direct runs of the test binary, and the release gate with keys removed. The failing
+run's log was overwritten before it could be read. It is recorded here rather than declared
+fixed, because it was not diagnosed. If it recurs, the suspects are the tests that spawn
+subprocesses or use `timeout` under parallel load — the same load sensitivity plan 55 found in
+its version probe.
+
+### The release is prepared but not published
+
+Everything through the release commit is done: versions bumped, bounds widened, changelog
+converted, and all four gates green. Tagging, pushing, and uploading to Hackage are
+irreversible and outward-facing, and a published version cannot be withdrawn — only deprecated.
+They are held for explicit operator approval rather than performed as part of implementing the
+plan. The remaining commands are exactly those in `agents/skills/release/SKILL.md` steps 5
+through 7.
 
 
 ## Decision Log
@@ -97,6 +175,130 @@ meet.
   annotation would also be unenforceable, since the caller has already received the answer and
   will use it.
   Date: 2026-08-05
+
+
+- Decision: Add `describeThinking` to `ApiProvider`, deviating from
+  [docs/plans/52](52-carry-evidence-from-the-provider-adapter-to-the-trace-boundary.md)'s
+  statement that the type is unchanged.
+  Rationale: Plan 52's statement was true for the evidence *channel* and is not true for the
+  pre-dispatch *gate*. Carrying evidence back from a completed call is per-call data and belongs
+  on the terminal event; refusing before dispatch requires knowing what a provider would do
+  before any request exists, which only a per-handler function can answer. Each implementation is
+  a one-liner delegating to the function that builds the real translation — Claude's max-tokens
+  interaction was extracted into `planThinking` so `mapRequest` and the gate call the same code —
+  because two descriptions of one mapping diverge silently. Plan 52's Interfaces section was
+  correct when written; this is where it stops being.
+  Date: 2026-08-05
+
+- Decision: Keep `onSinkFailure`'s specified signature and put the failure policy in two
+  functions beside it.
+  Rationale: The signature this plan specified returns `IO ()` and so cannot express "fail the
+  call", which the same plan requires. Widening it was the obvious fix and the worse one: the
+  stderr report and the failed call serve different audiences — the operator watching the process
+  wants the line whether or not the program also failed — and one function returning a value the
+  caller may ignore blurs that. `sinkFailureIsFatal` and `sinkFailureError` say the two things
+  separately, and `finalizeTrace` decides.
+  Date: 2026-08-05
+
+- Decision: The agent surface's strict gate refuses only what is structurally impossible, and
+  never fails a run after the fact.
+  Rationale: `runAgentCommand` ignored strictness entirely, and neither the `describeThinking`
+  gate nor the sink-failure rule reaches a surface with no `ApiProvider` and no trace sink — so
+  `--require-evidence` would have been another flag with nothing behind it. It refuses an
+  `inherit` job that demands an observation, and a `codex` job that demands a model, because
+  neither can be satisfied however the run goes. It does not refuse a run that merely *might*
+  fall short. Failing such a run afterwards would destroy the report of work that already
+  happened and may have changed the working tree, and this plan's own Decision Log already
+  establishes that a post-hoc verdict on evidence is the wrong shape. The achieved strength is in
+  the record.
+  Date: 2026-08-05
+
+- Decision: Emit `CallEvidence` before its call's terminal event.
+  Rationale: EP-2 recorded this as a live gap and left it here. The OpenTelemetry sink ends and
+  removes a call's span on the terminal, so the old order made its evidence branch unreachable
+  from any real call — silently, since a lookup miss is tolerated. The reorder is safe precisely
+  because no consumer has ever seen a `call_evidence` line, so none can depend on the old
+  position. The alternative, teaching the sink to defer ending its span, would trade a one-line
+  ordering change for state the sink would have to hold across events.
+  Date: 2026-08-05
+
+- Decision: Establish `docs/adr/` as plain Markdown files rather than adopting the shared
+  `documentation.architectureDecisions` OKF profile.
+  Rationale: Recorded in full as [docs/adr/0001](../adr/0001-architecture-decision-record-convention.md),
+  which is itself the first application of the convention. `mori.dhall` declares no ADR bundle,
+  and `agents/skills/exec-plan/ADR.md` is explicit that adopting a profiled bundle should not
+  happen as an incidental plan edit and that migrating a corpus is separate work with its own
+  blueprint. Establishing the corpus now and migrating it deliberately later is the ordering that
+  guidance implies. The frontmatter used here is a subset of what the profile requires, so the
+  migration is additive.
+  Date: 2026-08-05
+
+- Decision: Convert the changelog into one dated section per released package rather than one
+  section for the coordinated release.
+  Rationale: The repository's existing headings are `## [<package> <version>] - <date>`, and a
+  reader looking for what changed in `baikai-openai 0.5.0.0` should find a heading with that
+  name. Forty-seven accumulated entries were partitioned by the package each names; entries
+  describing two packages went to the one whose surface changed. The alternative — a single
+  heading naming seven versions — would have been less work and would have broken the pattern
+  every previous release set.
+  Date: 2026-08-05
+
+- Decision: Stop before tagging, pushing, and publishing.
+  Rationale: A published Hackage version cannot be withdrawn, only deprecated, and a pushed tag
+  is visible immediately. Those are the operator's calls to make with their own credentials, not
+  something to perform as a side effect of implementing a plan. Everything reversible is done and
+  verified, so approval is a decision about publishing rather than about whether the work is
+  ready.
+  Date: 2026-08-05
+
+
+## Outcomes & Retrospective
+
+Strict evidence mode enforces, the surface is documented, the repository has its first ADRs,
+IR-3 is closed, and seven packages are versioned and gated for release.
+
+`cabal build all` is clean with no warnings and `cabal test all` passes with every provider key
+unset and both coding-agent binaries off `PATH` — 441 tests in `baikai`, 213 in `baikai-claude`,
+158 in `baikai-openai`, 80 in `baikai-agent`, 29 in `baikai-kit`, 5 in `baikai-trace-otel`, 4 in
+`baikai-effectful`, and `baikai-smoke` passing with every live case correctly skipped. Every
+suite ran tests rather than reporting zero.
+
+What a caller can do that they could not before:
+
+```haskell
+let opts = emptyOptions
+      & #thinking .~ Just ThinkingMax
+      & #evidence .~ Just
+          (evidenceRequest "run-42" & #strictness .~ EvidenceRequired EvidenceModelObserved)
+```
+
+and get either a record naming the model that ran, or a refusal before anything is spent, naming
+both the strength the transport can reach and every downgrade the request would have suffered.
+`baikai agent run --require-evidence model_observed` does the same for an unattended run.
+
+Three things are worth carrying forward.
+
+The most valuable test in this plan is not one of the refusals. It is the one asserting that a
+best-effort caller is refused **nothing**, on every transport at every level, exhaustively rather
+than representatively — because that is the promise every existing caller depends on without
+knowing this feature exists. Its companion is the laziness test: a translation that throws when
+forced, proving the gate never runs a provider's shaping function for a caller who did not ask
+for strictness. Between them they are what makes strict mode a promotion rather than a
+migration.
+
+The plan's own Interfaces section was wrong twice, in the same way EP-6's was: a signature that
+could not express what the same plan required. `onSinkFailure` returning `IO ()` cannot fail a
+call. Both times the fix was small and both times it surfaced only when the acceptance criterion
+was written as a test rather than as a sentence.
+
+And the OpenTelemetry branch had been dead since EP-2 without a single failing test. The existing
+test fed events in the order it chose, so it could not see that production fed them in another.
+A test that constructs its own inputs cannot catch an ordering bug in the thing that normally
+produces them.
+
+What remains: the release itself — tag, push, and upload in dependency order with `baikai` first.
+It is held for operator approval rather than blocked; the gates are green and the commands are
+`agents/skills/release/SKILL.md` steps 5 through 7.
 
 
 ## Context and Orientation
