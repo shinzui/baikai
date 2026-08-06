@@ -49,7 +49,7 @@ import Baikai.Cost.Log
     appendEntry,
     summarizeContext,
   )
-import Baikai.Error (providerError)
+import Baikai.Error (BaikaiError, providerError)
 -- 'Baikai.Evidence.CallStatus' has a @CallFailed@ constructor and so
 -- does 'Baikai.Trace.Event.TraceEvent'. They mean different things and
 -- both belong in this module, so the status constructors stay behind
@@ -68,6 +68,7 @@ import Baikai.Options (Options)
 import Baikai.Prelude
 import Baikai.Provider.Registry (ProviderRegistry, globalProviderRegistry)
 import Baikai.Response (Response)
+import Baikai.StopReason (StopReason (ErrorReason))
 import Baikai.Stream (reassembleResponse, streamRequestWith)
 import Baikai.Stream.Event (AssistantMessageEvent (..), TerminalPayload (..))
 import Baikai.Trace.Event (TraceEvent (..))
@@ -78,7 +79,7 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, try)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, void)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe)
@@ -152,7 +153,11 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
           }
     pure $
       Stream.finallyIO
-        (finalizeTrace state eid start m opts)
+        -- The cleanup path cannot change a call's outcome — the stream
+        -- is already over — so a fatal sink failure discovered here has
+        -- nowhere to go but the stderr line 'reportSinkError' already
+        -- wrote. The terminal event below is where it can still matter.
+        (void (finalizeTrace state eid start m opts))
         (Stream.mapM (traceEvent state eid start m opts) (streamRequestWith reg m ctx opts))
 
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
@@ -216,53 +221,70 @@ newTraceState = do
   writeIORef root (Just sp)
   pure state
 
-finalizeTrace :: TraceState -> Text -> UTCTime -> Model -> Options -> IO ()
+-- | Close the trace for a call and report whether its sink failure must
+-- fail the call.
+--
+-- 'Nothing' is the ordinary outcome, including a best-effort call whose
+-- sink threw: that is reported on stderr and the call succeeds, which is
+-- baikai's long-standing behaviour. 'Just' happens only for a caller who
+-- required evidence and did not get it.
+--
+-- Runs at most once per call — the second caller sees 'closed' already
+-- set and returns 'Nothing' — which is why the terminal event calls it
+-- before the 'Stream.finallyIO' cleanup does. The terminal is where the
+-- answer can still change the call's outcome; by cleanup time the
+-- stream is over.
+finalizeTrace ::
+  TraceState -> Text -> UTCTime -> Model -> Options -> IO (Maybe BaikaiError)
 finalizeTrace s eid start m opts = do
   alreadyClosed <-
     atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
-  unless alreadyClosed $ do
-    sent <- readIORef (s ^. #terminalSent)
-    unless sent $ do
-      now <- getCurrentTime
-      let abortText = "aborted: stream consumer stopped before the terminal event"
-      writeChan (s ^. #chan) $
-        Just
-          CallFailed
-            { eventId = eid,
-              timestamp = now,
-              provider = m ^. #provider,
-              model = m ^. #modelId,
-              latencyMs = millisBetween start now,
-              errorMessage = abortText
-            }
-      -- The consumer stopped before the terminal event, so no adapter
-      -- ever handed evidence back and this layer has to build it. The
-      -- status is 'CallAborted' rather than 'CallFailed': an abort is
-      -- the consumer's doing, and reporting it as a provider failure
-      -- would misattribute it. The digests are over
-      -- 'Build.dispatchEnvelope' — see its documentation for what that
-      -- does and does not commit to.
-      mev <-
-        Build.minimalEvidence
-          m
-          opts
-          (Build.transportForModel m)
-          noThinkingRequested
-          (Build.dispatchEnvelope m opts)
-          start
-          now
-          Evidence.CallAborted
-          -- 'errorInfo' is 'Just' whenever the status is not
-          -- 'CallSucceeded', so an abort needs one. Its category is
-          -- 'OtherError' rather than any provider-failure category,
-          -- because nothing about the provider went wrong: the consumer
-          -- stopped reading. The message says exactly that.
-          (Just (providerError abortText))
-      pushEvidence s eid now m mev
-    writeChan (s ^. #chan) Nothing
-    takeMVar (s ^. #done)
-    reportSinkError s opts
-    releaseStableRoot s
+  if alreadyClosed
+    then pure Nothing
+    else do
+      sent <- readIORef (s ^. #terminalSent)
+      unless sent $ do
+        now <- getCurrentTime
+        let abortText = "aborted: stream consumer stopped before the terminal event"
+        writeChan (s ^. #chan) $
+          Just
+            CallFailed
+              { eventId = eid,
+                timestamp = now,
+                provider = m ^. #provider,
+                model = m ^. #modelId,
+                latencyMs = millisBetween start now,
+                errorMessage = abortText
+              }
+        -- The consumer stopped before the terminal event, so no adapter
+        -- ever handed evidence back and this layer has to build it. The
+        -- status is 'CallAborted' rather than 'CallFailed': an abort is
+        -- the consumer's doing, and reporting it as a provider failure
+        -- would misattribute it. The digests are over
+        -- 'Build.dispatchEnvelope' — see its documentation for what that
+        -- does and does not commit to.
+        mev <-
+          Build.minimalEvidence
+            m
+            opts
+            (Build.transportForModel m)
+            noThinkingRequested
+            (Build.dispatchEnvelope m opts)
+            start
+            now
+            Evidence.CallAborted
+            -- 'errorInfo' is 'Just' whenever the status is not
+            -- 'CallSucceeded', so an abort needs one. Its category is
+            -- 'OtherError' rather than any provider-failure category,
+            -- because nothing about the provider went wrong: the consumer
+            -- stopped reading. The message says exactly that.
+            (Just (providerError abortText))
+        pushEvidence s eid now m mev
+      writeChan (s ^. #chan) Nothing
+      takeMVar (s ^. #done)
+      fatal <- reportSinkError s opts
+      releaseStableRoot s
+      pure fatal
 
 -- | Push the 'CallEvidence' event for a call, when there is one.
 --
@@ -298,18 +320,27 @@ releaseStableRoot s = do
   msp <- atomicModifyIORef' (s ^. #stableRoot) (\sp -> (Nothing, sp))
   forM_ msp freeStablePtr
 
--- | Report a sink failure through the strictness-aware hook.
+-- | Report a sink failure on stderr, and say whether it must also fail
+-- the call.
 --
 -- The strictness comes from the caller's evidence request; a caller who
--- asked for no evidence is 'EvidenceBestEffort', which is baikai's
--- long-standing behaviour of reporting once on stderr and letting the
--- call succeed. Making a strict caller's call fail here is
--- @docs\/plans\/57@'s work and lands as a change to
--- 'Build.onSinkFailure' alone.
-reportSinkError :: TraceState -> Options -> IO ()
+-- asked for no evidence is 'EvidenceBestEffort'. Both audiences are
+-- served: the stderr line is for whoever is watching the process, and
+-- the returned error is for the program.
+reportSinkError :: TraceState -> Options -> IO (Maybe BaikaiError)
 reportSinkError s opts = do
   merr <- readIORef (s ^. #sinkError)
-  forM_ merr (Build.onSinkFailure (strictnessOf opts))
+  case merr of
+    Nothing -> pure Nothing
+    Just e -> do
+      Build.onSinkFailure strictness e
+      pure
+        ( if Build.sinkFailureIsFatal strictness
+            then Just (Build.sinkFailureError e)
+            else Nothing
+        )
+  where
+    strictness = strictnessOf opts
 
 -- | The strictness a call was dispatched under. A call with no evidence
 -- request is best-effort.
@@ -360,7 +391,12 @@ traceEvent state eid start m opts ev = do
       writeChan (state ^. #chan) (Just finished)
       pushEvidence state eid now m mev
       writeIORef (state ^. #terminalSent) True
-      finalizeTrace state eid start m opts
+      fatal <- finalizeTrace state eid start m opts
+      -- A strict caller whose record did not survive gets a failed call
+      -- rather than an answer they cannot account for. This is the only
+      -- place in baikai where a call that reached the provider and came
+      -- back is nevertheless reported as failed.
+      pure (maybe ev (failTerminal ev) fatal)
     EventError TerminalPayload {message = msg, evidence = mev} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
@@ -379,9 +415,36 @@ traceEvent state eid start m opts ev = do
       writeChan (state ^. #chan) (Just failed)
       pushEvidence state eid now m mev
       writeIORef (state ^. #terminalSent) True
-      finalizeTrace state eid start m opts
-    _ -> pure ()
-  pure ev
+      -- Already an error: a sink failure on top changes nothing the
+      -- caller can act on, and overwriting the provider's own error with
+      -- baikai's would lose the more useful of the two.
+      _ <- finalizeTrace state eid start m opts
+      pure ev
+    _ -> pure ev
+
+-- | Rewrite a successful terminal into a failed one carrying baikai's
+-- own error, preserving everything else about it — including the
+-- evidence, which is exactly what a caller investigating this failure
+-- wants to read.
+failTerminal :: AssistantMessageEvent -> BaikaiError -> AssistantMessageEvent
+failTerminal ev be = case ev of
+  EventDone p ->
+    EventError
+      ( p
+          & #reason
+          .~ ErrorReason
+          & #errorInfo
+          .~ Just be
+          & #message
+          %~ markFailed
+      )
+  other -> other
+  where
+    markFailed = \case
+      AssistantMessage p ->
+        AssistantMessage
+          (p & #stopReason .~ ErrorReason & #errorMessage .~ Just (be ^. #message))
+      other -> other
 
 -- ============================================================
 -- Cost-log convenience wrapper

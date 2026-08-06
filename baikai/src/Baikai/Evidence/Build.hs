@@ -22,7 +22,11 @@ module Baikai.Evidence.Build
     dispatchEnvelope,
     transportForModel,
     baikaiPackageVersion,
+
+    -- * Trace-sink failure policy
     onSinkFailure,
+    sinkFailureIsFatal,
+    sinkFailureError,
 
     -- * The pre-dispatch strictness gate
     EvidenceRefusal (..),
@@ -33,7 +37,7 @@ module Baikai.Evidence.Build
 where
 
 import Baikai.Api (Api (..), renderApi)
-import Baikai.Error (BaikaiError, invalidRequest)
+import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Evidence
   ( CallStatus,
     EndpointIdentity (..),
@@ -380,24 +384,51 @@ refusalError refusals =
         <> Text.intercalate "; " (map renderEvidenceRefusal refusals)
     )
 
--- | What to do when the trace sink itself fails.
+-- | Report a trace-sink failure on stderr.
 --
--- Under 'EvidenceBestEffort' this reports once on stderr and continues,
--- which is baikai's long-standing behaviour and what every caller who
--- has not opted into evidence gets. Strict callers need the opposite —
--- evidence that can vanish without the caller noticing is not evidence
--- — and get it from
--- @docs\/plans\/57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md@,
--- which replaces the body of this one function rather than
--- restructuring the trace finalizer around it.
+-- Always, under either strictness. A strict caller /additionally/ has
+-- their call failed — see 'sinkFailureIsFatal' — but they should still
+-- see the operator-facing line, because the two audiences are different:
+-- the message is for whoever is watching the process, and the failed
+-- call is for the program.
 onSinkFailure :: EvidenceStrictness -> SomeException -> IO ()
-onSinkFailure = \case
-  EvidenceBestEffort -> report
-  EvidenceRequired _ -> report
-  where
-    report e =
-      hPutStrLn
-        stderr
-        ( "baikai: trace sink failed; trace events for this call were dropped: "
-            <> displayException e
-        )
+onSinkFailure _ e =
+  hPutStrLn
+    stderr
+    ( "baikai: trace sink failed; trace events for this call were dropped: "
+        <> displayException e
+    )
+
+-- | Whether a trace-sink failure must fail the call.
+--
+-- Under 'EvidenceBestEffort' it must not: reporting once on stderr and
+-- letting the call succeed is baikai's long-standing behaviour and is
+-- what every caller who has not opted into evidence gets.
+--
+-- Under 'EvidenceRequired' it must. A strict caller asked for a record
+-- of this call and the record did not survive; the call succeeding
+-- anyway would hand them an answer they cannot account for, and they
+-- would have no way to notice. __Evidence that can vanish without the
+-- caller noticing is not evidence__, which is the whole reason the mode
+-- exists. This is the one place in baikai where a call that reached the
+-- provider and came back is nevertheless reported as failed, and it is
+-- deliberate.
+sinkFailureIsFatal :: EvidenceStrictness -> Bool
+sinkFailureIsFatal = \case
+  EvidenceBestEffort -> False
+  EvidenceRequired _ -> True
+
+-- | The error a strict call fails with when its trace sink failed.
+--
+-- 'invalidRequest' would be wrong — nothing about the request was
+-- invalid — and no provider category fits either, because the provider
+-- did its job. It is baikai's own machinery that failed the caller, so
+-- it is a plain provider-side error naming the sink and carrying the
+-- sink's own message.
+sinkFailureError :: SomeException -> BaikaiError
+sinkFailureError e =
+  providerError
+    ( "the trace sink failed and this call required evidence, so its record was \
+      \not written: "
+        <> Text.pack (displayException e)
+    )

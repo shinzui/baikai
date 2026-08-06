@@ -10,11 +10,6 @@
 module StrictEvidenceSpec (tests) where
 
 import Baikai
-import Baikai.Evidence.Build
-  ( EvidenceRefusal (..),
-    checkEvidenceRequirements,
-    renderEvidenceRefusal,
-  )
 import Control.Exception (evaluate, try)
 import Control.Exception qualified as Exception
 import Control.Lens ((&), (.~), (^.))

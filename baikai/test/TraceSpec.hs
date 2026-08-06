@@ -23,9 +23,10 @@ import Baikai.Model (Model (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
 import Baikai.Provider (ApiProvider (..), registerApiProvider)
-import Baikai.Response (Response (..))
+import Baikai.Response (Response (..), responseError)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
+import Baikai.Stream.Event (AssistantMessageEvent (..), TerminalPayload (..))
 import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
@@ -415,6 +416,8 @@ evidenceTests =
       abortEvidenceTest,
       noProviderEvidenceTest,
       sinkFailureEvidenceTest,
+      strictSinkFailureTest,
+      strictSinkFailureIsStillOneTerminalTest,
       optOutSilentTest,
       optOutGoldenTest,
       envelopeNotForcedTest
@@ -529,12 +532,66 @@ sinkFailureEvidenceTest =
     case result of
       Nothing -> assertFailure "withTrace hung on a throwing sink"
       Just resp -> do
-        -- Today's behaviour, unchanged: the exception does not
-        -- propagate and the call succeeds. docs/plans/57 makes a
-        -- strict caller's call fail here instead, by replacing
-        -- 'Build.onSinkFailure'.
+        -- Unchanged, and it is the guarantee every existing caller
+        -- depends on: the exception does not propagate and the call
+        -- succeeds. Only a strict caller gets the opposite; see
+        -- 'strictSinkFailureTest' below.
         let AssistantPayload {stopReason = sr} = resp ^. #message
         sr @?= Stop
+
+-- | The one place in baikai where a call that reached the provider and
+-- came back is nevertheless reported as failed.
+strictSinkFailureTest :: TestTree
+strictSinkFailureTest =
+  testCase "A STRICT CALL WHOSE SINK THREW FAILS, RATHER THAN SUCCEEDING SILENTLY" $ do
+    -- A strict caller asked for a record of this call and the record did
+    -- not survive. Handing them the answer anyway would give them
+    -- something they cannot account for, with no way to notice: evidence
+    -- that can vanish without the caller noticing is not evidence.
+    let a = Custom "baikai-evidence-strict-throwing-sink"
+    registerOk a
+    result <-
+      timeout 5000000 (withTrace throwingSink (stubModel a) stubContext strictOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a throwing sink"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= ErrorReason
+        case responseError resp of
+          Nothing -> assertFailure "expected the sink failure to reach the response"
+          Just be ->
+            assertBool
+              ("the error names the sink: " <> Text.unpack (be ^. #message))
+              ("trace sink failed" `Text.isInfixOf` (be ^. #message))
+
+-- | The exactly-once guarantee still holds when the terminal is
+-- rewritten.
+strictSinkFailureIsStillOneTerminalTest :: TestTree
+strictSinkFailureIsStillOneTerminalTest =
+  testCase "a rewritten terminal is still exactly one terminal event" $ do
+    let a = Custom "baikai-evidence-strict-sink-terminal"
+    -- The evidence-building fixture, so the "survives the rewrite"
+    -- assertion below has something to survive.
+    registerOkWithEvidence a
+    events <-
+      Stream.toList (withTraceStream throwingSink (stubModel a) stubContext strictOptions)
+    length [e | e@(EventDone _) <- events] @?= 0
+    length [e | e@(EventError _) <- events] @?= 1
+    -- The evidence the provider built survives the rewrite. It is
+    -- exactly what a caller investigating this failure wants to read.
+    case [p | EventError p <- events] of
+      [p] -> assertBool "the evidence survives" (p ^. #evidence /= Nothing)
+      other -> assertFailure ("expected one terminal, got: " <> show (length other))
+
+strictOptions :: Options
+strictOptions =
+  stubOptions
+    & #evidence
+    .~ Just
+      ( evidenceRequest "run-57"
+          & #strictness
+          .~ Ev.EvidenceRequired Ev.EvidenceRequestedOnly
+      )
 
 -- | The criterion that protects every existing user of this library.
 optOutSilentTest :: TestTree
