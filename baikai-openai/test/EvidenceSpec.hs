@@ -17,6 +17,7 @@ module EvidenceSpec (tests) where
 import Baikai
 import Baikai.Models.Generated (openai_gpt_4o_mini)
 import Baikai.Provider.OpenAI.Api (SseDriver, openaiChatStreamWith)
+import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Baikai.Trace (withTraceStreamWith)
 import Baikai.Trace.Event (TraceEvent (..))
@@ -77,7 +78,9 @@ successEvidenceTest =
 
     field "provider_request_id" ev @?= Just (observedJson "req_success_1")
     field "response_id" ev @?= Just (observedJson "chatcmpl-observed")
-    field "strength" ev @?= Just (String "model_observed")
+    -- Tied to the declaration mechanically: raising declaredStrength
+    -- for this transport without the transport reaching it fails here.
+    field "strength" ev @?= Just (Aeson.toJSON (declaredStrength OpenAIChatCompletions))
 
     -- No OpenAI-compatible host echoes the reasoning configuration it
     -- applied, so this transport cannot reach fully_observed and must
@@ -234,7 +237,9 @@ replayWith bodyRef model status headers chunks opts = do
         ApiProvider
           { apiTag = OpenAIChatCompletions,
             stream = openaiChatStreamWith driver,
-            complete = streamingComplete (openaiChatStreamWith driver)
+            complete = streamingComplete (openaiChatStreamWith driver),
+            describeThinking = \m opts' ->
+              describeThinkingShape (openaiCompletionsCompatFor m) opts'
           }
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink

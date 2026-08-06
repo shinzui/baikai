@@ -54,7 +54,8 @@ registerErr =
     ApiProvider
       { apiTag = errApi,
         stream = errStream,
-        complete = streamingComplete errStream
+        complete = streamingComplete errStream,
+        describeThinking = \_ _ -> noThinkingRequested
       }
 
 tests :: TestTree

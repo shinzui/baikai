@@ -49,6 +49,8 @@ module Baikai.Evidence
     -- * Outcome and strength
     CallStatus (..),
     EvidenceStrength (..),
+    renderEvidenceStrength,
+    declaredStrength,
 
     -- * The caller's request
     EvidenceRequest (..),
@@ -66,6 +68,7 @@ module Baikai.Evidence
   )
 where
 
+import Baikai.Api (Api (..))
 import Baikai.Error (BaikaiError)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Baikai.Usage (Usage)
@@ -510,6 +513,8 @@ data EvidenceStrength
     EvidenceFullyObserved
   deriving stock (Eq, Ord, Show, Generic)
 
+-- | The canonical name a strength encodes as, also used in the refusal
+-- messages strict mode produces.
 renderEvidenceStrength :: EvidenceStrength -> Text
 renderEvidenceStrength = \case
   EvidenceRequestedOnly -> "requested_only"
@@ -527,6 +532,50 @@ instance FromJSON EvidenceStrength where
     "model_observed" -> pure EvidenceModelObserved
     "fully_observed" -> pure EvidenceFullyObserved
     other -> fail ("unknown evidence strength: " <> show other)
+
+-- | The highest strength a transport can reach when everything goes
+-- well.
+--
+-- This is a static property of the transport, not a claim about any
+-- particular call: a transport that declares 'EvidenceModelObserved'
+-- still produces 'EvidenceRequestedOnly' for a call that failed before
+-- the provider said anything. Strict evidence mode compares a caller's
+-- requirement against this /before/ dispatch, which is the only point at
+-- which refusing is still cheap.
+--
+-- __Declaring more than a transport can deliver is the one way to make
+-- strict mode lie__, so every value below is justified by a test that
+-- actually drives that transport to it. If you raise a declaration, add
+-- the test first.
+--
+-- The values, and what proved them:
+--
+-- * 'AnthropicMessages' and 'OpenAIChatCompletions' reach
+--   'EvidenceModelObserved'. Both echo the model they ran and both carry
+--   a correlation header. Neither echoes the thinking configuration it
+--   applied, so 'EvidenceFullyObserved' is unreachable on either — a
+--   reasoning-token count corroborates output volume and says nothing
+--   about which effort setting was in force. No transport in this
+--   repository currently declares 'EvidenceFullyObserved'.
+--
+-- * 'AnthropicMessagesCli' reaches 'EvidenceModelObserved'. The @claude@
+--   CLI names the model that consumed tokens in its result event's
+--   @modelUsage@ map, alongside a session identifier.
+--
+-- * 'OpenAICompletionsCli' reaches only 'EvidenceCorrelated'.
+--   @codex exec --json@ names a thread identifier but no model anywhere
+--   in its event stream, and the model baikai passed on the command line
+--   is the request rather than an observation.
+--
+-- * 'Custom' declares 'EvidenceRequestedOnly'. Baikai knows nothing
+--   about a caller-supplied transport and must not assume on its behalf.
+declaredStrength :: Api -> EvidenceStrength
+declaredStrength = \case
+  AnthropicMessages -> EvidenceModelObserved
+  OpenAIChatCompletions -> EvidenceModelObserved
+  AnthropicMessagesCli -> EvidenceModelObserved
+  OpenAICompletionsCli -> EvidenceCorrelated
+  Custom _ -> EvidenceRequestedOnly
 
 -- ============================================================
 -- The caller's request

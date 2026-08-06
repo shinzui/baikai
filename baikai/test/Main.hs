@@ -24,6 +24,7 @@ import HelpersSpec qualified
 import InteractiveSpec qualified
 import StreamSpec qualified
 import Streamly.Data.Stream qualified as Stream
+import StrictEvidenceSpec qualified
 import SurfaceSpec qualified
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -80,7 +81,8 @@ testProvider providerName canned =
    in ApiProvider
         { apiTag = testApi,
           stream = liftCompleteToStream handler,
-          complete = handler
+          complete = handler,
+          describeThinking = \_ _ -> noThinkingRequested
         }
 
 main :: IO ()
@@ -105,6 +107,7 @@ main = do
         HelpersSpec.tests,
         InteractiveSpec.tests,
         StreamSpec.tests,
+        StrictEvidenceSpec.tests,
         SurfaceSpec.tests,
         ThinkingLevelSpec.tests,
         TraceSpec.tests,

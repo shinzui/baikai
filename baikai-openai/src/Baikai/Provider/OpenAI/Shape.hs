@@ -7,6 +7,7 @@ module Baikai.Provider.OpenAI.Shape
     renameMaxTokens,
     dropUnsupportedStrict,
     injectThinkingShape,
+    describeThinkingShape,
     injectCacheControl,
   )
 where
@@ -173,6 +174,19 @@ injectThinkingShape compat opts body =
 -- other word replaced it with something weaker the host accepts. Seven
 -- wire shapes share this one derivation precisely so that adding an
 -- eighth cannot leave a hand-written table behind.
+-- | What this host would do with the caller's reasoning-effort request,
+-- without building or sending anything.
+--
+-- Derived by running the real 'injectThinkingShape' over an empty body
+-- and keeping only its description, rather than by reimplementing the
+-- seven-shape decision. Two descriptions of one mapping diverge the
+-- first time either changes, and the divergence is silent; there is no
+-- cheaper way to be sure this agrees with the wire than to ask the
+-- function that writes the wire.
+describeThinkingShape :: OpenAICompletionsCompat -> Options -> ThinkingTranslation
+describeThinkingShape compat opts =
+  snd (injectThinkingShape compat opts (Aeson.object []))
+
 effortTranslation :: ThinkingLevel -> Text -> Text -> ThinkingTranslation
 effortTranslation lvl wire field =
   ThinkingTranslation

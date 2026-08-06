@@ -69,7 +69,7 @@ import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyException)
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
-import Baikai.Provider.OpenAI.Shape (streamRequestBody)
+import Baikai.Provider.OpenAI.Shape (describeThinkingShape, streamRequestBody)
 import Baikai.Provider.OpenAI.Sse (ResponseMetadata, capturedHeaderNames, openaiSseStreamValueWithHeaders)
 import Baikai.Provider.OpenAI.Transport qualified as Transport
 import Baikai.Provider.Registry
@@ -137,7 +137,11 @@ openaiChatProvider =
   ApiProvider
     { apiTag = OpenAIChatCompletions,
       stream = openaiChatStream,
-      complete = streamingComplete openaiChatStream
+      complete = streamingComplete openaiChatStream,
+      -- Runs the real shaping function and keeps only its description,
+      -- so the gate's answer and the wire's behaviour cannot disagree.
+      describeThinking = \m opts ->
+        describeThinkingShape (openaiCompletionsCompatFor m) opts
     }
 
 -- | Install the OpenAI Chat Completions handler into an explicit registry.

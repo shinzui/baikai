@@ -85,7 +85,9 @@ successEvidenceTest =
     field "provider_request_id" ev @?= Just (String "unobserved")
     field "observed_thinking" ev @?= Just (String "unobserved")
 
-    field "strength" ev @?= Just (String "model_observed")
+    -- Tied to the declaration mechanically: raising declaredStrength
+    -- for this transport without the transport reaching it fails here.
+    field "strength" ev @?= Just (Aeson.toJSON (declaredStrength AnthropicMessagesCli))
     assertDigest "request_commitment" ev
     assertDigest "request_configuration" ev
     assertObservedDigest "response_commitment" ev

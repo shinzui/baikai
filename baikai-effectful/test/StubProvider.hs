@@ -100,6 +100,7 @@ stubRegistry t = do
     ApiProvider
       { apiTag = stubApi,
         complete = stubComplete t,
-        stream = stubStream t
+        stream = stubStream t,
+        describeThinking = \_ _ -> noThinkingRequested
       }
   pure reg

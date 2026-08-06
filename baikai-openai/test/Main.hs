@@ -12,8 +12,17 @@ import Baikai.Agent
     agentSafety,
     renderAgentRenderError,
   )
+import Baikai.Compat
+  ( OpenAICompletionsCompat (thinkingFormat),
+    ThinkingFormat (..),
+    defaultOpenAICompletionsCompat,
+  )
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Pricing (computeCost)
+import Baikai.Evidence.Build
+  ( EvidenceRefusal (..),
+    checkEvidenceRequirements,
+  )
 import Baikai.Provider.OpenAI.Agent qualified as CodexAgent
 import Baikai.Provider.OpenAI.Api
   ( RawChunk (..),
@@ -27,6 +36,7 @@ import Baikai.Provider.OpenAI.Api
 import Baikai.Provider.OpenAI.Cli qualified as CodexCli
 import Baikai.Provider.OpenAI.Interactive
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import CliEvidenceSpec qualified
 import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
@@ -65,6 +75,7 @@ main =
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
         agentThinkingTranslationTests,
+        strictEvidenceTests,
         agentToolRestrictionRefusalTest,
         agentPromptTransportTest,
         agentBlankModelTest,
@@ -492,6 +503,86 @@ isConsecutiveIn needle haystack =
       xs : case xs of
         [] -> []
         (_ : rest) -> suffixes rest
+
+-- | The pre-dispatch strictness gate, fed by this package's __real__
+-- shaping function rather than by hand-built adjustments.
+--
+-- The generic gate is exhaustively covered in
+-- @baikai/test/StrictEvidenceSpec.hs@; what only this package can prove
+-- is that its own seven wire shapes actually reach the gate — and,
+-- just as importantly, which of them do not.
+strictEvidenceTests :: TestTree
+strictEvidenceTests =
+  testGroup
+    "strict evidence refuses this provider's real downgrades"
+    [ testCase "a non-native host clamping max to high is refused" $
+        expectDowngrade
+          (EffortClamped ThinkingMax "high")
+          (shapeFor "https://api.deepseek.com" ThinkingMax),
+      testCase "a toggle-only host is refused at every level, including max" $
+        -- Z.ai accepts a bare enable_thinking with no depth, so a caller
+        -- asking for max and a caller asking for low send byte-identical
+        -- requests. Only the evidence can tell them apart, which is
+        -- exactly what a strict caller is refusing to accept.
+        expectDowngrade
+          (EffortCollapsedToToggle ThinkingMax)
+          (shapeFor "https://api.z.ai/api/paas/v4" ThinkingMax),
+      testCase "a host with no reasoning controls is refused" $
+        -- No host in the auto-detect table selects ThinkingFormatNone,
+        -- so this shape is reachable only through an explicitly
+        -- configured compat record. That is exactly the caller who most
+        -- needs the refusal: they told baikai the host has no reasoning
+        -- controls, and baikai would otherwise drop their level in
+        -- silence.
+        expectDowngrade
+          (ThinkingDroppedUnsupportedHost ThinkingMax)
+          ( describeThinkingShape
+              (defaultOpenAICompletionsCompat {thinkingFormat = ThinkingFormatNone})
+              (emptyOptions & #thinking .~ Just ThinkingMax)
+          ),
+      testCase "THE NATIVE OPENAI SHAPE IS NOT A DOWNGRADE AND MUST NOT BE REFUSED" $ do
+        -- The one OpenAI-compatible configuration that honours every
+        -- level in full. It looks like a seventh downgrade site beside
+        -- the six real ones, and refusing it would reject the caller
+        -- baikai serves best. See plan 54's Decision Log.
+        checkEvidenceRequirements
+          (EvidenceRequired EvidenceModelObserved)
+          OpenAIChatCompletions
+          (shapeFor "https://api.openai.com/v1" ThinkingXHigh)
+          @?= []
+        checkEvidenceRequirements
+          (EvidenceRequired EvidenceModelObserved)
+          OpenAIChatCompletions
+          (shapeFor "https://api.openai.com/v1" ThinkingMax)
+          @?= [],
+      testCase "the codex CLI expresses every level, so only its strength refuses" $ do
+        -- Nothing is downgraded at any level, but codex names no model,
+        -- so a caller requiring model_observed is refused on strength
+        -- alone.
+        checkEvidenceRequirements
+          (EvidenceRequired EvidenceCorrelated)
+          OpenAICompletionsCli
+          (CodexCli.codexCliThinking (emptyOptions & #thinking .~ Just ThinkingMax))
+          @?= []
+        case checkEvidenceRequirements
+          (EvidenceRequired EvidenceModelObserved)
+          OpenAICompletionsCli
+          (CodexCli.codexCliThinking (emptyOptions & #thinking .~ Just ThinkingMax)) of
+          [StrengthUnreachable _ declared] -> declared @?= EvidenceCorrelated
+          other -> assertFailure ("expected a strength refusal, got: " <> show other)
+    ]
+  where
+    shapeFor url lvl =
+      describeThinkingShape
+        (openaiCompletionsCompatFor (emptyModel & #baseUrl .~ url & #api .~ OpenAIChatCompletions))
+        (emptyOptions & #thinking .~ Just lvl)
+    expectDowngrade expected translation =
+      case checkEvidenceRequirements
+        (EvidenceRequired EvidenceRequestedOnly)
+        OpenAIChatCompletions
+        translation of
+        [ThinkingWouldDowngrade [reported]] -> reported @?= expected
+        other -> assertFailure ("expected one downgrade refusal, got: " <> show other)
 
 agentProviderGuardTest :: TestTree
 agentProviderGuardTest =

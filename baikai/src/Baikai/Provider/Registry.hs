@@ -22,6 +22,7 @@ module Baikai.Provider.Registry
     registerApiProvider,
     assertRegistered,
     lookupApiProviderWith,
+    evidenceRefusals,
     lookupApiProvider,
     completeRequestWith,
     completeRequest,
@@ -35,13 +36,14 @@ import Baikai.Api (Api, renderApi)
 import Baikai.Content (AssistantContent (..), ToolCall)
 import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
-import Baikai.Evidence (noThinkingRequested)
+import Baikai.Evidence (ThinkingTranslation, noThinkingRequested)
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), ToolResult, toolResultErrorText, user)
 import Baikai.Model (Model)
 import Baikai.Model qualified as Model
 import Baikai.Options (Options, emptyOptions)
+import Baikai.Options qualified as Options
 import Baikai.Response (Response (..), errorResponse, flattenAssistantBlocks, flattenAssistantText, responseError)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event (AssistantMessageEvent)
@@ -64,7 +66,21 @@ import System.IO.Unsafe (unsafePerformIO)
 data ApiProvider = ApiProvider
   { apiTag :: !Api,
     stream :: !(Model -> Context -> Options -> Stream IO AssistantMessageEvent),
-    complete :: !(Model -> Context -> Options -> IO Response)
+    complete :: !(Model -> Context -> Options -> IO Response),
+    -- | Describe, without sending anything, what this provider would do
+    -- with the caller's reasoning-effort request.
+    --
+    -- Used only by the pre-dispatch strictness gate, which has to be
+    -- able to refuse /before/ any request is built — so it cannot wait
+    -- for the translation a provider returns alongside its mapped
+    -- request. Implement it by calling the same function that builds
+    -- that translation, never by writing a second one: two descriptions
+    -- of one mapping diverge the first time either changes, and the
+    -- divergence is silent.
+    --
+    -- Never called for a caller who set no @evidence@ request or who
+    -- asked for best-effort evidence, which is every existing caller.
+    describeThinking :: !(Model -> Options -> ThinkingTranslation)
   }
 
 -- | A mutable provider registry handle. Each handle owns its own handler map,
@@ -139,7 +155,9 @@ completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Res
 completeRequestWith reg m ctx opts = do
   mProvider <- lookupApiProviderWith reg (Model.api m)
   case mProvider of
-    Just p -> complete p m ctx opts
+    Just p -> case evidenceRefusals p m opts of
+      [] -> complete p m ctx opts
+      refusals -> refusedResponse m opts (describeThinking p m opts) refusals
     Nothing -> do
       now <- getCurrentTime
       -- "No provider was registered" is a fact about the call, so a
@@ -160,6 +178,50 @@ completeRequestWith reg m ctx opts = do
           (Just err)
       let resp = errorResponse m now 0 err
       pure resp {evidence = ev}
+
+-- | Every reason strict evidence mode must refuse this call before it
+-- is dispatched, or an empty list.
+--
+-- Short-circuits on the caller's own request twice over. A caller who
+-- set no @evidence@ request pays one 'Maybe' test and never reaches the
+-- gate; a caller who asked for best-effort evidence reaches it and the
+-- gate returns @[]@ without forcing the translation, so
+-- 'describeThinking' is not run for them either. Between them that is
+-- every caller who existed before strict mode.
+evidenceRefusals :: ApiProvider -> Model -> Options -> [Build.EvidenceRefusal]
+evidenceRefusals p m opts = case Options.evidence opts of
+  Nothing -> []
+  Just req ->
+    Build.checkEvidenceRequirements
+      (Evidence.strictness req)
+      (Model.api m)
+      (describeThinking p m opts)
+
+-- | The error-shaped response a refused call returns.
+--
+-- The evidence it carries records the very translation that caused the
+-- refusal, rather than 'Evidence.noThinkingRequested': a caller told
+-- their request would be downgraded should be able to read exactly which
+-- downgrade in the record, not just in the message. Nothing was sent, so
+-- the digests are over 'Build.dispatchEnvelope'.
+refusedResponse ::
+  Model -> Options -> Evidence.ThinkingTranslation -> [Build.EvidenceRefusal] -> IO Response
+refusedResponse m opts translation refusals = do
+  now <- getCurrentTime
+  let err = Build.refusalError refusals
+  ev <-
+    Build.minimalEvidence
+      m
+      opts
+      (Build.transportForModel m)
+      translation
+      (Build.dispatchEnvelope m opts)
+      now
+      now
+      Evidence.CallFailed
+      (Just err)
+  let resp = errorResponse m now 0 err
+  pure resp {evidence = ev}
 
 -- | Dispatch a synchronous request through the process-global registry.
 completeRequest :: Model -> Context -> Options -> IO Response

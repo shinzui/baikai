@@ -77,7 +77,9 @@ successEvidenceTest =
     -- flag baikai passed would report the request as an observation,
     -- and would make this transport look as strong as the API one.
     field "observed_model" ev @?= Just (String "unobserved")
-    field "strength" ev @?= Just (String "correlated")
+    -- Tied to the declaration mechanically: raising declaredStrength for
+    -- this transport without the transport reaching it fails here.
+    field "strength" ev @?= Just (Aeson.toJSON (declaredStrength OpenAICompletionsCli))
 
     field "provider_request_id" ev @?= Just (String "unobserved")
     field "observed_thinking" ev @?= Just (String "unobserved")

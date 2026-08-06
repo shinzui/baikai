@@ -46,6 +46,7 @@ import Baikai.Options (Options)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
+    evidenceRefusals,
     globalProviderRegistry,
     lookupApiProviderWith,
   )
@@ -104,8 +105,11 @@ streamRequestWith reg m ctx opts =
   Stream.concatEffect $ do
     mProvider <- lookupApiProviderWith reg (m ^. #api)
     case mProvider of
-      Just p -> pure (stream p m ctx opts)
       Nothing -> Stream.fromList <$> noProviderEvents m opts
+      Just p -> case evidenceRefusals p m opts of
+        [] -> pure (stream p m ctx opts)
+        refusals ->
+          Stream.fromList <$> refusedEvents m opts (describeThinking p m opts) refusals
 
 -- | Stream a request through the process-global registry, invoking the
 -- callback once per event, then return the same reassembled 'Response'
@@ -571,6 +575,51 @@ errorEvents m opts startTs e = do
 -- omits it is worse than one that records the failure. There is no wire
 -- request body to digest here because nothing was ever sent, so the
 -- digests are over 'Build.dispatchEnvelope'.
+-- | The one-event error stream a strict call refused before dispatch
+-- returns.
+--
+-- Shaped exactly like 'noProviderEvents', because from a consumer's
+-- point of view both are the same thing: a call that produced a terminal
+-- error without a provider ever running. The evidence carries the very
+-- translation that caused the refusal rather than
+-- 'noThinkingRequested', so a caller told their request would be
+-- downgraded can read which downgrade in the record and not only in the
+-- message.
+refusedEvents ::
+  Model ->
+  Options ->
+  Evidence.ThinkingTranslation ->
+  [Build.EvidenceRefusal] ->
+  IO [AssistantMessageEvent]
+refusedEvents m opts translation refusals = do
+  now <- getCurrentTime
+  let be = Build.refusalError refusals
+      detail = be ^. #message
+      msg =
+        AssistantMessage
+          AssistantPayload
+            { Msg.content = Vector.empty,
+              Msg.usage = zeroUsage,
+              Msg.stopReason = ErrorReason,
+              Msg.errorMessage = Just detail,
+              Msg.timestamp = Just now
+            }
+  ev <-
+    Build.minimalEvidence
+      m
+      opts
+      (Build.transportForModel m)
+      translation
+      (Build.dispatchEnvelope m opts)
+      now
+      now
+      Evidence.CallFailed
+      (Just be)
+  pure
+    [ EventStart StartPayload {partial = msg, responseId = Nothing},
+      EventError (errorTerminal ev Nothing ErrorReason msg be)
+    ]
+
 noProviderEvents :: Model -> Options -> IO [AssistantMessageEvent]
 noProviderEvents m opts = do
   now <- getCurrentTime

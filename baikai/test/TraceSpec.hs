@@ -115,7 +115,8 @@ registerOk a =
         ApiProvider
           { apiTag = a,
             stream = liftCompleteToStream handler,
-            complete = handler
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
           }
 
 registerFail :: Api -> BaikaiError -> IO ()
@@ -125,7 +126,8 @@ registerFail a e =
         ApiProvider
           { apiTag = a,
             stream = liftCompleteToStream handler,
-            complete = handler
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
           }
 
 memorySink :: IO (TVar [TraceEvent], TraceSink)
@@ -289,7 +291,8 @@ registerWithUsage a u =
         ApiProvider
           { apiTag = a,
             stream = liftCompleteToStream handler,
-            complete = handler
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
           }
 
 fidelityTest :: TestTree
@@ -382,7 +385,8 @@ registerOkWithEvidence a =
         ApiProvider
           { apiTag = a,
             stream = liftCompleteToStream handler,
-            complete = handler
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
           }
 
 evidencesIn :: [TraceEvent] -> [ModelCallEvidence]
@@ -638,7 +642,8 @@ envelopeNotForcedTest =
       ApiProvider
         { apiTag = a,
           stream = liftCompleteToStream handler,
-          complete = handler
+          complete = handler,
+          describeThinking = \_ _ -> noThinkingRequested
         }
     (ref, sink) <- memorySink
     _ <- withTrace sink (stubModel a) stubContext stubOptions

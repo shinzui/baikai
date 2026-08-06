@@ -166,6 +166,7 @@ test-suite baikai-test
     HelpersSpec
     InteractiveSpec
     StreamSpec
+    StrictEvidenceSpec
     SurfaceSpec
     ThinkingLevelSpec
     TraceSpec

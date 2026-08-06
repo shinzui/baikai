@@ -51,7 +51,7 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.Provider.Claude.Internal.ErrorClass (classifyErrorValue, classifyException)
-import Baikai.Provider.Claude.Internal.Request (mapRequest)
+import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
 import Baikai.Provider.Claude.Sse (claudeSseStreamValueWithHeaders)
 import Baikai.Provider.Claude.Sse qualified as Sse
@@ -118,7 +118,10 @@ claudeMessagesProvider =
   ApiProvider
     { apiTag = AnthropicMessages,
       stream = claudeMessagesStream,
-      complete = streamingComplete claudeMessagesStream
+      complete = streamingComplete claudeMessagesStream,
+      -- The same function 'mapRequest' uses, so the gate's answer and
+      -- the wire's behaviour cannot disagree.
+      describeThinking = describeThinkingFor
     }
 
 -- | Install the Anthropic Messages handler into an explicit registry.

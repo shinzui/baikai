@@ -23,26 +23,37 @@ module Baikai.Evidence.Build
     transportForModel,
     baikaiPackageVersion,
     onSinkFailure,
+
+    -- * The pre-dispatch strictness gate
+    EvidenceRefusal (..),
+    renderEvidenceRefusal,
+    checkEvidenceRequirements,
+    refusalError,
   )
 where
 
 import Baikai.Api (Api (..), renderApi)
-import Baikai.Error (BaikaiError)
+import Baikai.Error (BaikaiError, invalidRequest)
 import Baikai.Evidence
   ( CallStatus,
     EndpointIdentity (..),
+    EvidenceStrength,
     EvidenceStrictness (..),
     ModelCallEvidence (..),
-    ThinkingTranslation,
+    ThinkingAdjustment (..),
+    ThinkingTranslation (..),
     TransportKind (..),
     baseEvidence,
     commitmentDigest,
     configurationDigest,
+    declaredStrength,
     newCallId,
+    renderEvidenceStrength,
   )
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Prelude
+import Baikai.ThinkingLevel (renderThinkingLevel)
 import Control.Exception (SomeException, displayException)
 import Data.Aeson qualified as Aeson
 import Data.Maybe (fromMaybe)
@@ -261,6 +272,113 @@ transportForModel m = case m ^. #api of
   AnthropicMessagesCli -> TransportSubprocess
   OpenAICompletionsCli -> TransportSubprocess
   _ -> TransportHttpApi
+
+-- ============================================================
+-- The pre-dispatch strictness gate
+-- ============================================================
+
+-- | Why a strict call was refused before anything was sent.
+data EvidenceRefusal
+  = -- | The transport's declared maximum is below what the caller
+    -- required. Carries the required strength, then the declared one.
+    StrengthUnreachable !EvidenceStrength !EvidenceStrength
+  | -- | The request would reach the wire expressing less than the caller
+    -- asked for. Carries every adjustment that would apply.
+    ThinkingWouldDowngrade ![ThinkingAdjustment]
+  deriving stock (Eq, Show, Generic)
+
+-- | An explanation an operator can act on. Every refusal names both the
+-- thing that was required and the thing that is actually available,
+-- because a refusal that says only "no" is a dead end.
+renderEvidenceRefusal :: EvidenceRefusal -> Text
+renderEvidenceRefusal = \case
+  StrengthUnreachable needed declared ->
+    "this transport can reach at most "
+      <> renderEvidenceStrength declared
+      <> " evidence, and the call required "
+      <> renderEvidenceStrength needed
+  ThinkingWouldDowngrade adjustments ->
+    "the reasoning-effort request would not reach the provider as asked: "
+      <> Text.intercalate "; " (map describeAdjustment adjustments)
+
+-- | One downgrade, in words. These are the six places baikai weakens a
+-- thinking request, and the whole point of strict mode is that a caller
+-- can refuse each of them by name rather than discovering it in a trace
+-- afterwards.
+describeAdjustment :: ThinkingAdjustment -> Text
+describeAdjustment = \case
+  EffortClamped lvl wire ->
+    renderThinkingLevel lvl <> " would be sent as " <> wire
+  EffortCollapsedToToggle lvl ->
+    renderThinkingLevel lvl
+      <> " would become a bare on/off toggle, so this host cannot tell it from any other level"
+  EffortOmitted lvl ->
+    renderThinkingLevel lvl
+      <> " would send no effort field at all, so the request is indistinguishable on the wire \
+         \from the provider's own default"
+  ThinkingDroppedUnsupportedModel lvl ->
+    renderThinkingLevel lvl
+      <> " would be dropped entirely, because this model does not advertise reasoning support"
+  ThinkingDroppedUnsupportedHost lvl ->
+    renderThinkingLevel lvl
+      <> " would be dropped entirely, because this host exposes no reasoning controls"
+  ThinkingDroppedBudgetExceeded lvl budget maxOut ->
+    renderThinkingLevel lvl
+      <> " would be dropped entirely, because its "
+      <> Text.pack (show budget)
+      <> "-token budget does not fit inside the resolved output ceiling of "
+      <> Text.pack (show maxOut)
+
+-- | The pre-dispatch gate: every reason this call must not proceed, or
+-- an empty list when it may.
+--
+-- Every reason rather than the first, matching what
+-- 'Baikai.Agent.applyAgentCeiling' already does for policy violations
+-- and for the same reason: an operator fixing a configuration should see
+-- all of it in one run rather than one thing per attempt.
+--
+-- __The translation argument is deliberately lazy and deliberately
+-- carries no bang.__ Under 'EvidenceBestEffort' — which is every caller
+-- who has not opted into strictness — this returns @[]@ without touching
+-- it, so a provider's translation function is never run for them. That
+-- matters because computing a translation means a host-compatibility
+-- lookup and a model-capability check on every dispatch, for a feature
+-- only strict callers use. A test in @baikai/test/StrictEvidenceSpec.hs@
+-- passes a translation that throws when forced and asserts a best-effort
+-- call still succeeds, so adding a bang here fails the build rather than
+-- silently costing every caller.
+--
+-- The downgrade rule needs one judgement stated, because it is not
+-- obvious. A caller who requested no level at all is never downgraded —
+-- there is nothing to weaken, and 'Baikai.Evidence.noThinkingRequested'
+-- carries no adjustments, so this falls out. But /every/ non-empty
+-- adjustment list refuses, including
+-- 'Baikai.Evidence.EffortOmitted', which is the subtlest: that request
+-- is not weaker in effect, it is merely indistinguishable on the wire
+-- from the provider's default. A caller who demanded strict evidence and
+-- receives a request they cannot later prove asked for @high@ has not
+-- got what they demanded.
+checkEvidenceRequirements ::
+  EvidenceStrictness -> Api -> ThinkingTranslation -> [EvidenceRefusal]
+checkEvidenceRequirements EvidenceBestEffort _ _ = []
+checkEvidenceRequirements (EvidenceRequired needed) api translation =
+  [StrengthUnreachable needed declared | declared < needed]
+    <> [ThinkingWouldDowngrade downgrades | not (null downgrades)]
+  where
+    declared = declaredStrength api
+    downgrades = adjustments translation
+
+-- | Turn a non-empty refusal list into the error the call fails with.
+--
+-- 'invalidRequest' rather than a provider error, because nothing reached
+-- a provider: the call is refused on the caller's own terms, and a
+-- retry-classifying consumer must not treat it as transient.
+refusalError :: [EvidenceRefusal] -> BaikaiError
+refusalError refusals =
+  invalidRequest
+    ( "strict evidence refused this call before dispatch: "
+        <> Text.intercalate "; " (map renderEvidenceRefusal refusals)
+    )
 
 -- | What to do when the trace sink itself fails.
 --

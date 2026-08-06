@@ -12,11 +12,15 @@ import Baikai.Agent
     agentSafety,
     renderAgentRenderError,
   )
+import Baikai.Evidence.Build
+  ( EvidenceRefusal (..),
+    checkEvidenceRequirements,
+  )
 import Baikai.Provider.Claude.Agent qualified as ClaudeAgent
 import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
-import Baikai.Provider.Claude.Internal.Request (mapRequest)
+import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Claude.V1.Messages qualified as Messages
 import CliEvidenceSpec qualified
 import Control.Exception (bracket)
@@ -53,6 +57,7 @@ main =
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
         agentThinkingTranslationTests,
+        strictEvidenceTests,
         agentPromptTransportTest,
         agentBlankModelTest,
         agentSessionPersistenceTest,
@@ -442,6 +447,72 @@ isConsecutiveIn needle haystack =
       xs : case xs of
         [] -> []
         (_ : rest) -> suffixes rest
+
+-- | The pre-dispatch strictness gate, fed by this package's __real__
+-- translation functions rather than by hand-built adjustments.
+--
+-- The generic gate is exhaustively covered in
+-- @baikai/test/StrictEvidenceSpec.hs@; what only this package can prove
+-- is that its own downgrade sites actually reach the gate.
+strictEvidenceTests :: TestTree
+strictEvidenceTests =
+  testGroup
+    "strict evidence refuses this provider's real downgrades"
+    [ testCase "a model that does not advertise reasoning is refused" $ do
+        let m =
+              emptyModel
+                & #modelId .~ "claude-no-reasoning"
+                & #api .~ AnthropicMessages
+                & #reasoning .~ False
+            opts = emptyOptions & #thinking .~ Just ThinkingHigh
+        expectDowngrade
+          (ThinkingDroppedUnsupportedModel ThinkingHigh)
+          (describeThinkingFor m opts),
+      testCase "A THINKING BUDGET THAT WILL NOT FIT max_tokens IS REFUSED" $ do
+        -- The least discoverable downgrade in baikai: a caller lowered
+        -- maxTokens and silently lost thinking on a reasoning model.
+        let m =
+              emptyModel
+                & #modelId .~ "claude-reasoning"
+                & #api .~ AnthropicMessages
+                & #reasoning .~ True
+                & #maxOutputTokens .~ 8192
+            opts =
+              emptyOptions
+                & #thinking .~ Just ThinkingMax
+                & #maxTokens .~ Just 128
+        case describeThinkingFor m opts ^. #adjustments of
+          [ThinkingDroppedBudgetExceeded lvl _ _] -> lvl @?= ThinkingMax
+          other -> assertFailure ("expected a budget drop, got: " <> show other)
+        assertBool
+          "the gate must refuse it"
+          (not (null (checkEvidenceRequirements (EvidenceRequired EvidenceRequestedOnly) AnthropicMessages (describeThinkingFor m opts)))),
+      testCase "the claude CLI's minimal collapse is refused" $
+        expectDowngrade
+          (EffortClamped ThinkingMinimal "low")
+          (ClaudeCli.claudeCliThinking (emptyOptions & #thinking .~ Just ThinkingMinimal)),
+      testCase "a level this transport expresses exactly is not refused" $ do
+        let m =
+              emptyModel
+                & #modelId .~ "claude-reasoning"
+                & #api .~ AnthropicMessages
+                & #reasoning .~ True
+                & #maxOutputTokens .~ 64000
+            opts = emptyOptions & #thinking .~ Just ThinkingMedium
+        checkEvidenceRequirements
+          (EvidenceRequired EvidenceModelObserved)
+          AnthropicMessages
+          (describeThinkingFor m opts)
+          @?= []
+    ]
+  where
+    expectDowngrade expected translation =
+      case checkEvidenceRequirements
+        (EvidenceRequired EvidenceRequestedOnly)
+        AnthropicMessages
+        translation of
+        [ThinkingWouldDowngrade [reported]] -> reported @?= expected
+        other -> assertFailure ("expected one downgrade refusal, got: " <> show other)
 
 agentProviderGuardTest :: TestTree
 agentProviderGuardTest =

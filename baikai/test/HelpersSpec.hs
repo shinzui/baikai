@@ -180,7 +180,8 @@ newScripted responses events = do
     ApiProvider
       { apiTag = helpersApi,
         complete = scriptedComplete responsesRef callsRef,
-        stream = \_ _ _ -> Stream.fromList events
+        stream = \_ _ _ -> Stream.fromList events,
+        describeThinking = \_ _ -> noThinkingRequested
       }
   pure Scripted {scriptRegistry = reg, scriptCallRef = callsRef}
 
@@ -206,7 +207,8 @@ registerOneShot apiTag resp =
     ApiProvider
       { apiTag,
         complete = \model _ctx _opts -> pure (stampModel model resp),
-        stream = \_ _ _ -> Stream.fromList []
+        stream = \_ _ _ -> Stream.fromList [],
+        describeThinking = \_ _ -> noThinkingRequested
       }
 
 oneShotProvider :: Api -> Text -> ApiProvider
@@ -214,7 +216,8 @@ oneShotProvider apiTag body =
   ApiProvider
     { apiTag,
       complete = \model _ctx _opts -> pure (stampModel model (textResponse body)),
-      stream = \_ _ _ -> Stream.fromList []
+      stream = \_ _ _ -> Stream.fromList [],
+      describeThinking = \_ _ -> noThinkingRequested
     }
 
 errorProvider :: Api -> BaikaiError -> ApiProvider
@@ -222,7 +225,8 @@ errorProvider apiTag err =
   ApiProvider
     { apiTag,
       complete = \model _ctx _opts -> pure (errorResponse model epoch 0 err),
-      stream = \_ _ _ -> Stream.fromList []
+      stream = \_ _ _ -> Stream.fromList [],
+      describeThinking = \_ _ -> noThinkingRequested
     }
 
 stampModel :: Model -> Response -> Response

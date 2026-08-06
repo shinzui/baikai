@@ -107,7 +107,8 @@ registerOk a =
         ApiProvider
           { apiTag = a,
             stream = liftCompleteToStream handler,
-            complete = handler
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
           }
 
 registerFail :: Api -> BaikaiError -> IO ()
@@ -117,7 +118,8 @@ registerFail a e =
         ApiProvider
           { apiTag = a,
             stream = liftCompleteToStream handler,
-            complete = handler
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
           }
 
 newTracerWithInMemory :: IO (Otel.Tracer, IO [Otel.ImmutableSpan])

@@ -105,7 +105,10 @@ codexCliProvider cfg =
   ApiProvider
     { apiTag = OpenAICompletionsCli,
       stream = liftCompleteToStream (runCodexCli cfg),
-      complete = runCodexCli cfg
+      complete = runCodexCli cfg,
+      -- The model plays no part: this transport's only reasoning
+      -- control is a command-line flag derived from Options alone.
+      describeThinking = \_ opts -> codexCliThinking opts
     }
 
 -- | Install the Codex CLI handler with a caller-supplied config.

@@ -16,6 +16,7 @@ module EvidenceSpec (tests) where
 import Baikai
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
 import Baikai.Provider.Claude.Api (SseDriver, claudeMessagesStreamWith)
+import Baikai.Provider.Claude.Internal.Request (describeThinkingFor)
 import Baikai.Provider.Claude.Sse (sseFromResponse)
 import Baikai.Trace (withTraceStreamWith)
 import Baikai.Trace.Event (TraceEvent (..))
@@ -76,7 +77,9 @@ successEvidenceTest =
 
     field "provider_request_id" ev @?= Just (observedJson "req_success_1")
     field "response_id" ev @?= Just (observedJson "msg_observed")
-    field "strength" ev @?= Just (String "model_observed")
+    -- Tied to the declaration mechanically: raising declaredStrength
+    -- for this transport without the transport reaching it fails here.
+    field "strength" ev @?= Just (Aeson.toJSON (declaredStrength AnthropicMessages))
 
     -- Anthropic never echoes the thinking configuration it applied, so
     -- this transport cannot reach fully_observed and must not pretend
@@ -186,7 +189,8 @@ replay status headers chunks opts = do
         ApiProvider
           { apiTag = AnthropicMessages,
             stream = claudeMessagesStreamWith driver,
-            complete = streamingComplete (claudeMessagesStreamWith driver)
+            complete = streamingComplete (claudeMessagesStreamWith driver),
+            describeThinking = describeThinkingFor
           }
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink

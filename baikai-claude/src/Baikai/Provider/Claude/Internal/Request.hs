@@ -6,6 +6,8 @@
 -- compatibility guarantees. Import the public provider module for stable application code.
 module Baikai.Provider.Claude.Internal.Request
   ( mapRequest,
+    planThinking,
+    describeThinkingFor,
     ThinkingPlan (..),
     computeThinking,
   )
@@ -67,20 +69,7 @@ mapRequest m ctx opts = do
       cap = m ^. #maxOutputTokens
       baseTokens = fromMaybe cap (opts ^. #maxTokens)
       clamp n = if cap == 0 then n else min n cap
-      (plan0, translation0) = computeThinking compat m (opts ^. #thinking)
-      -- The output-token ceiling this request resolves to while the
-      -- thinking budget is still part of it. The budget has to fit
-      -- inside this number, and when it does not the entire thinking
-      -- plan is dropped — a caller who lowered maxTokens silently loses
-      -- thinking, which is why the two colliding numbers are recorded.
-      resolvedCeiling = clamp (baseTokens + fromMaybe 0 (budget plan0))
-      (plan, translation) = case (budget plan0, translation0 ^. #requested) of
-        (Just b, Just lvl)
-          | resolvedCeiling <= b ->
-              ( emptyThinkingPlan,
-                dropThinking (ThinkingDroppedBudgetExceeded lvl b resolvedCeiling) translation0
-              )
-        _ -> (plan0, translation0)
+      (plan, translation) = planThinking m opts
       maxTokensField_ = case budget plan of
         Just b -> clamp (baseTokens + b)
         Nothing -> clamp baseTokens
@@ -112,6 +101,46 @@ mapRequest m ctx opts = do
         },
       translation
     )
+
+-- | The thinking plan for one request and the description of how it got
+-- there, including the max-tokens interaction that can discard an
+-- already-computed budget.
+--
+-- Factored out of 'mapRequest' so the pre-dispatch strictness gate can
+-- ask what /would/ happen without building a request. Both callers go
+-- through this one function on purpose: a gate that reimplemented the
+-- ceiling arithmetic would miss the least discoverable of baikai's
+-- downgrades the first time either side changed, and it would miss it
+-- silently.
+--
+-- The interaction it captures: the output-token ceiling this request
+-- resolves to still has the thinking budget inside it, the budget has to
+-- fit, and when it does not the entire thinking plan is dropped. A
+-- caller who lowered @maxTokens@ on a reasoning model silently loses
+-- thinking, which is why both colliding numbers are recorded in the
+-- adjustment.
+planThinking :: Model -> Options -> (ThinkingPlan, ThinkingTranslation)
+planThinking m opts =
+  let compat = anthropicMessagesCompatFor m
+      cap = m ^. #maxOutputTokens
+      baseTokens = fromMaybe cap (opts ^. #maxTokens)
+      clamp n = if cap == 0 then n else min n cap
+      (plan0, translation0) = computeThinking compat m (opts ^. #thinking)
+      resolvedCeiling = clamp (baseTokens + fromMaybe 0 (budget plan0))
+   in case (budget plan0, translation0 ^. #requested) of
+        (Just b, Just lvl)
+          | resolvedCeiling <= b ->
+              ( emptyThinkingPlan,
+                dropThinking (ThinkingDroppedBudgetExceeded lvl b resolvedCeiling) translation0
+              )
+        _ -> (plan0, translation0)
+
+-- | What this provider would do with the caller's reasoning-effort
+-- request, without building or sending anything. The
+-- 'Baikai.Provider.Registry.describeThinking' implementation for the
+-- Anthropic Messages provider.
+describeThinkingFor :: Model -> Options -> ThinkingTranslation
+describeThinkingFor m opts = snd (planThinking m opts)
 
 mergeEffort :: Maybe Text -> Maybe Messages.OutputConfig -> Maybe Messages.OutputConfig
 mergeEffort Nothing cfg = cfg
