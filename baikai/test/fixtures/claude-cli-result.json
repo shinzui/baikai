@@ -1,0 +1,58 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "01890000-0000-4000-8000-000000000001",
+    "model": "claude-opus-5[1m]",
+    "claude_code_version": "2.1.222"
+  },
+  {
+    "type": "assistant",
+    "session_id": "01890000-0000-4000-8000-000000000001",
+    "message": {
+      "id": "msg_recorded_0001",
+      "model": "claude-opus-5",
+      "role": "assistant",
+      "content": [{ "type": "text", "text": "ok" }],
+      "usage": {
+        "input_tokens": 2,
+        "cache_creation_input_tokens": 7455,
+        "cache_read_input_tokens": 15185,
+        "output_tokens": 6
+      }
+    }
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "result": "ok",
+    "session_id": "01890000-0000-4000-8000-000000000001",
+    "uuid": "01890000-0000-4000-8000-000000000002",
+    "stop_reason": "end_turn",
+    "duration_ms": 4212,
+    "duration_api_ms": 3890,
+    "num_turns": 1,
+    "total_cost_usd": 0.0823025,
+    "permission_denials": [],
+    "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 7455,
+      "cache_read_input_tokens": 15185,
+      "output_tokens": 6,
+      "service_tier": "standard",
+      "server_tool_use": { "web_search_requests": 0, "web_fetch_requests": 0 }
+    },
+    "modelUsage": {
+      "claude-opus-5[1m]": {
+        "inputTokens": 2,
+        "outputTokens": 6,
+        "cacheReadInputTokens": 15185,
+        "cacheCreationInputTokens": 7455,
+        "costUSD": 0.0823025,
+        "canonicalModel": "claude-opus-5",
+        "provider": "firstParty"
+      }
+    }
+  }
+]

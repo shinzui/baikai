@@ -4,6 +4,19 @@
 -- Call 'register' once (typically from @main@) to install the
 -- 'Baikai.Api.OpenAICompletionsCli' handler with default config.
 -- 'registerWith' accepts a caller-supplied 'CodexCliConfig'.
+--
+-- The 'Response' this provider returns carries whatever the tool
+-- reported about its own run: the token counts from the event stream's
+-- turn-completion event, and the thread identifier from its
+-- thread-start event as the response identifier. A tool that reports
+-- neither yields zeroes and 'Nothing', which is an accurate record of
+-- its silence rather than a claim that the call consumed nothing.
+--
+-- Evidence from this transport is deliberately weaker than from the
+-- Chat Completions API. A tool that exits zero has demonstrated that
+-- it ran, not which model served the request, so a successful exit
+-- never raises the recorded 'Baikai.Evidence.EvidenceStrength' — see
+-- 'Baikai.Provider.Cli.Internal.subprocessStrength'.
 module Baikai.Provider.OpenAI.Cli
   ( CodexCliConfig,
     executable,
@@ -13,6 +26,7 @@ module Baikai.Provider.OpenAI.Cli
     ephemeral,
     codexCliCommand,
     codexCliPrompt,
+    codexCliThinking,
     defaultCodexCliConfig,
     codexCliProvider,
     register,
@@ -41,12 +55,12 @@ import Baikai.Provider.Registry
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.ThinkingLevel (renderThinkingLevel)
-import Baikai.Usage (zeroUsage)
+import Baikai.ThinkingLevel (ThinkingLevel, renderThinkingLevel)
+import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeAsyncException (..), SomeException, displayException, fromException, throwIO, try)
-import Control.Lens ((^.))
+import Control.Exception (SomeException, displayException, fromException, try)
+import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
 import Data.Maybe (fromMaybe)
@@ -167,7 +181,37 @@ codexCliCommand cfg m ctx opts =
 effortArgs :: Options -> [String]
 effortArgs opts = case opts ^. #thinking of
   Nothing -> []
-  Just lvl -> ["-c", "model_reasoning_effort=" <> Text.unpack (renderThinkingLevel lvl)]
+  Just lvl -> ["-c", "model_reasoning_effort=" <> Text.unpack (codexEffortValue lvl)]
+
+-- | The word codex's @model_reasoning_effort@ override receives. Codex
+-- accepts all six baikai levels verbatim, which makes this the identity
+-- — and makes it the one transport in baikai that expresses every level
+-- exactly.
+codexEffortValue :: ThinkingLevel -> Text
+codexEffortValue = renderThinkingLevel
+
+-- | What the caller's reasoning-effort preference became on this
+-- transport's command line.
+--
+-- The adjustment list is derived by comparing what 'effortArgs'
+-- actually sends — through the same 'codexEffortValue' — with the
+-- canonical level name, rather than being hardcoded empty. It is empty
+-- today, but writing @[]@ by hand would keep claiming that after
+-- someone changed the mapping, which is the class of silent divergence
+-- this record exists to prevent.
+codexCliThinking :: Options -> Ev.ThinkingTranslation
+codexCliThinking opts = case opts ^. #thinking of
+  Nothing -> Ev.noThinkingRequested
+  Just lvl ->
+    let wire = codexEffortValue lvl
+     in Ev.ThinkingTranslation
+          { requested = Just lvl,
+            mode = Ev.ThinkingModeFlag,
+            effortText = Just wire,
+            budgetTokens = Nothing,
+            wireField = Just "model_reasoning_effort",
+            adjustments = [Ev.EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
+          }
 
 runCodexCli :: CodexCliConfig -> Model -> Context -> Options -> IO Resp.Response
 runCodexCli cfg m ctx opts = do
@@ -184,30 +228,37 @@ runCodexCli cfg m ctx opts = do
   -- crossed the boundary, and there is nothing else to describe the
   -- launch with. Built lazily and dropped unforced when the caller
   -- asked for no evidence.
-  let mkEv end st mErr =
-        Build.minimalEvidence
-          m
-          opts
-          Ev.TransportSubprocess
-          Ev.noThinkingRequested
-          (Internal.argvEnvelope exe args)
-          start
-          end
-          st
-          mErr
-  result <- trySync (P.withCreateProcess procSpec (consume start mkEv m))
+  let mkEv mReport end st mErr = do
+        prepared <-
+          Build.minimalEvidence
+            m
+            opts
+            Ev.TransportSubprocess
+            (codexCliThinking opts)
+            (Internal.argvEnvelope exe args)
+            start
+            end
+            st
+            mErr
+        traverse (observeCodexCli exe mReport st) prepared
+  result <- Internal.trySync (P.withCreateProcess procSpec (consume start mkEv m))
   case result of
     Right resp -> pure resp
     Left ex -> do
       end <- getCurrentTime
       let err = exceptionToError ex
-      ev <- mkEv end Ev.CallFailed (Just err)
+      ev <- mkEv Nothing end Ev.CallFailed (Just err)
       let resp = Resp.errorResponse m end (millisBetween start end) err
       pure resp {Resp.evidence = ev}
 
 consume ::
   UTCTime ->
-  (UTCTime -> Ev.CallStatus -> Maybe BaikaiError -> IO (Maybe Ev.ModelCallEvidence)) ->
+  ( Maybe Internal.CodexRunReport ->
+    UTCTime ->
+    Ev.CallStatus ->
+    Maybe BaikaiError ->
+    IO (Maybe Ev.ModelCallEvidence)
+  ) ->
   Model ->
   Maybe Handle ->
   Maybe Handle ->
@@ -224,25 +275,31 @@ consume start mkEv m _ mOut mErr ph = do
         forkIO $ do
           result <- try (BS.hGetContents hErr) :: IO (Either SomeException BS.ByteString)
           putMVar errVar (either (const BS.empty) id result)
-      body <- Internal.parseCodexJsonlStream (handleStream hOut)
+      report <- Internal.parseCodexJsonlStream (handleStream hOut)
       errBytes <- takeMVar errVar
       exitCode <- P.waitForProcess ph
       end <- getCurrentTime
       case exitCode of
         ExitFailure n -> do
           let err = processError n (Internal.decodeUtf8Lenient errBytes)
-          ev <- mkEv end Ev.CallFailed (Just err)
+          -- The event stream was drained before the exit status was
+          -- known, so a failed run may still have named its thread and
+          -- its token counts. Those are genuine observations and are
+          -- kept; only the response commitment is withheld, because no
+          -- complete response exists to commit to.
+          ev <- mkEv (Just report) end Ev.CallFailed (Just err)
           let resp = Resp.errorResponse m end (millisBetween start end) err
-          pure resp {Resp.evidence = ev}
+          pure resp {Resp.evidence = ev, Resp.responseId = report ^. #threadId}
         ExitSuccess -> do
-          ev <- mkEv end Ev.CallSucceeded Nothing
+          ev <- mkEv (Just report) end Ev.CallSucceeded Nothing
           pure
             Resp.Response
               { Resp.message =
                   AssistantPayload
                     { content =
-                        Vector.singleton (AssistantText (TextContent (Text.strip body))),
-                      usage = zeroUsage,
+                        Vector.singleton
+                          (AssistantText (TextContent (Text.strip (report ^. #message)))),
+                      usage = reportedUsage report,
                       stopReason = Stop,
                       errorMessage = Nothing,
                       timestamp = Just end
@@ -250,7 +307,7 @@ consume start mkEv m _ mOut mErr ph = do
                 Resp.model = m,
                 Resp.api = OpenAICompletionsCli,
                 Resp.provider = m ^. #provider,
-                Resp.responseId = Nothing,
+                Resp.responseId = report ^. #threadId,
                 Resp.latencyMs = millisBetween start end,
                 Resp.errorInfo = Nothing,
                 Resp.evidence = ev
@@ -258,22 +315,74 @@ consume start mkEv m _ mOut mErr ph = do
   where
     errorNow err = do
       end <- getCurrentTime
-      ev <- mkEv end Ev.CallFailed (Just err)
+      ev <- mkEv Nothing end Ev.CallFailed (Just err)
       let resp = Resp.errorResponse m end (millisBetween start end) err
       pure resp {Resp.evidence = ev}
 
+-- | Fill in what the tool reported and what baikai knows about the
+-- process it launched.
+--
+-- Only ever reached on a call whose caller asked for evidence, which is
+-- what makes the version probe affordable here: it spawns a whole extra
+-- subprocess, and charging that to a caller who only wanted an answer
+-- from a tool they were about to run anyway would be a visible cost on
+-- the cheapest possible call. The event-stream parsing it reads is the
+-- opposite case and happens unconditionally, because the provider had
+-- already decoded every event to find the assistant text.
+--
+-- Nothing here consults the request. A field the tool did not report
+-- stays 'Ev.Unobserved' — which at @codex-cli 0.146.0@ includes the
+-- model, because no event in its stream names one.
+observeCodexCli ::
+  FilePath ->
+  Maybe Internal.CodexRunReport ->
+  Ev.CallStatus ->
+  Ev.ModelCallEvidence ->
+  IO Ev.ModelCallEvidence
+observeCodexCli exe mReport st ev = do
+  identity <- Internal.executableIdentity exe
+  let thread = observedOf (mReport >>= (^. #threadId))
+      reported = observedOf (mReport >>= (^. #reportedModel))
+      used = mReport >>= (^. #usage)
+  pure $
+    ev
+      -- A subprocess has no endpoint URL. Recording the model's base
+      -- URL here would suggest an HTTP request that was never made, so
+      -- the resolved executable path takes its place.
+      & #endpoint . #endpoint .~ Just (fromMaybe (Text.pack exe) (identity ^. #resolvedPath))
+      -- For this transport the tool is the implementation, so its own
+      -- version is what determines behaviour — not this package's.
+      & #endpoint . #implementationVersion .~ (identity ^. #version)
+      & #responseId .~ thread
+      & #observedModel .~ reported
+      & #usage .~ observedOf used
+      & #responseCommitment .~ commitment used
+      & #strength .~ Internal.subprocessStrength thread reported
+  where
+    commitment used = case (st, mReport) of
+      (Ev.CallSucceeded, Just r) ->
+        Ev.Observed
+          ( Ev.commitmentDigest
+              ( Internal.cliResponseEnvelope
+                  (Text.strip (r ^. #message))
+                  (fromMaybe zeroUsage used)
+              )
+          )
+      _ -> Ev.Unobserved
+
+observedOf :: Maybe a -> Ev.Observed a
+observedOf = maybe Ev.Unobserved Ev.Observed
+
+-- | The tool's own token counts, or zeroes when it reported none.
+--
+-- 'Resp.Response' has nowhere to say "the tool stayed silent", so a
+-- silent tool still yields 'zeroUsage' here. The evidence record does
+-- have somewhere to say it, and says it: see 'observeCodexCli'.
+reportedUsage :: Internal.CodexRunReport -> Usage
+reportedUsage r = fromMaybe zeroUsage (r ^. #usage)
+
 millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
-
-trySync :: IO a -> IO (Either SomeException a)
-trySync action = do
-  r <- try action
-  case r of
-    Left e
-      | Just (SomeAsyncException _) <- (fromException e :: Maybe SomeAsyncException) ->
-          throwIO e
-      | otherwise -> pure (Left e)
-    Right a -> pure (Right a)
 
 exceptionToError :: SomeException -> BaikaiError
 exceptionToError e = fromMaybe (providerError (Text.pack (displayException e))) (fromException e)

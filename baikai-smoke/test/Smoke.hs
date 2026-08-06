@@ -260,9 +260,17 @@ runCliCase CliCase {cliLabel, cliBinary, cliModel} = do
           flat = flattenAssistantText blocks
           contentOk = not (Text.null flat)
           u = (resp ^. #message) ^. #usage
-          usageZero = (u ^. #inputTokens) == 0 && (u ^. #outputTokens) == 0
+          -- Both tools report their own token counts, and baikai now
+          -- carries them through instead of substituting zeroes. This
+          -- assertion used to read @usage_zero@ and demanded the
+          -- opposite; see the plan's Decision Log.
+          usageOk = (u ^. #inputTokens) + (u ^. #outputTokens) > 0
+          -- claude's @session_id@ and codex's @thread_id@ are the
+          -- handles their vendors' support tooling looks a run up by.
+          -- Both were decoded and discarded before this change.
+          identifierOk = isJust (resp ^. #responseId)
           latencyOk = resp ^. #latencyMs > 0
-      when (not contentOk || not usageZero || not latencyOk) $ do
+      when (not contentOk || not usageOk || not identifierOk || not latencyOk) $ do
         hPutStrLn stderr $
           "[baikai-smoke] failed for "
             <> cliLabel
@@ -270,8 +278,10 @@ runCliCase CliCase {cliLabel, cliBinary, cliModel} = do
             <> path
             <> "; content_nonempty="
             <> show contentOk
-            <> " usage_zero="
-            <> show usageZero
+            <> " usage_reported="
+            <> show usageOk
+            <> " identifier_reported="
+            <> show identifierOk
             <> " latency_positive="
             <> show latencyOk
         exitFailure
