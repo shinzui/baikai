@@ -4,7 +4,8 @@ title: Capture verifiable model-call evidence at the provider boundary
 description: Record the requested and provider-observed model, effective thinking configuration, provider correlation identifiers, usage, and payload digests for every Baikai call without claiming that client-side evidence proves provider internals.
 timestamp: "2026-08-02T18:29:04Z"
 requestId: IR-3
-status: planned
+status: completed
+completedAt: "2026-08-05T00:00:00Z"
 origin: mori://shinzui/kikan
 reviews:
   - kind: model

@@ -29,6 +29,45 @@
   kind today — and a final plan for strict evidence mode, the migration guidance, the repository's
   first ADRs, and the coordinated release across five packages.
 
+* **Completion**: IR-3 is `completed`. Verifiable model-call evidence is built, tested, and
+  documented in `mori://shinzui/baikai` across the seven ExecPlans of
+  `docs/masterplans/9-verifiable-model-call-evidence-at-the-provider-boundary.md`: the
+  `Baikai.Evidence` vocabulary and canonical hashing core, the adapter-to-trace channel, the
+  Anthropic and OpenAI-compatible API providers, both subprocess completion providers, the
+  unattended agent surface, and strict evidence mode with the migration guidance, the
+  repository's first ADRs, and the release.
+
+  Five of the seven acceptance criteria are met as stated. Criterion 1: all four completion
+  transports emit schema-valid terminal evidence for successful and failed calls, proved against
+  recorded fixtures and fake executables with no credentials. Criterion 2: every canonical
+  thinking level's translation is pinned per transport, including a forty-two-row table across
+  the seven OpenAI-compatible wire shapes and both Anthropic thinking styles. Criterion 3: a
+  provider-returned model and correlation identifier are preserved independently of the
+  configured model, and an absent one reads as `"unobserved"` rather than being backfilled — the
+  gap here was larger than the request stated, since no observed model existed anywhere in the
+  codebase before this work. Criterion 5: strict evidence mode refuses before dispatch, both when
+  a transport's declared strength is too low and when the request would be downgraded, with a
+  named test per downgrade site. Criterion 6: golden tests pin both digests and prove no
+  credential, prompt body, thinking text, or tool payload appears in the configuration envelope.
+
+  Two are met in the modified form the review agreed. Criterion 4's "hash of the redacted request
+  envelope" became two digests, because a commitment to content and a redaction-stable
+  configuration fingerprint are different values and the request asked for both under one name;
+  and its retry clause is caller-supplied provenance, because baikai has no retry loop and
+  acquiring one was out of scope. Correlation does survive streaming, early consumer termination,
+  and trace-sink failure without emitting two terminal records — and under strict mode a sink
+  failure now fails the call, which the review established is what that criterion is for.
+  Criterion 7's migration guidance is `docs/user/model-call-evidence.md`, which is explicit that
+  the record is a contemporaneous logbook rather than a claim about provider internals; it also
+  has to carry three unconditional behaviour changes the request did not anticipate, the loudest
+  being that the two CLI providers reported `zeroUsage` on every call and now report real tokens
+  and, for `claude`, a real cost.
+
+  Outside the request: baikai signs nothing, holds no sanctioned-model policy, claims no
+  knowledge of provider internals, and owns no retry loop. Those exclusions are recorded in
+  `docs/adr/0005-what-baikai-deliberately-does-not-do.md`. Publishing to Hackage remains
+  outside it.
+
 * **Completion**: IR-1 is `completed`. The unattended coding-agent surface is built, tested,
   and documented in `mori://shinzui/baikai` across the six ExecPlans of
   `docs/masterplans/8-unattended-coding-agent-runs-through-a-configurable-cli.md`: the

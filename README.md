@@ -208,6 +208,10 @@ build-depends:
   embeds provider flags today.
 - [Agent Assets](docs/user/agent-assets.md) — provider-native skill and
   custom-agent layout helpers.
+- [Model-Call Evidence](docs/user/model-call-evidence.md) — what
+  actually crossed the boundary to the provider: the
+  requested/translated/observed split, the two digests, how much a
+  record proves, strict mode, and what this deliberately is not.
 
 ## Develop
 
