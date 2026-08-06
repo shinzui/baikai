@@ -57,21 +57,123 @@ Steps section walks through.
 
 ## Progress
 
-- [ ] Add the evidence fields to `AgentRunResult` in `baikai/src/Baikai/Agent.hs`.
-- [ ] Build the thinking translation for both vendor agent renderers.
-- [ ] Capture executable identity, resolved path, and version in the runner.
-- [ ] Build the argument-vector digests and confirm the prompt is absent from the configuration
-      digest.
-- [ ] Parse the structured result each tool writes, for the session identifier and usage.
-- [ ] Assemble the evidence in `baikai/src/Baikai/Agent/Run.hs` and derive the strength.
-- [ ] Add the evidence output path to the `baikai agent run` command.
-- [ ] Write fixture tests driving fake executables across success, failure, and timeout.
-- [ ] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading.
+- [x] Add `AgentRunOutcome` to `baikai/src/Baikai/Agent.hs` — evidence beside the outcome rather
+      than a field on `AgentRunResult`, for the reason in the Decision Log. (2026-08-05)
+- [x] Build the thinking translation for both vendor agent renderers and return it alongside the
+      command. (2026-08-05)
+- [x] Capture executable identity, resolved path, and version in the runner, importing plan 55's
+      cached probe rather than writing a second one. (2026-08-05)
+- [x] Build the request digests over an envelope carrying both the argument vector and the prompt,
+      and prove the prompt is absent from the configuration envelope under both transports.
+      (2026-08-05)
+- [x] Parse the structured result each tool writes, best-effort, for the session identifier, the
+      model, and the usage. (2026-08-05)
+- [x] Assemble the evidence in `baikai-agent/src/Baikai/Agent/Run.hs` and derive the strength.
+      (2026-08-05)
+- [x] Add `--evidence-file` and `--run-id` to the `baikai agent run` command, writing atomically.
+      (2026-08-05)
+- [x] Write fixture tests driving fake executables across success, silence, non-zero exit, timeout,
+      inherited output, a run that never started, and the opt-out. (2026-08-05)
+- [x] Document both options and what the record proves in
+      `docs/user/unattended-agent-runs.md`. (2026-08-05)
+- [x] Add `CHANGELOG.md` entries under the existing `[Unreleased]` heading. (2026-08-05)
+- [x] Drive the real `baikai agent run` against a fake executable and read the record back.
+      (2026-08-05)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+### Evidence could not live on `AgentRunResult`, because a timed-out run has none
+
+This plan's Interfaces section specified `AgentRunResult` gaining an `evidence` field and
+`runAgentCommand` keeping its `Either AgentRunFailure AgentRunResult` return. Those two are
+incompatible with the plan's own acceptance criterion that a run terminated by its timeout produces
+`status = CallAborted`: `runAgentCommand` reports a timeout as `Left (RunTimedOut …)`, so evidence
+hanging off the `Right` is unreachable in exactly that case.
+
+A timed-out run is the one an operator most needs a record of — it started, consumed tokens, and
+may have changed the working tree before its process group was killed. The Decision Log records the
+resolution. The plan's Interfaces section has been corrected below.
+
+### Neither vendor renderer asks its tool for structured output
+
+`claudeAgentCommand` renders no `--output-format json` and `codexAgentCommand` renders no `--json`.
+That is deliberate — the agent's output goes to an operator's terminal under the default `inherit`
+mode, and turning it into a JSON stream would change what they see — but it means the tool-reported
+fields this plan set out to capture are **not available by default**, even with output captured.
+
+The parse is therefore best-effort: it reads a structured result if the operator configured one
+through the job's `provider-args`, and reports honest silence otherwise. Combined with `inherit`
+capturing nothing at all, an operator who wants a strength above `EvidenceRequestedOnly` has to
+arrange two things, neither of which is a default. That is now stated in the runner's Haddock and in
+`docs/user/unattended-agent-runs.md` rather than left to be discovered from an empty record.
+
+### The configuration digest is degenerate on every subprocess transport
+
+`Baikai.Evidence.configurationProjection` is an allow-list over *named* request fields, and an
+argument vector has none it recognises, so an agent-run configuration envelope projects to `{}` and
+every agent run shares one `request_configuration` value. Plan 55 has the same property on the two
+CLI completion providers, where an argv array projects to `null`.
+
+This is the allow-list failing in the safe direction and it satisfies this plan's acceptance
+criterion — two runs differing only in prompt produce identical configuration digests — but a
+digest that is constant across every run of every job is close to useless as evidence. The envelope
+is built prompt-free anyway, so that if the projection ever learns about argument vectors it cannot
+start leaking the prompt on the transport that puts it there. Plan 57 is the first plan positioned
+to see every transport at once and should decide whether to teach the projection about argv.
+
+### `requested_model` cannot say "none" on this surface
+
+An `AgentRunRequest` may leave `modelId` unset, meaning "whatever the tool defaults to", and no
+`--model` flag is rendered at all. `ModelCallEvidence.requestedModel` is plain `Text` with no way to
+express absence, so that case records the empty string. It is documented in `requestedModelOf` and
+in the record's own field documentation rather than papered over, and it is EP-1 vocabulary
+territory rather than this plan's to change. Plan 57 may want a `Maybe` there; it would be a schema
+break.
+
+### A run's own timing bracket is wider than its `duration`
+
+`spawn` takes its own start timestamp for `AgentRunResult.duration`, and this plan's evidence
+timestamps bracket the whole call including process creation and the precondition checks that
+precede it. The two therefore differ by a small amount, deliberately: the evidence window is "when
+the runner began" to "when it finished", which is the honest span for a record about a boundary
+crossing.
+
+### Verified end to end against the real command
+
+Not a test — the real `baikai agent run` binary, a KDL job file, and a fake executable:
+
+```bash
+cabal run -v0 baikai-agent:exe:baikai -- agent run demo \
+  --config repo.kdl --prompt 'reconcile the lexical surface' \
+  --run-id demo-run-1 --evidence-file evidence.json
+```
+
+```json
+{
+  "run_id": "demo-run-1",
+  "call_id": "019fd4b33d947073abbaa96d00000000",
+  "status": "succeeded",
+  "strength": "model_observed",
+  "requested_model": "",
+  "observed_model": { "observed": "claude-opus-5" },
+  "response_id": { "observed": "sess-abc123" },
+  "thinking": {
+    "requested": "minimal", "mode": "flag", "effort_text": "low",
+    "wire_field": "--effort",
+    "adjustments": [{ "kind": "effort_clamped", "requested": "minimal", "wire": "low" }]
+  },
+  "endpoint": {
+    "api": "agent_run", "transport": "agent_run", "provider": "claude",
+    "endpoint": "…/agentdemo/bin/claude",
+    "implementation_version": "9.9.9 (Fake Claude Code)"
+  }
+}
+```
+
+The `implementation_version` is the fake's own `--version` line, read through the cached probe. The
+`thinking` block is the whole point of the record: the job asked for `minimal`, the command line
+said `--effort low`, and nothing but this field records that the two are not the same request.
 
 
 ## Decision Log
@@ -88,13 +190,125 @@ Steps section walks through.
   produces it is not.
   Date: 2026-08-05
 
-- Decision: The evidence travels on `AgentRunResult`, and writing it anywhere is the caller's
+- Decision: The evidence travels back from the runner, and writing it anywhere is the caller's
   choice.
   Rationale: The agent surface has no sink abstraction and this plan should not invent one. A
   runner that returns the evidence lets `baikai agent run` write it to a file, lets a library
   caller do whatever it likes, and keeps the runner a pure-ish function of the request. Adding a
   trace-sink concept to `baikai-agent` would duplicate `Baikai.Trace.Sink` for no benefit.
   Date: 2026-08-05
+
+- Decision: **Revised.** The evidence travels on a new `AgentRunOutcome` beside the run's outcome,
+  not on `AgentRunResult`.
+  Rationale: This plan originally specified an `evidence` field on `AgentRunResult` and an
+  unchanged `IO (Either AgentRunFailure AgentRunResult)` return. Those two contradict this plan's
+  own acceptance criterion that a timed-out run records `CallAborted`, because `runAgentCommand`
+  reports a timeout as `Left (RunTimedOut …)` — so a record on the `Right` is unreachable in the
+  one failure case that most deserves one. A run killed by its timeout started, ran, consumed
+  tokens, and may have changed the working tree.
+  The alternatives were worse. Making a timeout return `Right` would break the runner's documented
+  contract that a timeout is a failure, and break the existing test that asserts it. Threading the
+  evidence through `AgentRunFailure` would put it on a type whose other four constructors describe
+  runs that never started. A record with two fields says exactly what happened and where the
+  evidence for it is, and it leaves `AgentRunResult` the process result its own documentation says
+  it is rather than a type with a field that is `Nothing` precisely when it is most wanted.
+  Date: 2026-08-05
+
+- Decision: The commitment digest covers an object carrying both the argument vector and the
+  prompt; the configuration digest covers the vector with the prompt removed by value.
+  Rationale: Both vendor renderers select `PromptOnStdin`, so the prompt appears nowhere in the
+  argument vector. A commitment over the vector alone — which is what the two CLI completion
+  providers do, because there the prompt genuinely is in the vector — would give two runs with
+  identical flags and completely different instructions the same digest, silently defeating the one
+  thing that digest exists to do. Removing the prompt by value rather than by position means the
+  configuration envelope is prompt-free under `PromptAsArgument` too, without depending on the
+  prompt staying the last element.
+  Date: 2026-08-05
+
+- Decision: Parse the tool's structured output best-effort, and do not make the renderers request
+  it.
+  Rationale: Neither vendor renderer emits `--output-format json` or `--json`, and adding one would
+  change what an operator watching an `inherit`-mode run sees — a behaviour change well outside
+  this plan and contrary to the design masterplan 8 chose. So the parse reads a structured result
+  when the operator configured one through `provider-args` and records honest silence otherwise.
+  The alternative, inferring the session identifier or model from anything else available, would be
+  reporting the request as an observation.
+  Date: 2026-08-05
+
+- Decision: `EndpointIdentity.api` records the string `agent_run`.
+  Rationale: The field is documented as "the wire protocol tag, rendered from `Baikai.Api.Api`", and
+  an unattended run speaks no wire protocol: it writes to a pipe. Leaving it empty would read as
+  "unknown" when the truth is "not applicable", and borrowing an `Api` tag would claim an HTTP shape
+  that was never used. It duplicates `transport` for this surface, which is the honest outcome.
+  Date: 2026-08-05
+
+- Decision: The command requests evidence exactly when `--evidence-file` or `--run-id` is supplied,
+  and the job's own name is the run identifier when only a destination is given.
+  Rationale: An operator who supplies neither must keep the behaviour and the cost they had before
+  evidence existed, which is what the runner's opt-in gate is for; making the CLI always opt in
+  would defeat it. Defaulting the run identifier to the job name rather than the empty string means
+  a consumer never has to special-case a blank field, and baikai treats the value as opaque text
+  either way.
+  Date: 2026-08-05
+
+- Decision: A failed evidence-file write is reported on standard error and never changes the exit
+  code.
+  Rationale: The agent's own exit code passes through unchanged — that is the surface's central
+  contract, and the motivating consumer's script ends its launch with `|| die`. Turning a
+  successful run into a failure because a log file could not be written would be the worse surprise,
+  and an operator who cares can see the message. The run itself already happened; the record is
+  about it, not part of it.
+  Date: 2026-08-05
+
+
+## Outcomes & Retrospective
+
+An unattended coding-agent run now produces a model-call evidence record, on a surface that before
+this plan had no observability of any kind — no trace sink, no `Response`, no usage, no
+identifiers. `cabal build all` is clean with no new warnings and every test suite passes.
+
+What an operator can do that they could not before:
+
+```bash
+cd /Users/shinzui/Keikaku/bokuno/baikai
+cabal test baikai-agent --test-options='--pattern "unattended run evidence"'
+```
+
+selects nine cases, and
+
+```bash
+baikai agent run <job> --prompt-stdin --run-id <outer-run> --evidence-file <path>
+```
+
+writes one JSON object naming the executable that ran, its own reported version, the digests over
+the request, what the reasoning-effort request became on the command line, whatever the tool
+reported about itself, and an honest strength. The Surprises section above has a real record from
+that command driving a fake executable.
+
+Three things are worth carrying forward.
+
+The plan's own Interfaces section was internally inconsistent, and finding out required writing the
+timeout test. `AgentRunResult` cannot hold the evidence for a run that produces no
+`AgentRunResult`. The fix was small but it is the kind of thing that only surfaces when the
+acceptance criterion is written as a test rather than as a sentence.
+
+The most valuable assertion in this plan is the process count, not a field. `A RUN THAT ASKED FOR
+NO EVIDENCE SPAWNS EXACTLY ONE PROCESS` is what catches a `--version` probe firing on the opt-out
+path, and an assertion on the absent `evidence` field would pass whether or not the probe ran. The
+contrast half — that opting in spawns more than one — is what stops that test passing because the
+fake was never invoked at all.
+
+And the honest answer turned out to be smaller than the plan hoped. Neither vendor renderer asks
+its tool for structured output, so the tool-reported fields this plan set out to capture are
+unavailable unless an operator arranges two non-default things. Writing that down in the runner's
+Haddock and in the user guide is more useful than a record that quietly reads `unobserved` and
+leaves someone wondering what they did wrong.
+
+What remains for plan 57: the configuration digest is degenerate on all three subprocess transports
+and 57 is the first plan positioned to decide whether `configurationProjection` should learn about
+argument vectors; `requested_model` has no way to say "no model was requested"; and this surface has
+no strict-mode gate, since `runAgentCommand` takes an `EvidenceRequest` whose strictness it
+currently ignores.
 
 
 ## Context and Orientation
@@ -580,15 +794,27 @@ plan.
 
 ## Interfaces and Dependencies
 
-New dependencies: none beyond what the shared helper module needs. `baikai-agent` already declares
-`directory`, `process`, `filepath`, and `optparse-applicative`. If
-[docs/plans/55](55-emit-claude-and-codex-cli-completion-provider-evidence.md) has not landed,
-`baikai`'s library stanza may need `directory` added for `findExecutable`.
+New dependencies: `baikai-agent`'s library gained `aeson` (the two request envelopes) and
+`streamly-core` (the codex event-stream parser's input type), and its test suite gained `aeson`.
+`directory`, `process`, `filepath`, and `optparse-applicative` were already declared.
+[docs/plans/55](55-emit-claude-and-codex-cli-completion-provider-evidence.md) landed first and
+already added `directory`, `filepath`, and `process` to `baikai`'s library stanza for the shared
+executable probe, so nothing was needed there.
 
 The surface that must exist when this plan is complete:
 
-In `baikai/src/Baikai/Agent.hs`, `AgentRunResult` gains
-`evidence :: !(Maybe ModelCallEvidence)`, exported alongside the other selectors.
+In `baikai/src/Baikai/Agent.hs`, a new type beside `AgentRunResult`, which is
+itself unchanged. See the Decision Log for why the evidence is a sibling of the
+outcome rather than a field on the result:
+
+```haskell
+data AgentRunOutcome = AgentRunOutcome
+  { outcome :: !(Either AgentRunFailure AgentRunResult),
+    evidence :: !(Maybe ModelCallEvidence)
+  }
+
+agentRunOutcome :: Either AgentRunFailure AgentRunResult -> AgentRunOutcome
+```
 
 In `baikai-agent/src/Baikai/Agent/Run.hs`:
 
@@ -598,7 +824,13 @@ runAgentCommand ::
   ThinkingTranslation ->
   AgentRunRequest ->
   AgentCommand ->
-  IO (Either AgentRunFailure AgentRunResult)
+  IO AgentRunOutcome
+
+-- The argument vector and the prompt, for the commitment digest.
+agentRequestEnvelope :: AgentCommand -> Value
+
+-- The same with the prompt removed, for the configuration digest.
+agentConfigurationEnvelope :: AgentCommand -> Value
 ```
 
 In `baikai-claude/src/Baikai/Provider/Claude/Agent.hs`:
@@ -606,6 +838,8 @@ In `baikai-claude/src/Baikai/Provider/Claude/Agent.hs`:
 ```haskell
 claudeAgentCommand ::
   ClaudeAgentConfig -> AgentRunRequest -> Either AgentRenderError (AgentCommand, ThinkingTranslation)
+
+claudeAgentThinking :: AgentRunRequest -> ThinkingTranslation
 ```
 
 In `baikai-openai/src/Baikai/Provider/OpenAI/Agent.hs`:
@@ -613,7 +847,12 @@ In `baikai-openai/src/Baikai/Provider/OpenAI/Agent.hs`:
 ```haskell
 codexAgentCommand ::
   CodexAgentConfig -> AgentRunRequest -> Either AgentRenderError (AgentCommand, ThinkingTranslation)
+
+codexAgentThinking :: AgentRunRequest -> ThinkingTranslation
 ```
+
+`Baikai.Agent.Cli.renderJobCommand` returns the same pair, since it is the
+dispatch point in front of both.
 
 In `baikai/src/Baikai/Provider/Cli/Internal.hs`, shared with
 [docs/plans/55](55-emit-claude-and-codex-cli-completion-provider-evidence.md) — written by

@@ -198,7 +198,7 @@ correction folded into plan 54, which is the plan that enumerates the mapping an
 | EP-3 | Emit Anthropic Messages API call evidence | docs/plans/53-emit-anthropic-messages-api-call-evidence.md | EP-1, EP-2 | EP-4 | Complete |
 | EP-4 | Emit OpenAI-compatible API call evidence | docs/plans/54-emit-openai-compatible-api-call-evidence.md | EP-1, EP-2 | EP-3 | Complete |
 | EP-5 | Emit Claude and Codex CLI completion-provider evidence | docs/plans/55-emit-claude-and-codex-cli-completion-provider-evidence.md | EP-1, EP-2 | None | Complete |
-| EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | In Progress |
+| EP-6 | Emit unattended agent-run evidence | docs/plans/56-emit-unattended-agent-run-evidence.md | EP-1 | EP-5 | Complete |
 | EP-7 | Enforce strict evidence mode and release the evidence surface | docs/plans/57-enforce-strict-evidence-mode-and-release-the-evidence-surface.md | EP-2, EP-3, EP-4, EP-5, EP-6 | None | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -347,10 +347,12 @@ sign, does not hold sanctioning policy, and does not own retries.
       establish that it names no model at all. (2026-08-05)
 - [x] EP-5: Record executable identity, version, and argument-vector digest, at explicitly weaker
       evidence strength that a zero exit status cannot raise. (2026-08-05)
-- [ ] EP-6: Add the unattended agent-run evidence path and its emission point.
-- [ ] EP-6: Capture agent-run executable identity, version, argv digest, and structured result
-      identifiers.
-- [ ] EP-6: Surface evidence through the `baikai agent run` command.
+- [x] EP-6: Add the unattended agent-run evidence path and its emission point — `AgentRunOutcome`,
+      returned beside the run's outcome so a timed-out run still carries a record. (2026-08-05)
+- [x] EP-6: Capture agent-run executable identity, version, argv-and-prompt digests, and the
+      structured result identifiers the tool reports when configured to print any. (2026-08-05)
+- [x] EP-6: Surface evidence through the `baikai agent run` command, with `--evidence-file` and
+      `--run-id`. (2026-08-05)
 - [ ] EP-7: Implement strict evidence mode with pre-dispatch refusal across every enumerated
       downgrade site.
 - [ ] EP-7: Make strict mode fail the call on trace-sink failure while best-effort mode keeps
@@ -698,6 +700,53 @@ version probe was bounded at two seconds per the plan and failed intermittently 
 test` suites ran in parallel; individual subprocess cases were observed taking over five seconds.
 It is now five. Any later plan bounding a subprocess should pick the bound from "what stops an
 infinite hang", not from "what feels fast".
+
+
+### Found while implementing EP-6
+
+All five change what EP-7 must do.
+
+**The configuration digest is degenerate on all three subprocess transports, and EP-7 owns whether
+to fix it.** `configurationProjection` is an allow-list over *named* request fields. An argv array
+projects to `null` and an argv-bearing object projects to `{}`, so every CLI completion call shares
+one `request_configuration` value and every agent run shares another. That is the allow-list failing
+in the safe direction and both plans accepted it deliberately — but a digest constant across every
+run of every job proves nothing, while a caller reading the field name would reasonably expect it to
+distinguish two jobs configured differently. EP-6 built its configuration envelope prompt-free
+anyway, so teaching the projection about argument vectors later cannot start leaking a prompt on the
+transport that puts one in the vector. EP-7 is the first plan positioned to see all four transports
+at once and should decide.
+
+**`requestedModel` cannot express "no model was requested", and one surface needs it to.** An
+unattended `AgentRunRequest` may leave `modelId` unset, meaning "whatever the tool defaults to", and
+no `--model` flag is rendered at all. `ModelCallEvidence.requestedModel` is plain `Text`, so EP-6
+records the empty string and documents what it means. Making it `Maybe Text` is a schema break and
+therefore EP-1 vocabulary territory; EP-7 should decide alongside the `ThinkingMode` question EP-3
+and EP-4 left it, since both are the same kind of change and would travel in one major bump.
+
+**Strict evidence mode has a fourth enforcement site EP-7 must not miss.**
+`Baikai.Agent.Run.runAgentCommand` takes a `Maybe EvidenceRequest` and currently ignores its
+`strictness` field entirely. The agent surface never touches `ApiProvider`, so EP-7's
+`describeThinking` gate does not reach it, and it has no trace sink, so EP-7's sink-failure rule
+does not either. It needs its own pre-dispatch refusal — and it is the surface where refusal matters
+most, because an unattended run cannot be told at the required strength unless the operator
+configured both output capture and a structured output format. EP-7 should be able to refuse an
+`InheritOutput` job that demands `EvidenceCorrelated` before spawning anything.
+
+**Two of the four evidence-bearing surfaces cannot reach past `EvidenceCorrelated` by default, for
+different reasons.** Codex CLI never names a model at all. An unattended run names nothing unless
+the operator adds `--output-format json` or `--json` through the job's `provider-args` *and*
+captures output; under the default `inherit` mode baikai holds no bytes to parse. EP-7's user
+documentation has to state both plainly, because a caller who requests a strength their
+configuration cannot supply will otherwise see a refusal they have no way to interpret.
+
+**A plan's stated interface can contradict its own acceptance criterion, and only the test finds
+it.** EP-6 specified an `evidence` field on `AgentRunResult` and an unchanged
+`Either AgentRunFailure AgentRunResult` return, while also requiring that a timed-out run record
+`CallAborted` — but a timeout returns `Left`, so that record would have been unreachable. It was
+resolved with an `AgentRunOutcome` wrapper. The general lesson for EP-7, whose central deliverable
+is a refusal: write the acceptance criterion as a failing test before writing the signature it
+implies.
 
 
 ## Decision Log
