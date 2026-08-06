@@ -77,17 +77,22 @@ This is a multi-package project. Depend on `baikai` plus whichever vendor
 packages you need; each vendor package registers its handlers into the
 shared registry and re-exports nothing of its own.
 
+The table is in publish order — a dependency reaches Hackage before its
+dependents.
+
 | Package              | Hackage    | What's inside |
 |----------------------|------------|---------------|
-| **`baikai`**         | not yet    | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
-| **`baikai-claude`**  | not yet    | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
-| **`baikai-openai`**  | not yet    | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
-| **`baikai-agent`**   | not yet    | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
-| **`baikai-trace-otel`** | not yet | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
+| **`baikai`**         | [0.5.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
+| **`baikai-claude`**  | [0.5.0.0](https://hackage.haskell.org/package/baikai-claude) | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
+| **`baikai-openai`**  | [0.5.0.0](https://hackage.haskell.org/package/baikai-openai) | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
+| **`baikai-trace-otel`** | [0.3.0.3](https://hackage.haskell.org/package/baikai-trace-otel) | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
+| **`baikai-effectful`** | [0.3.0.3](https://hackage.haskell.org/package/baikai-effectful) | A thin, policy-free [`effectful`](https://hackage.haskell.org/package/effectful) binding over baikai's transport: the dynamic `Baikai` effect (`Complete` / `StreamCollect` / `StreamEach`) and interpreters over a real or fake provider. |
+| **`baikai-kit`**     | [0.1.0.4](https://hackage.haskell.org/package/baikai-kit) | Shared kit installer for command-line tools that ship a git-hosted kit of local AI-agent skills and subagents: listing, install, update, uninstall, status, and the discovery helpers an interactive session mounts. |
+| **`baikai-agent`**   | [0.1.0.0](https://hackage.haskell.org/package/baikai-agent) | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
 | `baikai-smoke`       | internal   | Live smoke tests across every shipped provider. API cases skip when their keys are absent; batch CLI cases run whenever `claude` or `codex` is on `PATH`. Not published — useful as worked examples. |
 
-Packages version independently and will publish in dependency order,
-`baikai` first.
+Packages version independently, so the numbers above move at different
+rates; each carries its own `baikai-<package>-<version>` git tag.
 
 ## Quick taste
 
@@ -164,7 +169,28 @@ walkthrough.
 
 ## Install
 
-Until the packages appear on the package index, pull them from git via
+Every package above is on Hackage, so ordinary dependencies are all you
+need:
+
+```cabal
+build-depends:
+  , baikai
+  , baikai-claude
+  , baikai-openai
+  , baikai-trace-otel   -- optional, for OpenTelemetry
+  , baikai-effectful    -- optional, for the effectful binding
+  , baikai-kit          -- optional, if your tool ships a kit command
+```
+
+The unattended runner is a tool rather than a library dependency.
+Installing it puts a `baikai` binary on your `PATH`:
+
+```console
+$ cabal install baikai-agent
+$ baikai agent --help
+```
+
+To track unreleased work instead, pin the repository from
 `cabal.project`:
 
 ```cabal
@@ -173,16 +199,6 @@ source-repository-package
   location: https://github.com/shinzui/baikai
   tag: <commit>
   subdir: baikai baikai-claude baikai-openai
-```
-
-Once published, use ordinary package dependencies:
-
-```cabal
-build-depends:
-  , baikai
-  , baikai-claude
-  , baikai-openai
-  , baikai-trace-otel   -- optional, for OpenTelemetry
 ```
 
 ## Documentation

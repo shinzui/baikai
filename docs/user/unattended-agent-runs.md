@@ -18,6 +18,23 @@ working tree, you are in the right place.
 This guide covers both halves of that surface: the `baikai agent` command a
 script invokes, and the configuration that decides what the command does.
 
+## Getting the command
+
+The command ships in `baikai-agent`, which you install rather than depend on.
+Installing it puts a `baikai` binary on your `PATH`:
+
+```console
+$ cabal install baikai-agent
+$ baikai agent --help
+```
+
+The coding agent itself is not bundled: a job that names Claude Code needs
+`claude` on `PATH`, and one that names Codex needs `codex`.
+
+Inside this repository the package name `baikai` and the executable name
+`baikai` collide, so `cabal run baikai` is ambiguous — use
+`cabal run baikai-agent:exe:baikai` instead.
+
 ## The command
 
 ```text

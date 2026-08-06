@@ -14,6 +14,7 @@ record you pass.
 | `baikai-claude` | Anthropic Messages API + `claude -p` CLI providers. Exposes `register :: IO ()` per provider. |
 | `baikai-openai` | OpenAI Chat Completions API + `codex exec` CLI providers. Same `register` shape. |
 | `baikai-kit`    | Shared kit installer for tools that install local AI-agent skills and subagents from a git repository. |
+| `baikai-agent`  | Unattended coding-agent runs, and the `baikai` executable you install rather than depend on. |
 | `baikai-smoke`  | Internal live test suite — useful as worked examples.                         |
 
 You depend on `baikai` plus whichever vendor packages you need. The
@@ -23,7 +24,21 @@ handlers into the central `Baikai.Provider.Registry` when their
 
 ## Install
 
-baikai is not yet on Hackage. Pull it in via `cabal.project`:
+baikai is on Hackage. Add what you need to your project's `.cabal`
+file:
+
+```cabal
+build-depends:
+  , baikai
+  , baikai-claude
+  , baikai-openai
+```
+
+If your application also exposes a `kit` command, add `baikai-kit`; see
+[Kit Packages](kit.md).
+
+To track unreleased work instead, pin the repository from
+`cabal.project`:
 
 ```cabal
 source-repository-package
@@ -33,18 +48,9 @@ source-repository-package
     subdir: baikai baikai-claude baikai-openai
 ```
 
-Then in your project's `.cabal` file:
-
-```cabal
-build-depends:
-  , baikai
-  , baikai-claude
-  , baikai-openai
-```
-
-If your application also exposes a `kit` command, add the `baikai-kit`
-subdirectory to the same git pin and add `baikai-kit` to
-`build-depends`; see [Kit Packages](kit.md).
+The unattended runner is a tool, not a library dependency.
+`cabal install baikai-agent` puts a `baikai` binary on your `PATH`; see
+[Unattended Agent Runs](unattended-agent-runs.md).
 
 ## Register providers
 
