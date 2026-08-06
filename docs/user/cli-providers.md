@@ -15,7 +15,7 @@ authenticated.
 | You're already paying for Claude Max / ChatGPT Plus / etc.               | You have an API key with per-token billing.              |
 | You want to inherit the CLI's auth flow (`claude login`, `codex login`). | You can manage `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`.   |
 | You only need text in, text out.                                         | You need tools, images, or fine control over tokens.     |
-| Token-level cost tracking does not matter for your workload.             | You care about `Usage` / `Cost` per call.                |
+| You want the tool's own cost accounting, not per-request billing.       | You need billing you control per request.                |
 
 The CLI providers exist so the rest of baikai's surface (Context,
 Options-as-data, the event stream, the registry, the trace bridge)
@@ -171,16 +171,41 @@ want the default Codex behaviour.
 
 CLI providers return a normal `Response`, with three caveats:
 
-1. **`usage` is all zeros.** The CLIs don't expose token counts,
-   so `inputTokens`, `outputTokens`, `cacheReadTokens`,
-   `cacheWriteTokens`, `totalTokens`, and `cost` are all `0` /
-   `mempty`. Treat the call as free — billing happens on the
-   subscription, not per request.
-2. **`responseId` is `Nothing`.** Neither CLI returns an opaque
-   correlation id baikai can surface.
+1. **`usage` carries whatever the tool reported.** Both CLIs do
+   expose token counts, and baikai now carries them through:
+   `claude -p`'s result event supplies Anthropic-shaped counts
+   (already disjoint, so nothing is subtracted) plus a
+   `total_cost_usd` that populates `Usage.cost` exactly, and
+   `codex exec --json` supplies OpenAI-style inclusive counts whose
+   cached tokens are subtracted out of `inputTokens`. A tool that
+   reports nothing still yields zeroes, which is an accurate record
+   of its silence rather than a claim the call was free.
+
+   > **Changed in `baikai-claude` 0.5.0.0 / `baikai-openai` 0.5.0.0.**
+   > These providers used to hardcode `zeroUsage` on every call, so a
+   > cost dashboard saw them as consuming no tokens and costing
+   > nothing. Real tokens and, for `claude`, a real dollar figure now
+   > appear where zeroes used to. Totals over historical data will not
+   > match totals over new data.
+
+   Note that `cost` is what the *tool* reported, not necessarily what
+   you were billed: under a flat-rate subscription `claude` still
+   reports the equivalent API cost.
+2. **`responseId` carries the tool's own conversation handle.**
+   `claude -p`'s `session_id` and `codex exec`'s `thread_id` — the
+   handles each vendor's support tooling looks a run up by. Before
+   `0.5.0.0` this was permanently `Nothing`, even though `claude`'s
+   was already decoded and then discarded.
 3. **`latencyMs` is wall-clock.** Measured from process spawn to
    process exit. Includes JSON decode time, which is negligible
    relative to the model call.
+4. **`evidence` is present only if you asked for one.** Setting
+   `Options.evidence` gets you a `ModelCallEvidence` record
+   describing what crossed the boundary — including the resolved
+   executable, its `--version` string, and a digest of the exact
+   argument vector. See
+   [Model-Call Evidence](model-call-evidence.md). Leaving it unset
+   costs nothing.
 
 The assistant message carries exactly one `AssistantText` block
 holding the full response. `stopReason` is always `Stop` on
@@ -268,10 +293,11 @@ types compile:
    left at `emptyOptions`.
 
 If your code needs to handle both API and CLI providers
-generically, *don't* assume `Usage.totalTokens > 0` or that
-`Options` settings will take effect — gate those expectations on
-`Model.api` not being `AnthropicMessagesCli` /
-`OpenAICompletionsCli`.
+generically, *don't* assume `Options` settings will take effect —
+gate those expectations on `Model.api` not being
+`AnthropicMessagesCli` / `OpenAICompletionsCli`. Token counts are
+now safe to read from either, but treat a zero as "the tool said
+nothing" rather than "the call was free".
 
 ## Common gotchas
 

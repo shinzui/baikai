@@ -27,7 +27,7 @@ import Baikai.Agent.Cli
     usageExitCode,
   )
 import Baikai.Agent.Config (AgentConfigPaths (..), AgentJob, resolveAgentJob)
-import Baikai.Evidence (evidenceSchemaVersion)
+import Baikai.Evidence (EvidenceStrength (..), evidenceSchemaVersion)
 import Control.Lens ((^.))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -89,7 +89,8 @@ cliTests =
           reportsAMissingExecutableTest,
           refusesAnEmptyPromptTest,
           writesTheEvidenceFileTest,
-          writesNoEvidenceFileByDefaultTest
+          writesNoEvidenceFileByDefaultTest,
+          refusesAnImpossibleEvidenceRequirementTest
         ],
       testGroup
         "prompts"
@@ -133,6 +134,10 @@ withOverride key value opts =
     { overrides =
         (opts ^. #overrides) <> [cliOverride (either (error . show) id (parseKey key)) value]
     }
+
+-- | Demand a strength the run must reach, or be refused.
+requiringEvidence :: EvidenceStrength -> AgentCliOptions -> AgentCliOptions
+requiringEvidence needed opts = opts {requiredEvidence = Just needed}
 
 -- | Ask for evidence, naming both a destination and an outer run.
 withEvidence :: FilePath -> Text -> AgentCliOptions -> AgentCliOptions
@@ -741,6 +746,43 @@ writesNoEvidenceFileByDefaultTest =
       finished ^. #exitCode @?= 0
       written <- doesFileExist evidencePath
       assertBool "no evidence file appeared" (not written)
+
+-- | A run whose evidence requirement cannot be met is refused through
+-- the command surface, with the refusal exit code.
+--
+-- This case exists because its absence let a crash ship: adding the
+-- 'EvidenceRefused' constructor left `failureExitCode`'s match
+-- non-exhaustive, and no test drove a refused run through the command,
+-- so the only symptom was a pattern-match failure on a real invocation.
+refusesAnImpossibleEvidenceRequirementTest :: TestTree
+refusesAnImpossibleEvidenceRequirementTest =
+  testCase "a run demanding evidence an inherit job cannot produce is refused" $
+    withWorkspace $ \dir -> do
+      let argvRecord = dir </> "argv"
+      executable <-
+        writeFakeAgent dir "claude" ("#!/bin/sh\ntouch '" <> Text.pack argvRecord <> "'\n")
+      -- `inherit` sends the agent's bytes to the terminal, so baikai
+      -- holds nothing and can observe nothing however the run goes.
+      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "inherit")
+      finished <-
+        run
+          (repositoryOnly configPath)
+          ( requiringEvidence
+              EvidenceCorrelated
+              (options (AgentRun "demo" (PromptInline "do the thing")))
+          )
+      finished ^. #exitCode @?= refusedExitCode
+      assertBool
+        ("the refusal explains itself: " <> Text.unpack (finished ^. #standardError))
+        -- The whole phrase, not a prefix: a mis-escaped string gap once
+        -- turned "it required" into a carriage return plus "equired",
+        -- and an assertion that stopped before the word did not notice.
+        ( "cannot produce the evidence it required"
+            `Text.isInfixOf` (finished ^. #standardError)
+            && "correlated" `Text.isInfixOf` (finished ^. #standardError)
+        )
+      started <- doesFileExist argvRecord
+      assertBool "nothing was started" (not started)
 
 refusesAnEmptyPromptTest :: TestTree
 refusesAnEmptyPromptTest =

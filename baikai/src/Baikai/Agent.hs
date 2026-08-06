@@ -613,5 +613,5 @@ renderAgentRunFailure (OutputMalformed why) =
   "the run produced malformed output: " <> why
 renderAgentRunFailure (EvidenceRefused reasons) =
   "refused before starting, because this run cannot produce the evidence it \
-  \\required: "
+  \required: "
     <> Text.intercalate "; " reasons

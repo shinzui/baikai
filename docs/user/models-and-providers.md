@@ -275,6 +275,10 @@ myProvider =
     { apiTag = Custom "my-llm-host"
     , stream = \model ctx opts -> Stream.fromList (myStreamProducer model ctx opts)
     , complete = \model ctx opts -> myCompleteProducer model ctx opts
+    -- What this provider would do with Options.thinking, asked before
+    -- any request is built. Only the strict-evidence gate calls it; a
+    -- provider with no reasoning controls answers honestly like this.
+    , describeThinking = \_model _opts -> noThinkingRequested
     }
 
 myModel :: Model
@@ -312,12 +316,23 @@ myProvider =
     { apiTag = Custom "my-llm-host"
     , stream = liftCompleteToStream myCompleteProducer
     , complete = myCompleteProducer
+    , describeThinking = \_model _opts -> noThinkingRequested
     }
 ```
 
 This produces a synthetic one-shot stream (one `TextDelta` with
 the whole response, then `EventDone`), matching how the CLI
 providers work.
+
+> **Changed in `baikai` 0.5.0.0.** `ApiProvider` gained a fourth
+> field, `describeThinking :: Model -> Options -> ThinkingTranslation`.
+> It is called only by the pre-dispatch strict-evidence gate, never on
+> an ordinary call, so `\_ _ -> noThinkingRequested` is correct and
+> honest for a provider that has no reasoning controls. If yours does
+> translate `Options.thinking` onto a wire field, return a
+> `ThinkingTranslation` describing what it becomes — built by the same
+> function that builds the request, so the two cannot drift apart. See
+> [Model-Call Evidence](model-call-evidence.md).
 
 ## Cost & usage
 

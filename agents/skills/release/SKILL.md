@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release of the baikai Haskell packages and publish them to Hackage following PVP. Packages version independently, publish in dependency order (baikai first), and are tagged per-package. Run manually when shipping a new version.
+description: Cut a release of the baikai Haskell packages and publish them to Hackage following PVP. Packages version independently, publish in dependency order (baikai first), and are tagged per-package. baikai-agent additionally ships the `baikai` command-line tool, which carries extra verification. Run manually when shipping a new version.
 argument-hint: "[major|minor|patch]"
 disable-model-invocation: true
 allowed-tools: Read, Bash, Edit, Glob, Grep, Write, AskUserQuestion
@@ -116,11 +116,16 @@ Publish in this order — a dependency must be on Hackage before its dependents:
    must not be added: it bundles Dhall loading, and the repository
    configuration this package reads is untrusted input.
 
-   It is also the only package that ships an executable a user installs. That
-   needs no extra publishing step — `cabal sdist` carries the stanza — but note
-   that the executable is named `baikai` while a *package* is also named
-   `baikai`, so an in-workspace `cabal run baikai` fails as ambiguous. Use
-   `cabal run baikai-agent:exe:baikai` when exercising it before a release.
+   It is also the only package that ships an executable a user installs, which
+   changes what a release has to prove — see "Releasing the `baikai` command-line
+   tool" below. Note that the executable is named `baikai` while a *package* is
+   also named `baikai`, so an in-workspace `cabal run baikai` fails as ambiguous.
+   Use `cabal run baikai-agent:exe:baikai` when exercising it before a release.
+
+   `baikai` also builds two executables — `baikai-gen-models` and
+   `baikai-fetch-models` — but those are catalog-generation tools, not something
+   a user installs. They still have to build from the source distribution, which
+   step 6's sdist check covers.
 
 Packages 2–6 depend only on `baikai` (for their library component), so once
 `baikai` is up they can be published in any order among themselves. Package 7 is
@@ -168,6 +173,43 @@ against:
 Call this out explicitly when it happens — it is the one place independent
 versioning still forces a coordinated bump.
 
+## Releasing the `baikai` command-line tool
+
+`baikai-agent` is the only package a user installs rather than depends on:
+`cabal install baikai-agent` puts a `baikai` binary on their `PATH`. Two things
+follow that do not apply to the library-only packages.
+
+**A library release is verified by its dependents; a tool release is not.** The
+in-workspace build proves nothing about the tarball a user will actually build,
+because `cabal.project` puts every sibling package on disk. Uploading is the
+first moment `baikai-agent` resolves `baikai`, `baikai-claude`, and
+`baikai-openai` from the index like everyone else. Step 6 therefore builds each
+source distribution outside the workspace before uploading it, and step 8
+installs the published tool from the index and runs it.
+
+**The tool's user-facing docs are part of the release.** The README's package
+table carries a Hackage column, and `docs/user/unattended-agent-runs.md` and
+`docs/user/getting-started.md` tell a reader how to get the binary. A release
+that publishes the tool but leaves those saying it is unpublished ships a
+correct package with wrong instructions. Step 3 covers this.
+
+### First upload of a package
+
+`baikai-agent` has never been uploaded, so its release also creates the package
+name on Hackage. A first upload deserves the candidate path in step 6 —
+`cabal upload` *without* `--publish` — because a published version can never be
+replaced or withdrawn, only deprecated, and a first upload is where a missing
+source file or an unbuildable stanza shows up. Inspect the candidate page, then
+publish.
+
+Once `baikai-agent` is on Hackage this is an ordinary bump like any other. Check
+what is actually published rather than trusting this paragraph:
+
+```bash
+curl -s https://hackage.haskell.org/package/baikai-agent/preferred \
+  -H 'Accept: application/json'
+```
+
 ## Release steps
 
 > Run from the repo root, inside the Nix dev shell (`nix develop` / direnv).
@@ -194,9 +236,10 @@ git log --oneline <last-tag>..HEAD -- baikai/
 `baikai-openai-*`, `baikai-trace-otel-*`, `baikai-effectful-*`, `baikai-kit-*`,
 `baikai-agent-*`.)
 
-`baikai-agent` has no release tag yet: it is a new package whose first upload is
-version `0.1.0.0`, not a bump of anything. Reviewing "changes since its last tag"
-does not apply on that first release; review its whole directory instead.
+A package with no tag at all has never been released, so "changes since its last
+tag" does not apply — review its whole directory and give it a starting version
+(`0.1.0.0`) rather than inferring a bump. At the time of writing that is
+`baikai-agent`; confirm with the tag listing rather than assuming.
 
 Classify the change per package and compute the new PVP version:
 
@@ -236,8 +279,28 @@ For each released package:
 
   Keep an empty `[Unreleased]` heading at the top for future work.
 
-**Confirm the computed bumps and changelog edits with the operator before
-committing.**
+- **Docs that name a published version or an install method.** The README's
+  package table has a **Hackage** column, and its *Install* section chooses
+  between a `source-repository-package` git pin and ordinary `build-depends`
+  based on what is published. A package moving from unpublished to published
+  flips both. For `baikai-agent` that also means the install instruction becomes
+  `cabal install baikai-agent` (which puts a `baikai` binary on `PATH`) rather
+  than a library `build-depends` entry.
+
+  Find the claims rather than editing from memory — they drift:
+
+  ```bash
+  grep -rn 'not yet\|source-repository-package\|cabal install' README.md docs/user/
+  ```
+
+  Write these edits as if the upload already succeeded, and include them in the
+  release commit. They are a lie for the few minutes between step 5 and step 6;
+  the alternative is a second commit that is easy to forget entirely. If step 6
+  fails, the fix is to revert, not to leave the tree describing a release that
+  did not happen.
+
+**Confirm the computed bumps, changelog edits, and doc updates with the operator
+before committing.**
 
 ### 4. Run the gates (all four are mandatory)
 
@@ -296,24 +359,59 @@ git tag -a baikai-claude-0.1.0.1 -m "baikai-claude 0.1.0.1"
 git push origin master --follow-tags
 ```
 
-### 6. Publish to Hackage — in dependency order
+### 6. Publish to Hackage — one package at a time, in dependency order
 
-For each released package, **in dependency order (`baikai` first)**, build the
-source distribution and upload it. Use `--publish` only when you are certain;
-omit it first to push a *candidate* you can inspect on Hackage.
+Run the whole of this step for one package before starting the next, **in
+dependency order (`baikai` first)**. Do not batch the sdists and then batch the
+uploads: a dependent cannot be verified until its dependencies are live on the
+index, which is the point of the sdist check below.
+
+**6a. `cabal check`.** Hackage rejects some `.cabal` problems outright and warns
+about others. Catch them before the upload:
 
 ```bash
-# from the package directory (or pass the path):
-cabal sdist baikai
-cabal upload --publish dist-newstyle/sdist/baikai-0.1.0.1.tar.gz
+(cd baikai-agent && cabal check)
 ```
 
-Then build and upload the Haddock documentation for the same package:
+**6b. Build the source distribution and verify it outside the workspace.** This
+is the gate the in-workspace build cannot give you. Inside the repo,
+`cabal.project` supplies every sibling package from disk, so a dependent builds
+even if its Hackage bound is wrong or its tarball is missing a file. Unpacking
+elsewhere resolves everything from the index, exactly as a user will:
 
 ```bash
-cabal haddock baikai --haddock-for-hackage --enable-documentation
+cabal sdist baikai-agent            # -> dist-newstyle/sdist/baikai-agent-0.1.0.0.tar.gz
+
+cabal update                        # required: pick up dependencies published
+                                    # earlier in THIS run
+verify=$(mktemp -d)
+tar xzf dist-newstyle/sdist/baikai-agent-0.1.0.0.tar.gz -C "$verify"
+(cd "$verify"/baikai-agent-0.1.0.0 && cabal build all)
+```
+
+The `cabal update` is not optional. Hackage's index is what the unpacked tarball
+resolves against, and a local index from before this run's earlier uploads makes
+the build fail with a missing dependency that is in fact already published.
+
+A failure here means the tarball is wrong, not the workspace — usually a source
+file that no stanza references, or an internal bound that admits only a version
+you have not uploaded yet. Fix it, and note that fixing it means a new version if
+the package was already published.
+
+**6c. Upload.** Use `--publish` only when you are certain. Omitting it pushes a
+*candidate* you can inspect first — do that for a package's first upload (see
+"First upload of a package"), since a published version can never be replaced.
+
+```bash
+cabal upload --publish dist-newstyle/sdist/baikai-agent-0.1.0.0.tar.gz
+```
+
+**6d. Documentation.** Build and upload the Haddock for the same package:
+
+```bash
+cabal haddock baikai-agent --haddock-for-hackage --enable-documentation
 cabal upload --documentation --publish \
-  dist-newstyle/baikai-0.1.0.1-docs.tar.gz
+  dist-newstyle/baikai-agent-0.1.0.0-docs.tar.gz
 ```
 
 Confirm the package page renders on Hackage before moving to the next package.
@@ -338,6 +436,29 @@ gh release create baikai-0.1.0.1 \
   --notes "See CHANGELOG.md (baikai 0.1.0.1)."
 ```
 
+No binaries are attached. `baikai-agent` ships source like everything else, and
+users install the tool with `cabal install baikai-agent`.
+
+### 8. Verify the installed tool (only when `baikai-agent` was released)
+
+A library's release is exercised by whatever depends on it. Nothing depends on
+`baikai-agent`, so unless you install it from the index nobody finds out until a
+user does. Install the published package into a scratch directory — not onto
+your `PATH`, where it would shadow whatever you already have:
+
+```bash
+installdir=$(mktemp -d)
+cabal update
+cabal install baikai-agent --installdir="$installdir" --install-method=copy
+"$installdir"/baikai --help
+"$installdir"/baikai agent --help
+```
+
+`--help` is the whole check: the executable has no `--version` flag, and every
+other subcommand reads configuration or spawns a coding agent. Confirm the
+binary is named `baikai` (not `baikai-agent`) and that `agent run`, `agent show`,
+and `agent list` all appear.
+
 ## Important
 
 - **Confirm the version bumps and changelog edits with the operator before
@@ -355,4 +476,13 @@ gh release create baikai-0.1.0.1 \
   key off `PATH` alone rather than off any environment variable.
 - **Never continue publishing dependents after an upstream upload fails.**
 - **Never publish `baikai-smoke`** — it is a test-only package with no library.
+- **Never upload a source distribution you have not built outside the
+  workspace** (step 6b), and run `cabal update` first so it resolves against the
+  uploads this run already made. The in-workspace build cannot catch a bad
+  tarball, because `cabal.project` supplies the siblings from disk.
+- **Use a candidate upload for a package's first appearance on Hackage.** A
+  published version can never be replaced — only deprecated.
+- **Move the docs with the release.** The README's Hackage column and Install
+  section, and the `docs/user/` install instructions, state what is published;
+  a release that leaves them stale ships correct code with wrong instructions.
 - Keep tags **annotated** and **per-package** (`<package>-<version>`).

@@ -42,6 +42,8 @@ changed working tree, not the text.
   as `OutputNotCaptured`, `OutputCaptured`, or `OutputTruncated`. A
   non-zero exit code is a normal result, not a failure: a coding agent
   that fails its task and exits 1 has still run.
+- `AgentRunOutcome` pairs that outcome with the evidence a run
+  produced, when the caller asked for any.
 - `AgentRenderError` is a refusal raised before anything is spawned,
   and `AgentRunFailure` is a failure while spawning or waiting.
 
@@ -54,10 +56,27 @@ The process runner lives in the `baikai-agent` package, as
 
 ```haskell
 runAgentCommand ::
-  AgentRunRequest -> AgentCommand -> IO (Either AgentRunFailure AgentRunResult)
+  Maybe EvidenceRequest ->
+  ThinkingTranslation ->
+  AgentRunRequest ->
+  AgentCommand ->
+  IO AgentRunOutcome
 ```
 
-Both arguments are required and neither is redundant. The request
+The first two arguments are about evidence and are covered in
+[Model-Call Evidence](model-call-evidence.md); passing `Nothing` and
+`noThinkingRequested` reproduces the pre-`0.5.0.0` behaviour exactly,
+at the same cost. The result is an `AgentRunOutcome` pairing the
+outcome — the same `Either AgentRunFailure AgentRunResult` as before,
+in its `outcome` field — with the evidence built for the run, if any.
+
+> **Changed in `baikai-agent` 0.1.0.0.** The evidence is a sibling of
+> the outcome rather than a field on `AgentRunResult`, because the run
+> that most needs a record is one that produced no result: a run killed
+> by its own timeout reports `Left (RunTimedOut …)`, so a record hanging
+> off the `Right` would be unreachable exactly there.
+
+The last two arguments are both required and neither is redundant. The request
 supplies every process-level setting — working directory, timeout,
 output discipline, output limit, and declared environment variables —
 while the command supplies the executable, the argument vector, and the

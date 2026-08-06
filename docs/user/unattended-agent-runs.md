@@ -23,6 +23,7 @@ script invokes, and the configuration that decides what the command does.
 ```text
 baikai agent run <job>  [--prompt-stdin | --prompt-file PATH | --prompt TEXT]
                         [--set KEY=VALUE ...] [--config PATH] [--user-config PATH] [--json]
+                        [--run-id TEXT] [--evidence-file PATH] [--require-evidence STRENGTH]
 baikai agent show <job> [--set KEY=VALUE ...] [--config PATH] [--user-config PATH] [--json]
 baikai agent list       [--config PATH] [--user-config PATH] [--json]
 ```
@@ -165,6 +166,7 @@ a reviewable record as a side effect of running:
 |--------|---------|
 | `--evidence-file PATH` | write the run's evidence record to `PATH` as one JSON object |
 | `--run-id TEXT` | the identifier for the logical run this invocation belongs to |
+| `--require-evidence STRENGTH` | refuse to start unless the run can produce evidence of at least this strength |
 
 Supplying neither leaves the run exactly as it was before evidence existed, and
 costs exactly what it cost before: nothing is hashed, no identifier is
@@ -186,6 +188,27 @@ A run that was killed by its timeout **does** get a record, with a status of
 `aborted`. That run started, consumed tokens, and may have changed the working
 tree, which is precisely the case where an operator most wants to know what
 happened.
+
+`--require-evidence` takes one of `requested_only`, `correlated`,
+`model_observed`, or `fully_observed` — the same words a record's `strength`
+field spells, so you read a record and pass the word back. It refuses **before
+anything is spawned** when the requirement is impossible with this
+configuration, exiting with the refusal code `77`:
+
+```console
+$ baikai agent run nightly --prompt-stdin --require-evidence correlated < prompt.txt
+refused before starting, because this run cannot produce the evidence it
+required: this transport can reach at most requested_only evidence, and the
+call required correlated
+```
+
+That example is an `inherit` job: the agent's bytes go to your terminal and
+Baikai never holds them, so nothing the tool reports can be observed however
+well the run goes. The gate is structural rather than predictive — it refuses
+what is impossible, and stays quiet when the requirement is merely uncertain.
+A run that *could* have reported what you needed and did not says so in its own
+record's `strength`; failing it after the fact would destroy the report of work
+that really happened.
 
 ```bash
 baikai agent run sync-keiro-dsl \
@@ -733,12 +756,20 @@ data AgentCliRun = AgentCliRun
 runAgentCli          :: EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
 runAgentCliWithPaths :: AgentConfigPaths -> EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
 
-renderJobCommand :: AgentJob -> AgentRunRequest -> Either AgentRenderError AgentCommand
+renderJobCommand ::
+  AgentJob ->
+  AgentRunRequest ->
+  Either AgentRenderError (AgentCommand, ThinkingTranslation)
 ```
 
 `runAgentCli` discovers the two configuration files; `runAgentCliWithPaths`
 takes them explicitly, which is what a test wants. `renderJobCommand` is the
 single point in the codebase that knows both providers.
+
+The translation half of that pair describes what the job's reasoning effort
+became on the chosen provider's command line. It travels alongside the command
+because the runner deliberately imports no vendor renderer and so cannot derive
+it — see [Model-Call Evidence](model-call-evidence.md).
 
 Note that under `inherit` and `tee` the agent's own output goes straight to the
 real process streams and never enters `AgentCliRun`. That is intended — it is

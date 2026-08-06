@@ -1101,6 +1101,11 @@ failureExitCode = \case
   WorkingDirMissing _ -> configExitCode
   MissingEnvironment _ -> configExitCode
   OutputMalformed _ -> internalExitCode
+  -- Policy said no and nothing was started, which is exactly what
+  -- 'refusedExitCode' means for a ceiling violation or a provider that
+  -- cannot express a safety policy. A script that already branches on
+  -- 77 for those needs no new case for this one.
+  EvidenceRefused _ -> refusedExitCode
 
 -- | Announce truncation. A silently truncated response that a script
 -- then parses is a bug waiting to happen.

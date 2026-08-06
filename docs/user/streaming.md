@@ -48,8 +48,8 @@ constructor carries a payload record:
 | `ToolCallStart`  | `IndexPayload`       | `contentIndex`                           | A tool-call block opens.                                                      |
 | `ToolCallDelta`  | `DeltaPayload`       | `contentIndex`, `delta`                  | A chunk of the tool call's argument JSON.                                     |
 | `ToolCallEnd`    | `ToolCallEndPayload` | `contentIndex`, `toolCall :: ToolCall`   | Tool-call block closes; arguments are parsed.                                 |
-| `EventDone`      | `TerminalPayload`    | `reason :: StopReason`, `message :: Message` | Terminal success. `message` is the fully assembled `AssistantMessage`.    |
-| `EventError`     | `TerminalPayload`    | `reason :: StopReason`, `message :: Message` | Terminal failure. `message` carries whatever content closed before the failure plus a populated `errorMessage`. |
+| `EventDone`      | `TerminalPayload`    | `reason :: StopReason`, `message :: Message`, `evidence :: Maybe ModelCallEvidence` | Terminal success. `message` is the fully assembled `AssistantMessage`.    |
+| `EventError`     | `TerminalPayload`    | `reason :: StopReason`, `message :: Message`, `errorInfo :: Maybe BaikaiError`, `evidence :: Maybe ModelCallEvidence` | Terminal failure. `message` carries whatever content closed before the failure plus a populated `errorMessage`. |
 
 `isTerminal :: AssistantMessageEvent -> Bool` returns `True` on
 `EventDone` / `EventError` and `False` everywhere else.
