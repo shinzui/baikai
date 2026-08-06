@@ -27,6 +27,7 @@ import Baikai.Provider.OpenAI.Api
 import Baikai.Provider.OpenAI.Cli qualified as CodexCli
 import Baikai.Provider.OpenAI.Interactive
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import CliEvidenceSpec qualified
 import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -81,6 +82,7 @@ main =
         finishReasonTests,
         responseFormatMappingTest,
         optionsMappingTest,
+        CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
         ReasoningSpec.tests,

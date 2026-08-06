@@ -18,6 +18,7 @@ import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
 import Baikai.Provider.Claude.Internal.Request (mapRequest)
 import Claude.V1.Messages qualified as Messages
+import CliEvidenceSpec qualified
 import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -65,6 +66,7 @@ main =
         cliMissingBinaryTest,
         responseFormatMappingTest,
         optionsMappingTest,
+        CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
         ShapeSpec.tests,

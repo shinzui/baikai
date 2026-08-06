@@ -20,7 +20,7 @@ import Data.List (isInfixOf)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
-import System.Directory (getPermissions, setOwnerExecutable, setPermissions)
+import System.Directory (doesFileExist, getPermissions, setOwnerExecutable, setPermissions)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
@@ -266,20 +266,35 @@ executableIdentityTests =
       -- The whole reason for the cache: a version probe spawns a
       -- process, and paying that per model call would roughly double
       -- the process cost of the cheapest possible call.
+      --
+      -- The assertion that carries the weight is that the second call
+      -- left the ledger untouched. Asserting "exactly one line" instead
+      -- would also fail when the first probe was killed by its own
+      -- timeout on a loaded machine, which says nothing about caching.
       testCase "the version is probed once per executable, not once per call" $
         withSystemTempDirectory "baikai-cli-identity" $ \dir -> do
           let ledger = dir </> "probes"
+              probeCount = length . lines <$> readFileIfPresent ledger
           exe <-
             writeFakeExecutable
               dir
               "counted"
               ("#!/bin/sh\necho x >> '" <> ledger <> "'\necho 'counted 1.0'\n")
           first <- executableIdentity exe
+          afterFirst <- probeCount
           second <- executableIdentity exe
+          afterSecond <- probeCount
           second @?= first
-          probes <- readFile ledger
-          length (lines probes) @?= 1
+          afterSecond @?= afterFirst
+          assertBool
+            ("the first call must probe at most once, saw " <> show afterFirst)
+            (afterFirst <= 1)
     ]
+
+readFileIfPresent :: FilePath -> IO String
+readFileIfPresent path = do
+  here <- doesFileExist path
+  if here then readFile path else pure ""
 
 -- ============================================================
 -- Evidence helpers

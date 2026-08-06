@@ -71,6 +71,7 @@ test-suite baikai-openai-test
   hs-source-dirs: test
   main-is:        Main.hs
   other-modules:
+    CliEvidenceSpec
     ErrorClassSpec
     EvidenceSpec
     ReasoningSpec
@@ -98,6 +99,7 @@ test-suite baikai-openai-test
     , streamly-core     >=0.3    && <0.5
     , tasty
     , tasty-hunit
+    , temporary
     , text              ^>=2.1
     , time
     , vector

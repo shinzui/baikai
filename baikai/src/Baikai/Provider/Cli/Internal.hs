@@ -647,11 +647,16 @@ probeVersion path = do
     Right (Just (ExitSuccess, out, _)) -> firstNonBlankLine (Text.pack out)
     _ -> Nothing
 
--- | Two seconds. Long enough for any tool that answers at all, short
--- enough that a tool that does not answer costs less than the model
--- call it is describing.
+-- | Five seconds.
+--
+-- The bound exists to stop a tool that /never/ answers from wedging a
+-- model call, so any finite value solves the problem it is there for.
+-- What a tighter bound buys is nothing; what it costs is a version
+-- recorded as absent because the machine was busy when the probe ran.
+-- Five seconds is paid at most once per executable per process, and
+-- only on the pathological path.
 versionProbeMicros :: Int
-versionProbeMicros = 2000000
+versionProbeMicros = 5000000
 
 firstNonBlankLine :: Text -> Maybe Text
 firstNonBlankLine = listToMaybe . filter (not . Text.null) . map Text.strip . Text.lines

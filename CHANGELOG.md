@@ -281,6 +281,72 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   not a denylist, so a header a future gateway adds is not recorded by default.
   The list is longer than the Anthropic one because this transport speaks to an
   open-ended set of hosts and the gateways commonly in front of them.
+- `baikai`: `Baikai.Provider.Cli.Internal` — the module the two subprocess
+  providers share — gains the vocabulary for reading what a coding-agent CLI
+  reported about its own run. `CodexRunReport` and the new
+  `parseCodexJsonlStream :: Stream IO ByteString -> IO CodexRunReport` fold the
+  `codex exec --json` event stream into its assistant text, its thread
+  identifier, and its token counts, instead of concatenating agent-message text
+  and discarding everything else. `ClaudeCliReport` and
+  `decodeClaudeCliResult` do the same for `claude -p --output-format json`.
+  Every field but the message text is optional, because both tools' event
+  schemas have changed across versions and an absent field is a genuine absence
+  rather than a parse failure. **Breaking** for anyone calling
+  `parseCodexJsonlStream` directly: its result type is no longer `Text`. This is
+  an internal module and is documented as outside the PVP guarantee.
+- `baikai`: `Baikai.Provider.Cli.Internal` also gains `ExecutableIdentity` and
+  `executableIdentity`, which resolve a configured executable name to an
+  absolute path and read the tool's own `--version` line. The probe is cached
+  per resolved name for the lifetime of the process, because spawning it per
+  model call would roughly double the process cost of the cheapest possible
+  call, and it is bounded by a two-second timeout so a tool that hangs on
+  `--version` cannot wedge a model call. A probe that fails records the version
+  as absent rather than failing the call. It is only ever called from inside
+  the evidence branch: a caller who asked for no evidence must not pay for a
+  process whose only purpose is to describe a tool they were about to run
+  anyway.
+- `baikai`: `subprocessStrength` and `cliResponseEnvelope`, also in
+  `Baikai.Provider.Cli.Internal`. The former derives a subprocess call's
+  evidence strength from what the tool reported and **nothing else** — the exit
+  status is deliberately not one of its arguments. The latter spells the
+  response-commitment envelope with the same three keys, in the same shapes, as
+  the two API transports build by hand, so a verifier holding a response can
+  recompute the digest without first knowing which transport served it.
+- `baikai-claude` and `baikai-openai`: both subprocess providers now fill in the
+  evidence record they previously left blank, and both export the translation
+  function that describes it — `claudeCliThinking` and `codexCliThinking`. They
+  record the session or thread identifier the tool reported, the token counts it
+  reported, the model it named when it names one, the resolved executable path
+  in place of an endpoint URL, the tool's own `--version` string as the
+  implementation version (for this transport the tool *is* the implementation),
+  a request commitment over the rendered argument vector, and a response
+  commitment over the assembled answer.
+
+  **A zero exit status never raises the strength.** A coding-agent CLI that
+  exits zero has demonstrated that it ran and did not crash; it has not stated
+  which model served the request. Subprocess calls almost always exit zero, so
+  encoding that as corroboration would make the weakest evidence in the system
+  look like the strongest. `strength` is `model_observed` only when the tool
+  named both an identifier and a model, `correlated` when it named only an
+  identifier, and `requested_only` otherwise.
+
+  The two transports differ in how far they can get. `claude` names the model
+  that consumed tokens in its result event's `modelUsage` map, complete with a
+  context-window variant marker such as `[1m]`, so a Claude CLI run can reach
+  `model_observed`. `codex-cli 0.146.0` names no model anywhere in its event
+  stream, so **no** Codex CLI run can exceed `correlated` — backfilling the
+  `--model` flag baikai passed would report the request as an observation.
+- `baikai-claude`: an evidence record's `thinking` field now describes what a
+  reasoning-effort request became on the `claude` command line: mode `flag`,
+  wire field `--effort`, and an `effort_clamped` adjustment recording the
+  `minimal` → `low` collapse, because the tool's `--effort` flag has no
+  `minimal`. A caller asking for `minimal` and a caller asking for `low` produce
+  byte-identical argument vectors — and therefore identical request commitment
+  digests — so the translation is the only place that difference survives.
+- `baikai-openai`: the same field for `codex exec`: mode `flag`, wire field
+  `model_reasoning_effort`, and **no** adjustments at any level. Codex is the
+  only transport in baikai that expresses all six canonical levels exactly, and
+  a test asserts each one reaches the command line verbatim.
 
 ### Fixed
 
@@ -289,6 +355,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   on every streamed chunk. It now carries the identifier the host reported, on
   both the successful and the failed terminal.
 
+- **Loud:** `baikai-claude` and `baikai-openai`: both subprocess providers
+  hardcoded `usage = zeroUsage` on every call, so a cost dashboard saw every
+  `claude -p` and `codex exec` call as consuming no tokens and costing nothing.
+  Both tools report their own token counts and baikai now carries them through,
+  normalized into the disjoint `Usage` convention: `claude`'s counts are
+  Anthropic-shaped and already disjoint, while `codex` reports OpenAI-style
+  inclusive prompt counts, so its cached tokens are subtracted out of
+  `inputTokens`. `claude` additionally reports a `total_cost_usd`, which now
+  populates `Usage.cost` exactly rather than being reported as zero.
+
+  **A dashboard that read these calls as free will now see real tokens and, for
+  `claude`, a real cost.** That is the correction, not a regression — but it
+  changes what existing reports show, and totals over historical data will not
+  match totals over new data.
+- `baikai-claude`: `Response.responseId` was always `Nothing` on the `claude -p`
+  transport even though `ClaudeCliResult` decoded the tool's `session_id` one
+  screen earlier and then dropped it. It now carries that identifier, on both
+  the successful and the failed terminal. `baikai-openai`: the same for
+  `codex exec`, whose thread identifier was filtered out of the event stream
+  along with everything that was not an `agent_message`. These are the handles
+  each vendor's support tooling looks a run up by.
 - `baikai`: the `ThinkingFormatOpenAI` Haddock in `Baikai.Compat` listed the
   native `reasoning_effort` vocabulary as `minimal | low | medium | high`, which
   predates `xhigh` and `max`. It now lists all six and states that this shape
