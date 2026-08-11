@@ -2,6 +2,21 @@
 
 ## 2026-08-11
 
+* **Addition**: IR-5 asks the interactive launchers to delegate Ctrl-C to the session they
+  start. Both inherit the terminal but neither takes itself out of the terminal's signal
+  path: the Claude launcher runs through cradle, whose `delegateCtlc` defaults to `False`
+  and which `launchClaudeInteractive` never sets, and the Codex launcher builds a
+  `System.Process` spec with `Inherit` streams and no `delegate_ctlc`. A terminal SIGINT
+  goes to the whole foreground process group, so the first Ctrl-C inside a session kills
+  the launching program and orphans the agent, which handles SIGINT itself and keeps
+  running. Measured, varying nothing but the flag: without delegation the parent exits 130
+  and the child survives; with it the child handles the interrupt and the parent reports
+  its exit status. The report comes from `mori://shinzui/okf`, whose assist command has
+  set `delegate_ctlc` since it shipped and which therefore adopted Baikai's command
+  builders while keeping its own spawn — the one part of the vendor abstraction it could
+  not take. Interrupting a turn is routine in an interactive session, so the failure is
+  worst in exactly the case the launchers exist for.
+
 * **Addition**: IR-4 requests an explicit replace-or-append mode on the neutral
   `systemPrompt` field, because the four subprocess renderers divide in two and the type
   says nothing about which a caller will get: the Claude interactive and batch providers
