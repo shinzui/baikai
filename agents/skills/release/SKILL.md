@@ -195,19 +195,28 @@ correct package with wrong instructions. Step 3 covers this.
 
 ### First upload of a package
 
-`baikai-agent` has never been uploaded, so its release also creates the package
-name on Hackage. A first upload deserves the candidate path in step 6 —
-`cabal upload` *without* `--publish` — because a published version can never be
-replaced or withdrawn, only deprecated, and a first upload is where a missing
-source file or an unbuildable stanza shows up. Inspect the candidate page, then
-publish.
+**All seven publishable packages are now on Hackage** — `baikai-agent` was the
+last to arrive, at `0.1.0.0` on 2026-08-05 — so every release described here is
+an ordinary bump. This section applies only to a package added to the repository
+after that.
 
-Once `baikai-agent` is on Hackage this is an ordinary bump like any other. Check
-what is actually published rather than trusting this paragraph:
+A first upload also creates the package name on Hackage, and it is where a
+missing source file or an unbuildable stanza shows up. It therefore deserves the
+candidate path in step 6 — `cabal upload` *without* `--publish` — because a
+published version can never be replaced or withdrawn, only deprecated. Inspect
+the candidate page, then publish.
+
+Check what is actually published rather than trusting this paragraph; it is the
+kind of claim that goes stale silently:
 
 ```bash
-curl -s https://hackage.haskell.org/package/baikai-agent/preferred \
-  -H 'Accept: application/json'
+for pkg in baikai baikai-claude baikai-openai baikai-trace-otel \
+           baikai-effectful baikai-kit baikai-agent; do
+  printf '%-20s ' "$pkg"
+  curl -s -H 'Accept: application/json' \
+    "https://hackage.haskell.org/package/$pkg.json" || echo "(not on Hackage)"
+  echo
+done
 ```
 
 ## Release steps
@@ -227,19 +236,35 @@ changed dependents in the same run.
 For each package being released, find its last release tag and review changes:
 
 ```bash
-# last tag for a package (per-package tags look like baikai-0.1.0.0):
-git tag --list 'baikai-*' --sort=-v:refname | head -1
+# last tag for a package (per-package tags look like baikai-0.1.0.0).
+# Anchor the version with [0-9] — a bare 'baikai-*' also matches every
+# sibling's tags, so it answers baikai-trace-otel-0.3.0.3 for the core
+# package and silently computes the bump against the wrong baseline:
+git tag --list 'baikai-[0-9]*' --sort=-v:refname | head -1
 git log --oneline <last-tag>..HEAD -- baikai/
 ```
 
-(Repeat with the package's directory and tag prefix: `baikai-claude-*`,
-`baikai-openai-*`, `baikai-trace-otel-*`, `baikai-effectful-*`, `baikai-kit-*`,
-`baikai-agent-*`.)
+(Repeat with the package's directory and tag prefix: `baikai-claude-[0-9]*`,
+`baikai-openai-[0-9]*`, `baikai-trace-otel-[0-9]*`, `baikai-effectful-[0-9]*`,
+`baikai-kit-[0-9]*`, `baikai-agent-[0-9]*`. Only `baikai` needs the anchor to be
+correct, but use it throughout so the commands stay uniform.)
+
+**A tag is not proof of a release.** This repo has at least one tag that was cut
+but never uploaded (`baikai-0.3.2.0`; Hackage's `baikai` listing goes `0.3.1.0`
+→ `0.4.0.0`), and `baikai-kit` conversely has no `0.1.0.0` tag *and* no
+`0.1.0.0` on Hackage — its first published version is `0.1.0.1`. Compute the
+bump from the tag, but confirm what is actually published before writing a
+version into user-facing docs:
+
+```bash
+curl -s -H 'Accept: application/json' https://hackage.haskell.org/package/baikai.json
+```
 
 A package with no tag at all has never been released, so "changes since its last
 tag" does not apply — review its whole directory and give it a starting version
-(`0.1.0.0`) rather than inferring a bump. At the time of writing that is
-`baikai-agent`; confirm with the tag listing rather than assuming.
+(`0.1.0.0`) rather than inferring a bump. As of 2026-08-10 every publishable
+package has a tag, so this applies only to a package added after that; confirm
+with the tag listing rather than assuming.
 
 Classify the change per package and compute the new PVP version:
 
