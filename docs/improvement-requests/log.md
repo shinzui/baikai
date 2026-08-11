@@ -1,5 +1,23 @@
 # Bundle Update Log
 
+## 2026-08-11
+
+* **Addition**: IR-4 requests an explicit replace-or-append mode on the neutral
+  `systemPrompt` field, because the four subprocess renderers divide in two and the type
+  says nothing about which a caller will get: the Claude interactive and batch providers
+  render `--system-prompt`, which displaces Claude Code's own coding-agent harness prompt,
+  while the Codex ones route through `wrapSystemPrompt`, which leaves the harness prompt
+  intact and prepends a labelled block to the user turn. Both renderings are correct for
+  their vendor — verified against installed `claude` and `codex` help output, where Claude
+  exposes both `--system-prompt` and `--append-system-prompt` and Codex exposes neither —
+  so this is a modelling gap rather than a defect. It also leaves Claude's append flag
+  unreachable through the neutral type, which is what `mori://shinzui/okf` needs; its
+  assist command has appended since it shipped and its Baikai adoption currently smuggles
+  `--append-system-prompt` through `extraArgs`. The request leaves one question open for
+  review rather than presuming it: whether `ReplaceSystemPrompt` against Codex should be
+  refused with an `AgentRenderError`, following the existing `SafetyNotExpressible`
+  precedent in both launchers, or approximated and documented.
+
 ## 2026-08-05
 
 * **Review**: IR-3 records an Anthropic Claude review with claude-opus-5 after in-repository
