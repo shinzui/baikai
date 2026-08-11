@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release of the baikai Haskell packages and publish them to Hackage following PVP. Packages version independently, publish in dependency order (baikai first), and are tagged per-package. baikai-agent additionally ships the `baikai` command-line tool, which carries extra verification. Run manually when shipping a new version.
+description: Cut a release of the baikai Haskell packages and publish them to Hackage following PVP. Packages version independently, publish in dependency order (baikai first), and are tagged per-package. baikai-agent additionally ships the `baikai` command-line tool, which carries extra verification. The release also moves the docs that name a published version — the README's Hackage column and the `docs/capabilities/` catalog's `since` fields — and validates the OKF bundles. Run manually when shipping a new version.
 argument-hint: "[major|minor|patch]"
 disable-model-invocation: true
 allowed-tools: Read, Bash, Edit, Glob, Grep, Write, AskUserQuestion
@@ -299,10 +299,43 @@ For each released package:
   fails, the fix is to revert, not to leave the tree describing a release that
   did not happen.
 
+- **The capability catalog (`docs/capabilities/`).** This is the OKF bundle
+  describing what baikai provides a consumer today. Every record carries a
+  `since:` naming the version it first became available in, so a release can
+  invalidate it in three ways. Handle each:
+
+  1. **A record says `since: "unreleased"`.** The capability existed only on the
+     default branch; this release publishes it. Change `since` to the version
+     being released.
+  2. **The release ships a capability the catalog does not describe.** Add a
+     record. Read `docs/capabilities/index.md` first — it states the three rules
+     (evidence or it does not exist; provision, not composition; one thing a
+     consumer adopts *and* verifies independently) and the local conventions.
+     Take the next free `CAP-N`; never renumber an existing handle.
+  3. **An existing capability grew.** Ask whether a consumer pinned to the older
+     release could still do the thing the record describes. If **yes, just less
+     well** — keep the record, keep its `since`, and describe the evolution in
+     the body. If **no, the thing is impossible for them** — add a new record
+     with this release as its `since` that `requires` the old one. **Never move
+     an older record's `since` forward**; a consumer pinning an older version is
+     exactly who that field is for.
+
+  A retired capability becomes `status: deprecated` (or `withdrawn`) and then
+  *requires* a `replacedBy`. There is deliberately no `planned` status — a
+  capability that does not exist yet is an improvement request, not a record.
+
+  `since` names the version of the **first package listed** in that record,
+  because the packages version independently and `since` is a single scalar.
+  Check which package that is before writing a version into it.
+
+  Add a dated entry to `docs/capabilities/log.md` describing what changed. The
+  bundle's profile enforces the log, so a catalog edit without a log entry fails
+  the gate in step 4.
+
 **Confirm the computed bumps, changelog edits, and doc updates with the operator
 before committing.**
 
-### 4. Run the gates (all four are mandatory)
+### 4. Run the gates (all five are mandatory)
 
 Every gate must pass before any tag or upload. Stop on the first failure.
 
@@ -312,6 +345,28 @@ git diff --exit-code    # fails if formatting changed anything uncommitted
 cabal build all
 nix flake check
 ```
+
+**Validate the OKF bundles**, so a stale or malformed capability record cannot
+ride out with the release:
+
+```bash
+mori validate
+okf validate docs/capabilities --profile docs/capabilities/profile.dhall \
+  --profile-enforce --log-enforce
+okf validate docs/improvement-requests \
+  --profile mori/improvement-requests-profile.dhall --profile-enforce
+okf graph docs/capabilities
+```
+
+`okf graph` must show an edge for every `requires` entry in the catalog. `okf`
+derives concept-to-concept edges from Markdown **body links only**, so a
+requirement declared in frontmatter and not mirrored as a body link validates
+cleanly and is invisible to the graph.
+
+Do **not** add `--strict` to the capability bundle as a gate. It additionally
+reports the profile-recommended `reviews` family, which the machine-authored
+records do not have; that is expected output, not a failure, and fabricating
+review provenance to silence it would misreport the trust tier.
 
 If `nix fmt` produced changes, fold them into the release commit (re-run the
 build/test/check after re-formatting).
@@ -357,6 +412,17 @@ Create an **annotated, per-package** tag for each released package
 git tag -a baikai-0.1.0.1 -m "baikai 0.1.0.1"
 git tag -a baikai-claude-0.1.0.1 -m "baikai-claude 0.1.0.1"
 git push origin master --follow-tags
+```
+
+Then refresh Mori's index, because **editing concept Markdown does not update
+it** — the capability and improvement-request read models are written at
+registration time, so until this runs, `mori registry concepts --search` and
+`mori path mori://shinzui/baikai/okf/capabilities/concepts/CAP-N` still answer
+from the pre-release snapshot:
+
+```bash
+mori register
+mori registry concepts shinzui/baikai --bundle capabilities
 ```
 
 ### 6. Publish to Hackage — one package at a time, in dependency order
@@ -470,7 +536,8 @@ and `agent list` all appear.
   `baikai-openai`, `baikai-trace-otel`, `baikai-effectful`, `baikai-kit`; and
   all of `baikai`, `baikai-claude`, `baikai-openai` before `baikai-agent`.
 - **Never skip the gates** (`nix fmt` clean, `cabal build all`, the key- and
-  CLI-scrubbed `cabal test all`, `nix flake check`). Stop on any failure.
+  CLI-scrubbed `cabal test all`, `nix flake check`, and the OKF bundle
+  validation). Stop on any failure.
 - **Never run the test gate with provider keys or coding-agent binaries
   visible.** `baikai-smoke` will make real billable calls, and the CLI cases
   key off `PATH` alone rather than off any environment variable.
@@ -485,4 +552,10 @@ and `agent list` all appear.
 - **Move the docs with the release.** The README's Hackage column and Install
   section, and the `docs/user/` install instructions, state what is published;
   a release that leaves them stale ships correct code with wrong instructions.
+- **Move the capability catalog with the release.** `docs/capabilities/` is the
+  consumer-facing answer to "what does baikai provide today", and every record's
+  `since` is a claim about a published version. Turn `unreleased` into the
+  version being shipped, add a record for a capability this release introduces,
+  and log the change. **Never advance an existing record's `since`** — a
+  consumer pinning an older version is precisely who reads that field.
 - Keep tags **annotated** and **per-package** (`<package>-<version>`).
