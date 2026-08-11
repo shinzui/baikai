@@ -43,9 +43,9 @@
     version and explains why. Every other record's `since` was checked against
     the same registry listing.
 
-* **Note**: two repository-hygiene gaps found while inventorying, outside this
-  bundle and left unchanged: `mori.dhall` lists five of the eight packages in
-  `cabal.project` (`baikai-trace-otel`, `baikai-kit`, and `baikai-agent` are
-  absent) and nine of the eleven files in `docs/user/`
-  (`model-call-evidence.md` and `unattended-agent-runs.md` are absent from
-  `docs`). The capability records cite the real paths regardless.
+* **Note**: two repository-hygiene gaps found while inventorying, since fixed in
+  `mori.dhall`: it listed five of the eight packages in `cabal.project`
+  (`baikai-trace-otel`, `baikai-kit`, and `baikai-agent` were absent) and nine of
+  the eleven files in `docs/user/` (`model-call-evidence.md` and
+  `unattended-agent-runs.md` were absent). The capability records cited the real
+  paths throughout, so no record changed.

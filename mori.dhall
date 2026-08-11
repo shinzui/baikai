@@ -43,6 +43,46 @@ in  Schema.Project::{
         , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
         }
       , Schema.Package::{
+        , name = "baikai-trace-otel"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "baikai-trace-otel"
+        , description = Some
+            "Opt-in OpenTelemetry TraceSink adapter: one OTel span per provider call"
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
+        }
+      , Schema.Package::{
+        , name = "baikai-effectful"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "baikai-effectful"
+        , description = Some
+            "effectful binding for the baikai transport: the Baikai effect and interpreters"
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
+        }
+      , Schema.Package::{
+        , name = "baikai-kit"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "baikai-kit"
+        , description = Some
+            "Shared installer lifecycle for git-hosted kits of AI-agent skills and subagents"
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
+        }
+      , Schema.Package::{
+        , name = "baikai-agent"
+        , type = Schema.PackageType.Tool
+        , language = Schema.Language.Haskell
+        , path = Some "baikai-agent"
+        , description = Some
+            "Unattended coding-agent runs, and the baikai executable (agent run, show, list)"
+        , dependencies =
+          [ Schema.Dependency.ByName "shinzui/baikai:baikai"
+          , Schema.Dependency.ByName "shinzui/baikai:baikai-claude"
+          , Schema.Dependency.ByName "shinzui/baikai:baikai-openai"
+          ]
+        }
+      , Schema.Package::{
         , name = "baikai-smoke"
         , type = Schema.PackageType.Other "TestSuite"
         , language = Schema.Language.Haskell
@@ -55,15 +95,6 @@ in  Schema.Project::{
           , Schema.Dependency.ByName "shinzui/baikai:baikai-claude"
           , Schema.Dependency.ByName "shinzui/baikai:baikai-openai"
           ]
-        }
-      , Schema.Package::{
-        , name = "baikai-effectful"
-        , type = Schema.PackageType.Library
-        , language = Schema.Language.Haskell
-        , path = Some "baikai-effectful"
-        , description = Some
-            "effectful binding for the baikai transport: the Baikai effect and interpreters"
-        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
         }
       ]
     , dependencies =
@@ -127,6 +158,15 @@ in  Schema.Project::{
             Schema.DocLocation.LocalFile "docs/user/interactive-launches.md"
         }
       , Schema.DocRef::{
+        , key = "unattended-agent-runs"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "The baikai agent run/show/list command, the KDL job format, layer precedence, the operator policy ceiling, and migrating a script that embeds provider flags today."
+        , location =
+            Schema.DocLocation.LocalFile "docs/user/unattended-agent-runs.md"
+        }
+      , Schema.DocRef::{
         , key = "agent-assets"
         , kind = Schema.DocKind.Guide
         , audience = Schema.DocAudience.User
@@ -149,6 +189,15 @@ in  Schema.Project::{
         , description = Some
             "The CacheRetention preference, host-aware long/short downgrade, and reading the cache read/write token and cost split back from Usage."
         , location = Schema.DocLocation.LocalFile "docs/user/prompt-caching.md"
+        }
+      , Schema.DocRef::{
+        , key = "model-call-evidence"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "What actually crossed the boundary to the provider: the requested/translated/observed split, the two digests, how much a record proves, strict mode, and what this deliberately is not."
+        , location =
+            Schema.DocLocation.LocalFile "docs/user/model-call-evidence.md"
         }
       ]
     , okfBundles =
