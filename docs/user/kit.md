@@ -98,6 +98,10 @@ The kit repository must contain `kit.json` at its root:
 }
 ```
 
+The top-level `version` must be `1` or `2`; the two decode identically,
+and any other value is refused with a message naming the file and the
+version it declared, rather than being installed under guesswork.
+
 `version` on each skill or agent is optional, so older manifests without
 per-item versions still parse. `files` on an agent is also optional. If
 it is absent, `path` is treated as the single source file. If it is
@@ -106,7 +110,27 @@ from below it.
 
 Skills are installed as directories for every provider. Agents are
 installed as Claude Markdown files for Claude Code and as Codex custom
-agent TOML for Codex.
+agent TOML for Codex. When an agent lists several `files`, the first is
+the agent body and becomes the provider's agent file; the rest are
+installed into a resource directory named after the agent beside it —
+`<agents dir>/<name>/<file>` — because both providers' agent directories
+are flat and a second Markdown file placed there directly would be
+discovered as a bogus agent. Uninstalling the agent removes that
+directory too.
+
+**A kit must contain plain files.** The manifest is untrusted input: a
+user points the tool at an arbitrary git URL, and `git` recreates
+committed symbolic links on checkout. A source path is therefore refused
+if any component below the kit checkout is a symbolic link, or if it
+resolves outside the checkout — at install, when the content hash is
+computed, and when `kit status` compares against the upstream. The
+refusal is by design and applies to links pointing inside the checkout as
+well; a link never adds anything a plain file could not, because copying
+files is all the installer does with a source. The check is
+check-then-read: a process that can write to `~/.cache/<tool>/kit` between
+the check and the read could still swap a file for a link. That directory
+is owned by the invoking user and written only by `git`, which runs before
+the check in the same command.
 
 ## Command Adapter
 
@@ -128,27 +152,60 @@ The built-in parser supports:
 ```text
 kit list
 kit install NAME [--project]
-kit update [NAME]
+kit update [NAME] [--force]
 kit uninstall NAME [--project]
 kit status
 ```
 
+`kit update` reinstalls every item that is already installed. It skips an
+item whose installed files were edited locally since they were installed,
+printing
+
+```text
+Skipped 'review' (user): installed files were modified locally; run 'kit update review --force' to overwrite.
+```
+
+A skip is not a failure: the command still exits 0. `--force` reinstalls
+anyway and discards those edits.
+
 If your tool has custom UI around one command, keep your own parser and
-call the lower-level functions:
+call the lower-level functions. Every one of them returns
+`Either KitError a` and prints nothing:
 
 ```haskell
-listAvailable myKitConfig
-installItem myKitConfig "review" ProjectScope
-updateKit myKitConfig Nothing
-uninstallItem myKitConfig "review" ProjectScope
-kitStatus myKitConfig
+result <- installItem myKitConfig "review" ProjectScope
+case result of
+  Left err -> Text.IO.hPutStrLn stderr (renderKitError err)
+  Right item -> Text.IO.putStrLn ("installed " <> itemName item)
 ```
+
+`runKit` prints `Error: <rendered>` to stderr and exits 1 on any failure;
+`runKitCommand` has the same signature but returns the `KitError`, so a
+tool that wants its own exit codes can map it. `KitError` also has an
+`Exception` instance, so a caller that prefers exceptions can write
+`either throwIO pure`. No function in `baikai-kit` other than `runKit`
+exits the process — see
+[ADR 0013](../adr/0013-library-code-never-calls-exitfailure.md).
+
+## Offline Behaviour
+
+`kit status` needs no network. With no cache and no way to fetch one it
+prints a note on stderr, prints `No kit items installed.` (or whatever is
+installed) and exits 0. `kit list` and `kit install` need the manifest and
+fail without a cache; with a cache they cannot refresh, they warn and
+continue from it. `kit update` treats a failed fetch as an error, because
+fetching is the one thing it exists to do.
 
 ## Status And Sidecars
 
 Each install writes a sidecar next to the provider-native asset. The
-sidecar records the item name, kind, optional version, install time, and
-a deterministic hash of the upstream kit files.
+sidecar records the item name, kind, optional version, install time, a
+deterministic hash of the upstream kit files, and — since `baikai-kit`
+0.2 — `installedFiles` and `installedHash`: the names this tool wrote for
+that provider, relative to the provider's target directory, and the hash
+of exactly those bytes. Those two fields are what `kit update` compares
+against to notice a local edit; a sidecar written by an older release has
+neither and is updated without the check.
 
 `kitStatus` scans user and project scopes and prints rows grouped by
 item, kind, scope, version, state, and provider coverage:
@@ -167,10 +224,19 @@ States are:
 - `dirty+outdated`: both the version and cached upstream file hash differ.
 - `delisted`: the sidecar is valid, but the item is no longer present in
   the current manifest.
+- `refused`: the cached upstream item now lists a source the installer
+  refuses — a symbolic link, or a path outside the kit. Fix the kit before
+  updating.
 - `unknown`: the sidecar is missing or unreadable.
 
-The current dirty check compares sidecar metadata with the cached
-upstream item hash. It does not hash provider-installed target files.
+The dirty check compares sidecar metadata with the cached upstream item
+hash. It does not hash provider-installed target files; the check that
+does is the local-edit check `kit update` runs, described above.
+
+A crash between the two write phases can leave `*.baikai-kit-tmp` or
+`*.baikai-kit-bak` files in a target directory. They are harmless to both
+providers and to the status scan, a later install does not remove them,
+and they are safe to delete by hand.
 
 ## Session Discovery
 
@@ -212,6 +278,7 @@ HOME=/tmp/mytool-kit-smoke/home mytool kit list
 HOME=/tmp/mytool-kit-smoke/home mytool kit install review --project
 HOME=/tmp/mytool-kit-smoke/home mytool kit status
 HOME=/tmp/mytool-kit-smoke/home mytool kit update review
+HOME=/tmp/mytool-kit-smoke/home mytool kit update review --force
 HOME=/tmp/mytool-kit-smoke/home mytool kit uninstall review --project
 ```
 

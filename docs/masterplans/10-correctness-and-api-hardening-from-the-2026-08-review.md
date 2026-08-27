@@ -149,7 +149,7 @@ states the version (EP-10).
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Complete |
 | 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Complete |
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Complete |
-| 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | In Progress |
+| 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Complete |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Not Started |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Not Started |
 | 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Not Started |
@@ -394,10 +394,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-6 M2: ceiling-file provenance decided and documented
 - [x] EP-6 M3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint, `errorInfo` bound, staging path)
 - [x] EP-6 M4: 0.2 config-surface adjustments (`env-requires`, structured output, `show --json`)
-- [ ] EP-7 M1: symlinked kit sources refused on install, hash and status
-- [ ] EP-7 M2: library code returns typed errors; only the CLI exits
-- [ ] EP-7 M3: install fidelity (every listed file, phase-two rollback, unique temp names, manifest version gate, dirty-update refusal)
-- [ ] EP-7 M4: `docs/user/kit.md` and the kit capability record match
+- [x] EP-7 M1: symlinked kit sources refused on install, hash and status
+- [x] EP-7 M2: library code returns typed errors; only the CLI exits
+- [x] EP-7 M3: install fidelity (every listed file, phase-two rollback, unique temp names, manifest version gate, dirty-update refusal)
+- [x] EP-7 M4: `docs/user/kit.md` and the kit capability record match
 - [ ] EP-8 M1: the caller's thinking request recorded on every evidence path
 - [ ] EP-8 M2: strict mode fails a call whose terminal carries no record
 - [ ] EP-8 M3: observed model only in the OTel span; endpoint default host; commitment digest without cost
@@ -597,9 +597,35 @@ plans named (each plan's implementer reads this section before its first commit)
   as EP-2's `ClientEnv` count race: a case that writes shared process state must either
   not write it or be folded into the case that reads it. (2026-08-27, EP-6)
 
+- EP-7's ADR, `docs/adr/0013-library-code-never-calls-exitfailure.md`, binds every
+  package, not only `baikai-kit`: no exposed module may call `exitFailure`,
+  `exitWith` or `error` on a failure path, and an adapter documented to *be* a
+  subcommand gets a non-exiting twin. EP-10 must hold every name it freezes to that
+  rule; a grep of the other packages during EP-7 found no violation to fix, so the
+  record is a constraint on what may be added rather than a backlog. (2026-08-27, EP-7)
+- EP-7's exit-boundary guard cannot be `grep -rn "System.Exit"`, as its plan proposed:
+  `Baikai.Kit.Repo` matches on `ExitCode` from `readProcessWithExitCode`, which is
+  reading a child's status, not exiting. The guard that works is
+  `grep -rn "exitFailure\|exitWith"`. Any later plan pinning the same boundary should
+  use the narrower grep. (2026-08-27, EP-7)
+- EP-7 replaced `Text.IO.readFile` on an agent body with an explicit
+  `decodeUtf8'`, refusing a source that is not UTF-8 as `KitSourceUnreadable` rather
+  than letting the locale decide. That is ADR 0007 applied to a file read rather than
+  a process boundary; EP-10 and EP-11 should expect the same rule wherever the library
+  reads text a user supplied. (2026-08-27, EP-7)
+
 
 ## Decision Log
 
+- Decision: EP-7's ADR is
+  `docs/adr/0013-library-code-never-calls-exitfailure.md`, so the next plan to promote
+  a record takes `0014`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-7's
+  distillation pass found nothing durable beyond that record: the symlink rule, the
+  journaled two-phase write and the local-edit refusal are documented in
+  `docs/user/kit.md` and `docs/capabilities/kit-installer.md` where a caller meets
+  them, and none of them constrains a package other than `baikai-kit`.
+  Date: 2026-08-27
 - Decision: EP-6's ADR is
   `docs/adr/0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md`,
   so the next plan to promote a record takes `0013`.

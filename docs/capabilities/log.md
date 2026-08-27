@@ -2,6 +2,24 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-21 (kit installer) records the 2026-08 hardening pass. The
+  manifest is now checked physically as well as lexically: a source path that
+  crosses a symbolic link, or whose canonical form lies outside the kit
+  checkout, is refused at install, at the content hash and at status, which
+  gains a `refused` state — `git` recreates committed symbolic links, and a kit
+  is meant to be plain files. Every library function returns
+  `Either KitError a` and only `runKit` exits, so a tool embedding the library
+  is no longer terminated by a missing manifest or an offline first clone
+  (`docs/adr/0013-library-code-never-calls-exitfailure.md`). Install fidelity is
+  fixed in four places: an agent that lists several files installs all of them,
+  a failure while renaming files into place restores what was there, temporary
+  files carry unique names, and an unsupported manifest `version` is refused.
+  `kit update` skips an item whose installed files were edited locally unless
+  `--force` is given, using two new sidecar fields. The `interface` list gains
+  the four modules the guide tells consumers to use, and Limits gains the honest
+  residuals: the check-then-read window, `readSidecar`'s stderr warning, and the
+  race between two concurrent installs of one item.
+
 * **Update**: CAP-8 (categorised error model) records that a transport failure
   is classified by *where* it happened rather than what type it is, and that the
   rule is core's — `Baikai.Provider.Transport.Classify`, shared by both HTTP

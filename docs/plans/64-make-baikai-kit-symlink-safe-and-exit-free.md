@@ -74,7 +74,7 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] Milestone 3: multi-file agents installed under `<agents dir>/<name>/`; destination pre-check; `openTempFile` temp names; journaled phase two with backups and restore; `executePlanWith` test seam.
 - [x] Milestone 3: manifest `version` gate (`supportedManifestVersions = [1, 2]`); `installedFiles`/`installedHash` in `SidecarMeta`; `reinstallPresent` with `OverwritePolicy`; `--force` on `kit update`; `stripYamlFrontmatter` normalises every branch.
 - [x] Milestone 3: fidelity tests green; `CHANGELOG.md` `[Unreleased]` entries written.
-- [ ] Milestone 4: `docs/user/kit.md`, `docs/capabilities/kit-installer.md` and `docs/capabilities/log.md` updated; `okf validate docs/capabilities` green; keyless `cabal test all` gate green.
+- [x] Milestone 4: `docs/user/kit.md`, `docs/capabilities/kit-installer.md` and `docs/capabilities/log.md` updated; `okf validate docs/capabilities` green; keyless `cabal test all` gate green.
 
 
 ## Surprises & Discoveries
@@ -289,7 +289,47 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+All four milestones landed, in four commits plus this one. The suite went from
+33 tests to 44; the keyless `cabal test all` gate is green across every package,
+with no suite skipping. `okf validate docs/capabilities --profile-enforce
+--log-enforce`, `okf graph docs/capabilities` and `mori validate` all exit 0.
+
+Against the purpose. A kit checkout containing a symbolic link now has that
+source refused by install (which writes nothing at all), by the content hash and
+by `kit status`, which shows `refused`; `grep -rn "exitFailure\|exitWith"
+baikai-kit/src` matches only `Command.hs`; `kit status` offline on a fresh home
+prints `No kit items installed.` and exits 0; every listed agent file is
+installed; a failure in the rename phase restores what was there and says which
+paths it could not restore; temporary files carry unique names; an unsupported
+manifest `version` is refused; and `kit update` skips a locally modified item
+unless `--force` is given.
+
+Both mutation checks the plan named were run and both bit. Replacing
+`safeSourcePath`'s body with `pure (Right (root </> rel))` failed all four
+symlink cases, and the install case then reported "Installed skill 'demo'" and
+left `secret.txt` under the Claude skill directory — proving the test exercises
+the read rather than a lexical check. Replacing journaled phase two with a bare
+`forM_` of renames failed the rollback case with `restored == []`.
+
+Two shapes were taken that the plan did not anticipate, both recorded above in
+Surprises & Discoveries: `UpdateReport.refresh` is `Maybe RepoRefresh` so
+`reinstallPresent` does not have to claim a refresh it never made, and the
+`System.Exit` grep the plan proposed as the exit-boundary guard was replaced by
+the narrower `exitFailure\|exitWith` grep, because `Repo.hs` legitimately matches
+on `ExitCode` from `readProcessWithExitCode`.
+
+Lesson worth keeping. Plan 35 hardened one entry point and left `Status.hs`
+holding a second, unsanitised join that grew afterwards; this plan's answer was
+one pure derivation (`itemSources`) plus one physical check (`safeSourcePath`)
+that all three readers must go through, so a fourth reader cannot be written
+without them. The same shape is why the exit removal was made visible at compile
+time: an `Either` breaks the consumer's build at each call site, where a thrown
+`KitException` would have compiled unchanged and kept killing the process.
+
+Not done here, by design: the PVP-major version bump to `baikai-kit 0.2.0.0` and
+the downstream consumer edits, both owned by
+`docs/plans/67-freeze-the-public-surface.md`. The Interfaces section lists the
+edits each consumer will need.
 
 
 ## Context and Orientation
