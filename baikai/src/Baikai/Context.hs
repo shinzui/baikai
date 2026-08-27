@@ -19,7 +19,6 @@ module Baikai.Context
     messages,
     tools,
     emptyContext,
-    _Context,
     contextOf,
     systemUser,
     addUser,
@@ -159,7 +158,3 @@ appendToolResultText ::
   IO Context
 appendToolResultText ctx resp dispatcher =
   appendToolResult ctx resp (fmap toolResultText . dispatcher)
-
-{-# DEPRECATED _Context "Use emptyContext instead." #-}
-_Context :: Context
-_Context = emptyContext

@@ -3,7 +3,8 @@
 --
 -- Call 'register' once (typically from @main@) to install the
 -- 'Baikai.Api.OpenAICompletionsCli' handler with default config.
--- 'registerWith' accepts a caller-supplied 'CodexCliConfig'.
+-- Register @codexCliProvider cfg@ to supply a caller-supplied
+-- 'CodexCliConfig'.
 --
 -- The 'Response' this provider returns carries whatever the tool
 -- reported about its own run: the token counts from the event stream's
@@ -30,9 +31,6 @@ module Baikai.Provider.OpenAI.Cli
     defaultCodexCliConfig,
     codexCliProvider,
     register,
-    registerWith,
-    registerWithRegistry,
-    registerWithRegistryAndConfig,
   )
 where
 
@@ -48,10 +46,8 @@ import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry
   ( ApiProvider (..),
-    ProviderRegistry,
     apiProviderWith,
     registerApiProvider,
-    registerApiProviderWith,
   )
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
@@ -101,6 +97,13 @@ register :: IO ()
 register = registerApiProvider (codexCliProvider defaultCodexCliConfig)
 
 -- | First-class Codex CLI provider value for a caller-supplied config.
+--
+-- The Codex binary runs in batch mode. @stream@ wraps the batch
+-- output in a synthetic one-shot event stream
+-- (@EventStart, TextStart 0, TextDelta 0 body, TextEnd 0, EventDone@)
+-- emitted after the subprocess exits. @complete@ stays on the
+-- direct batch path so it preserves 'Baikai.Response.latencyMs' rather
+-- than recomputing it from synthetic event timestamps.
 codexCliProvider :: CodexCliConfig -> ApiProvider
 codexCliProvider cfg =
   apiProviderWith
@@ -111,35 +114,6 @@ codexCliProvider cfg =
     -- control is a command-line flag derived from Options alone.
     & #describeThinking .~ (\_ opts -> codexCliThinking opts)
     & #strengthCeiling .~ Ev.declaredStrength OpenAICompletionsCli
-
--- | Install the Codex CLI handler with a caller-supplied config.
---
--- The Codex binary runs in batch mode. 'stream' wraps the batch
--- output in a synthetic one-shot event stream
--- (@EventStart, TextStart 0, TextDelta 0 body, TextEnd 0, EventDone@)
--- emitted after the subprocess exits. 'complete' stays on the
--- direct batch path so it preserves 'Response.latencyMs' rather than
--- recomputing it from synthetic event timestamps. EP-3's Decision
--- Log records the deviation from "complete = streamingComplete .
--- stream".
-registerWith :: CodexCliConfig -> IO ()
-registerWith cfg = registerApiProvider (codexCliProvider cfg)
-{-# DEPRECATED registerWith "use registerApiProvider (codexCliProvider cfg)" #-}
-
--- | Install the Codex CLI handler with 'defaultCodexCliConfig' into an explicit
--- registry.
-registerWithRegistry :: ProviderRegistry -> IO ()
-registerWithRegistry reg = registerWithRegistryAndConfig reg defaultCodexCliConfig
-{-# DEPRECATED registerWithRegistry "use registerApiProviderWith reg (codexCliProvider defaultCodexCliConfig)" #-}
-
--- | Install the Codex CLI handler with a caller-supplied config into an
--- explicit registry.
-registerWithRegistryAndConfig :: ProviderRegistry -> CodexCliConfig -> IO ()
-registerWithRegistryAndConfig reg cfg =
-  registerApiProviderWith
-    reg
-    (codexCliProvider cfg)
-{-# DEPRECATED registerWithRegistryAndConfig "use registerApiProviderWith reg (codexCliProvider cfg)" #-}
 
 modelArgs :: Model -> [String]
 modelArgs m = case Text.strip (m ^. #modelId) of

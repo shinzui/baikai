@@ -66,7 +66,6 @@ module Baikai.Options
     frequencyPenalty,
     presencePenalty,
     emptyOptions,
-    _Options,
   )
 where
 
@@ -179,7 +178,3 @@ emptyOptions =
       frequencyPenalty = Nothing,
       presencePenalty = Nothing
     }
-
-{-# DEPRECATED _Options "Use emptyOptions instead." #-}
-_Options :: Options
-_Options = emptyOptions

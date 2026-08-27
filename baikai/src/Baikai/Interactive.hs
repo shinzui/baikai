@@ -22,8 +22,6 @@ module Baikai.Interactive
     InteractiveLaunchResult (..),
     interactiveLaunchRequest,
     interactiveLaunchResult,
-    _InteractiveLaunchRequest,
-    _InteractiveLaunchResult,
     renderInteractiveProvider,
     renderInteractiveScope,
     renderCodexSandboxMode,
@@ -126,14 +124,6 @@ interactiveLaunchResult p code =
     { provider = p,
       exitCode = code
     }
-
-{-# DEPRECATED _InteractiveLaunchRequest "Use interactiveLaunchRequest instead." #-}
-_InteractiveLaunchRequest :: Text -> InteractiveLaunchRequest
-_InteractiveLaunchRequest = interactiveLaunchRequest
-
-{-# DEPRECATED _InteractiveLaunchResult "Use interactiveLaunchResult instead." #-}
-_InteractiveLaunchResult :: InteractiveProvider -> ExitCode -> InteractiveLaunchResult
-_InteractiveLaunchResult = interactiveLaunchResult
 
 renderInteractiveProvider :: InteractiveProvider -> Text
 renderInteractiveProvider InteractiveClaude = "claude"

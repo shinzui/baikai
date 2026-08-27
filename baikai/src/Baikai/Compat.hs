@@ -51,7 +51,6 @@ module Baikai.Compat
       ),
     AnthropicThinkingStyle (..),
     defaultAnthropicMessagesCompat,
-    defaultAnthropicThinkingStyle,
 
     -- * Auto-detection from baseUrl
     urlHost,
@@ -64,7 +63,6 @@ where
 import Baikai.Url (hostMatchesSuffix, urlHost)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text)
-import Data.Text qualified as Text
 import GHC.Generics (Generic)
 
 -- | Where the OpenAI-compatible host expects the max-output-tokens
@@ -243,28 +241,6 @@ defaultAnthropicMessagesCompat =
       thinkingStyle = AnthropicThinkingBudget,
       supportsSamplingParameters = True
     }
-
--- | The thinking style a first-party Anthropic model id defaults to,
--- guessed from an id prefix. Unknown ids default to the budget style
--- used by earlier model generations.
---
--- Nothing in baikai consults this any more: the thinking style of a
--- first-party Anthropic model is a field of its generated catalog
--- record ('Baikai.Models.Generated'), populated from
--- @baikai\/data\/models\/anthropic.json@, and
--- 'Baikai.Model.anthropicMessagesCompatFor' returns that record. The
--- table is kept for one release so a caller that built a model on it
--- still compiles; it is removed at the next major.
-defaultAnthropicThinkingStyle :: Text -> AnthropicThinkingStyle
-defaultAnthropicThinkingStyle modelId
-  | adaptive "claude-opus-4-6" = AnthropicThinkingAdaptive
-  | adaptive "claude-opus-4-7" = AnthropicThinkingAdaptive
-  | adaptive "claude-opus-4-8" = AnthropicThinkingAdaptive
-  | adaptive "claude-fable-5" = AnthropicThinkingAdaptive
-  | otherwise = AnthropicThinkingBudget
-  where
-    adaptive prefix = prefix `Text.isPrefixOf` modelId
-{-# DEPRECATED defaultAnthropicThinkingStyle "The thinking style of a first-party Anthropic model is a field of its generated catalog record (Baikai.Models.Generated); start from that value or set CompatAnthropicMessages explicitly." #-}
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
 -- host based on its @baseUrl@. Falls back to

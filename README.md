@@ -128,10 +128,11 @@ walkthrough.
 
 - **Registry.** `Baikai.Provider.Registry` maps each `Api` tag to a
   handler. Simple programs can use the process-global convenience
-  registry through each vendor package's `register :: IO ()` (and
-  `registerWith` for configuration). Tests and larger apps can instead
-  create a `ProviderRegistry` with `newProviderRegistry`, register into
-  it with `registerWithRegistry` or `registerApiProviderWith`, and call
+  registry through each vendor package's `register :: IO ()` (or
+  `registerApiProvider (claudeCliProvider cfg)` for configuration). Tests
+  and larger apps can instead create a `ProviderRegistry` with
+  `newProviderRegistry`, register into it with `registerApiProviderWith`,
+  and call
   `completeRequestWith` / `streamRequestWith`. Dispatch looks the handler
   up by `Model.api`; an unregistered tag returns an error-shaped
   `Response` or terminal `EventError` with category `ProviderUnavailable`.

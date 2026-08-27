@@ -25,13 +25,11 @@ module Baikai.Model
     headers,
     compat,
     emptyModel,
-    _Model,
     mkModel,
 
     -- * Cost rates
     ModelCost (..),
     zeroModelCost,
-    _ModelCost,
 
     -- * Capabilities
     InputModality (..),
@@ -245,11 +243,3 @@ mkModel apiTag modelId_ baseUrl_ =
       provider = renderApi apiTag,
       baseUrl = baseUrl_
     }
-
-{-# DEPRECATED _ModelCost "Use zeroModelCost instead." #-}
-_ModelCost :: ModelCost
-_ModelCost = zeroModelCost
-
-{-# DEPRECATED _Model "Use emptyModel instead." #-}
-_Model :: Model
-_Model = emptyModel

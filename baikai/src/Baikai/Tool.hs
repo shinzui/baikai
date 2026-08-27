@@ -22,7 +22,6 @@ module Baikai.Tool
     mkTool,
     ToolChoice (..),
     emptyTool,
-    _Tool,
   )
 where
 
@@ -103,7 +102,3 @@ emptyTool =
       description = Text.empty,
       parameters = Null
     }
-
-{-# DEPRECATED _Tool "Use emptyTool instead." #-}
-_Tool :: Tool
-_Tool = emptyTool

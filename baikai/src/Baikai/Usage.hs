@@ -22,7 +22,7 @@
 -- every cost-reading caller would have to handle. 'Baikai.Cost.Pricing.computeCost'
 -- depends on the token classes being disjoint so each class is billed
 -- exactly once.
-module Baikai.Usage (Usage (..), zeroUsage, _Usage, sumUsage) where
+module Baikai.Usage (Usage (..), zeroUsage, sumUsage) where
 
 import Baikai.Cost (Cost, zeroCost)
 import Data.Aeson
@@ -112,7 +112,3 @@ instance Monoid Usage where
 -- | Total a collection of per-call usages into one.
 sumUsage :: (Foldable f) => f Usage -> Usage
 sumUsage = foldl' (<>) mempty
-
-{-# DEPRECATED _Usage "Use zeroUsage instead." #-}
-_Usage :: Usage
-_Usage = zeroUsage

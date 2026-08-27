@@ -372,8 +372,8 @@ that global registry.
 
 Applications and tests that need isolated handler sets can construct an
 explicit registry with `newProviderRegistry`, register handlers with
-`registerApiProviderWith` or a provider package's `registerWithRegistry`,
-and dispatch through `completeRequestWith` / `streamRequestWith`.
+`registerApiProviderWith` and a provider package's exported provider value
+(`claudeMessagesProvider`, `codexCliProvider cfg`, …), and dispatch through `completeRequestWith` / `streamRequestWith`.
 Within one registry, registering a second handler for the same `Api` tag
 replaces the first. Keep multiple configured handler sets alive by using
 multiple `ProviderRegistry` values and selecting the registry at call time.

@@ -3,8 +3,6 @@ module Baikai.Cost
     CostBreakdown (..),
     zeroCost,
     zeroCostBreakdown,
-    _Cost,
-    _CostBreakdown,
     usdAsScientific,
   )
 where
@@ -82,11 +80,3 @@ usdAsScientific = ratToSci . usd
 
 ratToSci :: Rational -> Scientific
 ratToSci = fst . fromRationalRepetendUnlimited
-
-{-# DEPRECATED _CostBreakdown "Use zeroCostBreakdown instead." #-}
-_CostBreakdown :: CostBreakdown
-_CostBreakdown = zeroCostBreakdown
-
-{-# DEPRECATED _Cost "Use zeroCost instead." #-}
-_Cost :: Cost
-_Cost = zeroCost

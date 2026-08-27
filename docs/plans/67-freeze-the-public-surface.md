@@ -75,11 +75,11 @@ behind `.Internal`:
 
 Milestone 2 — deprecated shims removed; versions bumped; changelog states removals:
 
-- [ ] Delete the sixteen `_X` aliases, the eight `registerWith*` functions and `newEventId`; rewrite the `TraceSpec` case that exercises `newEventId` (quoted in Plan of Work).
-- [ ] Mechanical edits at every in-repo site that names a removed identifier (README.md, two user guides, CAP-9, CAP-13); prose rewrites stay with EP-11.
-- [ ] Create `docs/adr/0006-deprecated-names-are-removed-at-the-next-major.md` and add it to `docs/adr/README.md`.
-- [ ] Bump versions and internal bounds in all seven publishable `.cabal` files; open the 0.6.0.0 / 0.4.0.0 / 0.2.0.0 sections in `CHANGELOG.md` with every removal named.
-- [ ] `cabal build all --enable-tests` and the keyless `cabal test all` green.
+- [x] Delete the sixteen `_X` aliases, the eight `registerWith*` functions and `newEventId`; rewrite the `TraceSpec` case that exercises `newEventId` (quoted in Plan of Work).
+- [x] Mechanical edits at every in-repo site that names a removed identifier (README.md, two user guides, CAP-9, CAP-13); prose rewrites stay with EP-11.
+- [x] Create `docs/adr/0006-deprecated-names-are-removed-at-the-next-major.md` and add it to `docs/adr/README.md`.
+- [x] Bump versions and internal bounds in all seven publishable `.cabal` files; open the 0.6.0.0 / 0.4.0.0 / 0.2.0.0 sections in `CHANGELOG.md` with every removal named.
+- [x] `cabal build all --enable-tests` and the keyless `cabal test all` green.
 
 Milestone 3 — `Api` key normalisation, `Aborted` decision, naming and type consistency
 decisions recorded and applied:
@@ -142,6 +142,16 @@ implementation. Provide concise evidence.
   on the line after `ApiProvider` with a trailing `\n` rather than a brace, so
   neither pattern matches it. The stronger reading holds — nothing outside the
   defining module names the constructor.
+
+- Milestone 2: on the first fully parallel run after the version bump forced a
+  whole-workspace rebuild, one subprocess-spawning case — "a zero exit with no
+  identifier and no model stays at requested_only", which exists in
+  `baikai-claude/test/CliEvidenceSpec.hs`, `baikai-openai/test/CliEvidenceSpec.hs`
+  and `baikai-agent/test/EvidenceTests.hs` — failed after 5.01 s and passed on
+  every run since, alone and in the full gate. It is deadline-sensitive under
+  load, like the cases EP-1's revision note widened from one second to three and
+  five; nothing this plan changed touches it. Recorded rather than fixed: the
+  deadline belongs to the plan that wrote it.
 
 
 ## Decision Log
@@ -384,6 +394,42 @@ Record every decision made while working on the plan.
   one; `"."` is the relative spelling of the same root and keeps the base pure.
   `defaultAgentConfigPaths` remains the discovering, `IO` path.
   Date: 2026-08-27
+- Decision (Milestone 2): the ADR is
+  `docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md`, not `0006`.
+  The corpus grew from five records to fifteen while EP-1..EP-9 landed, and the
+  MasterPlan's Integration Points fix the slug, not the number: the number is
+  taken at implementation time in landing order.
+  Date: 2026-08-27
+- Decision (Milestone 2): the removals are recorded in `CHANGELOG.md`'s existing
+  `[Unreleased]` section, which names the seven versions this cycle ships as and
+  marks each removal with the release that takes the name away, rather than in
+  seven newly opened per-package version headings. Rationale: the whole cycle's
+  entries — EP-1 through EP-10 — already sit in `[Unreleased]`, and the release
+  skill's documented procedure (`agents/skills/release/SKILL.md`, "Release the
+  package") is to move them into dated per-package sections at release time.
+  Opening those sections now would either duplicate several hundred lines or
+  leave seven empty headings above the 0.5.0.0 sections. What ADR 0016 actually
+  requires — that the changelog name the version that removes each deprecated
+  name — is satisfied. The release is after EP-11 and is not this plan's.
+  Date: 2026-08-27
+- Decision (Milestone 2): `Baikai.Compat.defaultAnthropicThinkingStyle` is
+  removed here, making twenty-six removals rather than the twenty-five this plan
+  enumerated. EP-3 deprecated it and its own Interfaces section asks EP-10 to
+  remove it "at the next major with a changelog line naming the version", which
+  is exactly this release. Deprecating and removing a name inside one cycle is
+  not a violation of ADR 0016: the name was never released deprecated, so no
+  consumer ever saw a warning promising it a major of overlap.
+  Date: 2026-08-27
+- Decision (Milestone 2): five unused imports left by EP-7, EP-8 and EP-9 were
+  deleted in the same commit (`Baikai.Compat`'s `Data.Text`,
+  `Evidence/Build.hs`'s `declaredStrength`, `Kit/Install.hs`'s
+  `computeKitHash`, and both CLI modules' `ProviderRegistry` /
+  `registerApiProviderWith`). They were invisible while their modules stayed
+  cached and surfaced the moment the version bump forced a full rebuild; a plan
+  that runs `cabal check` and `cabal haddock` as acceptance cannot leave a
+  warning it has seen.
+  Date: 2026-08-27
+
 - Decision (Milestone 1): `Baikai.Provider.Claude.Api` and
   `Baikai.Provider.OpenAI.Api` keep their full module Haddock and each export
   exactly three names; the long per-function Haddock for the stream (worker

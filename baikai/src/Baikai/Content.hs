@@ -36,10 +36,6 @@ module Baikai.Content
     emptyThinkingContent,
     emptyToolCall,
     emptyImageContent,
-    _TextContent,
-    _ThinkingContent,
-    _ToolCall,
-    _ImageContent,
   )
 where
 
@@ -257,19 +253,3 @@ instance FromJSON ToolResultContent where
 
 instance ToJSON ToolResultContent where
   toJSON = genericToJSON contentSumOptions
-
-{-# DEPRECATED _TextContent "Use emptyTextContent instead." #-}
-_TextContent :: TextContent
-_TextContent = emptyTextContent
-
-{-# DEPRECATED _ThinkingContent "Use emptyThinkingContent instead." #-}
-_ThinkingContent :: ThinkingContent
-_ThinkingContent = emptyThinkingContent
-
-{-# DEPRECATED _ToolCall "Use emptyToolCall instead." #-}
-_ToolCall :: ToolCall
-_ToolCall = emptyToolCall
-
-{-# DEPRECATED _ImageContent "Use emptyImageContent instead." #-}
-_ImageContent :: ImageContent
-_ImageContent = emptyImageContent

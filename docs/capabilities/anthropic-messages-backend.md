@@ -70,7 +70,7 @@ dispatch](unified-provider-calls.md).
 ```haskell
 import Baikai.Provider.Claude.Api qualified as ClaudeApi
 
-ClaudeApi.register   -- or registerWith config, or registerWithRegistry
+ClaudeApi.register   -- or registerApiProviderWith reg ClaudeApi.claudeMessagesProvider
 ```
 
 ## Limits

@@ -51,7 +51,6 @@ module Baikai.Trace
     runRequestWithRegistry,
 
     -- * Helpers
-    newEventId,
     summarizeContext,
   )
 where
@@ -639,19 +638,3 @@ resolvedMaxTokens m opts = fromMaybe (m ^. #maxOutputTokens) (opts ^. #maxTokens
 
 millisBetween :: UTCTime -> UTCTime -> Int
 millisBetween a b = round (realToFrac (diffUTCTime b a) * (1000 :: Double))
-
--- ============================================================
--- Event id
--- ============================================================
-
--- | Generate an identifier for one traced call.
---
--- Delegates to 'newCallId'. The previous implementation combined the
--- process-start POSIX /second/ with a process-local counter and
--- produced 16 hexadecimal characters, which meant two processes
--- started within the same second emitted identical identifier
--- sequences. 'newCallId' produces 32 characters and is unique across
--- processes.
-newEventId :: IO Text
-newEventId = newCallId
-{-# DEPRECATED newEventId "Use Baikai.Evidence.newCallId; newEventId's ids were only unique within one process." #-}

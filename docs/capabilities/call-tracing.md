@@ -84,10 +84,10 @@ resp <- withTrace (fileSink "/tmp/baikai-trace.jsonl") model ctx opts
 - `FromJSON TraceEvent` decodes the three original kinds only. A `call_evidence`
   line fails to parse with a message telling you to read it as a plain
   `Data.Aeson.Value`, because `ModelCallEvidence` deliberately has no `FromJSON`.
-- `Baikai.Trace.newEventId` still exists but is deprecated in favour of
-  `Baikai.Evidence.newCallId`. Identifiers widened from 16 to 32 characters in
-  0.5.0.0; anything that pinned the old width — a log parser, a fixture, a column
-  type — must widen.
+- `Baikai.Trace.newEventId` was removed in baikai 0.6.0.0; use
+  `Baikai.Evidence.newCallId`, which it had delegated to since 0.5.0.0.
+  Identifiers widened from 16 to 32 characters in 0.5.0.0; anything that pinned
+  the old width — a log parser, a fixture, a column type — must widen.
 - Adding a `TraceEvent` constructor is a breaking change for consumers whose
   pattern match is exhaustive. 0.5.0.0 added `CallEvidence`.
 - **To have the abort record before you exit, drain to the terminal.** Use

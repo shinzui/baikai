@@ -1,9 +1,3 @@
--- This module deliberately exercises 'newEventId', which is deprecated
--- in favour of 'Baikai.Evidence.newCallId'. The alias is still part of
--- the public surface, so it keeps a test; suppressing the warning here
--- is narrower than dropping the coverage.
-{-# OPTIONS_GHC -Wno-deprecations #-}
-
 module TraceSpec (tests) where
 
 import Baikai.Api (Api (..))
@@ -28,7 +22,7 @@ import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Stream.Event (AssistantMessageEvent (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..))
-import Baikai.Trace (newEventId, withTrace, withTraceStream)
+import Baikai.Trace (withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), multiSink, silent)
 import Baikai.Usage (Usage, zeroUsage)
@@ -427,15 +421,15 @@ throwToAroundTerminalTest =
 
 -- | The length assertion here used to read
 -- @assertBool "every id is 16 chars" (all ((== 16) . Text.length) ids)@.
--- It now reads 32, because 'newEventId' delegates to
--- 'Baikai.Evidence.newCallId', which carries 128 bits rather than 64.
--- The widening is the point of the replacement: the old generator
--- packed a process-start /second/ into its high half and so repeated
--- itself across processes started in the same second.
+-- It reads 32 because 'Baikai.Evidence.newCallId', which replaced the
+-- removed @newEventId@, carries 128 bits rather than 64. The widening
+-- is the point of the replacement: the old generator packed a
+-- process-start /second/ into its high half and so repeated itself
+-- across processes started in the same second.
 eventIdUniquenessTest :: TestTree
 eventIdUniquenessTest =
-  testCase "newEventId yields 70000 distinct 32-char ids" $ do
-    ids <- replicateM 70000 newEventId
+  testCase "newCallId yields 70000 distinct 32-char ids" $ do
+    ids <- replicateM 70000 Ev.newCallId
     Set.size (Set.fromList ids) @?= 70000
     assertBool "every id is 32 chars" (all ((== 32) . Text.length) ids)
 

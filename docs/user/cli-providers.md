@@ -110,55 +110,62 @@ string to let the CLI pick its own default.
 The defaults assume the binary is on `PATH` and don't pass any
 extra flags. To override:
 
-Use `registerWithRegistry` or `registerWithRegistryAndConfig` instead
-when registering CLI providers into an explicit `ProviderRegistry`.
+Each package exports a provider value — `claudeCliProvider cfg` and
+`codexCliProvider cfg` — so one path covers both registries:
+`registerApiProvider (claudeCliProvider cfg)` for the process-global one
+and `registerApiProviderWith reg (claudeCliProvider cfg)` for an explicit
+`ProviderRegistry`.
 
 ### `claude -p`
 
 ```haskell
+import Baikai.Provider (registerApiProvider)
 import Baikai.Provider.Claude.Cli
   ( ClaudeCliConfig
+  , claudeCliProvider
   , defaultClaudeCliConfig
   , executable
   , extraArgs
-  , registerWith
   , workingDir
   )
 
 main :: IO ()
 main = do
-  registerWith
-    defaultClaudeCliConfig
-      { executable = "/Users/me/.local/bin/claude"
-      , extraArgs = ["--allowed-tools", "Bash,Read"]
-      , workingDir = Just "/path/to/project"
-      }
+  registerApiProvider $
+    claudeCliProvider
+      defaultClaudeCliConfig
+        { executable = "/Users/me/.local/bin/claude"
+        , extraArgs = ["--allowed-tools", "Bash,Read"]
+        , workingDir = Just "/path/to/project"
+        }
 ```
 
 ### `codex exec`
 
 ```haskell
+import Baikai.Provider (registerApiProvider)
 import Baikai.Provider.OpenAI.Cli
   ( CodexCliConfig
+  , codexCliProvider
   , defaultCodexCliConfig
   , ephemeral
   , executable
   , extraArgs
-  , registerWith
   , skipGitRepoCheck
   , workingDir
   )
 
 main :: IO ()
 main = do
-  registerWith
-    defaultCodexCliConfig
-      { executable = "/opt/homebrew/bin/codex"
-      , extraArgs = []
-      , workingDir = Just "/path/to/project"
-      , skipGitRepoCheck = True   -- default; passes --skip-git-repo-check
-      , ephemeral = True          -- default; passes --ephemeral
-      }
+  registerApiProvider $
+    codexCliProvider
+      defaultCodexCliConfig
+        { executable = "/opt/homebrew/bin/codex"
+        , extraArgs = []
+        , workingDir = Just "/path/to/project"
+        , skipGitRepoCheck = True   -- default; passes --skip-git-repo-check
+        , ephemeral = True          -- default; passes --ephemeral
+        }
 ```
 
 The Codex defaults (`skipGitRepoCheck = True`, `ephemeral = True`)

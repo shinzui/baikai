@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name:          baikai-agent
-version:       0.1.0.0
+version:       0.2.0.0
 synopsis:      Unattended coding-agent runs for the Baikai abstraction
 description:
   Runs a local coding-agent command-line tool with no terminal and no
@@ -57,9 +57,9 @@ library
 
   build-depends:
     , aeson                        ^>=2.2
-    , baikai                       ^>=0.5.0
-    , baikai-claude                ^>=0.5
-    , baikai-openai                ^>=0.5
+    , baikai                       ^>=0.6.0
+    , baikai-claude                ^>=0.6
+    , baikai-openai                ^>=0.6
     , base                         >=4.20   && <5
     , bytestring                   ^>=0.12
     , containers                   ^>=0.7

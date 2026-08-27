@@ -21,7 +21,6 @@
 module Baikai.Embedding
   ( EmbeddingModel (modelId, baseUrl, dimensions, apiKey),
     emptyEmbeddingModel,
-    _EmbeddingModel,
     openAIEmbeddingModel,
     mkEmbeddingRequest,
     firstEmbedding,
@@ -188,7 +187,3 @@ urlOf :: EmbeddingModel -> Text
 urlOf m = case baseUrl m of
   "" -> "https://api.openai.com"
   u -> u
-
-{-# DEPRECATED _EmbeddingModel "Use emptyEmbeddingModel instead." #-}
-_EmbeddingModel :: EmbeddingModel
-_EmbeddingModel = emptyEmbeddingModel

@@ -13,7 +13,6 @@
 module Baikai.Response
   ( Response (..),
     emptyResponse,
-    _Response,
     responseMessage,
     flattenAssistantBlocks,
     flattenAssistantText,
@@ -140,7 +139,3 @@ errorResponse m ts latency err =
       errorInfo = Just err,
       evidence = Nothing
     }
-
-{-# DEPRECATED _Response "Use emptyResponse instead." #-}
-_Response :: Response
-_Response = emptyResponse

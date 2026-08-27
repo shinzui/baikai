@@ -58,7 +58,6 @@ import Baikai.Evidence
     baseEvidence,
     commitmentDigest,
     configurationDigest,
-    declaredStrength,
     newCallId,
     renderEvidenceStrength,
     untranslatedThinking,

@@ -7,6 +7,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+This cycle ships as **baikai 0.6.0.0**, **baikai-claude 0.6.0.0**,
+**baikai-openai 0.6.0.0**, **baikai-trace-otel 0.4.0.0**, **baikai-effectful
+0.3.0.4**, **baikai-kit 0.2.0.0** and **baikai-agent 0.2.0.0**. The versions are
+already in the `.cabal` files; the release procedure dates these entries and
+splits them into per-package sections. Every removal below names the release
+that takes the name away, per
+[ADR 0016](docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md).
+
 ### Added
 
 - `baikai` (breaking to construct, not to read): every record that can still
@@ -565,13 +573,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Baikai.Provider.Cli.Internal.subprocessStrength` keeps its signature and
   delegates. (REV-2 D.10.)
 
-### Deprecated
-
-- `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
-  consults it any more — the thinking style of a first-party Anthropic model is
-  a field of its generated catalog record. It is removed at the next major.
-
 ### Removed
+
+- `baikai` **0.6.0.0** (breaking): the sixteen `_Type` base-value aliases deprecated in
+  0.3.0.0 — `_Options`, `_Context`, `_Model`, `_ModelCost`, `_Response`,
+  `_Usage`, `_Cost`, `_CostBreakdown`, `_Tool`, `_TextContent`,
+  `_ThinkingContent`, `_ToolCall`, `_ImageContent`, `_EmbeddingModel`,
+  `_InteractiveLaunchRequest` and `_InteractiveLaunchResult`. Each has an
+  `empty…` or `zero…` replacement of the same value, named in the pragma that
+  has been on it since 0.3.0.0. The 0.3.0.0 entry said they remained "for this
+  release"; 0.4.0.0 and 0.5.0.0 shipped without removing them because no entry
+  named a version.
+  `docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md` now fixes
+  the rule: a name deprecated in `A.B.0.0` is removed in `A.(B+1).0.0`, and
+  every pragma says so. (REV-2 G.3.)
+
+- `baikai-claude`, `baikai-openai` **0.6.0.0** (breaking): the eight registration shims —
+  `registerWith`, `registerWithRegistry` and `registerWithRegistryAndConfig` in
+  both `Cli` modules, and `registerWithRegistry` in both `Api` modules. Register
+  the exported provider value instead:
+  `registerApiProvider (claudeCliProvider cfg)`,
+  `registerApiProviderWith reg (codexCliProvider cfg)`,
+  `registerApiProviderWith reg claudeMessagesProvider`. The batch-mode note that
+  had accumulated on `registerWith` — why `complete` stays on the direct path
+  rather than going through `streamingComplete` — moves to the provider value it
+  describes. (REV-2 G.3.)
+
+- `baikai` **0.6.0.0** (breaking): `Baikai.Trace.newEventId`. It has delegated to
+  `Baikai.Evidence.newCallId` since 0.5.0.0; call that. (REV-2 G.3.)
+
+- `baikai` **0.6.0.0** (breaking): `Baikai.Compat.defaultAnthropicThinkingStyle`, deprecated
+  earlier in this cycle. Nothing in baikai consults it — the thinking style of a
+  first-party Anthropic model is a field of its generated catalog record
+  (`Baikai.Models.Generated`); start from that value, or set
+  `CompatAnthropicMessages` explicitly.
 
 - `baikai` (breaking): `AgentRunRequest.envPassthrough` is renamed `envRequires`.
   The field is a list of variables the job declares it requires, checked as a

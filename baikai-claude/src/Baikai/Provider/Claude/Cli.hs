@@ -3,8 +3,8 @@
 --
 -- Call 'register' once (typically from @main@) to install the
 -- 'Baikai.Api.AnthropicMessagesCli' handler with default config.
--- For non-default executable paths or extra args, use 'registerWith'
--- and supply a custom 'ClaudeCliConfig'.
+-- For non-default executable paths or extra args, register
+-- @claudeCliProvider cfg@ with a custom 'ClaudeCliConfig'.
 --
 -- The 'Response' this provider returns carries whatever the tool
 -- reported about its own run: the token counts and total cost from the
@@ -31,9 +31,6 @@ module Baikai.Provider.Claude.Cli
     defaultClaudeCliConfig,
     claudeCliProvider,
     register,
-    registerWith,
-    registerWithRegistry,
-    registerWithRegistryAndConfig,
   )
 where
 
@@ -49,10 +46,8 @@ import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry
   ( ApiProvider (..),
-    ProviderRegistry,
     apiProviderWith,
     registerApiProvider,
-    registerApiProviderWith,
   )
 import Baikai.Response qualified as Resp
 import Baikai.StopReason (StopReason (..))
@@ -100,6 +95,17 @@ register :: IO ()
 register = registerApiProvider (claudeCliProvider defaultClaudeCliConfig)
 
 -- | First-class Claude CLI provider value for a caller-supplied config.
+--
+-- The CLI binary runs in batch mode; there is no intra-response
+-- streaming on the wire. The @stream@ field therefore wraps the
+-- batch 'runClaudeCli' through 'liftCompleteToStream', producing a
+-- synthetic one-shot event stream
+-- (@EventStart, TextStart 0, TextDelta 0 body, TextEnd 0, EventDone@)
+-- the moment the subprocess returns. @complete@ is left as the
+-- direct batch path so it preserves 'Baikai.Response.responseId' and
+-- the measured 'Baikai.Response.latencyMs' (going through a
+-- 'Baikai.Stream.streamingComplete' round trip would lose the former
+-- and recompute the latter from synthetic events).
 claudeCliProvider :: ClaudeCliConfig -> ApiProvider
 claudeCliProvider cfg =
   apiProviderWith
@@ -110,39 +116,6 @@ claudeCliProvider cfg =
     -- control is a command-line flag derived from Options alone.
     & #describeThinking .~ (\_ opts -> claudeCliThinking opts)
     & #strengthCeiling .~ Ev.declaredStrength AnthropicMessagesCli
-
--- | Install the CLI handler with a caller-supplied config.
---
--- The CLI binary runs in batch mode; there is no intra-response
--- streaming on the wire. The 'stream' field therefore wraps the
--- batch 'runClaudeCli' through 'liftCompleteToStream', producing a
--- synthetic one-shot event stream
--- (@EventStart, TextStart 0, TextDelta 0 body, TextEnd 0, EventDone@)
--- the moment the subprocess returns. 'complete' is left as the
--- direct batch path so it preserves 'Response.responseId' and the
--- measured 'Response.latencyMs' (going through a
--- 'streamingComplete' round trip would lose the former and recompute
--- the latter from synthetic events). EP-3's Decision Log explains
--- the deviation from the plan's "complete = streamingComplete .
--- stream" default.
-registerWith :: ClaudeCliConfig -> IO ()
-registerWith cfg = registerApiProvider (claudeCliProvider cfg)
-{-# DEPRECATED registerWith "use registerApiProvider (claudeCliProvider cfg)" #-}
-
--- | Install the CLI handler with 'defaultClaudeCliConfig' into an explicit
--- registry.
-registerWithRegistry :: ProviderRegistry -> IO ()
-registerWithRegistry reg = registerWithRegistryAndConfig reg defaultClaudeCliConfig
-{-# DEPRECATED registerWithRegistry "use registerApiProviderWith reg (claudeCliProvider defaultClaudeCliConfig)" #-}
-
--- | Install the CLI handler with a caller-supplied config into an explicit
--- registry.
-registerWithRegistryAndConfig :: ProviderRegistry -> ClaudeCliConfig -> IO ()
-registerWithRegistryAndConfig reg cfg =
-  registerApiProviderWith
-    reg
-    (claudeCliProvider cfg)
-{-# DEPRECATED registerWithRegistryAndConfig "use registerApiProviderWith reg (claudeCliProvider cfg)" #-}
 
 -- | Render the executable and arguments for a @claude -p@ batch call.
 -- The prompt is preceded by @--@ so dash-leading prompts and variadic

@@ -51,7 +51,7 @@ import Baikai.Kit.Manifest
   )
 import Baikai.Kit.Path (safeItemName, safeSourcePath)
 import Baikai.Kit.Repo (KitRepo, PullResult (..), RepoRefresh (..), ensureKitRepo, pullKitRepo)
-import Baikai.Kit.Sidecar (computeKitHash, hashEntries, newSidecarMeta, readSidecar, sidecarPath)
+import Baikai.Kit.Sidecar (hashEntries, newSidecarMeta, readSidecar, sidecarPath)
 import Baikai.Prelude
 import Control.Exception (IOException, onException, throwIO, try)
 import Control.Monad (forM, forM_, unless, when)

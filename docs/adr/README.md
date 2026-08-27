@@ -29,3 +29,4 @@ bundle.
 | [0013](0013-library-code-never-calls-exitfailure.md) | Library code never calls `exitFailure`; process exit belongs to a command adapter | accepted |
 | [0014](0014-strict-evidence-means-a-record-exists.md) | Strict evidence means a record exists, not merely that the sink did not throw | accepted |
 | [0015](0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md) | Trace cleanup is bounded, and abort cleanup is garbage-collection-eventual | accepted |
+| [0016](0016-deprecated-names-are-removed-at-the-next-major.md) | A deprecated name is removed at the next major release after the one that deprecates it | accepted |
