@@ -143,7 +143,7 @@ states the version (EP-10).
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Ship baikai-agent on the threaded RTS and fix the coding-agent surfaces | docs/plans/58-ship-baikai-agent-on-the-threaded-rts-and-fix-the-coding-agent-surfaces.md | None | None | In Progress |
+| 1 | Ship baikai-agent on the threaded RTS and fix the coding-agent surfaces | docs/plans/58-ship-baikai-agent-on-the-threaded-rts-and-fix-the-coding-agent-surfaces.md | None | None | Complete |
 | 2 | Unify host parsing and stop credential misdirection | docs/plans/59-unify-host-parsing-and-stop-credential-misdirection.md | None | None | Not Started |
 | 3 | Make Anthropic thinking style and sampling support catalog-driven | docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md | None | EP-2 | Not Started |
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Not Started |
@@ -370,10 +370,10 @@ plans named (each plan's implementer reads this section before its first commit)
 
 ## Progress
 
-- [ ] EP-1 M1: `baikai` executable on the threaded RTS, proven by a spawned-binary timeout test
-- [ ] EP-1 M2: SIGKILL escalation, drained output kept on timeout, UTF-8 output regardless of locale
-- [ ] EP-1 M3: unexpressible codex approval policies refused as `SafetyNotExpressible`
-- [ ] EP-1 M4: linear-time JSONL line assembly and correct TOML escaping for agent assets
+- [x] EP-1 M1: `baikai` executable on the threaded RTS, proven by a spawned-binary timeout test
+- [x] EP-1 M2: SIGKILL escalation, drained output kept on timeout, UTF-8 output regardless of locale
+- [x] EP-1 M3: unexpressible codex approval policies refused as `SafetyNotExpressible`
+- [x] EP-1 M4: linear-time JSONL line assembly and correct TOML escaping for agent assets
 - [ ] EP-2 M1: one URL host parser, used by compat detection, key resolution, evidence and the client cache
 - [ ] EP-2 M2: header credentials redacted in `Show`/`ToJSON`; empty key env vars are `AuthError`
 - [ ] EP-2 M3: embeddings resolve keys per host and share the `ClientEnv` cache
@@ -450,6 +450,28 @@ plans named (each plan's implementer reads this section before its first commit)
   labels reach any `Generic` field — so `ModelCallEvidence.strength` is guarded by EP-8's
   single derivation, not by an export list; REV-2 D.10 conflated the two. (2026-08-27,
   drafting)
+- __A test that spawns a process cannot assert a sub-second deadline.__ EP-1 found that
+  starting `/bin/sh` while the rest of a suite runs in parallel under
+  `-with-rtsopts=-N` takes longer than one second on a loaded machine, so every case
+  whose assertion depends on work the child actually did — not merely on the run
+  returning — failed deterministically in a full-suite run and passed in isolation. The
+  affected cases now use three- or five-second deadlines against stubs that sleep for
+  thirty or a hundred and twenty. Any later plan writing a subprocess test with a short
+  timeout (EP-6 in particular, which also edits `baikai-agent`'s runner region) should
+  start from that. (2026-08-27, EP-1)
+- __cabal does not rebuild an executable when only its `ghc-options` change.__ EP-1's
+  first `-threaded` build reported "Building executable" and still produced the
+  unthreaded binary; `cabal build -v3` passed no `-threaded` to GHC. Removing the
+  component's build directory fixed it. Recorded in
+  `docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md`.
+  (2026-08-27, EP-1)
+- __REV-2 F.9 is not reproducible on macOS.__ GHC 9.12.4 on Darwin reports `Just UTF-8`
+  for the standard handles under `C`, `POSIX`, `en_US.ISO8859-1` and `C.UTF-8` alike,
+  so the locale-encoded write EP-1 fixed cannot fail here; it fails on Linux, which is
+  where an unattended run under cron lives. EP-1 kept the guard anyway and said so in
+  `docs/adr/0007-text-crossing-a-process-boundary-is-encoded-explicitly.md`. Any later
+  plan predicting a pre-fix transcript should re-derive it rather than quote the review.
+  (2026-08-27, EP-1)
 
 
 ## Decision Log
@@ -512,14 +534,41 @@ plans named (each plan's implementer reads this section before its first commit)
   Rationale: widening a closed sum is a surface decision that belongs with the other
   freeze-time type changes and the major bump that carries them.
   Date: 2026-08-27
+- Decision: EP-1 allocated ADR numbers `0006` and `0007`, so the next plan to promote a
+  record takes `0008`.
+  Rationale: the allocation rule in Integration Points is landing order.
+  `0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md` is the record
+  the decomposition assigned EP-1; `0007-text-crossing-a-process-boundary-is-encoded-explicitly.md`
+  came out of EP-1's distillation pass, because the fix to REV-2 F.9 completed a
+  repository-wide rule the prompt read and prompt write already followed and that four
+  call sites now depend on.
+  Date: 2026-08-27
 
 
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
 
+EP-1 complete (2026-08-27), four milestones in four commits `e2f33cc`, `ab9fc1f`,
+`f5e8722`, `90894ca`. The shipped `baikai` executable now links the threaded runtime,
+a timed-out run escalates to `SIGKILL` across its whole process group and reports what
+it drained, the command writes UTF-8 whatever the locale says, the Codex launcher
+refuses the two approval spellings the installed CLI rejects, and the codex JSONL
+assembler and the Codex custom-agent TOML renderer are both correct. The keyless
+`cabal test all` gate is green across all eight suites, `nix fmt` leaves the tree
+unchanged, and `okf validate docs/capabilities` reports `OK: 22 concepts`. Two ADRs
+were promoted, `0006` and `0007`. One breaking change to `baikai` — `RunTimedOut` now
+carries `AgentTimedOut` — is recorded under `[Unreleased]` for EP-10 to version.
+
 
 ---
+
+Revision note (2026-08-27, EP-1 complete): EP-1's registry row is Complete and its four
+Progress lines are ticked. Three discoveries were added to Surprises & Discoveries that
+bind later plans — the sub-second-deadline trap in subprocess tests, cabal not
+rebuilding an executable on a `ghc-options` change, and REV-2 F.9 being unreproducible
+on macOS — and the Decision Log records that EP-1 consumed ADR numbers `0006` and
+`0007`, so the next plan to promote a record takes `0008`.
 
 Revision note (2026-08-27): after the eleven child plans were drafted in parallel, their
 Decision Logs were read together and the cross-plan answers were recorded in Integration

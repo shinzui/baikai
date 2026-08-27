@@ -115,9 +115,13 @@ later plan rebases. Exports and version bumps are owned by
       `baikai/src/Baikai/AgentAssets.hs`; `tomlString` escapes every control character;
       `baikai/test/AgentAssetsSpec.hs`; `docs/user/agent-assets.md`; CAP-22; log;
       `CHANGELOG.md`; commit.
-- [ ] Final: keyless `cabal test all` gate green; tick the four EP-1 lines in
-      `docs/masterplans/10-correctness-and-api-hardening-from-the-2026-08-review.md`;
-      Outcomes & Retrospective; ADR distillation pass.
+- [x] Final (2026-08-27): keyless `cabal test all` gate green across all eight suites;
+      `nix fmt` leaves the tree unchanged; `okf validate docs/capabilities` reports
+      `OK: 22 concepts`; the four EP-1 lines ticked and the registry row set to Complete
+      in `docs/masterplans/10-correctness-and-api-hardening-from-the-2026-08-review.md`;
+      Outcomes & Retrospective written; ADR distillation pass produced
+      `docs/adr/0007-text-crossing-a-process-boundary-is-encoded-explicitly.md` beside
+      the `0006` written in M1.
 
 
 ## Surprises & Discoveries
@@ -387,11 +391,72 @@ Recorded during implementation.
   pins the exact bytes the command writes is worth keeping on a platform where it is
   currently free, and deleting it would leave the fix unpinned everywhere.
   Date: 2026-08-27
+- Decision: The distillation pass promotes a second record,
+  `docs/adr/0007-text-crossing-a-process-boundary-is-encoded-explicitly.md`.
+  Rationale: the fix to F.9 completed a rule the read side already followed —
+  `readPromptSource` decodes explicitly, `writePromptAsync` encodes explicitly — and a
+  rule that now governs four call sites across two modules is repository memory rather
+  than plan memory. It also records the macOS caveat, so the next person to look at
+  `writesUtf8UnderCLocaleTest` and find it cannot fail here does not delete it. The
+  number is the next free one in the plain-file corpus at the time of the commit, per
+  the MasterPlan's allocation rule.
+  Date: 2026-08-27
+- Decision: The gotcha behind `collect` — that a thread blocked in `BS.hGetSome` holds
+  the handle's own lock, so `hClose` from another thread blocks instead of unblocking
+  the reader, and the reader must be interrupted with `killThread` — stays in the code
+  comment and this plan rather than becoming an ADR.
+  Rationale: it governs one function in one module and is already stated where someone
+  would edit it; the distillation guidance keeps task-local execution detail in the
+  plan.
+  Date: 2026-08-27
 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All four milestones landed, one commit each, each leaving the tree green.
+
+What exists now that did not before. The installed `baikai` binary links the threaded
+runtime, so a job's `timeout` actually fires and a chatty coding agent cannot deadlock
+the run on a full pipe; the manual transcript in Validation and Acceptance returns in
+five seconds with exit 75, the partial answer on standard output, and no surviving
+child. A timed-out run escalates INT, TERM, KILL across the whole process group, each
+earlier stage bounded and ended as soon as the leader is reaped and no member is left,
+and it carries back what each stream drained — a new `AgentTimedOut` record on
+`RunTimedOut`, which is the plan's one breaking change to `baikai`. The command writes
+UTF-8 bytes rather than encoding through the locale. The Codex interactive launcher
+refuses `CodexApprovalUntrusted` and `CodexApprovalOnFailure` before creating a
+process, naming a policy that works. A two-megabyte codex event parses in 0.03 s rather
+than not at all, and a Codex custom-agent body containing a backslash renders as TOML
+that a real parser accepts.
+
+The suite gained the first cases in this repository that spawn the __built__
+executable, `baikai-agent/test/BinaryTests.hs`, which is the only way to prove what
+runtime a binary ships with. That is now a repository rule, in
+`docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md`.
+
+Three lessons worth carrying. First, a test that asserts anything about work a child
+process actually did cannot use a sub-second deadline: starting `/bin/sh` while eighty
+other cases run in parallel takes longer than that, and the resulting failure looks
+like a defect in the runner rather than in the test. Every such case here runs at three
+or five seconds and says why. Second, cabal does not rebuild an executable when only
+its `ghc-options` change, so the first `-threaded` build silently produced the old
+binary; the `+RTS --info` assertion is what turned that into a message. Third, a
+predicted pre-fix transcript is worth re-deriving rather than pasting: the locale
+defect the plan expected to demonstrate is not reproducible on macOS at all, because
+GHC on Darwin reports UTF-8 whatever `LANG` says, and saying so is more useful than a
+transcript that would not have appeared.
+
+What remains, and for whom. `AgentCliRun.standardOutput` is still `Text`, so a child's
+output makes one lenient decode round trip on its way through; passing the raw bytes
+through would remove that and is recorded here as an EP-10 follow-up rather than done.
+Whether `CodexApprovalUntrusted` and `CodexApprovalOnFailure` should be deprecated now
+that both are refused is EP-10's call; this plan kept them so the type stays stable.
+The `RunTimedOut` change is a `baikai` PVP major, and the bump is EP-10's. EP-6 will
+edit the evidence `endpoint` and `errorInfo` region of
+`baikai-agent/src/Baikai/Agent/Run.hs`; the regions this plan touched — `consume`,
+`forkDrain`, `drain`, `terminateGroup` and the local `capturedBytes` — do not overlap
+it, and `BinaryTests.hs` deliberately defines its job in the __operator__ scope so
+EP-6's repository-scope restrictions cannot break it.
 
 
 ## Context and Orientation
@@ -1214,3 +1279,17 @@ exports. EP-11 reconciles the guide wording this plan changes.
 Revision note (2026-08-27): initial version, authored from REV-2 Theme F items F.1 and
 F.5–F.9 and Theme I item 2 ("a test that spawns the built binary"), the MasterPlan's
 milestone list for EP-1, and the source at HEAD `5411947`.
+
+Revision note (2026-08-27, after implementation): the plan was carried out as written
+with three changes, each recorded in the Decision Log and the section it affects. The
+spawned-binary case and the two in-process cases that assert on work a child actually
+did use three- and five-second deadlines rather than one second, because process-start
+latency under a parallel suite exceeds a second; Milestone 1's job snippet and
+Validation and Acceptance were updated to match. The last escalation stage is one
+CPP-guarded function, `killGroupOrLeader`, rather than `killProcessGroup` plus a
+platform fallback, so a non-POSIX build still reaches the leader. And the acceptance
+claim about the locale defect was corrected: it cannot be reproduced on macOS, where
+GHC reports UTF-8 whatever `LANG` says. Progress is fully ticked, Surprises &
+Discoveries carries the four pre-fix transcripts the plan asked for, and the
+distillation pass produced a second ADR, `0007`, beside the `0006` written in
+Milestone 1.
