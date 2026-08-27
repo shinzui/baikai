@@ -16,6 +16,10 @@
 -- matching 'CallFinished' or 'CallFailed' closes the span and removes the
 -- entry. The fold's finalizer closes any spans still in flight at
 -- end-of-stream so no span ever leaks.
+--
+-- Every span is a root unless 'OtelSinkOptions.parentContext' supplies
+-- one; see that field for why the parent is fixed per sink rather than
+-- read from the ambient context.
 module Baikai.Trace.Sink.OpenTelemetry
   ( otelSink,
     otelSinkWith,
@@ -31,6 +35,7 @@ import Control.Monad (forM_)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Int (Int64)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Scientific qualified as Scientific
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -51,7 +56,20 @@ data OtelSinkOptions = OtelSinkOptions
     -- | If 'True', attach the redacted prompt summary as
     -- @gen_ai.prompt_summary@. 'False' by default to avoid logging user
     -- content into observability backends.
-    includePromptSummary :: !Bool
+    includePromptSummary :: !Bool,
+    -- | The context whose span becomes the parent of every span this
+    -- sink opens. 'Nothing', the default, makes each call span a root,
+    -- as it always was.
+    --
+    -- A value fixed when the sink is built, not an action run per call:
+    -- the fold runs on baikai's trace worker thread, where the caller's
+    -- thread-local context is invisible, so reading the ambient context
+    -- at span-creation time would read the worker's, which is empty. To
+    -- nest a call under your own span, capture the context on your own
+    -- thread — @ctx <- getContext@, or
+    -- @Context.insertSpan mySpan Context.empty@ — and build the sink for
+    -- that request.
+    parentContext :: !(Maybe Context.Context)
   }
 
 -- | Defaults: span name @baikai.call@, prompt summary off.
@@ -59,7 +77,8 @@ defaultOtelSinkOptions :: OtelSinkOptions
 defaultOtelSinkOptions =
   OtelSinkOptions
     { spanName = "baikai.call",
-      includePromptSummary = False
+      includePromptSummary = False,
+      parentContext = Nothing
     }
 
 -- | Adapt a 'Otel.Tracer' to a baikai 'TraceSink' with the default options.
@@ -84,7 +103,7 @@ stepEvent ::
   Map.Map Text Otel.Span ->
   TraceEvent ->
   IO (Map.Map Text Otel.Span)
-stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev of
+stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext} m ev = case ev of
   CallStarted {eventId, timestamp, provider, model, maxTokens, promptSummary} -> do
     let baseAttrs :: HashMap.HashMap Text Attr.Attribute
         baseAttrs =
@@ -105,7 +124,7 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
               Otel.attributes = attrs,
               Otel.startTime = Just (utcToTimestamp timestamp)
             }
-    sp <- Otel.createSpan tracer Context.empty spanName sargs
+    sp <- Otel.createSpan tracer (fromMaybe Context.empty parentContext) spanName sargs
     pure (Map.insert eventId sp m)
   -- 'model' is deliberately not bound here. It is the /requested/ model
   -- id on every 'TraceEvent' constructor, and 'gen_ai.response.model'
@@ -207,22 +226,13 @@ evidenceAttributes
         [ ("baikai.evidence.schema_version", Attr.toAttribute schemaVersion),
           ("baikai.evidence.run_id", Attr.toAttribute runId),
           ("baikai.evidence.call_id", Attr.toAttribute callId),
-          ("baikai.evidence.strength", Attr.toAttribute (strengthText strength)),
+          ("baikai.evidence.strength", Attr.toAttribute (Ev.renderEvidenceStrength strength)),
           ("gen_ai.request.model", Attr.toAttribute requestedModel),
           ("baikai.evidence.request_commitment", Attr.toAttribute requestCommitment),
           ("baikai.evidence.request_configuration", Attr.toAttribute requestConfiguration)
         ]
     where
       observed = Ev.observedValue observedModel
-
--- | Render an 'Ev.EvidenceStrength' with the same spelling the JSON
--- encoding uses, so a span attribute and a trace line agree.
-strengthText :: Ev.EvidenceStrength -> Text
-strengthText = \case
-  Ev.EvidenceRequestedOnly -> "requested_only"
-  Ev.EvidenceCorrelated -> "correlated"
-  Ev.EvidenceModelObserved -> "model_observed"
-  Ev.EvidenceFullyObserved -> "fully_observed"
 
 -- | Convert a 'UTCTime' to an OpenTelemetry 'Timestamp'.
 --

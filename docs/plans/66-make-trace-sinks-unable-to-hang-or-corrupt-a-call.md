@@ -65,8 +65,8 @@ rebase in both Decision Logs.
 - [x] M2: `multiSink` rebuilt as one drain thread per member with an aggregate `TraceSinkFailure`.
 - [x] M2: `closeCallLog` idempotent; `appendEntry` after close is a no-op.
 - [x] M2: blocking-sink (best-effort and strict), throwing/blocking `multiSink` member, strict member-naming, and `closeCallLog`-twice tests in `TraceSpec.hs`, `CostSpec.hs`, `baikai-trace-otel/test/Main.hs`.
-- [ ] M3: `OtelSinkOptions.parentContext`; `strengthText` replaced by `renderEvidenceStrength`; `parentContextTest` and the strength-spelling assertion.
-- [ ] M3: `baikai-effectful.cabal` no longer depends on `streamly`.
+- [x] M3: `OtelSinkOptions.parentContext`; `strengthText` replaced by `renderEvidenceStrength`; `parentContextTest` and the strength-spelling assertion.
+- [x] M3: `baikai-effectful.cabal` no longer depends on `streamly`.
 - [ ] M4: `exactlyOneEvidence` asserts `CallEvidence` precedes the terminal.
 - [ ] M4: abort-delivery semantics in `docs/capabilities/call-tracing.md`, `docs/user/model-call-evidence.md`, `Trace.hs`'s module doc, `Trace/Event.hs`'s Haddock and the otel test comment; `docs/capabilities/opentelemetry-span-export.md` gains the parent-context limit; `docs/capabilities/log.md` entry.
 - [ ] M4: ADR `docs/adr/0006-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md` (next free number at implementation time).

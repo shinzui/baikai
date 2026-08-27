@@ -26,7 +26,12 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), multiSink)
-import Baikai.Trace.Sink.OpenTelemetry (otelSink)
+import Baikai.Trace.Sink.OpenTelemetry
+  ( OtelSinkOptions (..),
+    defaultOtelSinkOptions,
+    otelSink,
+    otelSinkWith,
+  )
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (threadDelay)
 import Control.Exception (throwIO)
@@ -40,6 +45,7 @@ import Data.Text qualified as Text
 import Data.Time (getCurrentTime)
 import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
+import OpenTelemetry.Context qualified as Context
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
 import OpenTelemetry.Trace.Core qualified as Otel
 import Streamly.Data.Fold qualified as Fold
@@ -59,7 +65,8 @@ main =
         abortSpanTest,
         evidenceSpanTest,
         liveEvidenceSpanTest,
-        multiSinkSiblingSpanTest
+        multiSinkSiblingSpanTest,
+        parentContextTest
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses
@@ -211,6 +218,35 @@ multiSinkSiblingSpanTest =
           Otel.Ok -> pure ()
           other -> assertFailure ("expected Ok status, got: " <> show other)
       _ -> assertFailure "expected exactly one span"
+
+-- | The fold runs on baikai's trace worker thread, where the caller's
+-- thread-local context is invisible, so the parent is supplied as a
+-- value when the sink is built. Before 'parentContext' existed every
+-- call span was a root and a caller could not nest one under its own
+-- request span at all.
+parentContextTest :: TestTree
+parentContextTest =
+  testCase "parentContext nests the call span under the caller's span" $ do
+    let a = Custom "baikai-otel-parent-context"
+    registerOk a
+    (tracer, getSpans) <- newTracerWithInMemory
+    parent <- Otel.createSpan tracer Context.empty "caller.request" Otel.defaultSpanArguments
+    let sink =
+          otelSinkWith
+            tracer
+            defaultOtelSinkOptions {parentContext = Just (Context.insertSpan parent Context.empty)}
+    _ <- withTrace sink (stubModel a) stubContext stubOptions
+    Otel.endSpan parent Nothing
+    parentCtx <- Otel.getSpanContext parent
+    spans <- getSpans
+    named <- mapM (\sp -> (,) sp . Otel.hotName <$> spanHotSnapshot sp) spans
+    case [sp | (sp, n) <- named, n == "baikai.call"] of
+      [sp] -> do
+        Otel.traceId (Otel.spanContext sp) @?= Otel.traceId parentCtx
+        assertBool
+          "the call span records a parent"
+          (maybe False (const True) (Otel.spanParent sp))
+      other -> assertFailure ("expected one baikai.call span, got " <> show (length other))
 
 failureSpanTest :: TestTree
 failureSpanTest =
@@ -480,6 +516,11 @@ evidenceSpanTest =
             "baikai.evidence.request_commitment",
             "baikai.evidence.request_configuration"
           ]
+        -- The spelling, not merely the key: the sink used to carry its
+        -- own copy of the strength names in a local 'strengthText',
+        -- which could drift from the one the JSON encoding writes.
+        HashMap.lookup "baikai.evidence.strength" attrs
+          @?= Just (Attr.toAttribute ("requested_only" :: Text))
         -- The provider reported no model, so nothing may claim it did.
         assertBool
           "gen_ai.response.model must be absent when observedModel is Unobserved"

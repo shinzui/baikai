@@ -9,6 +9,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai-trace-otel`: `OtelSinkOptions.parentContext :: Maybe Context`, default
+  `Nothing`. When set, every span the sink opens becomes a child of the span in
+  that context instead of a root, so a call can be nested under the caller's own
+  request span. It is a value fixed when the sink is built rather than an action
+  run per call, because the fold runs on baikai's trace worker thread where the
+  caller's thread-local context is invisible: capture the context on your own
+  thread (`ctx <- getContext`, or `Context.insertSpan mySpan Context.empty`) and
+  build the sink for that request. __Breaking for positional construction__ of
+  `OtelSinkOptions`; the documented path is a record update on
+  `defaultOtelSinkOptions`. (REV-2 D.9.)
+
 - `baikai`: `Baikai.Agent.AgentOutputFormat` (`TextFormat`, `JsonFormat`) with
   `renderAgentOutputFormat` and `parseAgentOutputFormat`, and
   `AgentRunRequest.outputFormat`, defaulting to `TextFormat`. `baikai-claude`
@@ -175,6 +186,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `EvidenceStrength`. (REV-2 D.10.)
 
 ### Changed
+
+- `baikai-effectful`: no longer depends on `streamly`. Both stanzas listed it
+  while every module imports only `Streamly.Data.Fold` and
+  `Streamly.Data.Stream`, which are `streamly-core`. (REV-2 minor.)
+
+- `baikai-trace-otel`: the `baikai.evidence.strength` span attribute is rendered
+  by `Baikai.Evidence.renderEvidenceStrength`, the function the JSON encoding
+  uses, instead of a second spelling local to the sink that could drift from it.
 
 - `baikai`: `withTrace` and `withTraceStream` wait at most one second for the
   trace sink after writing the shutdown sentinel. On expiry the worker is
