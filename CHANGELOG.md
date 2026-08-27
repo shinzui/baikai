@@ -151,6 +151,39 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   that layer's own default supplies a finite limit, and only an explicit
   `output-limit "unlimited"` reaches the ceiling as `Nothing`.
 
+- `baikai-agent` (breaking): `--run-id` or `--require-evidence` without either
+  `--evidence-file` or `--json` is now a usage error (64) naming both fixes.
+  Before, the record was built — a `--version` probe of the tool and two digests
+  — and then dropped. Under `--json` the record now travels in the envelope as
+  `evidence`, encoded by the same `ToJSON` `--evidence-file` writes.
+
+- `baikai-agent`: `agent show` and `agent run` no longer print another job's
+  unknown-key warnings, or the operator file's `policy` keys. The declaration
+  describes one job and the ceiling is a separate declaration, so `settei` warns
+  about both; neither is a mistake and a document with four jobs printed three
+  jobs' worth of noise on every run. A misspelled key inside the selected job
+  still warns, and a `policy` node in the *repository* document earns exactly one
+  notice saying it has no effect. `Baikai.Agent.Config` exports the two filters,
+  `relevantWarnings` and `repositoryPolicyNotice`. (REV-2 F.13.)
+
+- `baikai-agent`: an evidence record's `endpoint` resolves a relative executable
+  against the job's working directory before probing it, because that is what
+  the child execs. A job whose `executable` is `./bin/agent` previously reported
+  a path resolved against the parent's own directory, which does not exist.
+  `Baikai.Agent.Run` exports `executableForEvidence`. (REV-2 F.13.)
+
+- `baikai-agent`: a failed run's `error_info.message` keeps the last
+  `errorInfoStderrTailBytes` (4096) bytes of standard error, prefixed with how
+  many earlier bytes were dropped, instead of the whole captured stream — which
+  the output limit allows to reach four mebibytes by default. `Baikai.Agent.Run`
+  exports the constant. (REV-2 F.13.)
+
+- `baikai-agent`: `--evidence-file` stages through a uniquely named temporary
+  file created with `O_EXCL` beside the destination, instead of the destination
+  plus `.partial`. A symbolic link planted at the old, guessable name was
+  followed, which let an unattended run overwrite a file of the planter's
+  choosing. (REV-2 F.13.)
+
 - `baikai-agent` (breaking): an operator configuration file that lies inside the
   repository root is refused with exit 78, naming the file and the root, and no
   ceiling is established. The source list already refused the repository
@@ -280,6 +313,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a field of its generated catalog record. It is removed at the next major.
 
 ### Removed
+
+- `baikai` (breaking): `AgentRunFailure.OutputMalformed`, and with it
+  `baikai-agent`'s exit code 70 and its `internalExitCode` export. Nothing ever
+  constructed the constructor, and giving it a producer would have been wrong:
+  the runner treats the tool's output as best-effort observation and its
+  deliverable is the changed working tree, so a run that edited files correctly
+  and then printed an unparseable final line would have been reported as a
+  failure with its exit code and output discarded. A record's `strength` and
+  `unobserved` fields already say when output could not be read. (REV-2 F.13.)
 
 - `baikai-agent` (breaking): the `BAIKAI_AGENT_EXECUTABLE` environment binding.
   An environment variable is inherited by every child process and is easy to set

@@ -363,8 +363,7 @@ failureRenderingTest =
           [ SpawnFailed "/usr/local/bin/claude" "no such file or directory",
             RunTimedOut (AgentTimedOut 90 OutputNotCaptured OutputNotCaptured),
             MissingEnvironment ["KEIRO_PATH", "ANTHROPIC_API_KEY"],
-            WorkingDirMissing "/tmp/gone",
-            OutputMalformed "expected JSON, got a banner"
+            WorkingDirMissing "/tmp/gone"
           ]
     mapM_
       ( \e ->

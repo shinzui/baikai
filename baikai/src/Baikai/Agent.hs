@@ -801,8 +801,6 @@ data AgentRunFailure
     MissingEnvironment ![Text]
   | -- | The working directory does not exist or is not a directory.
     WorkingDirMissing !FilePath
-  | -- | The run produced output the caller could not interpret.
-    OutputMalformed !Text
   | -- | The caller required evidence this configuration cannot produce,
     -- so nothing was started. Carries one rendered explanation per
     -- reason, from
@@ -827,8 +825,6 @@ renderAgentRunFailure (MissingEnvironment names) =
 renderAgentRunFailure (WorkingDirMissing path) =
   "the working directory does not exist or is not a directory: "
     <> Text.pack path
-renderAgentRunFailure (OutputMalformed why) =
-  "the run produced malformed output: " <> why
 renderAgentRunFailure (EvidenceRefused reasons) =
   "refused before starting, because this run cannot produce the evidence it \
   \required: "

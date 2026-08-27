@@ -28,12 +28,14 @@ import Baikai.Agent.Cli
   )
 import Baikai.Agent.Config (AgentConfigPaths (..), AgentJob, resolveAgentJob)
 import Baikai.Evidence (EvidenceStrength (..), evidenceSchemaVersion)
-import Control.Lens ((^.))
+import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
+import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as TextIO
 import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Options.Applicative qualified as Options
@@ -42,8 +44,10 @@ import Settei.Key (parseKey)
 import Settei.Optparse (cliOverride)
 import System.Directory
   ( createDirectoryIfMissing,
+    createFileLink,
     doesFileExist,
     getPermissions,
+    listDirectory,
     setOwnerExecutable,
     setPermissions,
   )
@@ -88,7 +92,8 @@ cliTests =
         "repository scope through the command"
         [ repositoryExecutableIsRefusedThroughTheCommandTest,
           showListsTheCeilingFieldsTest,
-          ceilingInsideTheRepoExitsSeventyEightTest
+          ceilingInsideTheRepoExitsSeventyEightTest,
+          anOperatorPolicyNodeIsNotWarnedAboutTest
         ],
       testGroup
         "agent run"
@@ -98,7 +103,10 @@ cliTests =
           refusesAnEmptyPromptTest,
           writesTheEvidenceFileTest,
           writesNoEvidenceFileByDefaultTest,
-          refusesAnImpossibleEvidenceRequirementTest
+          refusesAnImpossibleEvidenceRequirementTest,
+          runIdWithoutADestinationIsAUsageErrorTest,
+          jsonCarriesTheEvidenceRecordTest,
+          stagingFileCannotBePrePlantedTest
         ],
       testGroup
         "prompts"
@@ -650,7 +658,7 @@ ceilingInsideTheRepoExitsSeventyEightTest =
         (Text.unlines ["policy {", "  max-capability \"full-access\"", "}"])
       paths <- repositoryOnly dir (minimalJob "claude" "")
       finished <-
-        run (paths {userConfig = Just insidePath}) (options (AgentShow "demo"))
+        run (paths & #userConfig .~ Just insidePath) (options (AgentShow "demo"))
       finished ^. #exitCode @?= configExitCode
       assertBool
         ("the file is named: " <> Text.unpack (finished ^. #standardError))
@@ -921,9 +929,117 @@ writesTheEvidenceFileTest =
             (KeyMap.lookup "call_id" o /= Nothing)
         Right other -> assertFailure ("expected one JSON object, got: " <> show other)
       -- The write is atomic through a staging file, which must not be
-      -- left behind.
-      leftover <- doesFileExist (evidencePath <> ".partial")
-      assertBool "the staging file was renamed away" (not leftover)
+      -- left behind. The name is unique rather than the destination plus
+      -- a suffix, so the check is a directory listing.
+      leftovers <- listDirectory dir
+      assertBool
+        ("no staging file remains: " <> show leftovers)
+        (not (any (".partial" `isInfixOf`) leftovers))
+
+runIdWithoutADestinationIsAUsageErrorTest :: TestTree
+runIdWithoutADestinationIsAUsageErrorTest =
+  testCase "asking for a record with nowhere to put it is a usage error" $
+    -- Building one costs a --version probe of the tool and two digests,
+    -- so a record that is built and dropped is measurable work proving
+    -- nothing. There is no safe default destination either: standard
+    -- output belongs to the agent's own answer.
+    withWorkspace $ \dir -> do
+      executable <-
+        writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\necho done\n"
+      paths <- scriptedPaths dir executable "capture"
+      finished <-
+        run
+          paths
+          ((options (AgentRun "demo" (PromptInline "do the thing"))) {runId = Just "r"})
+      finished ^. #exitCode @?= usageExitCode
+      assertBool
+        ("the fix is named: " <> Text.unpack (finished ^. #standardError))
+        ( "--evidence-file" `Text.isInfixOf` (finished ^. #standardError)
+            && "--json" `Text.isInfixOf` (finished ^. #standardError)
+        )
+
+jsonCarriesTheEvidenceRecordTest :: TestTree
+jsonCarriesTheEvidenceRecordTest =
+  testCase "--json carries the evidence record in its envelope" $
+    -- The destination a caller who names no file asked for. The record
+    -- is encoded by the same ToJSON --evidence-file writes, so the two
+    -- destinations cannot drift.
+    withWorkspace $ \dir -> do
+      executable <-
+        writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\necho done\n"
+      paths <- scriptedPaths dir executable "capture"
+      finished <-
+        run
+          paths
+          ( (options (AgentRun "demo" (PromptInline "do the thing")))
+              { runId = Just "outer-run-11",
+                jsonOutput = True
+              }
+          )
+      finished ^. #exitCode @?= 0
+      case Aeson.eitherDecodeStrict (Text.encodeUtf8 (finished ^. #standardOutput)) of
+        Left problem -> assertFailure ("the envelope did not parse: " <> problem)
+        Right (Aeson.Object envelope) -> case KeyMap.lookup "evidence" envelope of
+          Just (Aeson.Object record) ->
+            KeyMap.lookup "run_id" record @?= Just (Aeson.String "outer-run-11")
+          other -> assertFailure ("expected an evidence object, got: " <> show other)
+        Right other -> assertFailure ("expected one JSON object, got: " <> show other)
+
+stagingFileCannotBePrePlantedTest :: TestTree
+stagingFileCannotBePrePlantedTest =
+  testCase "A PLANTED STAGING FILE IS NEVER WRITTEN THROUGH" $
+    -- An unattended run writing its record into whatever a predictable
+    -- name pointed at is a file overwrite an attacker chooses. The
+    -- staging file is created under a fresh name with O_EXCL, so a
+    -- symbolic link already sitting at the guessable name is not used.
+    withWorkspace $ \dir -> do
+      let evidencePath = dir </> "evidence.json"
+          canary = dir </> "canary"
+      writeFile canary "do not overwrite me"
+      createFileLink canary (evidencePath <> ".partial")
+      executable <-
+        writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\necho done\n"
+      paths <- scriptedPaths dir executable "capture"
+      finished <-
+        run
+          paths
+          (withEvidence evidencePath "outer-run-8" (options (AgentRun "demo" (PromptInline "go"))))
+      finished ^. #exitCode @?= 0
+      readFile canary >>= (@?= "do not overwrite me")
+      recorded <- Aeson.eitherDecodeFileStrict evidencePath
+      case recorded of
+        Left problem -> assertFailure ("the record did not parse as JSON: " <> problem)
+        Right (Aeson.Object o) ->
+          KeyMap.lookup "run_id" o @?= Just (Aeson.String "outer-run-8")
+        Right other -> assertFailure ("expected one JSON object, got: " <> show other)
+      -- The planted link is still there, unwritten; nothing else called
+      -- ".partial" was left behind.
+      leftovers <- listDirectory dir
+      filter (".partial" `isInfixOf`) leftovers @?= ["evidence.json.partial"]
+
+anOperatorPolicyNodeIsNotWarnedAboutTest :: TestTree
+anOperatorPolicyNodeIsNotWarnedAboutTest =
+  testCase "show against an operator policy node prints nothing on standard error" $
+    -- The ceiling schema is a separate declaration, so the job
+    -- resolution does not recognise `policy` and settei warns about
+    -- every key of it. None of them is a mistake.
+    withWorkspace $ \dir -> do
+      paths <-
+        pathsIn
+          dir
+          ( Just
+              ( Text.unlines
+                  [ "policy {",
+                    "  max-capability \"full-access\"",
+                    "  allow-provider-args #true",
+                    "}"
+                  ]
+              )
+          )
+          (minimalJob "claude" "")
+      finished <- run paths (options (AgentShow "demo"))
+      finished ^. #exitCode @?= 0
+      finished ^. #standardError @?= ""
 
 writesNoEvidenceFileByDefaultTest :: TestTree
 writesNoEvidenceFileByDefaultTest =
@@ -960,7 +1076,13 @@ refusesAnImpossibleEvidenceRequirementTest =
           paths
           ( requiringEvidence
               EvidenceCorrelated
-              (options (AgentRun "demo" (PromptInline "do the thing")))
+              -- A destination, because a record with nowhere to go is
+              -- now a usage error and this case is about the refusal.
+              ( withEvidence
+                  (dir </> "evidence.json")
+                  "outer-run-9"
+                  (options (AgentRun "demo" (PromptInline "do the thing")))
+              )
           )
       finished ^. #exitCode @?= refusedExitCode
       assertBool

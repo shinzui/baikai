@@ -26,6 +26,7 @@ import Baikai.Agent
 import Baikai.Agent.Run
   ( agentConfigurationEnvelope,
     agentRequestEnvelope,
+    errorInfoStderrTailBytes,
     runAgentCommand,
   )
 import Baikai.Evidence
@@ -49,7 +50,8 @@ import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import System.Directory
-  ( doesFileExist,
+  ( createDirectoryIfMissing,
+    doesFileExist,
     getPermissions,
     setOwnerExecutable,
     setPermissions,
@@ -69,6 +71,8 @@ evidenceTests =
       timedOutRunTest,
       inheritedOutputTest,
       nothingStartedTest,
+      relativeExecutableEndpointTest,
+      errorInfoIsBoundedTest,
       optOutTest,
       strictRefusalTests,
       digestTests
@@ -196,6 +200,57 @@ nothingStartedTest =
         Right ran -> assertFailure ("expected a spawn failure, got: " <> show ran)
         Left _ -> pure ()
       outcome ^. #evidence @?= Nothing
+
+relativeExecutableEndpointTest :: TestTree
+relativeExecutableEndpointTest =
+  testCase "a relative executable is resolved against the working directory" $
+    -- The child execs relative to the working directory the runner sets,
+    -- so the evidence probe — which runs in the parent, whose working
+    -- directory is somewhere else entirely — has to resolve the same
+    -- way. Before this it probed the parent's own directory and reported
+    -- a path that does not exist.
+    withSystemTempDirectory "baikai-agent-relative" $ \dir -> do
+      createDirectoryIfMissing True (dir </> "bin")
+      _ <- writeFakeExecutable (dir </> "bin") "fake" "#!/bin/sh\ncat > /dev/null\nexit 0\n"
+      outcome <- run (wanted "run-relative") dir ("." </> "bin" </> "fake") []
+      ev <- oneEvidence outcome
+      case field "endpoint" ev of
+        Just (Object o) ->
+          KeyMap.lookup "endpoint" o
+            @?= Just (String (Text.pack (dir </> "bin" </> "fake")))
+        other -> assertFailure ("expected an endpoint object, got: " <> show other)
+
+errorInfoIsBoundedTest :: TestTree
+errorInfoIsBoundedTest =
+  testCase "a failing run's error message keeps the tail of its standard error"
+    $
+    -- The output limit lets a captured stream reach mebibytes, and
+    -- before this the whole of it went into one error message. The last
+    -- few kibibytes are where a failing tool's actual reason lives, and
+    -- the prefix says what was dropped so the message does not read as a
+    -- corrupted record.
+    withFake
+      "#!/bin/sh\ncat > /dev/null\n"
+      "i=0; while [ $i -lt 2000 ]; do \
+      \printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n' >&2; \
+      \i=$((i+1)); done; printf 'final: reason\\n' >&2"
+      "\nexit 1\n"
+    $ \dir exe -> do
+      ev <- oneEvidence =<< run (wanted "run-noisy") dir exe []
+      case field "error_info" ev of
+        Just (Object o) -> case KeyMap.lookup "message" o of
+          Just (String message) -> do
+            assertBool
+              ("expected a bounded message, got " <> show (Text.length message) <> " characters")
+              (Text.length message < errorInfoStderrTailBytes + 80)
+            assertBool
+              ("expected the tool's last line in: " <> Text.unpack message)
+              ("final: reason" `Text.isInfixOf` message)
+            assertBool
+              ("expected the truncation prefix in: " <> Text.unpack message)
+              ("[stderr truncated" `Text.isPrefixOf` message)
+          other -> assertFailure ("expected a message string, got: " <> show other)
+        other -> assertFailure ("expected an error_info object, got: " <> show other)
 
 optOutTest :: TestTree
 optOutTest =

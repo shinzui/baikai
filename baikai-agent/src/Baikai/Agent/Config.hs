@@ -40,6 +40,8 @@ module Baikai.Agent.Config
     applyCeilingToJob,
     ceilingViolations,
     repositoryScopeViolations,
+    relevantWarnings,
+    repositoryPolicyNotice,
 
     -- * Enumeration
     AgentJobEntry (..),
@@ -1004,6 +1006,54 @@ confineWorkingDir root workingDir = do
 -- uncanonicalised paths would let a symbolic link through.
 isInside :: FilePath -> FilePath -> Bool
 isInside base path = path == base || (base <> [pathSeparator]) `isPrefixOf` path
+
+-- | The unknown-key warnings a run of one named job should show.
+--
+-- @settei@ warns about every addressable leaf its declaration does not
+-- recognise, and the declaration here describes __one__ job, so
+-- resolving @demo@ in a document that also defines @release@ warns about
+-- every key of @release@ — none of which is a mistake, and none of which
+-- the operator asked about. The operator file's @policy@ node warns for
+-- the same reason: the job declaration does not describe the ceiling.
+--
+-- Filtering here rather than asking @settei@ for a per-key policy is not
+-- a workaround. Its only resolver option is @unknownKeyPolicy@, which is
+-- @WarnUnknownKeys@ or @RejectUnknownKeys@ for the whole resolution;
+-- there is no per-key setting to ask for. Rebuilding a filtered source
+-- before resolving would duplicate the adapter and lose the annotations
+-- provenance depends on.
+--
+-- A misspelled key /inside the selected job/ still warns, which is the
+-- case that matters: it is the one that silently leaves a default in
+-- force.
+relevantWarnings :: Text -> [ConfigWarning] -> [ConfigWarning]
+relevantWarnings jobName = filter keep
+  where
+    keep (UnknownKeyWarning UnknownKeyProblem {key}) =
+      case NonEmpty.toList (keySegments key) of
+        "jobs" : name : _ -> name == jobName
+        "policy" : _ -> False
+        -- A stray top-level node belongs to neither and is probably a
+        -- mistake, so it is kept.
+        _ -> True
+
+-- | One notice when the __repository__ document carries a @policy@ node.
+--
+-- A checkout writing a ceiling is not an error — the ceiling is read
+-- from the operator file only, so the node simply does nothing — but
+-- someone who wrote it believed it would, and saying nothing leaves them
+-- with a policy they think is in force. One line, not one per key.
+repositoryPolicyNotice :: [ConfigWarning] -> Maybe Text
+repositoryPolicyNotice warnings
+  | any fromRepositoryPolicy warnings =
+      Just
+        "the repository configuration contains a policy node; it has no effect, \
+        \because the ceiling is read from the operator file only\n"
+  | otherwise = Nothing
+  where
+    fromRepositoryPolicy (UnknownKeyWarning UnknownKeyProblem {key, origin}) =
+      NonEmpty.head (keySegments key) == "policy"
+        && origin ^. #name == renderAgentConfigScope RepositoryScope
 
 -- | Every configured job name, sorted, each attributed to the
 -- highest-precedence scope defining it.

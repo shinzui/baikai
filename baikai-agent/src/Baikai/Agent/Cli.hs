@@ -40,7 +40,6 @@ module Baikai.Agent.Cli
     -- * Exit codes
     usageExitCode,
     unavailableExitCode,
-    internalExitCode,
     timeoutExitCode,
     refusedExitCode,
     configExitCode,
@@ -76,8 +75,10 @@ import Baikai.Agent.Config
     defaultAgentConfigPaths,
     listAgentJobs,
     loadAgentCeiling,
+    relevantWarnings,
     renderAgentConfigError,
     renderAgentConfigScope,
+    repositoryPolicyNotice,
     repositoryScopeViolations,
     resolveAgentJob,
   )
@@ -101,7 +102,7 @@ import Baikai.Provider.OpenAI.Agent
     defaultCodexAgentConfig,
   )
 import Control.Applicative ((<|>))
-import Control.Exception (IOException, displayException, try)
+import Control.Exception (IOException, bracketOnError, displayException, try)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
@@ -109,7 +110,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Char (isControl, ord)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -129,9 +130,15 @@ import Settei.Report
     reportNodes,
   )
 import Settei.Value (RawValue (..))
-import System.Directory (doesFileExist, getCurrentDirectory, renameFile)
+import System.Directory
+  ( doesFileExist,
+    getCurrentDirectory,
+    removeFile,
+    renameFile,
+  )
 import System.Exit (ExitCode (..))
-import System.IO (stdin)
+import System.FilePath (takeDirectory, takeFileName)
+import System.IO (hClose, openBinaryTempFileWithDefaultPermissions, stdin)
 
 -- | Which of the three commands was asked for.
 data AgentCliCommand
@@ -196,7 +203,6 @@ data AgentCliRun = AgentCliRun
 
 usageExitCode,
   unavailableExitCode,
-  internalExitCode,
   timeoutExitCode,
   refusedExitCode,
   configExitCode ::
@@ -214,9 +220,6 @@ usageExitCode = 64
 
 -- | The coding-agent executable could not be started.
 unavailableExitCode = 69
-
--- | The agent produced output the caller could not interpret.
-internalExitCode = 70
 
 -- | The run exceeded its timeout and its process group was terminated.
 timeoutExitCode = 75
@@ -660,7 +663,15 @@ stageJob paths snapshot options jobName = do
   case loaded of
     Left problem -> pure (Left (configFailure (renderAgentConfigError problem)))
     Right resolved -> do
-      let warningsText = renderWarningsText (resolved ^. #warnings)
+      -- Not every warning settei raises is about this run. The
+      -- declaration describes one job, so every key of every *other*
+      -- job warns, and so does the operator file's policy node; neither
+      -- is a mistake and neither is the operator's to fix. A repository
+      -- policy node is different: it does nothing, and whoever wrote it
+      -- believed it would, so it earns one notice.
+      let warningsText =
+            renderWarningsText (relevantWarnings jobName (resolved ^. #warnings))
+              <> fromMaybe "" (repositoryPolicyNotice (resolved ^. #warnings))
       case resolved ^. #answer of
         Left problems ->
           pure
@@ -687,10 +698,10 @@ stageJob paths snapshot options jobName = do
                         report = Nothing,
                         warnings = warningsText
                       }
-                Right ceiling' -> Right (ceiling', job)
+                Right ceiling' -> Right ceiling'
           case loadedOrFailed of
             Left failure -> pure (Left failure)
-            Right (ceiling', job) -> do
+            Right ceiling' -> do
               scopeViolations <-
                 repositoryScopeViolations paths (resolved ^. #report) jobName job
               pure
@@ -970,6 +981,14 @@ runCommand ::
   Text ->
   PromptSource ->
   IO AgentCliRun
+runCommand _paths _snapshot options _jobName _promptSource
+  | evidenceWithoutADestination options =
+      pure
+        ( failedRun
+            usageExitCode
+            "--run-id and --require-evidence produce an evidence record, which \
+            \needs a destination: add --evidence-file PATH or --json\n"
+        )
 runCommand paths snapshot options jobName promptSource = do
   staged <- stageJob paths snapshot options jobName
   case staged of
@@ -1003,7 +1022,7 @@ execute options staged promptBody =
     Right (request, command, translation) -> do
       ran <- runAgentCommand (evidenceRequestFor options) translation request command
       written <- writeEvidenceFile (options ^. #evidenceFile) (ran ^. #evidence)
-      pure (interpret options staged request (ran ^. #outcome) written)
+      pure (interpret options staged request (ran ^. #outcome) (ran ^. #evidence) written)
   where
     request0 = agentJobRequest (staged ^. #job) promptBody
     prepared = do
@@ -1031,6 +1050,10 @@ interpret ::
   StagedJob ->
   AgentRunRequest ->
   Either AgentRunFailure AgentRunResult ->
+  -- | The run's evidence record, when one was built. Under @--json@ it
+  -- travels in the envelope, which is the destination a caller who
+  -- named no file asked for.
+  Maybe ModelCallEvidence ->
   -- | Whatever went wrong writing the evidence file, appended to
   -- standard error. A failed write never changes the exit code: the
   -- agent's own status is what a calling script branches on, and
@@ -1038,7 +1061,7 @@ interpret ::
   -- not be written would be the worse surprise.
   Text ->
   AgentCliRun
-interpret options staged request result evidenceNote = case result of
+interpret options staged request result record evidenceNote = case result of
   -- A timed-out run is still a run: the tool started, printed, and may
   -- have changed the working tree. Its drained output is reported with
   -- exactly the stream discipline a finished run gets, so
@@ -1058,6 +1081,7 @@ interpret options staged request result evidenceNote = case result of
                   ]
                     <> streamFields "stdout" (timedOut ^. #stdout)
                     <> streamFields "stderr" (timedOut ^. #stderr)
+                    <> evidenceField record
                 )
                 <> "\n",
             standardError = staged ^. #warnings <> evidenceNote
@@ -1079,10 +1103,12 @@ interpret options staged request result evidenceNote = case result of
           { exitCode = failureExitCode failure,
             standardOutput =
               jsonObject
-                [ ("outcome", jsonString "failed"),
-                  ("exitCode", Text.pack (show (failureExitCode failure))),
-                  ("message", jsonString (renderAgentRunFailure failure))
-                ]
+                ( [ ("outcome", jsonString "failed"),
+                    ("exitCode", Text.pack (show (failureExitCode failure))),
+                    ("message", jsonString (renderAgentRunFailure failure))
+                  ]
+                    <> evidenceField record
+                )
                 <> "\n",
             standardError = staged ^. #warnings <> evidenceNote
           }
@@ -1094,7 +1120,7 @@ interpret options staged request result evidenceNote = case result of
     | options ^. #jsonOutput ->
         AgentCliRun
           { exitCode = resultExitCode ran,
-            standardOutput = resultJson ran <> "\n",
+            standardOutput = resultJson record ran <> "\n",
             standardError = staged ^. #warnings <> evidenceNote <> truncationNotes ran
           }
     | otherwise ->
@@ -1116,6 +1142,19 @@ interpret options staged request result evidenceNote = case result of
     -- the bytes to the real streams while draining, and `inherit`
     -- captured nothing at all.
     capturing = request ^. #output == CaptureOutput
+
+-- | Whether the caller asked for a record and named nowhere to put it.
+--
+-- Building one costs a @--version@ probe of the tool and two digests, so
+-- a record that is built and dropped is measurable work proving nothing.
+-- There is no sensible default destination either: writing to a guessed
+-- path would surprise, and printing it on standard output would corrupt
+-- the agent's own answer, which a capturing script is reading.
+evidenceWithoutADestination :: AgentCliOptions -> Bool
+evidenceWithoutADestination options =
+  (isJust (options ^. #runId) || isJust (options ^. #requiredEvidence))
+    && isNothing (options ^. #evidenceFile)
+    && not (options ^. #jsonOutput)
 
 -- | The caller's evidence request, or 'Nothing' when they asked for
 -- none.
@@ -1148,10 +1187,21 @@ evidenceRequestFor options =
 -- | Write one evidence record to the operator's chosen path, returning
 -- whatever went wrong.
 --
--- The write is atomic — a temporary file beside the destination, then a
--- rename — so a reader polling the path never sees a half-written
--- record. It never appends: each run writes one complete object, and an
--- operator wanting a log of many runs points each at its own path.
+-- The write is atomic — a uniquely named staging file beside the
+-- destination, then a rename — so a reader polling the path never sees a
+-- half-written record. It never appends: each run writes one complete
+-- object, and an operator wanting a log of many runs points each at its
+-- own path.
+--
+-- The staging name is __not__ the destination plus a suffix.
+-- @openBinaryTempFileWithDefaultPermissions@ creates the file itself
+-- under a fresh name, with @O_EXCL@, so a symbolic link planted at a
+-- guessable path is never followed — an unattended run writing its
+-- record into whatever a predictable name pointed at is a file overwrite
+-- an attacker chooses. The default-permissions variant keeps the mode a
+-- plain @writeFile@ would have given rather than the @0600@ the ordinary
+-- temp-file function uses, so an operator's umask still decides who can
+-- read the record.
 --
 -- Nothing is written when the operator named no path, and nothing is
 -- written when the run produced no evidence, which is the case where the
@@ -1160,12 +1210,22 @@ writeEvidenceFile :: Maybe FilePath -> Maybe ModelCallEvidence -> IO Text
 writeEvidenceFile Nothing _ = pure ""
 writeEvidenceFile (Just _) Nothing = pure ""
 writeEvidenceFile (Just path) (Just record) = do
-  let staging = path <> ".partial"
   written <-
     try
-      ( do
-          BSL.writeFile staging (Aeson.encode record)
-          renameFile staging path
+      ( bracketOnError
+          ( openBinaryTempFileWithDefaultPermissions
+              (takeDirectory path)
+              (takeFileName path <> ".partial")
+          )
+          -- Only on failure: a rename that succeeded has taken the name
+          -- away, and removing the destination would be the opposite of
+          -- what this function is for.
+          (\(staging, handle) -> hClose handle >> removeFile staging)
+          ( \(staging, handle) -> do
+              BSL.hPut handle (Aeson.encode record)
+              hClose handle
+              renameFile staging path
+          )
       ) ::
       IO (Either IOException ())
   pure $ case written of
@@ -1188,7 +1248,6 @@ failureExitCode = \case
   SpawnFailed _ _ -> unavailableExitCode
   WorkingDirMissing _ -> configExitCode
   MissingEnvironment _ -> configExitCode
-  OutputMalformed _ -> internalExitCode
   -- Policy said no and nothing was started, which is exactly what
   -- 'refusedExitCode' means for a ceiling violation or a provider that
   -- cannot express a safety policy. A script that already branches on
@@ -1211,8 +1270,8 @@ decoded captured = case captured of
   OutputCaptured bytes -> Text.decodeUtf8Lenient bytes
   OutputTruncated bytes -> Text.decodeUtf8Lenient bytes
 
-resultJson :: AgentRunResult -> Text
-resultJson result =
+resultJson :: Maybe ModelCallEvidence -> AgentRunResult -> Text
+resultJson record result =
   jsonObject
     ( [ ("outcome", jsonString "ran"),
         ("exitCode", Text.pack (show (resultExitCode result))),
@@ -1221,7 +1280,21 @@ resultJson result =
       ]
         <> streamFields "stdout" (result ^. #stdout)
         <> streamFields "stderr" (result ^. #stderr)
+        <> evidenceField record
     )
+
+-- | The run's evidence record as one JSON field, or no field at all.
+--
+-- Absent rather than @null@ when none was built, for the same reason a
+-- stream that was never captured contributes nothing: a reader can tell
+-- \"no record was asked for\" from \"a record exists and says nothing\".
+-- 'ModelCallEvidence' has its own 'Aeson.ToJSON', which is the same
+-- encoder @--evidence-file@ writes, so the two destinations cannot
+-- drift.
+evidenceField :: Maybe ModelCallEvidence -> [(Text, Text)]
+evidenceField Nothing = []
+evidenceField (Just record) =
+  [("evidence", Text.decodeUtf8Lenient (BSL.toStrict (Aeson.encode record)))]
 
 -- | One captured stream as JSON fields: its text and whether it was cut
 -- off at the configured output limit.

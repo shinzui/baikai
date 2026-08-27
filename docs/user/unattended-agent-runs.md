@@ -192,8 +192,8 @@ Supplying either turns the recording on. With `--evidence-file` but no
 `--run-id`, the job's own name stands in as the run identifier; Baikai treats
 that value as opaque text and never parses it.
 
-The record is written atomically — a staging file beside the destination,
-followed by a rename — so a reader polling the path never sees a half-written
+The record is written atomically — a uniquely named staging file beside the
+destination, followed by a rename — so a reader polling the path never sees a half-written
 object. It is never appended to: each run writes one complete record, so a
 script wanting a log of many runs should point each run at its own path. A run
 that never started, because the executable was missing or a precondition
@@ -274,7 +274,6 @@ agent decided the task failed" from "the tool could not be started".
 | `n` (1…) | the agent ran and exited `n`, passed through unchanged |
 | `64` | the command line could not be parsed, or the prompt was empty or ambiguous |
 | `69` | the coding-agent executable could not be started |
-| `70` | the agent produced malformed output |
 | `75` | the run exceeded its timeout; its process group was interrupted, then terminated, then killed, and the output drained before the kill is reported |
 | `77` | policy refused the run: the ceiling was exceeded, or the provider cannot express it |
 | `78` | configuration was missing, unreadable, or invalid |

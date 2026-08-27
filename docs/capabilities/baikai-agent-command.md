@@ -63,7 +63,7 @@ job that can hold a credential.
 
 Exit codes follow `sysexits`: the agent's own code passes through unchanged, and
 baikai's own failures use 64 and above — 64 usage or empty prompt, 69 could not
-start, 70 malformed output, 75 timeout, 77 policy refusal, 78 configuration.
+start, 75 timeout, 77 policy refusal, 78 configuration.
 
 This builds on [CAP-17 — unattended coding-agent runs](unattended-agent-runs.md),
 which supplies the vocabulary, the ceiling algebra, and the runner it drives.

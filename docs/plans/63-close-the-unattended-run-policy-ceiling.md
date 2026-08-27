@@ -72,8 +72,10 @@ grants it.
 - [x] Milestone 2: ceiling-file provenance decided and documented. (2026-08-27) The
       refusal, the unknown-policy-key error and their four tests landed; the guide text
       the milestone decided is written in Milestone 4, with the rest of the documentation.
-- [ ] Milestone 3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint,
-      `errorInfo` bound, staging path).
+- [x] Milestone 3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint,
+      `errorInfo` bound, staging path). (2026-08-27) All six fixes landed with their tests;
+      the guide's exit-code table and CAP-18's exit-code sentence lost their `70` row in the
+      same commit.
 - [ ] Milestone 4: 0.2 config-surface adjustments (`env-requires`, structured output,
       `show --json`), the ADR, the guide, both capability records, the changelog.
 

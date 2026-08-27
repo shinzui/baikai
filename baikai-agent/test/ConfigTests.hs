@@ -27,7 +27,9 @@ import Baikai.Agent.Config
     listAgentJobs,
     loadAgentCeiling,
     parseDuration,
+    relevantWarnings,
     renderAgentConfigError,
+    repositoryPolicyNotice,
     repositoryScopeViolations,
     resolveAgentJob,
   )
@@ -38,9 +40,15 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TextIO
 import Settei.Env (EnvSnapshot, envSnapshot)
+import Settei.Error (ConfigWarning)
 import Settei.Key (parseKey)
 import Settei.Optparse (CliOverride, cliOverride)
-import Settei.Render (renderErrorsText, renderResolutionJson, renderResolutionText)
+import Settei.Render
+  ( renderErrorsText,
+    renderResolutionJson,
+    renderResolutionText,
+    renderWarningsText,
+  )
 import System.Directory
   ( createDirectoryIfMissing,
     createDirectoryLink,
@@ -85,6 +93,12 @@ configTests =
           ceilingFileInsideRepositoryIsRefusedTest,
           ceilingFileOutsideTheRepositoryLoadsTest,
           unknownPolicyKeyIsAnErrorTest
+        ],
+      testGroup
+        "unknown keys"
+        [ otherJobsDoNotWarnTest,
+          typoInTheSelectedJobStillWarnsTest,
+          repositoryPolicyNodeIsNoticedOnceTest
         ],
       testGroup
         "repository scope"
@@ -556,6 +570,113 @@ commandLineCannotRaiseTheCeilingTest =
           assertBool
             ("the refusal names the permitted maximum: " <> Text.unpack message)
             (Text.isInfixOf "edit-workspace" message)
+
+-- --------------------------------------------------------------------
+-- Unknown keys
+-- --------------------------------------------------------------------
+
+-- | The warnings a run of the given job should actually show.
+warningsFor :: AgentConfigPaths -> Text -> IO [ConfigWarning]
+warningsFor paths jobName = do
+  loaded <- resolveAgentJob paths noEnvironment [] jobName
+  case loaded of
+    Left problem ->
+      assertFailure ("loading failed: " <> Text.unpack (renderAgentConfigError problem))
+    Right resolved -> pure (relevantWarnings jobName (resolved ^. #warnings))
+
+-- | Every warning settei raised, before filtering.
+allWarningsFor :: AgentConfigPaths -> Text -> IO [ConfigWarning]
+allWarningsFor paths jobName = do
+  loaded <- resolveAgentJob paths noEnvironment [] jobName
+  case loaded of
+    Left problem ->
+      assertFailure ("loading failed: " <> Text.unpack (renderAgentConfigError problem))
+    Right resolved -> pure (resolved ^. #warnings)
+
+otherJobsDoNotWarnTest :: TestTree
+otherJobsDoNotWarnTest =
+  testCase "another job's keys are not warned about"
+    $
+    -- The declaration describes one job, so settei warns about every
+    -- leaf of every other job in the document. None of them is a
+    -- mistake, and a file with four jobs printed three jobs' worth of
+    -- noise on every run.
+    withConfigs
+      (Just (Text.unlines ["policy {", "  max-capability \"full-access\"", "}"]))
+      ( Just
+          ( Text.unlines
+              [ "jobs {",
+                "  demo { provider \"claude\"; working-dir \".\"",
+                "    safety { capability \"read-only\" }",
+                "  }",
+                -- A second job in the same node. Two top-level `jobs`
+                -- nodes would be a repeated node, which settei reads as
+                -- an array and cannot traverse at all.
+                "  release { provider \"codex\"; working-dir \".\"",
+                "    timout \"5m\"",
+                "    safety { capability \"read-only\" }",
+                "  }",
+                "}"
+              ]
+          )
+      )
+    $ \paths -> do
+      -- The premise: settei really does warn about all of it.
+      raised <- allWarningsFor paths "demo"
+      assertBool
+        ("expected settei to warn about the other job: " <> show raised)
+        (not (null raised))
+      kept <- warningsFor paths "demo"
+      kept @?= []
+
+typoInTheSelectedJobStillWarnsTest :: TestTree
+typoInTheSelectedJobStillWarnsTest =
+  testCase "a misspelled key inside the selected job still warns" $
+    -- The case that matters: this one silently leaves a default in
+    -- force, so it must survive the filter.
+    withConfigs Nothing (Just (jobDocWith "read-only" ["timout \"5m\""])) $ \paths -> do
+      kept <- warningsFor paths "demo"
+      assertBool
+        ("expected the misspelled key to be named: " <> show kept)
+        (Text.isInfixOf "jobs.demo.timout" (renderWarningsText kept))
+
+repositoryPolicyNodeIsNoticedOnceTest :: TestTree
+repositoryPolicyNodeIsNoticedOnceTest =
+  testCase "a repository policy node earns exactly one notice"
+    $
+    -- It does nothing, because the ceiling is read from the operator
+    -- file only — but whoever wrote it believed it would, and saying
+    -- nothing leaves them with a policy they think is in force.
+    withConfigs
+      Nothing
+      ( Just
+          ( jobDoc "read-only"
+              <> Text.unlines
+                [ "policy {",
+                  "  max-capability \"full-access\"",
+                  "  allow-provider-args #true",
+                  "}"
+                ]
+          )
+      )
+    $ \paths -> do
+      raised <- allWarningsFor paths "demo"
+      case repositoryPolicyNotice raised of
+        Nothing -> assertFailure "expected a notice about the repository policy node"
+        Just notice ->
+          assertBool
+            ("expected one line explaining it: " <> Text.unpack notice)
+            ( Text.isInfixOf "no effect" notice
+                && length (Text.lines notice) == 1
+            )
+      -- The operator's own policy node earns none: it is the file the
+      -- ceiling is read from.
+      withConfigs
+        (Just (Text.unlines ["policy {", "  max-capability \"full-access\"", "}"]))
+        (Just (jobDoc "read-only"))
+        $ \operatorPaths -> do
+          operatorRaised <- allWarningsFor operatorPaths "demo"
+          repositoryPolicyNotice operatorRaised @?= Nothing
 
 -- --------------------------------------------------------------------
 -- Repository scope

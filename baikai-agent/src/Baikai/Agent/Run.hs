@@ -23,6 +23,10 @@ module Baikai.Agent.Run
     agentRequestEnvelope,
     agentConfigurationEnvelope,
 
+    -- * Evidence detail
+    errorInfoStderrTailBytes,
+    executableForEvidence,
+
     -- * Exposed for testing
     timeoutMicros,
   )
@@ -99,6 +103,7 @@ import Streamly.Data.Stream qualified as Stream
 import System.Directory (doesDirectoryExist)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
+import System.FilePath (isPathSeparator, isRelative, (</>))
 import System.IO (Handle, hClose, hFlush)
 import System.IO qualified as SystemIO
 import System.Process qualified as P
@@ -328,7 +333,7 @@ buildEvidence wanted translation req cmd start end result =
     Nothing -> pure Nothing
     Just (st, failure) -> do
       cid <- newCallId
-      identity <- executableIdentity (cmd ^. #executable)
+      identity <- executableIdentity (executableForEvidence req cmd)
       (session, model, tokens) <- observeToolOutput (req ^. #provider) result
       pure . Just $
         baseEvidence
@@ -367,8 +372,62 @@ evidenceStatus = \case
     ExitFailure code ->
       Just
         ( CallFailed,
-          Just (processError code (capturedText (ran ^. #stderr)))
+          Just (processError code (stderrTail (ran ^. #stderr)))
         )
+
+-- | How much of a failed run's standard error the evidence record
+-- keeps.
+--
+-- Four kibibytes is a few dozen lines, which is where a failing tool's
+-- actual reason lives; the bytes before it are the transcript of the
+-- work, which the record is not the place for. Without a bound the
+-- record embeds whatever the output limit allowed — up to four mebibytes
+-- by default, and more if the operator raised it — in a field a reader
+-- expects to be one message.
+errorInfoStderrTailBytes :: Int
+errorInfoStderrTailBytes = 4096
+
+-- | The tail of a captured stream, as text, prefixed with what was
+-- dropped.
+--
+-- The prefix matters: a message that silently begins mid-sentence reads
+-- as a corrupted record rather than a bounded one. Truncation is by
+-- bytes and the decode is lenient, so a multi-byte character split at
+-- the boundary becomes a replacement character rather than a decode
+-- failure.
+stderrTail :: AgentCapturedOutput -> Text
+stderrTail captured = case Agent.capturedBytes captured of
+  Nothing -> ""
+  Just bytes
+    | dropped <= 0 -> Text.decodeUtf8Lenient bytes
+    | otherwise ->
+        "[stderr truncated to the last "
+          <> Text.pack (show errorInfoStderrTailBytes)
+          <> " of "
+          <> Text.pack (show (BS.length bytes))
+          <> " bytes] "
+          <> Text.decodeUtf8Lenient (BS.drop dropped bytes)
+    where
+      dropped = BS.length bytes - errorInfoStderrTailBytes
+
+-- | The path the child actually execs.
+--
+-- A relative path containing a separator is resolved by the operating
+-- system against the process's working directory, and the runner sets
+-- that to the request's @workingDir@ — so a job whose @executable@ is
+-- @.\/bin\/agent@ runs @\<workingDir\>\/bin\/agent@. The evidence probe
+-- runs in the /parent/, whose working directory is somewhere else
+-- entirely, so it has to resolve the same way or it reports a path that
+-- does not exist.
+--
+-- A bare name with no separator is resolved on @PATH@ by both, and an
+-- absolute path is absolute for both, so neither needs adjusting.
+executableForEvidence :: AgentRunRequest -> AgentCommand -> FilePath
+executableForEvidence req cmd
+  | any isPathSeparator exe && isRelative exe = (req ^. #workingDir) </> exe
+  | otherwise = exe
+  where
+    exe = cmd ^. #executable
 
 -- | Where the run went, recorded without a URL, because there is no
 -- request and no server.
@@ -486,14 +545,6 @@ capturedBytes = \case
     OutputNotCaptured -> Nothing
   Left (RunTimedOut timedOut) -> Agent.capturedBytes (timedOut ^. #stdout)
   Left _ -> Nothing
-
--- | Captured bytes as text, for an error message. Absent capture yields
--- the empty string rather than a claim about what the tool said.
-capturedText :: AgentCapturedOutput -> Text
-capturedText = \case
-  OutputCaptured bytes -> Text.decodeUtf8Lenient bytes
-  OutputTruncated bytes -> Text.decodeUtf8Lenient bytes
-  OutputNotCaptured -> ""
 
 spawn ::
   AgentRunRequest -> AgentCommand -> IO (Either AgentRunFailure AgentRunResult)
