@@ -83,12 +83,13 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
 - [x] M3: OpenAI-compatible reasoning controls gated on `Model.reasoning`; the two pinned
       tests re-based; gate tests added; `model-call-evidence.md` table corrected.
       (2026-08-27)
-- [ ] M4: every Anthropic catalog id pinned in `ThinkingSpec` and `CatalogSpec`, both
-      guarded against `allModels`.
-- [ ] M4: `ThinkingSmoke` cases for `claude-sonnet-5`; `apiCases` gains DeepSeek and
+- [x] M4: every Anthropic catalog id pinned in `ThinkingSpec` and `CatalogSpec`, both
+      guarded against `allModels`. (2026-08-27)
+- [x] M4: `ThinkingSmoke` cases for `claude-sonnet-5`; `apiCases` gains DeepSeek and
       OpenRouter; `CompatSmoke` asserts `maxTokens`; `CacheSmoke` asserts cost.
-- [ ] M4: guides, capability records and `CHANGELOG.md` updated; keyless gate green;
-      MasterPlan Progress rows for EP-3 ticked.
+      (2026-08-27)
+- [x] M4: guides, capability records and `CHANGELOG.md` updated; keyless gate green;
+      MasterPlan Progress rows for EP-3 ticked. (2026-08-27)
 
 
 ## Surprises & Discoveries

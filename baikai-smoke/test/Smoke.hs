@@ -102,6 +102,24 @@ apiCases =
         caseEnvVars = ["OPENAI_KEY", "OPENAI_API_KEY"],
         caseModel =
           Models.openai_gpt_4o_mini & #maxOutputTokens .~ 1024
+      },
+    -- Two OpenAI-compatible hosts that are not OpenAI. The tool and
+    -- structured-output cases below are the ones worth running against
+    -- them: a host that accepts the Chat Completions envelope may still
+    -- differ on tool calls or json_schema, and until now nothing here
+    -- would have noticed. A keyed failure in these rows is a finding to
+    -- record and hand to the owning plan, not a row to remove.
+    ApiCase
+      { caseLabel = "deepseek-chat",
+        caseEnvVars = ["DEEPSEEK_KEY", "DEEPSEEK_API_KEY"],
+        caseModel =
+          Models.deepseek_deepseek_chat & #maxOutputTokens .~ 1024
+      },
+    ApiCase
+      { caseLabel = "openrouter-gpt-4o-mini",
+        caseEnvVars = ["OPENROUTER_API_KEY"],
+        caseModel =
+          Models.openrouter_openai_gpt_4o_mini & #maxOutputTokens .~ 1024
       }
   ]
 

@@ -85,6 +85,19 @@ ClaudeApi.register   -- or registerWith config, or registerWithRegistry
 - **A redirect is never followed.** A 3xx is delivered as the terminal error
   carrying its status, because following one would re-send the `x-api-key`
   header to whatever host the `Location` names.
+- **Sampling parameters follow the model generation.** `temperature` and `top_p`
+  are omitted for a generation whose catalog record says it rejects them (the
+  adaptive-era ones return a 400), and the omission is recorded as
+  `sampling_dropped_unsupported_model`. `seed`, `frequencyPenalty` and
+  `presencePenalty` have no Messages API field on any generation and are recorded
+  as `sampling_dropped_unsupported_api`. `Options.metadata` is not forwarded.
+- **A one-hour cache write is priced at the five-minute rate.** The API reports a
+  single `cache_creation_input_tokens` with no per-TTL split, and the catalog
+  carries one `cacheWriteCost`, so the dollar cost of a `CacheRetentionLong` write
+  is under-stated. Token counts are unaffected.
+- A model whose `maxOutputTokens` is `0` sends `max_tokens = 1024` rather than
+  `0`, which Anthropic rejects. An explicit `Options.maxTokens` of `Just 0` is
+  forwarded as written.
 - The `ClientEnv` cache is process-global, unbounded, shared with the
   OpenAI-compatible backend and the embeddings client, and keyed per normalised
   base URL. A fleet of per-tenant base URLs is not a supported use of

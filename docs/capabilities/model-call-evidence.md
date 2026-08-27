@@ -120,6 +120,14 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   is the default: the job must **capture** output, and the tool must be told to
   print a structured format (`--output-format json` for `claude`, `--json` for
   `codex exec`). Without both, the record honestly says `"unobserved"`.
+- The `adjustments` list carries **sampling** changes as well as reasoning ones:
+  `sampling_dropped_unsupported_model` and `sampling_dropped_unsupported_api`
+  name parameters removed because the model generation or the API rejects them.
+  They carry a `fields` array and no `requested` level, and can appear on a call
+  whose `thinking.mode` is `absent`, so a reader must not treat that mode as
+  "nothing happened". Strict evidence mode does not refuse a call over them —
+  the contract is refusing a call that would weaken the requested *thinking
+  level*.
 - `ModelCallEvidence` has **no `FromJSON`**, deliberately: it embeds a `Cost`
   whose exact `Rational` amounts encode through an approximating `Scientific`, so
   a decoder would return a different value than was encoded. Read a record as a

@@ -11,7 +11,7 @@ where
 
 import Baikai
 import Baikai.Models.Generated qualified as Models
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Control.Monad (when)
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
@@ -55,6 +55,19 @@ runDeepSeekMaxTokensCase = do
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
       resp <- completeRequest model ctx opts
       assertNonEmptyText "deepseek max_tokens" envVar resp
+      -- The point of the case is that maxTokens reached the host under
+      -- the name DeepSeek expects (max_tokens, not
+      -- max_completion_tokens). Non-empty text alone does not prove
+      -- that: a host that ignored the field entirely would also pass.
+      -- The count does.
+      let produced = (resp ^. #message) ^. #usage ^. #outputTokens
+      hPutStrLn stderr $
+        "[baikai-smoke] deepseek max_tokens produced " <> show produced <> " output tokens (cap 16)"
+      when (produced > 16) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] deepseek max_tokens: expected at most 16 output tokens, got "
+            <> show produced
+        exitFailure
       pure True
 
 runClaudeVerbatimToolSchemaAndNoneCase :: IO Bool

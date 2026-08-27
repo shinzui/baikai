@@ -76,8 +76,18 @@ let opts = emptyOptions & #thinking .~ Just ThinkingHigh
 - `xhigh` and `max` clamp to `high` on every non-native OpenAI-compatible shape.
   Only the OpenAI-native path and `codex exec` express all six levels exactly.
 - Asking for thinking on a model that does not advertise `reasoning` drops the
-  option, and lowering `maxTokens` alone is enough to make an Anthropic thinking
-  budget stop fitting. Both are silent on the wire and visible only in evidence.
+  option — on **both** API providers, and before the host's wire shape is
+  consulted — and lowering `maxTokens` alone is enough to make an Anthropic
+  thinking budget stop fitting. Both are silent on the wire and visible only in
+  evidence.
+- Which extended-thinking shape an Anthropic generation accepts is a field of
+  its generated catalog record, not a guess from the model id. A **hand-rolled**
+  Anthropic model naming an adaptive-era id gets the budget shape unless it
+  carries its own `CompatAnthropicMessages`.
+- The adaptive-era Anthropic generations reject `temperature`, `top_p` and
+  `top_k`, so baikai omits them and records `sampling_dropped_unsupported_model`.
+  A caller who set `temperature` and asked for thinking on such a model gets
+  neither on the wire and two adjustments in the record.
 - `ThinkingXHigh` and `ThinkingMax` arrived in `baikai` 0.4.0.0. A consumer
   pinned below that has four levels rather than six, but still has this
   capability — which is why the record keeps `since` at 0.1.0.0 rather than

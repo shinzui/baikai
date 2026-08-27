@@ -79,8 +79,40 @@ declares one provider with its `baseUrl`, `api` tag, optional
 }
 ```
 
-Per-model `compat` overrides are supported but rarely needed:
-EP-5's `baseUrl` auto-detection covers every shipped host.
+A per-model `compat` block overrides the file-level directive. Every
+**Anthropic** entry carries one and must: `baseUrl` auto-detection knows
+the host but cannot know the model generation, and which extended-thinking
+wire shape a generation accepts — and whether it accepts sampling
+parameters — is a fact of the generation:
+
+```json
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": { "input": 3.0, "output": 15.0 },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
+      "enabled": true
+    }
+```
+
+`baikai-gen-models` **refuses** an `anthropic-messages` entry that arrives
+without one, rather than falling back to auto-detection. The OpenAI side
+needs no per-model block; `"compat": "auto"` covers every shipped host.
+
+The facts come from `anthropicInclude` in
+`baikai/fetch/FetchModelsCore.hs`, the one place a human vets an Anthropic
+id into the catalog, so a wholesale refresh cannot lose them. Adding a
+generation means adding an entry there with a dated comment naming its
+source. See
+[ADR 0009](../adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md).
 
 After editing, re-run `cabal run baikai-gen-models` and commit both
 the JSON change and the regenerated `Baikai.Models.Generated.hs`.

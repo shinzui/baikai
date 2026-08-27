@@ -17,6 +17,7 @@ where
 import Baikai
 import Baikai.Models.Generated qualified as Models
 import Control.Lens ((&), (.~), (^.))
+import Control.Monad (when)
 import Data.Foldable (find)
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
@@ -64,7 +65,37 @@ runClaudeCacheReadWriteCase = do
       logUsage "read call" envVar secondUsage
 
       assertCachePositive envVar written readBack
+      -- Tokens alone do not prove the money: a rate the catalog left at
+      -- zero, or a breakdown that never attributed the cached classes,
+      -- would report positive counts and a zero bill. (Note that a
+      -- one-hour write is priced at the five-minute rate — see
+      -- docs/user/prompt-caching.md.)
+      assertCacheCosts
+        envVar
+        (firstUsage ^. #cost ^. #breakdown ^. #cachedWriteUsd)
+        (secondUsage ^. #cost ^. #breakdown ^. #cachedInputUsd)
       pure True
+
+-- | Fail loudly if the cached token classes cost nothing.
+assertCacheCosts :: String -> Rational -> Rational -> IO ()
+assertCacheCosts envVar writeUsd readUsd = do
+  hPutStrLn stderr $
+    "[baikai-smoke] cache costs via "
+      <> envVar
+      <> "; cachedWriteUsd "
+      <> show (realToFrac writeUsd :: Double)
+      <> ", cachedInputUsd "
+      <> show (realToFrac readUsd :: Double)
+  when (writeUsd <= 0) $ do
+    hPutStrLn
+      stderr
+      "[baikai-smoke] the write call reported cacheWriteTokens but priced them at zero."
+    exitFailure
+  when (readUsd <= 0) $ do
+    hPutStrLn
+      stderr
+      "[baikai-smoke] the read call reported cacheReadTokens but priced them at zero."
+    exitFailure
 
 -- | Fail loudly if the cache never engaged. A write of zero means the
 -- prefix fell under the provider's cacheable floor (or the marker

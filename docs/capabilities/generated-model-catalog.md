@@ -68,6 +68,13 @@ $ cabal test baikai               # CatalogSpec proves the two agree
   the last refresh is absent, and a price changed upstream is stale, until
   someone re-runs the pipeline and cuts a release. Consumers who need a newer
   model hand-roll an `emptyModel` rather than waiting.
+- Every `anthropic-messages` entry must state two facts about its generation in
+  a per-model `compat` block: `thinkingStyle` (`"budget"` or `"adaptive"`) and
+  `supportsSamplingParameters`. Neither can be recovered from the model id or
+  the base URL, so `baikai-gen-models` refuses an entry that omits them rather
+  than falling back to host auto-detection. They are curated in
+  `anthropicInclude` (`baikai/fetch/FetchModelsCore.hs`), so a refresh cannot
+  lose them, and pinned in `CatalogSpec`.
 - Coverage is deliberately curated: tool-capable Anthropic and OpenAI models
   only. Other providers reachable through the OpenAI-compatible transport
   (DeepSeek, OpenRouter, Together, …) have JSON under `baikai/data/models/` but

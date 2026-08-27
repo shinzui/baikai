@@ -118,6 +118,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `baikai-smoke`: two keyed cases against `claude-sonnet-5` — one asking for
+  thinking (which is a 400 before this release) and one setting `temperature` — plus
+  `deepseek-chat` and `openrouter/openai/gpt-4o-mini` in `apiCases`, so the tool and
+  structured-output smokes run against a compatible host that is not OpenAI.
+  `CompatSmoke` now asserts DeepSeek honoured the output cap rather than only that it
+  answered, and `CacheSmoke` asserts the cached token classes cost something.
+
 - `baikai-claude`: a thinking request on `claude-sonnet-5` no longer 400s. It sends
   `"thinking":{"type":"adaptive"}` and no `budget_tokens`, because the shape is read off
   the model's catalog record rather than guessed from its id. (REV-2 C.1.)

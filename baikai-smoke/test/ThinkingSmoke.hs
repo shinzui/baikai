@@ -34,6 +34,19 @@ runThinkingCases = do
           "claude-opus-4-6-thinking-adaptive"
           Models.anthropic_claude_opus_4_6
           ThinkingMedium,
+        -- The keyed proof of this plan's central fix. Before it, the
+        -- prefix table did not know claude-sonnet-5 and sent it
+        -- budget_tokens, which the generation rejects with a 400. The
+        -- helper also sets temperature = 0.0, which the same generation
+        -- rejects, so this one call exercises the adaptive shape, the
+        -- sampling drop and signed replay together.
+        runAnthropicCase
+          "claude-sonnet-5-thinking-adaptive"
+          Models.anthropic_claude_sonnet_5
+          ThinkingMedium,
+        runAnthropicSamplingCase
+          "claude-sonnet-5-sampling-dropped"
+          Models.anthropic_claude_sonnet_5,
         runDeepSeekCase
       ]
   pure (or results)
@@ -78,6 +91,43 @@ runAnthropicCase caseLabel caseModel thinkingLevel = do
           <> " ok via "
           <> envVar
           <> "; thinking signature replay accepted"
+      pure True
+
+-- | A call that asks for no thinking at all but sets @temperature@ on a
+-- generation that rejects it.
+--
+-- The sampling drop is not observable in the response, so what this
+-- proves against a live host is the thing that matters: the request
+-- baikai built was accepted. Sending @temperature@ here is a 400.
+runAnthropicSamplingCase :: String -> Model -> IO Bool
+runAnthropicSamplingCase caseLabel caseModel = do
+  matched <- firstSetEnv ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
+  case matched of
+    Nothing -> do
+      hPutStrLn stderr $
+        "[baikai-smoke] none of [\"ANTHROPIC_KEY\",\"ANTHROPIC_API_KEY\"] set; skipping "
+          <> caseLabel
+          <> "."
+      pure False
+    Just (envVar, key) -> do
+      let opts =
+            emptyOptions
+              & #temperature .~ Just 0.2
+              & #maxTokens .~ Just 32
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
+          ctx =
+            emptyContext
+              & #systemPrompt .~ Just "Answer tersely."
+              & #messages
+                .~ Vector.singleton (user "Answer with exactly: sampling-ok")
+      resp <- completeRequest caseModel ctx opts
+      assertSucceeded caseLabel "single turn" resp
+      when (Text.null (Text.strip (flattenAssistantText (flattenAssistantBlocks resp)))) $ do
+        hPutStrLn stderr $
+          "[baikai-smoke] " <> caseLabel <> " returned no visible text"
+        exitFailure
+      hPutStrLn stderr $
+        "[baikai-smoke] " <> caseLabel <> " ok via " <> envVar
       pure True
 
 runDeepSeekCase :: IO Bool
