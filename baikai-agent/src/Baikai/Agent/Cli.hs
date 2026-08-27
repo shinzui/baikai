@@ -25,12 +25,23 @@ module Baikai.Agent.Cli
   ( -- * The parsed command line
     AgentCliCommand (..),
     PromptSource (..),
-    AgentCliOptions (..),
+    AgentCliOptions
+      ( command,
+        overrides,
+        userConfig,
+        repoConfig,
+        jsonOutput,
+        evidenceFile,
+        runId,
+        requiredEvidence
+      ),
+    agentCliOptions,
     agentCliParser,
     agentCliParserInfo,
 
     -- * Running it
-    AgentCliRun (..),
+    AgentCliRun (exitCode, standardOutput, standardError),
+    agentCliRun,
     runAgentCli,
     runAgentCliWithPaths,
 
@@ -73,6 +84,7 @@ import Baikai.Agent.Config
     agentJobRequest,
     ceilingViolations,
     defaultAgentConfigPaths,
+    emptyAgentConfigPaths,
     listAgentJobs,
     loadAgentCeiling,
     relevantWarnings,
@@ -166,6 +178,8 @@ data PromptSource
   deriving stock (Eq, Show, Generic)
 
 -- | The parsed command line, before any file is opened.
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'agentCliOptions' and override fields by record update.
 data AgentCliOptions = AgentCliOptions
   { command :: !AgentCliCommand,
     -- | Parsed @--set@ overrides, __with keys as the operator wrote
@@ -200,6 +214,8 @@ data AgentCliOptions = AgentCliOptions
 -- the @inherit@ and @tee@ output modes the agent's own output goes
 -- straight to the real process streams and bypasses this record
 -- entirely, which is correct and is what the motivating consumer wants.
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'agentCliRun' and override fields by record update.
 data AgentCliRun = AgentCliRun
   { exitCode :: !Int,
     standardOutput :: !Text,
@@ -254,6 +270,30 @@ agentCliParserInfo =
         <> Options.header "baikai - unattended coding-agent runs"
         <> Options.failureCode usageExitCode
     )
+
+-- | The command line for one command, with every other option at the
+-- value the parser produces when the flag is absent.
+agentCliOptions :: AgentCliCommand -> AgentCliOptions
+agentCliOptions cliCommand =
+  AgentCliOptions
+    { command = cliCommand,
+      overrides = [],
+      userConfig = Nothing,
+      repoConfig = Nothing,
+      jsonOutput = False,
+      evidenceFile = Nothing,
+      runId = Nothing,
+      requiredEvidence = Nothing
+    }
+
+-- | A run result carrying an exit code and no output on either stream.
+agentCliRun :: Int -> AgentCliRun
+agentCliRun code =
+  AgentCliRun
+    { exitCode = code,
+      standardOutput = Text.empty,
+      standardError = Text.empty
+    }
 
 -- | The top level takes one subcommand group, @agent@, leaving room for
 -- future groups without minting a new executable.
@@ -568,22 +608,22 @@ runAgentCliWithPaths paths snapshot options = case options ^. #command of
 -- repository-supplied working directory.
 effectiveConfigPaths :: AgentCliOptions -> IO AgentConfigPaths
 effectiveConfigPaths options = do
-  repositoryRoot <- getCurrentDirectory
+  root <- getCurrentDirectory
   case (options ^. #userConfig, options ^. #repoConfig) of
     (Just user, Just repo) ->
       pure
-        AgentConfigPaths
+        emptyAgentConfigPaths
           { userConfig = Just user,
             repoConfig = Just repo,
-            repositoryRoot
+            repositoryRoot = root
           }
     (user, repo) -> do
       discovered <- defaultAgentConfigPaths
       pure
-        AgentConfigPaths
+        emptyAgentConfigPaths
           { userConfig = user <|> discovered ^. #userConfig,
             repoConfig = repo <|> discovered ^. #repoConfig,
-            repositoryRoot
+            repositoryRoot = root
           }
 
 successfulRun :: Text -> Text -> AgentCliRun

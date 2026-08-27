@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- | OpenTelemetry adapter for the baikai 'TraceSink' interface.
 --
@@ -23,7 +24,7 @@
 module Baikai.Trace.Sink.OpenTelemetry
   ( otelSink,
     otelSinkWith,
-    OtelSinkOptions (..),
+    OtelSinkOptions (spanName, includePromptSummary, parentContext),
     defaultOtelSinkOptions,
   )
 where
@@ -50,6 +51,10 @@ import OpenTelemetry.Trace.Core qualified as Otel
 import Streamly.Data.Fold qualified as Fold
 
 -- | Tunable knobs for 'otelSinkWith'.
+--
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'defaultOtelSinkOptions' and override fields by record update,
+-- so that a field added in a later release cannot break a call site.
 data OtelSinkOptions = OtelSinkOptions
   { -- | Name to give each emitted span. Default: @"baikai.call"@.
     spanName :: !Text,
@@ -204,35 +209,25 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext}
 -- 'Ev.Observed' type exists to prevent, and an observability backend
 -- gives no way to tell the two apart after the fact.
 --
--- Read through a record pattern rather than bare selectors:
+-- Read through 'OverloadedRecordDot' rather than bare selectors:
 -- 'Ev.ModelCallEvidence' and 'Ev.EvidenceRequest' both carry @runId@,
 -- so under @DuplicateRecordFields@ a bare @Ev.runId ev@ is an ambiguous
--- occurrence. Matching on the constructor resolves every field at once
--- and costs this package no new dependency.
+-- occurrence. A record pattern would also resolve every field at once,
+-- but the constructor is no longer exported.
 evidenceAttributes :: Ev.ModelCallEvidence -> HashMap.HashMap Text Attr.Attribute
-evidenceAttributes
-  Ev.ModelCallEvidence
-    { Ev.schemaVersion,
-      Ev.runId,
-      Ev.callId,
-      Ev.requestedModel,
-      Ev.observedModel,
-      Ev.strength,
-      Ev.requestCommitment,
-      Ev.requestConfiguration
-    } =
-    maybe id (HashMap.insert "gen_ai.response.model" . Attr.toAttribute) observed $
-      HashMap.fromList
-        [ ("baikai.evidence.schema_version", Attr.toAttribute schemaVersion),
-          ("baikai.evidence.run_id", Attr.toAttribute runId),
-          ("baikai.evidence.call_id", Attr.toAttribute callId),
-          ("baikai.evidence.strength", Attr.toAttribute (Ev.renderEvidenceStrength strength)),
-          ("gen_ai.request.model", Attr.toAttribute requestedModel),
-          ("baikai.evidence.request_commitment", Attr.toAttribute requestCommitment),
-          ("baikai.evidence.request_configuration", Attr.toAttribute requestConfiguration)
-        ]
-    where
-      observed = Ev.observedValue observedModel
+evidenceAttributes ev =
+  maybe id (HashMap.insert "gen_ai.response.model" . Attr.toAttribute) observed $
+    HashMap.fromList
+      [ ("baikai.evidence.schema_version", Attr.toAttribute ev.schemaVersion),
+        ("baikai.evidence.run_id", Attr.toAttribute ev.runId),
+        ("baikai.evidence.call_id", Attr.toAttribute ev.callId),
+        ("baikai.evidence.strength", Attr.toAttribute (Ev.renderEvidenceStrength ev.strength)),
+        ("gen_ai.request.model", Attr.toAttribute ev.requestedModel),
+        ("baikai.evidence.request_commitment", Attr.toAttribute ev.requestCommitment),
+        ("baikai.evidence.request_configuration", Attr.toAttribute ev.requestConfiguration)
+      ]
+  where
+    observed = Ev.observedValue ev.observedModel
 
 -- | Convert a 'UTCTime' to an OpenTelemetry 'Timestamp'.
 --

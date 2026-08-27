@@ -10,7 +10,9 @@
 -- @import Baikai.Provider@ habit still resolves the symbols a
 -- caller cares about.
 module Baikai.Provider
-  ( ApiProvider (..),
+  ( ApiProvider (apiTag, stream, complete, describeThinking, strengthCeiling),
+    apiProvider,
+    apiProviderWith,
     ProviderRegistry,
     newProviderRegistry,
     newProviderRegistryFrom,
@@ -28,9 +30,14 @@ module Baikai.Provider
   )
 where
 
+import Baikai.Api (Api)
+import Baikai.Context (Context)
+import Baikai.Model (Model)
+import Baikai.Options (Options)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
+    apiProviderWith,
     assertRegistered,
     completeRequest,
     completeRequestWith,
@@ -45,3 +52,23 @@ import Baikai.Provider.Registry
     runToolLoop,
     runToolLoopWith,
   )
+import Baikai.Stream (streamingComplete)
+import Baikai.Stream.Event (AssistantMessageEvent)
+import Streamly.Data.Stream (Stream)
+
+-- | Build an 'ApiProvider' from an 'Baikai.Api.Api' tag and a streaming
+-- producer, deriving the synchronous @complete@ by draining that stream
+-- with 'Baikai.Stream.streamingComplete'.
+--
+-- This is the documented construction path. The 'ApiProvider'
+-- constructor is not exported, so a field added in a later release
+-- cannot break a registration site: start here and override what you
+-- need by record update.
+--
+-- > apiProvider (Custom "my-api") myStream
+-- >   & #describeThinking .~ myDescribeThinking
+apiProvider ::
+  Api ->
+  (Model -> Context -> Options -> Stream IO AssistantMessageEvent) ->
+  ApiProvider
+apiProvider tag producer = apiProviderWith tag producer (streamingComplete producer)

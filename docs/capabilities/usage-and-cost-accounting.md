@@ -56,7 +56,7 @@ dispatch](unified-provider-calls.md).
 ## Shape
 
 ```haskell
-withCallLog (CallLogConfig "/tmp/baikai.jsonl" True) $ \h ->
+withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h ->
   runRequestWithLog h model ctx opts
 ```
 

@@ -5,14 +5,14 @@ module ShapeSpec (tests) where
 import Baikai
 import Baikai.Content qualified as Content
 import Baikai.Models.Generated qualified as Models
-import Baikai.Provider.OpenAI.Api
+import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import Baikai.Provider.OpenAI.Internal.Stream
   ( RawChunk (..),
     RawToolDelta (..),
     closeOpenStream,
     emptyAssembler,
     translate,
   )
-import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (streamRequestBody)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (Value (..), (.=))

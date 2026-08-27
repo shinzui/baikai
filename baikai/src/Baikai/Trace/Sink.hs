@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- | The 'TraceSink' newtype and four built-in sinks.
 --
@@ -194,15 +195,15 @@ renderHuman = \case
     tshow x = Text.pack (show x)
     fmtTime t = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" t)
 
--- | Read through a record pattern rather than bare selectors:
+-- | Read through 'OverloadedRecordDot' rather than bare selectors:
 -- 'Evidence.ModelCallEvidence' and 'Evidence.EvidenceRequest' both
 -- carry @runId@, so under @DuplicateRecordFields@ a bare
--- @Evidence.runId ev@ is an ambiguous occurrence.
+-- @Evidence.runId ev@ is an ambiguous occurrence. A record pattern
+-- would also work, but the constructor is no longer exported.
 evidenceSummary :: Evidence.ModelCallEvidence -> Text
-evidenceSummary
-  Evidence.ModelCallEvidence {Evidence.runId, Evidence.callId, Evidence.strength} =
-    Text.unwords
-      [ "run=" <> runId,
-        "call=" <> callId,
-        "strength=" <> Text.pack (show strength)
-      ]
+evidenceSummary ev =
+  Text.unwords
+    [ "run=" <> ev.runId,
+      "call=" <> ev.callId,
+      "strength=" <> Text.pack (show ev.strength)
+    ]

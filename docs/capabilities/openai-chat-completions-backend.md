@@ -15,6 +15,7 @@ packages:
   - baikai
 interface:
   - Baikai.Provider.OpenAI.Api
+  - Baikai.Provider.OpenAI.Internal.Stream
   - Baikai.Provider.OpenAI.Sse
   - Baikai.Provider.OpenAI.Transport
   - Baikai.Provider.OpenAI.Shape
@@ -34,6 +35,9 @@ evidence:
   - kind: test
     resource: baikai-openai/test/Main.hs
     proves: "That OpenAI-compatible hosts auto-detect their request-shaping compat flags, that the system-instruction wrapper is omitted when there is no system prompt, and that an image tool-result block is rejected rather than dropped."
+  - kind: module
+    resource: baikai-openai/src/Baikai/Provider/OpenAI/Internal/Stream.hs
+    proves: "openaiChatStreamWith, the SseDriver seam, the chunk decoders, the reasoning-tag scanner and the usage mapping. Internal: exposed for the test suites and outside the compatibility contract."
   - kind: example
     resource: baikai-smoke/test/CompatSmoke.hs
     proves: "A live call against an OpenAI-compatible host that is not OpenAI."

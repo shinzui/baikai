@@ -8,7 +8,7 @@
 -- The usual pattern is 'withCallLog', which opens a handle, runs
 -- the body, and flushes pending entries on the way out:
 --
--- > withCallLog (CallLogConfig "/tmp/baikai.jsonl" True) $ \h -> do
+-- > withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h -> do
 -- >   _ <- runRequestWithLog h model context options
 -- >   pure ()
 --
@@ -26,7 +26,8 @@
 -- call, and its writer is a local file the operator chose rather than a
 -- third-party fold.
 module Baikai.Cost.Log
-  ( CallLogConfig (..),
+  ( CallLogConfig (path, enabled),
+    callLogConfig,
     CallLogEntry (..),
     CallLogHandle,
     openCallLog,
@@ -83,11 +84,18 @@ import Streamly.Data.Stream qualified as Stream
 import System.IO (BufferMode (LineBuffering), IOMode (AppendMode), hPutStrLn, hSetBuffering, stderr, withFile)
 
 -- | Where (and whether) to write the call log.
+--
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'callLogConfig' and override fields by record update.
 data CallLogConfig = CallLogConfig
   { path :: !FilePath,
     enabled :: !Bool
   }
   deriving stock (Eq, Show, Generic)
+
+-- | A call log at the given path, enabled.
+callLogConfig :: FilePath -> CallLogConfig
+callLogConfig logPath = CallLogConfig {path = logPath, enabled = True}
 
 -- | One line of the JSONL call log. Wire shape preserved from EP-0:
 -- @cachedInputTokens@ keeps its name so existing log readers keep

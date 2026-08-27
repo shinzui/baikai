@@ -53,6 +53,7 @@ library
     Baikai.Provider.Claude.Interactive
     Baikai.Provider.Claude.Internal.ErrorClass
     Baikai.Provider.Claude.Internal.Request
+    Baikai.Provider.Claude.Internal.Stream
     Baikai.Provider.Claude.Shape
     Baikai.Provider.Claude.Sse
     Baikai.Provider.Claude.Transport

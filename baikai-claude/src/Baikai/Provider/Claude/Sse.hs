@@ -1,6 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 
--- | Local SSE transport for Anthropic Messages streams.
+-- | __Exposed with no stability guarantees.__ This module is exposed so
+-- the test suites can drive the transport without a socket, and so
+-- sibling packages can reuse its pieces; it is not part of the public
+-- API and may change in /any/ release without a PVP major bump.
+--
+-- Local SSE transport for Anthropic Messages streams.
 --
 -- The upstream @claude@ SDK exposes the right event decoder, but its
 -- non-2xx path collapses status, headers, and body into plain text. This

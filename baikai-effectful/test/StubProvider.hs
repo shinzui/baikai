@@ -97,11 +97,9 @@ stubRegistry t = do
   reg <- newProviderRegistry
   registerApiProviderWith
     reg
-    ApiProvider
-      { apiTag = stubApi,
-        complete = stubComplete t,
-        stream = stubStream t,
-        describeThinking = \_ _ -> noThinkingRequested,
-        strengthCeiling = EvidenceRequestedOnly
-      }
+    ( apiProviderWith
+        stubApi
+        (stubStream t)
+        (stubComplete t)
+    )
   pure reg

@@ -52,6 +52,7 @@ library
     Baikai.Provider.OpenAI.Interactive
     Baikai.Provider.OpenAI.Internal.ErrorClass
     Baikai.Provider.OpenAI.Internal.Request
+    Baikai.Provider.OpenAI.Internal.Stream
     Baikai.Provider.OpenAI.Shape
     Baikai.Provider.OpenAI.Sse
     Baikai.Provider.OpenAI.Transport

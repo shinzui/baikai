@@ -90,13 +90,11 @@ testProvider providerName canned =
             .~ testApi
             & #provider
             .~ providerName
-   in ApiProvider
-        { apiTag = testApi,
-          stream = liftCompleteToStream handler,
-          complete = handler,
-          describeThinking = \_ _ -> noThinkingRequested,
-          strengthCeiling = EvidenceRequestedOnly
-        }
+   in ( apiProviderWith
+          testApi
+          (liftCompleteToStream handler)
+          (handler)
+      )
 
 main :: IO ()
 main = do

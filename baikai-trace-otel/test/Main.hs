@@ -9,7 +9,6 @@ import Baikai.Error (BaikaiError, providerError)
 import Baikai.Evidence
   ( CallStatus (..),
     EvidenceRequest,
-    EvidenceStrength (..),
     Observed (..),
     TransportKind (..),
     evidenceRequest,
@@ -19,7 +18,7 @@ import Baikai.Evidence.Build (minimalEvidence)
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
-import Baikai.Provider (ApiProvider (..), registerApiProvider)
+import Baikai.Provider (apiProviderWith, registerApiProvider)
 import Baikai.Response (Response (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
@@ -117,25 +116,21 @@ registerOk :: Api -> IO ()
 registerOk a =
   let handler _m _ctx _opts = pure (stubResponse a)
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 registerFail :: Api -> BaikaiError -> IO ()
 registerFail a e =
   let handler _m _ctx _opts = throwIO e
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 newTracerWithInMemory :: IO (Otel.Tracer, IO [Otel.ImmutableSpan])
 newTracerWithInMemory = do
@@ -392,13 +387,11 @@ registerOkWithEvidence a =
             Nothing
         pure (stubResponse a & #evidence .~ ev)
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 -- | The observed model reaches the span, and the requested one stays
 -- where it belongs.
@@ -450,13 +443,11 @@ registerOkObservingModel a =
         pure (stubResponse a & #evidence .~ fmap observeServedModel ev)
       observeServedModel ev = ev & #observedModel .~ Observed "stub-1-as-served"
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 evidenceSpanTest :: TestTree
 evidenceSpanTest =

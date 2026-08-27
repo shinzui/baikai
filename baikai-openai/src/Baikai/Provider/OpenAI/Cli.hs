@@ -49,6 +49,7 @@ import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
+    apiProviderWith,
     registerApiProvider,
     registerApiProviderWith,
   )
@@ -102,15 +103,14 @@ register = registerApiProvider (codexCliProvider defaultCodexCliConfig)
 -- | First-class Codex CLI provider value for a caller-supplied config.
 codexCliProvider :: CodexCliConfig -> ApiProvider
 codexCliProvider cfg =
-  ApiProvider
-    { apiTag = OpenAICompletionsCli,
-      stream = liftCompleteToStream (runCodexCli cfg),
-      complete = runCodexCli cfg,
-      -- The model plays no part: this transport's only reasoning
-      -- control is a command-line flag derived from Options alone.
-      describeThinking = \_ opts -> codexCliThinking opts,
-      strengthCeiling = Ev.declaredStrength OpenAICompletionsCli
-    }
+  apiProviderWith
+    OpenAICompletionsCli
+    (liftCompleteToStream (runCodexCli cfg))
+    (runCodexCli cfg)
+    -- The model plays no part: this transport's only reasoning
+    -- control is a command-line flag derived from Options alone.
+    & #describeThinking .~ (\_ opts -> codexCliThinking opts)
+    & #strengthCeiling .~ Ev.declaredStrength OpenAICompletionsCli
 
 -- | Install the Codex CLI handler with a caller-supplied config.
 --

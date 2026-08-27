@@ -242,13 +242,10 @@ newScripted responses events = do
   responsesRef <- newIORef responses
   callsRef <- newIORef 0
   registerApiProviderWith reg $
-    ApiProvider
-      { apiTag = helpersApi,
-        complete = scriptedComplete responsesRef callsRef,
-        stream = \_ _ _ -> Stream.fromList events,
-        describeThinking = \_ _ -> noThinkingRequested,
-        strengthCeiling = EvidenceRequestedOnly
-      }
+    apiProviderWith
+      helpersApi
+      (\_ _ _ -> Stream.fromList events)
+      (scriptedComplete responsesRef callsRef)
   pure Scripted {scriptRegistry = reg, scriptCallRef = callsRef}
 
 scriptedComplete :: IORef [Response] -> IORef Int -> Model -> Context -> Options -> IO Response
@@ -270,33 +267,25 @@ scriptCalls scripted = readIORef (scriptCallRef scripted)
 registerOneShot :: Api -> Response -> IO ()
 registerOneShot apiTag resp =
   registerApiProvider
-    ApiProvider
-      { apiTag,
-        complete = \model _ctx _opts -> pure (stampModel model resp),
-        stream = \_ _ _ -> Stream.fromList [],
-        describeThinking = \_ _ -> noThinkingRequested,
-        strengthCeiling = EvidenceRequestedOnly
-      }
+    ( apiProviderWith
+        apiTag
+        (\_ _ _ -> Stream.fromList [])
+        (\model _ctx _opts -> pure (stampModel model resp))
+    )
 
 oneShotProvider :: Api -> Text -> ApiProvider
 oneShotProvider apiTag body =
-  ApiProvider
-    { apiTag,
-      complete = \model _ctx _opts -> pure (stampModel model (textResponse body)),
-      stream = \_ _ _ -> Stream.fromList [],
-      describeThinking = \_ _ -> noThinkingRequested,
-      strengthCeiling = EvidenceRequestedOnly
-    }
+  apiProviderWith
+    apiTag
+    (\_ _ _ -> Stream.fromList [])
+    (\model _ctx _opts -> pure (stampModel model (textResponse body)))
 
 errorProvider :: Api -> BaikaiError -> ApiProvider
 errorProvider apiTag err =
-  ApiProvider
-    { apiTag,
-      complete = \model _ctx _opts -> pure (errorResponse model epoch 0 err),
-      stream = \_ _ _ -> Stream.fromList [],
-      describeThinking = \_ _ -> noThinkingRequested,
-      strengthCeiling = EvidenceRequestedOnly
-    }
+  apiProviderWith
+    apiTag
+    (\_ _ _ -> Stream.fromList [])
+    (\model _ctx _opts -> pure (errorResponse model epoch 0 err))
 
 stampModel :: Model -> Response -> Response
 stampModel model resp =

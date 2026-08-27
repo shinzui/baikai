@@ -1,6 +1,11 @@
 {-# LANGUAGE LambdaCase #-}
 
--- | Pure request-body shaping for Anthropic-compatible Messages hosts.
+-- | __Exposed with no stability guarantees.__ This module is exposed so
+-- the test suites can drive the transport without a socket, and so
+-- sibling packages can reuse its pieces; it is not part of the public
+-- API and may change in /any/ release without a PVP major bump.
+--
+-- Pure request-body shaping for Anthropic-compatible Messages hosts.
 module Baikai.Provider.Claude.Shape
   ( shapeRequestBody,
     streamRequestBody,

@@ -15,9 +15,8 @@
 module EvidenceSpec (tests) where
 
 import Baikai
-import Baikai.Model (openaiCompletionsCompatFor)
 import Baikai.Models.Generated (openai_gpt_4o_mini)
-import Baikai.Provider.OpenAI.Api (SseDriver, openaiChatStreamWith)
+import Baikai.Provider.OpenAI.Internal.Stream (SseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Baikai.Trace (withTraceStreamWith)
@@ -310,14 +309,12 @@ replayWith bodyRef model status headers chunks opts = do
   reg <- newProviderRegistry
   let driver = replayDriver bodyRef status headers chunks
       provider =
-        ApiProvider
-          { apiTag = OpenAIChatCompletions,
-            stream = openaiChatStreamWith driver,
-            complete = streamingComplete (openaiChatStreamWith driver),
-            describeThinking = \m opts' ->
-              describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts',
-            strengthCeiling = declaredStrength OpenAIChatCompletions
-          }
+        apiProviderWith
+          OpenAIChatCompletions
+          (openaiChatStreamWith driver)
+          (streamingComplete (openaiChatStreamWith driver))
+          & #describeThinking .~ (\m opts' -> describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts')
+          & #strengthCeiling .~ (declaredStrength OpenAIChatCompletions)
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink
   _ <-

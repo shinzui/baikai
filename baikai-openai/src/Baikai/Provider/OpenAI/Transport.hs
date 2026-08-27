@@ -1,3 +1,10 @@
+-- | __Exposed with no stability guarantees.__ This module is exposed so
+-- the test suites can drive the transport without a socket, and so
+-- sibling packages can reuse its pieces; it is not part of the public
+-- API and may change in /any/ release without a PVP major bump.
+--
+-- Transport settings, header assembly and key resolution for
+-- OpenAI-compatible Chat Completions hosts.
 module Baikai.Provider.OpenAI.Transport
   ( getClientEnvCached,
     cachedClientEnvCount,

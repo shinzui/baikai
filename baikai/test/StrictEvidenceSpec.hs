@@ -10,7 +10,6 @@
 module StrictEvidenceSpec (tests) where
 
 import Baikai
-import Baikai.Evidence.Build (minimalEvidence)
 import Control.Exception (evaluate, try)
 import Control.Exception qualified as Exception
 import Control.Lens ((&), (.~), (^.))
@@ -497,13 +496,11 @@ bestEffortOptions = emptyOptions & #evidence .~ Just (evidenceRequest "run-57")
 -- the tag-keyed table could never express.
 correlatingProvider :: ApiProvider
 correlatingProvider =
-  ApiProvider
-    { apiTag = customApi,
-      stream = liftCompleteToStream handler,
-      complete = handler,
-      describeThinking = \_ _ -> noThinkingRequested,
-      strengthCeiling = EvidenceCorrelated
-    }
+  apiProviderWith
+    customApi
+    (liftCompleteToStream handler)
+    (handler)
+    & #strengthCeiling .~ (EvidenceCorrelated)
   where
     handler m _ opts = do
       now <- getCurrentTime
@@ -535,24 +532,18 @@ correlatingProvider =
 -- gate refuses /before/ dispatch rather than annotating afterwards.
 explodingProvider :: ApiProvider
 explodingProvider =
-  ApiProvider
-    { apiTag = customApi,
-      stream = \_ _ _ -> error "the provider was dispatched despite a strict refusal",
-      complete = \_ _ _ -> error "the provider was dispatched despite a strict refusal",
-      describeThinking = \_ _ -> noThinkingRequested,
-      strengthCeiling = EvidenceRequestedOnly
-    }
+  apiProviderWith
+    customApi
+    (\_ _ _ -> error "the provider was dispatched despite a strict refusal")
+    (\_ _ _ -> error "the provider was dispatched despite a strict refusal")
 
 -- | The same shape, but it answers.
 countingProvider :: ApiProvider
 countingProvider =
-  ApiProvider
-    { apiTag = customApi,
-      stream = liftCompleteToStream handler,
-      complete = handler,
-      describeThinking = \_ _ -> noThinkingRequested,
-      strengthCeiling = EvidenceRequestedOnly
-    }
+  apiProviderWith
+    customApi
+    (liftCompleteToStream handler)
+    (handler)
   where
     handler m _ _ =
       pure

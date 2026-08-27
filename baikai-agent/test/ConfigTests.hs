@@ -25,6 +25,7 @@ import Baikai.Agent.Config
     agentJobRequest,
     applyCeilingToJob,
     defaultOutputLimit,
+    emptyAgentConfigPaths,
     listAgentJobs,
     loadAgentCeiling,
     parseDuration,
@@ -137,7 +138,7 @@ withConfigs userDoc repoDoc action =
     userConfig <- traverse (writeDoc (dir </> "operator" </> "agents.kdl")) userDoc
     repoConfig <-
       traverse (writeDoc (repositoryRoot </> ".baikai" </> "agents.kdl")) repoDoc
-    action AgentConfigPaths {userConfig, repoConfig, repositoryRoot}
+    action emptyAgentConfigPaths {userConfig, repoConfig, repositoryRoot}
   where
     writeDoc path body = do
       createDirectoryIfMissing True (takeDirectory path)
@@ -774,7 +775,7 @@ workingDirMustStayInsideTheRootTest =
               (repositoryRoot </> ".baikai" </> "agents.kdl")
               (workingDirJobDoc workingDir)
             scopeViolationsFor
-              AgentConfigPaths
+              emptyAgentConfigPaths
                 { userConfig = Nothing,
                   repoConfig = Just (repositoryRoot </> ".baikai" </> "agents.kdl"),
                   repositoryRoot
@@ -876,7 +877,7 @@ ceilingFileInsideRepositoryIsRefusedTest =
       TextIO.writeFile insidePath raisingPolicyDoc
       loaded <-
         loadAgentCeiling
-          AgentConfigPaths
+          emptyAgentConfigPaths
             { userConfig = Just insidePath,
               repoConfig = Nothing,
               repositoryRoot
@@ -907,7 +908,7 @@ ceilingFileOutsideTheRepositoryLoadsTest =
       TextIO.writeFile outsidePath raisingPolicyDoc
       loaded <-
         loadAgentCeiling
-          AgentConfigPaths
+          emptyAgentConfigPaths
             { userConfig = Just outsidePath,
               repoConfig = Nothing,
               repositoryRoot

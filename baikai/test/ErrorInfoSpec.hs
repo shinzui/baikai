@@ -51,13 +51,11 @@ errResponse m _ _ =
 registerErr :: IO ()
 registerErr =
   registerApiProvider
-    ApiProvider
-      { apiTag = errApi,
-        stream = errStream,
-        complete = streamingComplete errStream,
-        describeThinking = \_ _ -> noThinkingRequested,
-        strengthCeiling = EvidenceRequestedOnly
-      }
+    ( apiProviderWith
+        errApi
+        (errStream)
+        (streamingComplete errStream)
+    )
 
 tests :: TestTree
 tests =

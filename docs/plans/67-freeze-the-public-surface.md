@@ -66,12 +66,12 @@ here, even if it requires splitting a partially completed task into two ("done" 
 Milestone 1 — constructor policy applied to every evolvable record; assembler seams
 behind `.Internal`:
 
-- [ ] Read the Decision Logs and Interfaces sections of `docs/plans/58-…` through `66-…` (EP-1..EP-9) and record here every field, name or module they added that changes an export list below.
-- [ ] Add `apiProviderWith` (`Registry.hs`) and `apiProvider` (`Provider.hs`); export `ApiProvider` selector-only from both; sweep every in-repo construction site (list in Plan of Work).
-- [ ] Export `ModelCallEvidence` and `EvidenceRequest` selector-only; switch `Trace/Sink.hs` and the OTel sink to `OverloadedRecordDot` reads.
-- [ ] Export `Tool` (with `mkTool`), `EmbeddingModel`, `CallLogConfig` (`callLogConfig`), `OtelSinkOptions`, `AgentCliOptions` (`agentCliOptions`), `AgentCliRun` (`agentCliRun`), `AgentJob` (`agentJob`), `AgentConfigPaths` (`emptyAgentConfigPaths`) selector-only.
-- [ ] `git mv` each provider's `Api.hs` to `Internal/Stream.hs`, recreate `Api.hs` as a façade, rename `_TagScanState`, update both `.cabal` files and every test import; add the no-guarantees header to `Shape.hs`, `Sse.hs`, `Transport.hs` in both providers.
-- [ ] Extend `baikai/test/SurfaceSpec.hs` to build every newly hidden record from its base; build and keyless gate green.
+- [x] Read the Decision Logs and Interfaces sections of `docs/plans/58-…` through `66-…` (EP-1..EP-9) and record here every field, name or module they added that changes an export list below.
+- [x] Add `apiProviderWith` (`Registry.hs`) and `apiProvider` (`Provider.hs`); export `ApiProvider` selector-only from both; sweep every in-repo construction site (list in Plan of Work).
+- [x] Export `ModelCallEvidence` and `EvidenceRequest` selector-only; switch `Trace/Sink.hs` and the OTel sink to `OverloadedRecordDot` reads.
+- [x] Export `Tool` (with `mkTool`), `EmbeddingModel`, `CallLogConfig` (`callLogConfig`), `OtelSinkOptions`, `AgentCliOptions` (`agentCliOptions`), `AgentCliRun` (`agentCliRun`), `AgentJob` (`agentJob`), `AgentConfigPaths` (`emptyAgentConfigPaths`) selector-only.
+- [x] `git mv` each provider's `Api.hs` to `Internal/Stream.hs`, recreate `Api.hs` as a façade, rename `_TagScanState`, update both `.cabal` files and every test import; add the no-guarantees header to `Shape.hs`, `Sse.hs`, `Transport.hs` in both providers.
+- [x] Extend `baikai/test/SurfaceSpec.hs` to build every newly hidden record from its base; build and keyless gate green.
 
 Milestone 2 — deprecated shims removed; versions bumped; changelog states removals:
 
@@ -114,6 +114,34 @@ implementation. Provide concise evidence.
 - `rei-core/src/Rei/Modules/Agent/Infrastructure/BaikaiBatchBackend.hs:104-117`
   matches every `ErrorCategory` constructor with no wildcard, so `ContentFiltered` is a
   compile error for rei rather than a silent runtime gap.
+
+- Milestone 1: `ApiProvider` had no `Generic` instance, so
+  `apiProvider … & #describeThinking .~ …` did not compile. The record now
+  derives `Generic` (stock), which is what makes the label-based record update
+  the CLI providers and the sibling plans assume work at all. Plain record
+  update also works and needs no instance; the deriving is added so the
+  documented path in the Haddock is the one that compiles.
+
+- Milestone 1: the sibling plans landed six changes this plan's field lists had
+  to absorb before any export list was edited. `ApiProvider` has five fields,
+  not four (EP-8's `strengthCeiling`). `OtelSinkOptions` has three (EP-9's
+  `parentContext`). `AgentConfigPaths` has three, and the third,
+  EP-6's `repositoryRoot :: FilePath`, is not a `Maybe` — so
+  `emptyAgentConfigPaths` sets it to `"."` rather than leaving "both `Nothing`"
+  as this plan's Decision Log said when the record had two fields. `AgentJob`
+  gained EP-6's `outputFormat` and its `envPassthrough` → `envRequires` rename,
+  both folded into `agentJob`. `Baikai.Compat.defaultAnthropicThinkingStyle` is
+  a twenty-sixth deprecated name, added by EP-3 and removed by Milestone 2.
+  Neither `anthropicStrength` nor `openaiStrength` exists any more (EP-8
+  replaced both with `deriveStrength`), so neither appears in the
+  `.Internal.Stream` export lists this plan's Plan of Work named.
+
+- Milestone 1: `git grep "ApiProvider$\|ApiProvider {" -- '*.hs'` is empty, not
+  "hits only `Registry.hs`" as the acceptance criterion predicted: `Registry.hs`
+  builds the record inside `apiProviderWith`, whose layout puts the constructor
+  on the line after `ApiProvider` with a trailing `\n` rather than a brace, so
+  neither pattern matches it. The stronger reading holds — nothing outside the
+  defining module names the constructor.
 
 
 ## Decision Log
@@ -340,6 +368,29 @@ Record every decision made while working on the plan.
   Rationale: plan 43 chose compile-time probes over golden `:browse` dumps; a module
   that sees only what a downstream sees is the closest in-repo proxy for the twelve
   registered consumers.
+  Date: 2026-08-27
+
+- Decision (Milestone 1): `ApiProvider` derives `Generic` (stock). Rationale:
+  the constructor is hidden, and both this plan and the sibling plans write
+  `apiProvider tag stream & #describeThinking .~ f`, which needs a generic-lens
+  label and so needs the instance. It costs no export of the constructor, and
+  the Decision Log already accepts that a `Generic` field is reachable by label
+  (the note under the constructor-policy decision).
+  Date: 2026-08-27
+- Decision (Milestone 1): `emptyAgentConfigPaths` sets
+  `repositoryRoot = "."`, not the current directory read at use. Rationale:
+  EP-6 added the field as a plain `FilePath` and documented it as an explicit
+  value rather than a `getCurrentDirectory` call, so a base value must supply
+  one; `"."` is the relative spelling of the same root and keeps the base pure.
+  `defaultAgentConfigPaths` remains the discovering, `IO` path.
+  Date: 2026-08-27
+- Decision (Milestone 1): `Baikai.Provider.Claude.Api` and
+  `Baikai.Provider.OpenAI.Api` keep their full module Haddock and each export
+  exactly three names; the long per-function Haddock for the stream (worker
+  bracketing, queue bound, cancellation strengths) moves with the public
+  `<p>ChatStream` façade rather than staying with `<p>ChatStreamWith` in the
+  `.Internal` module, because that is where a reader who is not reading
+  internals will find it.
   Date: 2026-08-27
 
 - Decision (added by `docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md`,

@@ -4,17 +4,17 @@ module ReasoningSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated
-import Baikai.Provider.OpenAI.Api
+import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import Baikai.Provider.OpenAI.Internal.Stream
   ( RawChunk (..),
     closeOpenStream,
     emptyAssembler,
+    emptyTagScanState,
     parseChunk,
     parseFrame,
     scanThinkTags,
     translate,
-    _TagScanState,
   )
-import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Control.Lens ((&), (.~))
 import Data.Aeson qualified as Aeson
@@ -206,12 +206,12 @@ tagScannerTests =
   testGroup
     "scanThinkTags"
     [ testCase "split tags across deltas" $ do
-        let (st1, p1) = scanThinkTags _TagScanState "<th"
+        let (st1, p1) = scanThinkTags emptyTagScanState "<th"
             (st2, p2) = scanThinkTags st1 "ink>reasoning</thi"
             (_st3, p3) = scanThinkTags st2 "nk>answer"
         p1 <> p2 <> p3 @?= [Left "reasoning", Right "answer"],
       testCase "literal less-than text passes through" $ do
-        let (_st, parts) = scanThinkTags _TagScanState "2 < 3"
+        let (_st, parts) = scanThinkTags emptyTagScanState "2 < 3"
         parts @?= [Right "2 < 3"]
     ]
 

@@ -14,7 +14,7 @@ module LifecycleSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
-import Baikai.Provider.Claude.Api (SseDriver, claudeMessagesStreamWith)
+import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
 import Baikai.Provider.Claude.Sse (sseFromResponse)
 import Baikai.Provider.Internal.StreamWorker (frameQueueCapacity)
 import Control.Concurrent (forkIO, threadDelay, throwTo)

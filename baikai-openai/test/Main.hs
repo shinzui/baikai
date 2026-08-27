@@ -16,18 +16,18 @@ import Baikai.Agent
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Pricing (computeCost)
 import Baikai.Provider.OpenAI.Agent qualified as CodexAgent
-import Baikai.Provider.OpenAI.Api
+import Baikai.Provider.OpenAI.Api (openaiChatStream)
+import Baikai.Provider.OpenAI.Cli qualified as CodexCli
+import Baikai.Provider.OpenAI.Interactive
+import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import Baikai.Provider.OpenAI.Internal.Stream
   ( RawChunk (..),
     closeOpenStream,
     emptyAssembler,
-    openaiChatStream,
     parseUsage,
     rawUsageToUsage,
     translate,
   )
-import Baikai.Provider.OpenAI.Cli qualified as CodexCli
-import Baikai.Provider.OpenAI.Interactive
-import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import CliEvidenceSpec qualified
 import Contract (assertErrorContract, assertOneErrorTerminal)

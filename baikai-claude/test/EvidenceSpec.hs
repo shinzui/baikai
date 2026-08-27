@@ -15,8 +15,8 @@ module EvidenceSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
-import Baikai.Provider.Claude.Api (SseDriver, claudeMessagesStreamWith)
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor)
+import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
 import Baikai.Provider.Claude.Sse (sseFromResponse)
 import Baikai.Trace (withTraceStreamWith)
 import Baikai.Trace.Event (TraceEvent (..))
@@ -265,13 +265,12 @@ replayWith model status headers chunks opts = do
   reg <- newProviderRegistry
   let driver = replayDriver status headers chunks
       provider =
-        ApiProvider
-          { apiTag = AnthropicMessages,
-            stream = claudeMessagesStreamWith driver,
-            complete = streamingComplete (claudeMessagesStreamWith driver),
-            describeThinking = describeThinkingFor,
-            strengthCeiling = declaredStrength AnthropicMessages
-          }
+        apiProviderWith
+          AnthropicMessages
+          (claudeMessagesStreamWith driver)
+          (streamingComplete (claudeMessagesStreamWith driver))
+          & #describeThinking .~ (describeThinkingFor)
+          & #strengthCeiling .~ (declaredStrength AnthropicMessages)
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink
   _ <-

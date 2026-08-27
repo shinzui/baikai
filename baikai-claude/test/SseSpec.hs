@@ -3,7 +3,7 @@ module SseSpec (tests) where
 import Baikai
 import Baikai.Http qualified as Http
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
-import Baikai.Provider.Claude.Api (Assembler, SseDriver, claudeMessagesStreamWith, emptyAssembler, translate)
+import Baikai.Provider.Claude.Internal.Stream (Assembler, SseDriver, claudeMessagesStreamWith, emptyAssembler, translate)
 import Baikai.Provider.Claude.Sse
   ( ResponseMetadata,
     buildRequest,

@@ -19,7 +19,7 @@
 -- fields (context window, output tokens, chat pricing, modalities) are meaningful
 -- for embeddings.
 module Baikai.Embedding
-  ( EmbeddingModel (..),
+  ( EmbeddingModel (modelId, baseUrl, dimensions, apiKey),
     emptyEmbeddingModel,
     _EmbeddingModel,
     openAIEmbeddingModel,
@@ -49,6 +49,10 @@ import OpenAI.V1.Models qualified as OpenAIModels
 import Servant.Client qualified as Client
 
 -- | How to reach an embeddings endpoint and which model to ask for.
+--
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'emptyEmbeddingModel' (or 'openAIEmbeddingModel') and override
+-- fields by record update.
 data EmbeddingModel = EmbeddingModel
   { -- | e.g. @\"text-embedding-3-small\"@
     modelId :: !Text,

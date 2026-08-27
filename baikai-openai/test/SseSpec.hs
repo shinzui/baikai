@@ -3,7 +3,7 @@ module SseSpec (tests) where
 import Baikai
 import Baikai.Http qualified as Http
 import Baikai.Models.Generated (openai_gpt_4o_mini)
-import Baikai.Provider.OpenAI.Api
+import Baikai.Provider.OpenAI.Internal.Stream
   ( Assembler,
     RawChunk (..),
     SseDriver,

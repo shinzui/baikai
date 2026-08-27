@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 -- | Tests for "Baikai.Evidence": that the canonical encoding really is
 -- canonical, that the two digests differ in exactly the way they are
 -- documented to, and that the configuration projection lets no content
@@ -424,20 +426,15 @@ observedTests =
       -- 'attempt', and 'supersedes' name a field on both
       -- 'EvidenceRequest' and 'ModelCallEvidence', and under
       -- DuplicateRecordFields a bare selector is ambiguous. Library
-      -- code reaches these through the generic-lens labels
-      -- (@r ^. #runId@) that the rest of this codebase uses.
-      testCase "evidenceRequest defaults to best effort, attempt one" $
-        case evidenceRequest "run-42" of
-          EvidenceRequest
-            { runId = rid,
-              strictness = strict,
-              attempt = att,
-              supersedes = prev
-            } -> do
-              rid @?= "run-42"
-              strict @?= EvidenceBestEffort
-              att @?= 1
-              prev @?= Nothing
+      -- code reaches these through 'OverloadedRecordDot' or the
+      -- generic-lens labels (@r ^. #runId@) the rest of this codebase
+      -- uses; the constructor is no longer exported.
+      testCase "evidenceRequest defaults to best effort, attempt one" $ do
+        let req = evidenceRequest "run-42"
+        req.runId @?= "run-42"
+        req.strictness @?= EvidenceBestEffort
+        req.attempt @?= 1
+        req.supersedes @?= Nothing
     ]
   where
     roundTrip :: Observed Text.Text -> IO ()

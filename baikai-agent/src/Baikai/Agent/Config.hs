@@ -21,12 +21,29 @@
 -- 'applyCeilingToJob' is where that ask is refused.
 module Baikai.Agent.Config
   ( -- * The configured shape of one job
-    AgentJob (..),
+    AgentJob
+      ( provider,
+        executable,
+        modelId,
+        effort,
+        workingDir,
+        extraDirs,
+        capability,
+        allowedTools,
+        providerArgs,
+        timeout,
+        output,
+        outputFormat,
+        outputLimit,
+        envRequires
+      ),
+    agentJob,
     agentJobConfig,
     agentJobRequest,
 
     -- * Where configuration lives
-    AgentConfigPaths (..),
+    AgentConfigPaths (userConfig, repoConfig, repositoryRoot),
+    emptyAgentConfigPaths,
     AgentConfigScope (..),
     renderAgentConfigScope,
     defaultAgentConfigPaths,
@@ -153,6 +170,9 @@ import System.FilePath (pathSeparator, (</>))
 -- There is deliberately no @name@ field. The name is how the job was
 -- looked up, not a property of it, and storing it would invite a
 -- mismatch between the two.
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'agentJob', which takes the three required fields, and override
+-- the rest by record update.
 data AgentJob = AgentJob
   { -- | Which coding-agent tool to run. Required.
     provider :: !AgentProvider,
@@ -228,6 +248,9 @@ data AgentJobEntry = AgentJobEntry
 -- An explicit record with a pure resolution path underneath is what lets
 -- a test point at a temporary directory. Nothing below this record reads
 -- the real @HOME@ or @XDG_CONFIG_HOME@.
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'emptyAgentConfigPaths' (or 'defaultAgentConfigPaths', which
+-- discovers real paths) and override fields by record update.
 data AgentConfigPaths = AgentConfigPaths
   { userConfig :: !(Maybe FilePath),
     repoConfig :: !(Maybe FilePath),
@@ -576,6 +599,35 @@ emptyListDefault :: Text -> Default [a]
 emptyListDefault ruleName =
   constantDefault (RuleName ruleName) "nothing configured" []
 
+-- | A job from its three required fields: which tool to run, the
+-- directory to run it in, and how much filesystem authority it asks
+-- for.
+--
+-- Every optional field starts empty and every defaulted one at the
+-- value the KDL schema would supply for an absent setting — no
+-- executable override, no model or effort override, no extra
+-- directories, no tool grants, no provider arguments, no timeout,
+-- 'InheritOutput', 'TextFormat', 'defaultOutputLimit' and no required
+-- environment. Override by record update.
+agentJob :: AgentProvider -> FilePath -> AgentCapability -> AgentJob
+agentJob jobProvider jobWorkingDir jobCapability =
+  AgentJob
+    { provider = jobProvider,
+      executable = Nothing,
+      modelId = Nothing,
+      effort = Nothing,
+      workingDir = jobWorkingDir,
+      extraDirs = [],
+      capability = jobCapability,
+      allowedTools = [],
+      providerArgs = [],
+      timeout = Nothing,
+      output = InheritOutput,
+      outputFormat = TextFormat,
+      outputLimit = Just defaultOutputLimit,
+      envRequires = []
+    }
+
 -- | The declaration for one named job.
 --
 -- The keys are built from the job name because @settei@'s 'Config'
@@ -676,6 +728,20 @@ agentEnvBindings jobName =
           binding (EnvName "BAIKAI_AGENT_TIMEOUT") (jobKey jobName "timeout")
         ]
     )
+
+-- | No configuration files, rooted at the current directory as a
+-- relative path.
+--
+-- The starting point for a caller who supplies explicit paths;
+-- 'defaultAgentConfigPaths' is the one that discovers them and resolves
+-- the repository root.
+emptyAgentConfigPaths :: AgentConfigPaths
+emptyAgentConfigPaths =
+  AgentConfigPaths
+    { userConfig = Nothing,
+      repoConfig = Nothing,
+      repositoryRoot = "."
+    }
 
 -- | Locate the two configuration files, treating a missing file as a
 -- normal state rather than an error.

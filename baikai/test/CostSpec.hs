@@ -5,22 +5,21 @@ import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
 import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
-  ( CallLogConfig (..),
-    CallLogEntry (..),
+  ( CallLogEntry (..),
     appendEntry,
+    callLogConfig,
     closeCallLog,
     openCallLog,
     runRequestWithLog,
     withCallLog,
   )
 import Baikai.Cost.Pricing (attachCost, computeCost)
-import Baikai.Evidence (EvidenceStrength (..), noThinkingRequested)
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), ModelCost (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
 import Baikai.Provider
-  ( ApiProvider (..),
+  ( apiProviderWith,
     registerApiProvider,
   )
 import Baikai.Response (Response (..), flattenAssistantBlocks)
@@ -179,13 +178,11 @@ registerCanned :: Response -> IO ()
 registerCanned resp =
   let handler _m _ctx _opts = pure resp
    in registerApiProvider
-        ApiProvider
-          { apiTag = cannedApi,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            cannedApi
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 cannedModel :: Model
 cannedModel = knownModel & #api .~ cannedApi
@@ -202,7 +199,7 @@ callLogTests =
     "CallLog"
     [ testCase "disabled handle skips disk I/O" $ do
         registerCanned cannedHaiku
-        let cfg = CallLogConfig {path = "/dev/null", enabled = False}
+        let cfg = callLogConfig "/dev/null" & #enabled .~ False
         withCallLog cfg $ \h -> do
           resp <- runRequestWithLog h cannedModel ctxHello optsZero
           flattenAssistantBlocks resp
@@ -212,7 +209,7 @@ callLogTests =
         tmp <- getTemporaryDirectory
         let path' = tmp </> "baikai-cost-test.jsonl"
         writeFile path' ""
-        let cfg = CallLogConfig {path = path', enabled = True}
+        let cfg = callLogConfig path'
         withCallLog cfg $ \h -> do
           _ <- runRequestWithLog h cannedModel ctxHello optsZero
           pure ()
@@ -237,7 +234,7 @@ callLogTests =
       testCase "closeCallLog returns even when the log path is unwritable" $ do
         tmp <- getTemporaryDirectory
         let missing = tmp </> "baikai-costspec-no-such-dir" </> "entries.jsonl"
-            cfg = CallLogConfig {path = missing, enabled = True}
+            cfg = callLogConfig missing
         now <- getCurrentTime
         result <- timeout 5000000 (withCallLog cfg (\h -> appendEntry h (sampleEntry now)))
         result @?= Just (),
@@ -249,7 +246,7 @@ callLogTests =
         tmp <- getTemporaryDirectory
         let path' = tmp </> "baikai-costspec-double-close.jsonl"
         writeFile path' ""
-        let cfg = CallLogConfig {path = path', enabled = True}
+        let cfg = callLogConfig path'
         h <- openCallLog cfg
         result <- timeout 5000000 (closeCallLog h >> closeCallLog h)
         result @?= Just ()

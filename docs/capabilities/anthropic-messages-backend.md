@@ -14,6 +14,7 @@ packages:
   - baikai-claude
 interface:
   - Baikai.Provider.Claude.Api
+  - Baikai.Provider.Claude.Internal.Stream
   - Baikai.Provider.Claude.Sse
   - Baikai.Provider.Claude.Transport
   - Baikai.Provider.Claude.Shape
@@ -34,7 +35,10 @@ evidence:
     proves: "The provider-level contract, including that an image tool-result block is rejected rather than dropped and that responseFormat maps onto Anthropic's native output_config."
   - kind: module
     resource: baikai-claude/src/Baikai/Provider/Claude/Api.hs
-    proves: "The register / registerWith entry points, claudeMessagesStreamWith, the SseDriver seam, and anthropicStrength."
+    proves: "The three public entry points: register, claudeMessagesProvider and claudeMessagesStream."
+  - kind: module
+    resource: baikai-claude/src/Baikai/Provider/Claude/Internal/Stream.hs
+    proves: "claudeMessagesStreamWith, the SseDriver seam and the event assembler. Internal: exposed for the test suites and outside the compatibility contract."
 ---
 
 # Anthropic Messages API backend

@@ -15,7 +15,7 @@ module LifecycleSpec (tests) where
 import Baikai
 import Baikai.Models.Generated (openai_gpt_4o_mini)
 import Baikai.Provider.Internal.StreamWorker (frameQueueCapacity)
-import Baikai.Provider.OpenAI.Api (SseDriver, openaiChatStreamWith)
+import Baikai.Provider.OpenAI.Internal.Stream (SseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Control.Concurrent (forkIO, threadDelay, throwTo)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)

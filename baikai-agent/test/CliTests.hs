@@ -18,6 +18,7 @@ import Baikai.Agent.Cli
     AgentCliOptions (..),
     AgentCliRun,
     PromptSource (..),
+    agentCliOptions,
     agentCliParserInfo,
     configExitCode,
     readPromptSource,
@@ -26,7 +27,7 @@ import Baikai.Agent.Cli
     runAgentCliWithPaths,
     usageExitCode,
   )
-import Baikai.Agent.Config (AgentConfigPaths (..), AgentJob, resolveAgentJob)
+import Baikai.Agent.Config (AgentConfigPaths (..), AgentJob, emptyAgentConfigPaths, resolveAgentJob)
 import Baikai.Evidence (EvidenceStrength (..), evidenceSchemaVersion)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -135,17 +136,7 @@ noEnvironment = envSnapshot []
 -- configuration scope. Tests supply the paths separately, so the two
 -- path fields stay 'Nothing' here and are never consulted.
 options :: AgentCliCommand -> AgentCliOptions
-options command =
-  AgentCliOptions
-    { command,
-      overrides = [],
-      userConfig = Nothing,
-      repoConfig = Nothing,
-      jsonOutput = False,
-      evidenceFile = Nothing,
-      runId = Nothing,
-      requiredEvidence = Nothing
-    }
+options = agentCliOptions
 
 withOverride :: Text -> Text -> AgentCliOptions -> AgentCliOptions
 withOverride key value opts =
@@ -183,7 +174,7 @@ pathsIn dir operatorDoc repoDoc = do
   userConfig <- traverse (writeIn (dir </> "operator" </> "agents.kdl")) operatorDoc
   repoConfig <- Just <$> writeIn (repositoryDocumentIn dir) repoDoc
   pure
-    AgentConfigPaths
+    emptyAgentConfigPaths
       { userConfig,
         repoConfig,
         repositoryRoot = repositoryRootIn dir
@@ -322,7 +313,7 @@ listsNothingWhenUnconfiguredTest =
     -- piping the output should never have to filter prose out of data.
     finished <-
       run
-        AgentConfigPaths {userConfig = Nothing, repoConfig = Nothing, repositoryRoot = "."}
+        emptyAgentConfigPaths
         (options AgentList)
     finished ^. #exitCode @?= 0
     finished ^. #standardOutput @?= ""

@@ -225,13 +225,11 @@ cutOffToolCallIsNeverDispatchedTest =
     reg <- newProviderRegistry
     registerApiProviderWith
       reg
-      ApiProvider
-        { apiTag = cutOffApi,
-          stream = liftCompleteToStream (\_ _ _ -> pure cutOffResponse),
-          complete = \_ _ _ -> pure cutOffResponse,
-          describeThinking = \_ _ -> noThinkingRequested,
-          strengthCeiling = EvidenceRequestedOnly
-        }
+      ( apiProviderWith
+          cutOffApi
+          (liftCompleteToStream (\_ _ _ -> pure cutOffResponse))
+          (\_ _ _ -> pure cutOffResponse)
+      )
     dispatched <- newIORef ([] :: [ToolCall])
     let dispatcher tc = modifyIORef' dispatched (<> [tc]) >> pure (toolResultText "never")
 

@@ -13,7 +13,8 @@
 -- error-shaped 'Response' in the 'Baikai.Error.ProviderUnavailable'
 -- category.
 module Baikai.Provider.Registry
-  ( ApiProvider (..),
+  ( ApiProvider (apiTag, stream, complete, describeThinking, strengthCeiling),
+    apiProviderWith,
     ProviderRegistry,
     newProviderRegistry,
     newProviderRegistryFrom,
@@ -59,12 +60,18 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time (getCurrentTime)
 import Data.Vector qualified as Vector
+import GHC.Generics (Generic)
 import Streamly.Data.Stream (Stream)
 import System.IO.Unsafe (unsafePerformIO)
 
 -- | A per-API handler. 'stream' is the primary streaming
 -- entry point; 'complete' is the synchronous draining wrapper,
 -- typically @streamingComplete . stream@ from "Baikai.Stream".
+--
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'Baikai.Provider.apiProvider' and override fields by record
+-- update, so that a field added in a later release cannot break a
+-- registration site — as adding 'describeThinking' in 0.5.0.0 did.
 data ApiProvider = ApiProvider
   { apiTag :: !Api,
     stream :: !(Model -> Context -> Options -> Stream IO AssistantMessageEvent),
@@ -103,6 +110,35 @@ data ApiProvider = ApiProvider
     -- @docs\/adr\/0014-strict-evidence-means-a-record-exists.md@.
     strengthCeiling :: !Evidence.EvidenceStrength
   }
+  deriving stock (Generic)
+
+-- | Build an 'ApiProvider' from its three functions, leaving every
+-- later-added field at a safe default.
+--
+-- This is the explicit builder: it takes the streaming producer /and/
+-- the synchronous completer, because "Baikai.Provider.Registry" cannot
+-- import 'Baikai.Stream.streamingComplete' without a module cycle.
+-- Most callers want 'Baikai.Provider.apiProvider', which supplies the
+-- completer by draining the stream.
+--
+-- 'describeThinking' defaults to reporting that nothing was requested
+-- and nothing translated, which is honest for a transport with no
+-- reasoning controls; 'strengthCeiling' defaults to
+-- 'Evidence.EvidenceRequestedOnly', matching @declaredStrength (Custom _)@.
+-- Override either by record update.
+apiProviderWith ::
+  Api ->
+  (Model -> Context -> Options -> Stream IO AssistantMessageEvent) ->
+  (Model -> Context -> Options -> IO Response) ->
+  ApiProvider
+apiProviderWith tag producer completer =
+  ApiProvider
+    { apiTag = tag,
+      stream = producer,
+      complete = completer,
+      describeThinking = \_ _ -> Evidence.noThinkingRequested,
+      strengthCeiling = Evidence.EvidenceRequestedOnly
+    }
 
 -- | A mutable provider registry handle. Each handle owns its own handler map,
 -- so tests and applications can maintain isolated provider sets in one process.

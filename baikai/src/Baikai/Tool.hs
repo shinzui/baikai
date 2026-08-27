@@ -18,7 +18,8 @@
 -- between this module (which 'Baikai.Context' imports for the @tools@
 -- field type) and 'Baikai.Context' itself.
 module Baikai.Tool
-  ( Tool (..),
+  ( Tool (name, description, parameters),
+    mkTool,
     ToolChoice (..),
     emptyTool,
     _Tool,
@@ -42,6 +43,12 @@ import GHC.Generics (Generic)
 
 -- | A caller-declared tool. @parameters@ holds a JSON Schema; the
 -- provider-side encoders pass it through unchanged.
+--
+-- Construction: the constructor is deliberately not exported. Use
+-- 'mkTool', which takes the three fields every provider needs, and
+-- override anything else by record update. 'emptyTool' remains for
+-- fixtures, but a tool declared from it and sent unchanged reaches the
+-- wire with @input_schema: null@.
 data Tool = Tool
   { name :: !Text,
     description :: !Text,
@@ -49,6 +56,18 @@ data Tool = Tool
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+-- | A tool from its name, its description and its JSON Schema — the
+-- three things every provider requires.
+--
+-- > mkTool "get_weather" "Look up the weather" schema
+mkTool :: Text -> Text -> Value -> Tool
+mkTool toolName toolDescription toolParameters =
+  Tool
+    { name = toolName,
+      description = toolDescription,
+      parameters = toolParameters
+    }
 
 -- | How the model should pick between the registered tools.
 --

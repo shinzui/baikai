@@ -50,6 +50,7 @@ import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
+    apiProviderWith,
     registerApiProvider,
     registerApiProviderWith,
   )
@@ -101,15 +102,14 @@ register = registerApiProvider (claudeCliProvider defaultClaudeCliConfig)
 -- | First-class Claude CLI provider value for a caller-supplied config.
 claudeCliProvider :: ClaudeCliConfig -> ApiProvider
 claudeCliProvider cfg =
-  ApiProvider
-    { apiTag = AnthropicMessagesCli,
-      stream = liftCompleteToStream (runClaudeCli cfg),
-      complete = runClaudeCli cfg,
-      -- The model plays no part: this transport's only reasoning
-      -- control is a command-line flag derived from Options alone.
-      describeThinking = \_ opts -> claudeCliThinking opts,
-      strengthCeiling = Ev.declaredStrength AnthropicMessagesCli
-    }
+  apiProviderWith
+    AnthropicMessagesCli
+    (liftCompleteToStream (runClaudeCli cfg))
+    (runClaudeCli cfg)
+    -- The model plays no part: this transport's only reasoning
+    -- control is a command-line flag derived from Options alone.
+    & #describeThinking .~ (\_ opts -> claudeCliThinking opts)
+    & #strengthCeiling .~ Ev.declaredStrength AnthropicMessagesCli
 
 -- | Install the CLI handler with a caller-supplied config.
 --

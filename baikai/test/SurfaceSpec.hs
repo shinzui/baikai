@@ -1,11 +1,13 @@
 module SurfaceSpec (tests) where
 
 import Baikai
+import Baikai.Cost.Log (callLogConfig)
 import Baikai.Embedding qualified as Embedding
 import Baikai.Prelude
 import Data.Aeson qualified as Aeson
 import Data.Map.Strict qualified as Map
 import Data.Vector qualified as V
+import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -49,5 +51,24 @@ tests =
         zeroModelCost ^. #inputCost @?= 0
         emptyTool ^. #parameters @?= Aeson.Null
         emptyToolCall ^. #arguments @?= Aeson.Null
-        Embedding.modelId Embedding.emptyEmbeddingModel @?= ""
+        Embedding.modelId Embedding.emptyEmbeddingModel @?= "",
+      -- Every record whose constructor this release hid must still be
+      -- reachable: build each from its exported base and read one field
+      -- back. A base value that disappears, or a field that stops being
+      -- exported, fails to compile here rather than at a consumer.
+      testCase "hidden records build from their bases" $ do
+        let provider = apiProvider (Custom "probe") (\_ _ _ -> Stream.nil)
+            req = evidenceRequest "r" & #attempt .~ 2
+            tool = mkTool "t" "d" Aeson.Null
+            embedding = Embedding.emptyEmbeddingModel & #modelId .~ "e"
+            logCfg = callLogConfig "/dev/null"
+        provider ^. #apiTag @?= Custom "probe"
+        provider ^. #strengthCeiling @?= EvidenceRequestedOnly
+        req ^. #attempt @?= 2
+        req ^. #runId @?= "r"
+        tool ^. #name @?= "t"
+        tool ^. #parameters @?= Aeson.Null
+        embedding ^. #modelId @?= "e"
+        logCfg ^. #path @?= "/dev/null"
+        logCfg ^. #enabled @?= True
     ]

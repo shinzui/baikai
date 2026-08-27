@@ -2,6 +2,22 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-13 (Anthropic Messages backend), CAP-14 (OpenAI Chat
+  Completions backend) and CAP-7 (usage and cost accounting) record the
+  0.6 surface freeze. Each provider's streaming machinery — the `SseDriver`
+  seam, the assembler, the event translator, and on the OpenAI side the chunk
+  decoders, the reasoning-tag scanner and the usage mapping — moved from
+  `Baikai.Provider.<P>.Api` to `Baikai.Provider.<P>.Internal.Stream`, which is
+  exposed for the test suites and carries no stability guarantee; `Api` keeps
+  exactly the three public entry points (`register`, the provider value and the
+  live stream function). CAP-7's call-log example now starts from
+  `callLogConfig`, because `CallLogConfig`'s constructor — like those of
+  `ApiProvider`, `ModelCallEvidence`, `EvidenceRequest`, `Tool`,
+  `EmbeddingModel`, `OtelSinkOptions` and the three `baikai-agent` records — is
+  no longer exported: each is built from an exported base value and refined by
+  record update, so a field added in a later release cannot break a call site,
+  as `ApiProvider.describeThinking` did in 0.5.0.0.
+
 * **Update**: CAP-9 (call tracing) and CAP-10 (OpenTelemetry span export) record
   the 2026-08 trace-sink hardening. A sink that *blocks* can no longer hold a
   call: `withTrace` waits at most one second for the worker, abandons it rather

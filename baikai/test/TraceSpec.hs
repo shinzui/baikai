@@ -22,7 +22,7 @@ import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
-import Baikai.Provider (ApiProvider (..), registerApiProvider)
+import Baikai.Provider (apiProviderWith, registerApiProvider)
 import Baikai.Response (Response (..), responseError)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
@@ -125,25 +125,21 @@ registerOk :: Api -> IO ()
 registerOk a =
   let handler _m _ctx _opts = pure (stubResponse a)
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = Ev.EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 registerFail :: Api -> BaikaiError -> IO ()
 registerFail a e =
   let handler _m _ctx _opts = throwIO e
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = Ev.EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 memorySink :: IO (TVar [TraceEvent], TraceSink)
 memorySink = do
@@ -503,13 +499,11 @@ registerWithUsage a u =
   let resp = stubResponse a & #message . #usage .~ u
       handler _m _ctx _opts = pure resp
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = Ev.EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 fidelityTest :: TestTree
 fidelityTest =
@@ -598,13 +592,11 @@ registerOkWithEvidence a =
             Nothing
         pure (stubResponse a & #evidence .~ ev)
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested,
-            strengthCeiling = Ev.EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+        )
 
 -- | 'registerOk' with an honest describer.
 --
@@ -616,13 +608,13 @@ registerOkHonest :: Api -> IO ()
 registerOkHonest a =
   let handler _m _ctx _opts = pure (stubResponse a)
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ o -> Build.requestedTranslation o,
-            strengthCeiling = Ev.EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+            & #describeThinking
+            .~ (\_ o -> Build.requestedTranslation o)
+        )
 
 -- | A describer that answers with a wire shape of its own, so a test
 -- can tell "the core asked the adapter" from "the core spelled
@@ -640,13 +632,13 @@ registerOkBudgetDescriber a =
             Ev.adjustments = []
           }
    in registerApiProvider
-        ApiProvider
-          { apiTag = a,
-            stream = liftCompleteToStream handler,
-            complete = handler,
-            describeThinking = \_ o -> budgetTranslation o,
-            strengthCeiling = Ev.EvidenceRequestedOnly
-          }
+        ( apiProviderWith
+            a
+            (liftCompleteToStream handler)
+            (handler)
+            & #describeThinking
+            .~ (\_ o -> budgetTranslation o)
+        )
 
 thinkingOptions :: Options
 thinkingOptions = evidenceOptions & #thinking .~ Just ThinkingMax
@@ -1143,13 +1135,11 @@ envelopeNotForcedTest =
               Nothing
           pure (stubResponse a & #evidence .~ ev)
     registerApiProvider
-      ApiProvider
-        { apiTag = a,
-          stream = liftCompleteToStream handler,
-          complete = handler,
-          describeThinking = \_ _ -> noThinkingRequested,
-          strengthCeiling = Ev.EvidenceRequestedOnly
-        }
+      ( apiProviderWith
+          a
+          (liftCompleteToStream handler)
+          (handler)
+      )
     (ref, sink) <- memorySink
     _ <- withTrace sink (stubModel a) stubContext stubOptions
     events <- reverse <$> readTVarIO ref

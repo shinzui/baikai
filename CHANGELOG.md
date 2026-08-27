@@ -9,6 +9,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai` (breaking to construct, not to read): every record that can still
+  grow a field is now built from an exported base value and refined by record
+  update, and its constructor is no longer exported —
+  `Baikai.Provider.Registry.ApiProvider` (`apiProvider` /`apiProviderWith`),
+  `Baikai.Evidence.ModelCallEvidence` (`baseEvidence`),
+  `Baikai.Evidence.EvidenceRequest` (`evidenceRequest`), `Baikai.Tool.Tool`
+  (`mkTool`, with `emptyTool` kept for fixtures),
+  `Baikai.Embedding.EmbeddingModel` (`emptyEmbeddingModel`),
+  `Baikai.Cost.Log.CallLogConfig` (`callLogConfig`),
+  `baikai-trace-otel`'s `OtelSinkOptions` (`defaultOtelSinkOptions`), and
+  `baikai-agent`'s `AgentCliOptions` (`agentCliOptions`), `AgentCliRun`
+  (`agentCliRun`), `AgentJob` (`agentJob`) and `AgentConfigPaths`
+  (`emptyAgentConfigPaths`). Selectors, record update, `OverloadedRecordDot`
+  reads and generic-lens labels all keep working; only construction from the
+  constructor stops. Adding `describeThinking` to `ApiProvider` in 0.5.0.0 broke
+  every third-party registration site, and `strengthCeiling` would have broken
+  them again; from this release such an addition is a minor bump. (REV-2 G.1.)
+
+- `baikai`: `Baikai.Provider.apiProvider`, which builds an `ApiProvider` from an
+  `Api` tag and a streaming producer, deriving `complete` with
+  `streamingComplete`; and `Baikai.Provider.Registry.apiProviderWith`, which
+  takes the completer explicitly. Both default `describeThinking` to
+  "nothing requested, nothing translated" and `strengthCeiling` to
+  `EvidenceRequestedOnly`, matching `declaredStrength (Custom _)`.
+
+- `baikai`: `Baikai.Tool.mkTool` — a tool from its name, description and JSON
+  Schema. A tool built from `emptyTool` and sent unchanged reaches the wire with
+  `input_schema: null`; `mkTool` has no such shape.
+
 - `baikai-trace-otel`: `OtelSinkOptions.parentContext :: Maybe Context`, default
   `Nothing`. When set, every span the sink opens becomes a child of the span in
   that context instead of a root, so a call can be nested under the caller's own
@@ -186,6 +215,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `EvidenceStrength`. (REV-2 D.10.)
 
 ### Changed
+
+- `baikai-claude`, `baikai-openai` (breaking): each provider's streaming
+  machinery moved from `Baikai.Provider.<P>.Api` to
+  `Baikai.Provider.<P>.Internal.Stream` — the `SseDriver` seam, `liveSseDriver`,
+  `<p>StreamWith`, `Assembler`, `emptyAssembler`, `translate`, and on the OpenAI
+  side `RawChunk`, `RawToolDelta`, `parseChunk`, `parseFrame`, `TagScanState`,
+  `scanThinkTags`, `closeOpenStream`, `RawUsage`, `parseUsage` and
+  `rawUsageToUsage`. `Api` now exports exactly `register`, the provider value
+  and the live stream function. The `.Internal` module is exposed for the test
+  suites and sibling packages and, like every `.Internal` module, may change in
+  any release without a major bump — so changing the assembler stops being a
+  documented break. `Shape`, `Sse` and `Transport` keep their names and gain the
+  same no-guarantees header. `_TagScanState` is renamed `emptyTagScanState`.
+  (REV-2 G.1.)
 
 - `baikai-effectful`: no longer depends on `streamly`. Both stanzas listed it
   while every module imports only `Streamly.Data.Fold` and

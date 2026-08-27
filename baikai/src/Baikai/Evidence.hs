@@ -29,7 +29,31 @@ module Baikai.Evidence
     evidenceSchemaVersion,
 
     -- * The evidence record
-    ModelCallEvidence (..),
+    ModelCallEvidence
+      ( schemaVersion,
+        runId,
+        callId,
+        attempt,
+        supersedes,
+        endpoint,
+        requestedModel,
+        thinking,
+        observedModel,
+        observedThinking,
+        responseId,
+        providerRequestId,
+        clientRequestId,
+        startedAt,
+        endedAt,
+        latencyMs,
+        status,
+        errorInfo,
+        usage,
+        strength,
+        requestCommitment,
+        requestConfiguration,
+        responseCommitment
+      ),
     baseEvidence,
 
     -- * Observation
@@ -56,7 +80,7 @@ module Baikai.Evidence
     deriveStrength,
 
     -- * The caller's request
-    EvidenceRequest (..),
+    EvidenceRequest (runId, strictness, attempt, supersedes),
     EvidenceStrictness (..),
     evidenceRequest,
 
@@ -776,6 +800,9 @@ instance FromJSON EvidenceStrictness where
 -- behaves exactly as it did before this vocabulary existed: no digest
 -- is computed, no call identifier is generated for evidence purposes,
 -- and no evidence is emitted.
+--
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'evidenceRequest' and override fields by record update.
 data EvidenceRequest = EvidenceRequest
   { -- | The caller's identifier for the logical unit of work this call
     -- belongs to. Baikai treats it as opaque text and never parses it.
@@ -850,6 +877,10 @@ evidenceSchemaVersion = "baikai.model-call-evidence/2.0"
 -- The field order is the story the record tells: who ran it, where it
 -- went, what was asked, what came back, how it went, and what it costs
 -- to believe.
+--
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'baseEvidence' and override fields by record update, so that a
+-- field added in a later release cannot break a construction site.
 data ModelCallEvidence = ModelCallEvidence
   { -- Identity -------------------------------------------------------
 
