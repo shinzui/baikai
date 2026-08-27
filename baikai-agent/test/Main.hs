@@ -211,7 +211,7 @@ missingEnvironmentTest =
       -- Names chosen to be absent rather than unset here, so the test
       -- never mutates the suite's own environment.
       let names = ["BAIKAI_AGENT_TEST_ABSENT_ONE", "BAIKAI_AGENT_TEST_ABSENT_TWO"]
-          req = capturingRequest dir "ignored" & #envPassthrough .~ names
+          req = capturingRequest dir "ignored" & #envRequires .~ names
       outcome <- runPlain req (stdinCommand (dir </> "unused") [] "ignored")
       case outcome of
         Left (MissingEnvironment missing) -> missing @?= names

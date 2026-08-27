@@ -4,6 +4,7 @@ import Baikai
 import Baikai.Agent
   ( AgentCapability (..),
     AgentCommand,
+    AgentOutputFormat (..),
     AgentPromptTransport (..),
     AgentProvider (..),
     AgentRenderError (..),
@@ -67,6 +68,7 @@ main =
         refusesRejectedApprovalPoliciesTest,
         safetyStillRendersTest,
         agentCommandRenderingTest,
+        agentOutputFormatTest,
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
         agentThinkingTranslationTests,
@@ -302,6 +304,36 @@ agentCommandRenderingTest =
           ]
     cmd ^. #promptTransport @?= PromptOnStdin
     cmd ^. #promptText @?= "reconcile the grammar"
+
+-- | @codex exec --json@ prints its events as JSONL, which is the shape
+-- the runner already parses; without it the tool prints a transcript
+-- meant for a person and an evidence record can observe nothing.
+agentOutputFormatTest :: TestTree
+agentOutputFormatTest =
+  testCase "unattended codex argv asks for structured events, and only when asked" $ do
+    let base = agentRunRequest AgentCodex "/work/project" "reconcile the grammar"
+    textual <- renderedAgentCommand CodexAgent.defaultCodexAgentConfig base
+    textual ^. #arguments
+      @?= [ "exec",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            "/work/project",
+            "--skip-git-repo-check",
+            "--ephemeral"
+          ]
+    structured <-
+      renderedAgentCommand CodexAgent.defaultCodexAgentConfig (base & #outputFormat .~ JsonFormat)
+    structured ^. #arguments
+      @?= [ "exec",
+            "--json",
+            "--sandbox",
+            "read-only",
+            "--cd",
+            "/work/project",
+            "--skip-git-repo-check",
+            "--ephemeral"
+          ]
 
 agentCapabilityRenderingTests :: TestTree
 agentCapabilityRenderingTests =

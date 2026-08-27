@@ -63,6 +63,7 @@ where
 import Baikai.Agent
   ( AgentCapability,
     AgentCeiling,
+    AgentOutputFormat (..),
     AgentOutputMode (..),
     AgentProvider,
     AgentRenderError (..),
@@ -75,9 +76,11 @@ import Baikai.Agent
     ceilingViolations,
     defaultAgentCeiling,
     parseAgentCapability,
+    parseAgentOutputFormat,
     parseAgentOutputMode,
     parseAgentProvider,
     renderAgentCapability,
+    renderAgentOutputFormat,
     renderAgentOutputMode,
     renderAgentProvider,
   )
@@ -181,6 +184,8 @@ data AgentJob = AgentJob
     timeout :: !(Maybe NominalDiffTime),
     -- | What to do with the child's output streams.
     output :: !AgentOutputMode,
+    -- | What shape the tool should print its final answer in.
+    outputFormat :: !AgentOutputFormat,
     -- | Maximum captured bytes per stream. 'Nothing' means unbounded.
     outputLimit :: !(Maybe Int),
     -- | Names of environment variables the job declares it requires.
@@ -392,6 +397,12 @@ outputModeDecoder =
     "one of: inherit, capture, tee"
     (maybe (Left "unknown output mode") Right . parseAgentOutputMode)
 
+outputFormatDecoder :: Decoder AgentOutputFormat
+outputFormatDecoder =
+  parsedDecoder
+    "one of: text, json"
+    (maybe (Left "unknown output format") Right . parseAgentOutputFormat)
+
 -- | The six canonical reasoning-effort names. The list lives in
 -- @baikai\/src\/Baikai\/ThinkingLevel.hs@, which has a renderer but no
 -- parser, so a future level must be added in both places.
@@ -539,6 +550,14 @@ outputSetting jobName =
     outputModeDecoder
     renderAgentOutputMode
 
+outputFormatSetting :: Text -> Setting AgentOutputFormat
+outputFormatSetting jobName =
+  publicSettingWithRenderer
+    (jobKey jobName "output-format")
+    "Shape the tool should print its final answer in"
+    outputFormatDecoder
+    renderAgentOutputFormat
+
 outputLimitSetting :: Text -> Setting (Maybe Int)
 outputLimitSetting jobName =
   publicShowSetting
@@ -588,6 +607,13 @@ agentJobConfig jobName =
       (outputSetting jobName)
       (constantDefault (RuleName "inherit-output") "no output discipline configured" InheritOutput)
     <*> withDefault
+      (outputFormatSetting jobName)
+      ( constantDefault
+          (RuleName "text-output-format")
+          "no output format configured"
+          TextFormat
+      )
+    <*> withDefault
       (outputLimitSetting jobName)
       ( constantDefault
           (RuleName "default-output-limit")
@@ -612,8 +638,9 @@ agentJobRequest job promptBody =
     & #safety .~ requestedSafety
     & #timeout .~ (job ^. #timeout)
     & #output .~ (job ^. #output)
+    & #outputFormat .~ (job ^. #outputFormat)
     & #outputLimit .~ (job ^. #outputLimit)
-    & #envPassthrough .~ (job ^. #envRequires)
+    & #envRequires .~ (job ^. #envRequires)
   where
     requestedSafety :: AgentSafety
     requestedSafety =

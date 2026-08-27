@@ -23,7 +23,10 @@ interface:
 evidence:
   - kind: test
     resource: baikai/test/AgentSpec.hs
-    proves: "The pure policy algebra: the default ceiling accepts read-only and edit-workspace unchanged, refuses each closed channel with the exact violation, reports all three violations for a request that breaks three rules, treats an empty allowedProviders list as permitting no provider, and never clamps — violation text names both the requested and the permitted value."
+    proves: "The pure policy algebra: the default ceiling accepts read-only and edit-workspace unchanged, refuses each closed channel with the exact violation, reports every violation for a request that breaks several rules, treats an empty allowedProviders list as permitting no provider, bounds tool grants against the capability's implied set plus the operator allow-list with exact matching, refuses a timeout above a finite maximum and one absent under it, refuses an unlimited output capture under the default maximum, and never clamps — violation text names both the requested and the permitted value."
+  - kind: test
+    resource: baikai-agent/test/ConfigTests.hs
+    proves: "The provenance-dependent half of the ceiling: a repository file cannot set executable or a non-empty extra-dirs, a repository working-dir must resolve inside the repository root after following symbolic links, the operator file may set all three, no environment variable names the executable, the three policy keys load, an operator file inside the repository is refused with no ceiling established, and an unrecognised key under policy is an error."
   - kind: test
     resource: baikai-agent/test/Main.hs
     proves: "The runner against real subprocesses: the prompt is delivered on stdin, stdout and stderr stay separate, a non-zero exit is a successful run carrying that code, a missing working directory and unset declared variables are caught before any spawn, output truncates at the byte limit, inherit mode captures nothing, a timeout terminates the process group including grandchildren, a child that ignores INT and TERM is killed within the grace periods, a timed-out run reports the bytes it drained before the kill, and a pipe held open from outside the group is interrupted rather than waited on."
@@ -32,10 +35,10 @@ evidence:
     proves: "The built executable rather than the test binary: it reports the threaded runtime, and `baikai agent run` against a stub agent that ignores INT and TERM exits 75 within the grace periods, leaves no process of the group alive, reports the output drained before the kill, and writes its result as UTF-8 under LANG=C."
   - kind: test
     resource: baikai-claude/test/Main.hs
-    proves: "claudeAgentCommand's rendering: capability profile onto --permission-mode, one joined --allowedTools, repeated --add-dir, always -p, and a prompt that appears nowhere in the argument vector even when it starts with a dash."
+    proves: "claudeAgentCommand's rendering: capability profile onto --permission-mode, one joined --allowedTools, repeated --add-dir, always -p, --output-format json only when the request asks for it, and a prompt that appears nowhere in the argument vector even when it starts with a dash."
   - kind: test
     resource: baikai-openai/test/Main.hs
-    proves: "codexAgentCommand's rendering, and that a request carrying a tool allow-list is refused with UnsupportedToolRestriction rather than run with unrestricted tools."
+    proves: "codexAgentCommand's rendering, --json only when the request asks for it, and that a request carrying tool grants is refused with UnsupportedToolRestriction rather than run without them."
   - kind: guide
     resource: docs/user/unattended-agent-runs.md
     proves: "The whole unattended surface, including the capability mapping tables for both tools and how an unattended run differs from an interactive launch."
@@ -55,7 +58,20 @@ Two properties carry the design. First, **the operator ceiling never clamps.**
 reports *every* violation when it is not; it does not quietly downgrade
 `full-access` to `edit-workspace`. Second, **a policy a provider cannot express
 is refused before process creation** — Codex has no tool allow-list flag, so a
-request carrying one is rejected rather than run with unrestricted tools.
+request carrying tool grants is rejected rather than run without them.
+
+**The ceiling gates every field a repository can set.** A job description comes
+from a file the repository owns, which is untrusted input, so each of its
+settings gets one of three treatments: bounded by a ceiling maximum
+(`provider`, `safety.capability`, `safety.allowed-tools`,
+`safety.provider-args`, `timeout`, `output-limit`), refused from repository
+scope entirely (`executable`, `extra-dirs`), or confined to the repository root
+(`working-dir`). `AgentSafety.allowedTools` is a **grant**, not a narrowing: on
+Claude Code it renders `--allowedTools`, which pre-approves tools the permission
+mode would otherwise raise a request for, and in an unattended run a request
+nobody answers is denied. `toolGrantsImpliedBy` says which grants a capability
+implies on its own; anything else needs the operator's `policy.allowed-tools`.
+See [docs/adr/0012](../adr/0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md).
 
 The runner is deliberately blind to vendors. `runAgentCommand` consumes an
 already-rendered `AgentCommand` and imports no vendor renderer, which is why it
@@ -91,9 +107,20 @@ case outcome ^. #outcome of
 ## Limits
 
 - **A non-zero exit code is a successful run**, not a failure. `Left` is reserved
-  for baikai's own failures — spawn, timeout, precondition, malformed output. A
+  for baikai's own failures — spawn, timeout, precondition, evidence refusal. A
   caller that treats `Left` and a non-zero exit as the same thing is wrong about
   both.
+- The implied grant lists in `toolGrantsImpliedBy` are Claude Code's built-in
+  tool names at version 2.1.247, and they fail closed. A name that is not listed
+  can only ever be refused unless the maximum capability is `full-access` or the
+  operator names it, so a coding agent that grows a new tool can never widen an
+  existing ceiling by accident — the cost is that adopting a new tool requires
+  saying so.
+- `RepositoryScopeForbidden` and `WorkingDirOutsideRepository` are never produced
+  by `applyAgentCeiling`: they depend on which file supplied a value, and a
+  request carries no provenance. `Baikai.Agent.Config.repositoryScopeViolations`
+  produces them from the resolution report, and a caller concatenates the two
+  lists.
 - The safety ceiling only constrains what baikai renders. Once the agent is
   running it is bounded by the tool's own enforcement, not by baikai.
 - Capability profiles are not portable in substance. `read-only` maps to Claude's

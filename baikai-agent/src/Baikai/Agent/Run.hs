@@ -150,9 +150,11 @@ import System.Posix.Signals qualified as Signals
 -- __What evidence from this surface can and cannot prove.__ The tool's
 -- own session identifier, model, and token counts are read out of
 -- captured standard output, so they are available only when the run
--- captured output /and/ the tool was configured to print a structured
--- format — @--output-format json@ for @claude@, @--json@ for
--- @codex exec@, neither of which the vendor renderers emit by default.
+-- captured output /and/ asked the tool for a structured format —
+-- 'Baikai.Agent.JsonFormat', which the vendor renderers turn into
+-- @--output-format json@ for @claude@ and @--json@ for @codex exec@.
+-- Neither is the default, because a structured stream is not what an
+-- operator watching a run wants to read.
 -- Under 'InheritOutput' there is nothing to read at all. Absent those,
 -- every tool-reported field stays 'Unobserved' and the strength stays at
 -- 'Baikai.Evidence.EvidenceRequestedOnly'. An operator who needs
@@ -185,7 +187,7 @@ runAgentCommand evidenceReq translation req cmd
       if not dirExists
         then pure (agentRunOutcome (Left (WorkingDirMissing (req ^. #workingDir))))
         else do
-          missing <- missingEnvironment (req ^. #envPassthrough)
+          missing <- missingEnvironment (req ^. #envRequires)
           if not (null missing)
             then pure (agentRunOutcome (Left (MissingEnvironment missing)))
             else do
@@ -466,12 +468,12 @@ requestedModelOf req = fromMaybe "" (req ^. #modelId)
 -- | What the tool said about its own run, read out of captured standard
 -- output.
 --
--- Best-effort by necessity. Neither vendor renderer asks its tool for a
--- structured format — @claude@ gets no @--output-format json@ and
--- @codex exec@ gets no @--json@ — because that would change what an
--- operator watching the run sees. So this parses if the operator
--- configured one through the job's extra arguments, and reports honest
--- silence if not. Under 'InheritOutput' there are no bytes at all.
+-- Best-effort by necessity. A job asks for a structured format by
+-- setting 'Baikai.Agent.JsonFormat' — @output-format \"json\"@ in a
+-- configuration file — and the default is the tool's own text, because
+-- a structured stream would change what an operator watching the run
+-- sees. So this parses what it recognises and reports honest silence
+-- otherwise. Under 'InheritOutput' there are no bytes at all.
 --
 -- Truncated output is still parsed: @codex@\'s newline-delimited stream
 -- yields every complete line, which is more than nothing. Only the
@@ -560,7 +562,7 @@ spawn req cmd = do
             P.create_group = True,
             -- The child inherits the parent's environment in full. Both
             -- tools need HOME, PATH, and their own credential files;
-            -- envPassthrough is a precondition check, not a filter.
+            -- envRequires is a precondition check, not a filter.
             P.env = Nothing
           }
       stdinSpec = case cmd ^. #promptTransport of

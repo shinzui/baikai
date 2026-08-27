@@ -47,8 +47,9 @@ requestDefaultTest =
     req ^. #safety . #providerArgs @?= []
     req ^. #timeout @?= Nothing
     req ^. #output @?= InheritOutput
+    req ^. #outputFormat @?= TextFormat
     req ^. #outputLimit @?= Nothing
-    req ^. #envPassthrough @?= []
+    req ^. #envRequires @?= []
 
 canonicalRenderingTest :: TestTree
 canonicalRenderingTest =
@@ -76,6 +77,13 @@ canonicalRenderingTest =
     parseAgentOutputMode "capture" @?= Just CaptureOutput
     parseAgentOutputMode "tee" @?= Just TeeOutput
     parseAgentOutputMode "Tee" @?= Nothing
+
+    renderAgentOutputFormat TextFormat @?= "text"
+    renderAgentOutputFormat JsonFormat @?= "json"
+    parseAgentOutputFormat "text" @?= Just TextFormat
+    parseAgentOutputFormat "json" @?= Just JsonFormat
+    parseAgentOutputFormat "JSON" @?= Nothing
+    parseAgentOutputFormat "stream-json" @?= Nothing
 
 -- | A request carrying a per-stream output limit.
 --

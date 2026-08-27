@@ -25,6 +25,7 @@ where
 import Baikai.Agent
   ( AgentCapability (..),
     AgentCommand (..),
+    AgentOutputFormat (..),
     AgentPromptTransport (..),
     AgentProvider (..),
     AgentRenderError (..),
@@ -100,6 +101,7 @@ claudeAgentCommand cfg req
                   <> sessionArgs cfg
                   <> modelArgs req
                   <> effortArgs req
+                  <> outputFormatArgs req
                   <> permission
                   <> allowedToolArgs req
                   <> extraDirArgs req
@@ -184,6 +186,19 @@ effortArgs req = case req ^. #effort of
 claudeEffortValue :: ThinkingLevel -> Text
 claudeEffortValue ThinkingMinimal = "low"
 claudeEffortValue lvl = renderThinkingLevel lvl
+
+-- | Ask @claude -p@ for a machine-readable result.
+--
+-- @--output-format@ takes @text@ (the default), @json@ (one result
+-- object) or @stream-json@. Baikai models the first two: @text@ renders
+-- nothing, because a flag that restates the default is noise a reader
+-- has to check. The @json@ shape is the one
+-- 'Baikai.Provider.Cli.Internal.decodeClaudeCliResult' already parses,
+-- which is what lets an evidence record name the session and the model.
+outputFormatArgs :: AgentRunRequest -> [String]
+outputFormatArgs req = case req ^. #outputFormat of
+  TextFormat -> []
+  JsonFormat -> ["--output-format", "json"]
 
 -- | Render the request's tool __grants__.
 --

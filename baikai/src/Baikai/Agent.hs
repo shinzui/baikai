@@ -36,6 +36,9 @@ module Baikai.Agent
     AgentOutputMode (..),
     renderAgentOutputMode,
     parseAgentOutputMode,
+    AgentOutputFormat (..),
+    renderAgentOutputFormat,
+    parseAgentOutputFormat,
     AgentCapturedOutput (..),
     capturedBytes,
 
@@ -50,8 +53,9 @@ module Baikai.Agent
         safety,
         timeout,
         output,
+        outputFormat,
         outputLimit,
-        envPassthrough
+        envRequires
       ),
     agentRunRequest,
 
@@ -216,6 +220,38 @@ parseAgentOutputMode "capture" = Just CaptureOutput
 parseAgentOutputMode "tee" = Just TeeOutput
 parseAgentOutputMode _ = Nothing
 
+-- | What shape the coding agent should print its final answer in.
+--
+-- Distinct from 'AgentOutputMode', which says /where/ the bytes go. This
+-- says what they are.
+--
+-- * 'TextFormat': whatever the tool prints by default, meant for a
+--   person. Both tools default to it and Baikai renders no flag.
+-- * 'JsonFormat': one machine-readable result. Claude Code renders
+--   @--output-format json@ and @codex exec@ renders @--json@; both are
+--   the shapes Baikai's own output readers already parse, so this is
+--   the setting that lets an evidence record observe the session
+--   identifier, the model and the token usage of a run.
+--
+-- Asking for it through the raw-argument channel used to be the only
+-- way, which meant an operator had to open a privileged channel to get
+-- a record — the opposite of what the ceiling is for.
+data AgentOutputFormat
+  = TextFormat
+  | JsonFormat
+  deriving stock (Eq, Ord, Show, Generic)
+
+renderAgentOutputFormat :: AgentOutputFormat -> Text
+renderAgentOutputFormat TextFormat = "text"
+renderAgentOutputFormat JsonFormat = "json"
+
+-- | Parse a canonical output-format name. Matching is exact and
+-- case-sensitive.
+parseAgentOutputFormat :: Text -> Maybe AgentOutputFormat
+parseAgentOutputFormat "text" = Just TextFormat
+parseAgentOutputFormat "json" = Just JsonFormat
+parseAgentOutputFormat _ = Nothing
+
 -- | One captured stream of a finished run. The three states are
 -- distinct on purpose: under 'InheritOutput' the bytes went to the
 -- parent's terminal and none exist to report, which an empty
@@ -267,6 +303,8 @@ data AgentRunRequest = AgentRunRequest
     timeout :: !(Maybe NominalDiffTime),
     -- | What to do with the child's output streams.
     output :: !AgentOutputMode,
+    -- | What shape the tool should print its final answer in.
+    outputFormat :: !AgentOutputFormat,
     -- | Maximum captured bytes per stream, not in total. 'Nothing'
     -- means unbounded.
     outputLimit :: !(Maybe Int),
@@ -280,7 +318,7 @@ data AgentRunRequest = AgentRunRequest
     -- fails before spawning when a declared variable is unset or
     -- empty, so a misconfigured job produces one clear error instead
     -- of a coding agent that starts and then flails.
-    envPassthrough :: ![Text]
+    envRequires :: ![Text]
   }
   deriving stock (Eq, Show, Generic)
 
@@ -288,8 +326,8 @@ data AgentRunRequest = AgentRunRequest
 -- working directory, with the given prompt. Everything else defaults
 -- to the least-authority, least-surprising value: no model or effort
 -- override, no extra directories, read-only capability, no timeout,
--- inherited output, no output limit, and no declared environment
--- variables.
+-- inherited output in the tool's own text format, no output limit, and
+-- no declared environment variables.
 --
 -- The capability default is 'AgentReadOnly': a caller who wants to
 -- change files must say so. That is independent of an operator
@@ -306,8 +344,9 @@ agentRunRequest p dir userPrompt =
       safety = agentSafety AgentReadOnly,
       timeout = Nothing,
       output = InheritOutput,
+      outputFormat = TextFormat,
       outputLimit = Nothing,
-      envPassthrough = []
+      envRequires = []
     }
 
 -- | The limit an operator places on what any job may request.
@@ -795,7 +834,7 @@ data AgentRunFailure
     -- interrupted, then terminated, then killed; what each stream
     -- drained before the kill is carried along.
     RunTimedOut !AgentTimedOut
-  | -- | Every variable named in the request's 'envPassthrough' that is
+  | -- | Every variable named in the request's 'envRequires' that is
     -- unset or empty, checked as a group so an operator sees all of
     -- them at once.
     MissingEnvironment ![Text]

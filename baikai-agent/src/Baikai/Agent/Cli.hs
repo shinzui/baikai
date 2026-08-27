@@ -105,9 +105,10 @@ import Control.Applicative ((<|>))
 import Control.Exception (IOException, bracketOnError, displayException, try)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.Types (Pair)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
-import Data.Char (isControl, ord)
 import Data.Generics.Labels ()
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (fromMaybe, isJust, isNothing)
@@ -115,7 +116,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import GHC.Generics (Generic)
-import Numeric (showHex)
 import Options.Applicative (Parser, ParserInfo)
 import Options.Applicative qualified as Options
 import Settei.Env (EnvSnapshot)
@@ -137,7 +137,13 @@ import System.Directory
     renameFile,
   )
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, takeFileName)
+import System.FilePath
+  ( dropTrailingPathSeparator,
+    normalise,
+    takeDirectory,
+    takeFileName,
+    (</>),
+  )
 import System.IO (hClose, openBinaryTempFileWithDefaultPermissions, stdin)
 
 -- | Which of the three commands was asked for.
@@ -598,7 +604,8 @@ listCommand paths options = do
   pure $ case listed of
     Left problem -> failedRun configExitCode (renderAgentConfigError problem <> "\n")
     Right entries
-      | options ^. #jsonOutput -> successfulRun (jsonArray (map entryJson entries) <> "\n") ""
+      | options ^. #jsonOutput ->
+          successfulRun (encodeEnvelope (Aeson.toJSON (map entryJson entries))) ""
       -- An empty list is a normal state, not an error, and the note
       -- saying so goes to standard error so that a script piping the
       -- list never has to filter prose out of its data.
@@ -617,10 +624,10 @@ listCommand paths options = do
                else ""
            )
     entryJson entry =
-      jsonObject
-        [ ("name", jsonString (entry ^. #name)),
-          ("scope", jsonString (renderAgentConfigScope (entry ^. #scope))),
-          ("definingScopes", Text.pack (show (entry ^. #definingScopes)))
+      Aeson.object
+        [ "name" Aeson..= (entry ^. #name),
+          "scope" Aeson..= renderAgentConfigScope (entry ^. #scope),
+          "definingScopes" Aeson..= (entry ^. #definingScopes)
         ]
 
 -- --------------------------------------------------------------------
@@ -702,12 +709,15 @@ stageJob paths snapshot options jobName = do
           case loadedOrFailed of
             Left failure -> pure (Left failure)
             Right ceiling' -> do
+              -- Provenance first, against the job as configured: the
+              -- scope check composes the root itself and must see the
+              -- spelling the document used.
               scopeViolations <-
                 repositoryScopeViolations paths (resolved ^. #report) jobName job
               pure
                 ( Right
                     StagedJob
-                      { job,
+                      { job = rootedJob paths job,
                         report = resolved ^. #report,
                         warnings = warningsText,
                         ceiling = ceiling',
@@ -723,6 +733,28 @@ stageJob paths snapshot options jobName = do
           report = Nothing,
           warnings = ""
         }
+
+-- | Resolve the job's working directory against the repository root.
+--
+-- A relative @working-dir@ has to resolve against /something/, and the
+-- process's own directory is the wrong answer for a value that may have
+-- come from either file: two documents defining one job would make
+-- @\".\"@ mean two places depending on which layer won. The repository
+-- root is the same directory whichever file declared it, so
+-- @working-dir \".\"@ means \"this checkout\" everywhere.
+--
+-- An absolute path passes through @\<\/\>@ unchanged, so a job naming
+-- one is untouched. The result is normalised and stripped of a trailing
+-- separator, so @\".\"@ yields the root itself rather than
+-- @\<root\>\/.@ — this path is rendered into @codex exec --cd@, printed
+-- by @agent show@, and recorded as an evidence endpoint, and all three
+-- should read as the directory a person would name.
+rootedJob :: AgentConfigPaths -> AgentJob -> AgentJob
+rootedJob paths job =
+  job
+    & #workingDir
+      .~ dropTrailingPathSeparator
+        (normalise ((paths ^. #repositoryRoot) </> (job ^. #workingDir)))
 
 ceilingSourceLabel :: AgentConfigPaths -> Text
 ceilingSourceLabel paths = case paths ^. #userConfig of
@@ -762,14 +794,32 @@ showCommand ::
 showCommand paths snapshot options jobName = do
   staged <- stageJob paths snapshot options jobName
   pure $ case staged of
-    Left failure ->
-      AgentCliRun
-        { exitCode = failure ^. #exitCode,
-          -- A failed resolution's provenance is exactly what an explain
-          -- command is for, so the report is printed when there is one.
-          standardOutput = maybe "" (renderReport options) (failure ^. #report),
-          standardError = failure ^. #warnings <> failure ^. #message <> "\n"
-        }
+    Left failure
+      | options ^. #jsonOutput ->
+          AgentCliRun
+            { exitCode = failure ^. #exitCode,
+              standardOutput =
+                encodeEnvelope
+                  ( showJson
+                      jobName
+                      "failed"
+                      (failure ^. #exitCode)
+                      (Just (failure ^. #message))
+                      (failure ^. #report)
+                      Nothing
+                      Nothing
+                  ),
+              standardError = failure ^. #warnings
+            }
+      | otherwise ->
+          AgentCliRun
+            { exitCode = failure ^. #exitCode,
+              -- A failed resolution's provenance is exactly what an
+              -- explain command is for, so the report is printed when
+              -- there is one.
+              standardOutput = maybe "" renderEffectiveConfig (failure ^. #report),
+              standardError = failure ^. #warnings <> failure ^. #message <> "\n"
+            }
     Right stagedJob -> explain options jobName stagedJob
 
 -- | Print the effective configuration, the ceiling, and the command
@@ -782,7 +832,17 @@ explain options jobName staged =
       | options ^. #jsonOutput ->
           AgentCliRun
             { exitCode = refusedExitCode,
-              standardOutput = jsonShow (Just (renderAgentRenderError refusal)) Nothing <> "\n",
+              standardOutput =
+                encodeEnvelope
+                  ( showJson
+                      jobName
+                      "refused"
+                      refusedExitCode
+                      (Just (renderAgentRenderError refusal))
+                      (Just (staged ^. #report))
+                      (Just (staged ^. #ceilingSource, staged ^. #ceiling))
+                      Nothing
+                  ),
               standardError = staged ^. #warnings
             }
       | otherwise ->
@@ -794,7 +854,19 @@ explain options jobName staged =
             }
     Right command
       | options ^. #jsonOutput ->
-          successfulRun (jsonShow Nothing (Just command) <> "\n") (staged ^. #warnings)
+          successfulRun
+            ( encodeEnvelope
+                ( showJson
+                    jobName
+                    "shown"
+                    0
+                    Nothing
+                    (Just (staged ^. #report))
+                    (Just (staged ^. #ceilingSource, staged ^. #ceiling))
+                    (Just command)
+                )
+            )
+            (staged ^. #warnings)
       | otherwise ->
           successfulRun
             (textSections <> "\n" <> renderCommandSection command)
@@ -827,20 +899,6 @@ explain options jobName staged =
         <> staged ^. #ceilingSource
         <> "\n"
         <> renderCeiling (staged ^. #ceiling)
-    jsonShow refusal command =
-      jsonObject
-        ( [ ("job", jsonString jobName),
-            ("configuration", renderResolutionJson (staged ^. #report)),
-            ("ceiling", ceilingJson (staged ^. #ceilingSource) (staged ^. #ceiling))
-          ]
-            <> maybe [] (\message -> [("refused", jsonString message)]) refusal
-            <> maybe [] (\value -> [("command", commandJson value)]) command
-        )
-
-renderReport :: AgentCliOptions -> ResolutionReport -> Text
-renderReport options report
-  | options ^. #jsonOutput = renderResolutionJson report <> "\n"
-  | otherwise = renderEffectiveConfig report
 
 -- | Render every resolved value with the file, line, and column it came
 -- from.
@@ -1034,12 +1092,13 @@ execute options staged promptBody =
           AgentCliRun
             { exitCode = refusedExitCode,
               standardOutput =
-                jsonObject
-                  [ ("outcome", jsonString "refused"),
-                    ("exitCode", Text.pack (show refusedExitCode)),
-                    ("message", jsonString message)
-                  ]
-                  <> "\n",
+                encodeEnvelope
+                  ( Aeson.object
+                      [ "outcome" Aeson..= ("refused" :: Text),
+                        "exitCode" Aeson..= refusedExitCode,
+                        "message" Aeson..= message
+                      ]
+                  ),
               standardError = staged ^. #warnings
             }
       | otherwise =
@@ -1074,16 +1133,17 @@ interpret options staged request result record evidenceNote = case result of
         AgentCliRun
           { exitCode = failureExitCode failure,
             standardOutput =
-              jsonObject
-                ( [ ("outcome", jsonString "failed"),
-                    ("exitCode", Text.pack (show (failureExitCode failure))),
-                    ("message", jsonString (renderAgentRunFailure failure))
-                  ]
-                    <> streamFields "stdout" (timedOut ^. #stdout)
-                    <> streamFields "stderr" (timedOut ^. #stderr)
-                    <> evidenceField record
-                )
-                <> "\n",
+              encodeEnvelope
+                ( Aeson.object
+                    ( [ "outcome" Aeson..= ("failed" :: Text),
+                        "exitCode" Aeson..= failureExitCode failure,
+                        "message" Aeson..= renderAgentRunFailure failure
+                      ]
+                        <> streamFields "stdout" (timedOut ^. #stdout)
+                        <> streamFields "stderr" (timedOut ^. #stderr)
+                        <> evidenceField record
+                    )
+                ),
             standardError = staged ^. #warnings <> evidenceNote
           }
     | otherwise ->
@@ -1102,14 +1162,15 @@ interpret options staged request result record evidenceNote = case result of
         AgentCliRun
           { exitCode = failureExitCode failure,
             standardOutput =
-              jsonObject
-                ( [ ("outcome", jsonString "failed"),
-                    ("exitCode", Text.pack (show (failureExitCode failure))),
-                    ("message", jsonString (renderAgentRunFailure failure))
-                  ]
-                    <> evidenceField record
-                )
-                <> "\n",
+              encodeEnvelope
+                ( Aeson.object
+                    ( [ "outcome" Aeson..= ("failed" :: Text),
+                        "exitCode" Aeson..= failureExitCode failure,
+                        "message" Aeson..= renderAgentRunFailure failure
+                      ]
+                        <> evidenceField record
+                    )
+                ),
             standardError = staged ^. #warnings <> evidenceNote
           }
     | otherwise ->
@@ -1120,7 +1181,7 @@ interpret options staged request result record evidenceNote = case result of
     | options ^. #jsonOutput ->
         AgentCliRun
           { exitCode = resultExitCode ran,
-            standardOutput = resultJson record ran <> "\n",
+            standardOutput = encodeEnvelope (resultJson record ran),
             standardError = staged ^. #warnings <> evidenceNote <> truncationNotes ran
           }
     | otherwise ->
@@ -1270,13 +1331,13 @@ decoded captured = case captured of
   OutputCaptured bytes -> Text.decodeUtf8Lenient bytes
   OutputTruncated bytes -> Text.decodeUtf8Lenient bytes
 
-resultJson :: Maybe ModelCallEvidence -> AgentRunResult -> Text
+resultJson :: Maybe ModelCallEvidence -> AgentRunResult -> Aeson.Value
 resultJson record result =
-  jsonObject
-    ( [ ("outcome", jsonString "ran"),
-        ("exitCode", Text.pack (show (resultExitCode result))),
-        ("provider", jsonString (renderAgentProvider (result ^. #provider))),
-        ("durationSeconds", Text.pack (show (realToFrac (result ^. #duration) :: Double)))
+  Aeson.object
+    ( [ "outcome" Aeson..= ("ran" :: Text),
+        "exitCode" Aeson..= resultExitCode result,
+        "provider" Aeson..= renderAgentProvider (result ^. #provider),
+        "durationSeconds" Aeson..= (realToFrac (result ^. #duration) :: Double)
       ]
         <> streamFields "stdout" (result ^. #stdout)
         <> streamFields "stderr" (result ^. #stderr)
@@ -1291,10 +1352,9 @@ resultJson record result =
 -- 'ModelCallEvidence' has its own 'Aeson.ToJSON', which is the same
 -- encoder @--evidence-file@ writes, so the two destinations cannot
 -- drift.
-evidenceField :: Maybe ModelCallEvidence -> [(Text, Text)]
+evidenceField :: Maybe ModelCallEvidence -> [Pair]
 evidenceField Nothing = []
-evidenceField (Just record) =
-  [("evidence", Text.decodeUtf8Lenient (BSL.toStrict (Aeson.encode record)))]
+evidenceField (Just record) = ["evidence" Aeson..= record]
 
 -- | One captured stream as JSON fields: its text and whether it was cut
 -- off at the configured output limit.
@@ -1305,15 +1365,14 @@ evidenceField (Just record) =
 --
 -- Shared by a finished run and by a timed-out one, which carries the
 -- same two streams.
-streamFields :: Text -> AgentCapturedOutput -> [(Text, Text)]
+streamFields :: Text -> AgentCapturedOutput -> [Pair]
 streamFields _ OutputNotCaptured = []
 streamFields label captured =
-  [ (label, jsonString (decoded captured)),
-    ( label <> "Truncated",
-      case captured of
-        OutputTruncated _ -> "true"
-        _ -> "false"
-    )
+  [ Key.fromText label Aeson..= decoded captured,
+    Key.fromText (label <> "Truncated")
+      Aeson..= case captured of
+        OutputTruncated _ -> True
+        _ -> False
   ]
 
 -- --------------------------------------------------------------------
@@ -1353,62 +1412,92 @@ promptSourceLabel (PromptFile path) = Text.pack path
 promptSourceLabel (PromptInline _) = "--prompt"
 
 -- --------------------------------------------------------------------
--- A very small JSON writer
+-- JSON
 -- --------------------------------------------------------------------
 
--- | Hand-rolled rather than pulled from @aeson@: the package needs
--- exactly three shapes, and the alternative is a dependency the library
--- otherwise has no use for.
-jsonObject :: [(Text, Text)] -> Text
-jsonObject fields =
-  "{" <> Text.intercalate "," [jsonString name <> ":" <> value | (name, value) <- fields] <> "}"
+-- | One JSON value as a line of output.
+--
+-- Every @--json@ path goes through this, so the encoder — and therefore
+-- the escaping — is @aeson@'s in every case. The package already
+-- depends on it to write evidence records.
+encodeEnvelope :: Aeson.Value -> Text
+encodeEnvelope value = Text.decodeUtf8Lenient (BSL.toStrict (Aeson.encode value)) <> "\n"
 
-jsonArray :: [Text] -> Text
-jsonArray values = "[" <> Text.intercalate "," values <> "]"
-
-jsonString :: Text -> Text
-jsonString value = "\"" <> Text.concatMap escape value <> "\""
-  where
-    escape '"' = "\\\""
-    escape '\\' = "\\\\"
-    escape '\n' = "\\n"
-    escape '\r' = "\\r"
-    escape '\t' = "\\t"
-    escape character
-      | isControl character =
-          "\\u" <> Text.justifyRight 4 '0' (Text.pack (showHex (ord character) ""))
-      | otherwise = Text.singleton character
-
-ceilingJson :: Text -> AgentCeiling -> Text
-ceilingJson sourceLabel ceiling' =
-  jsonObject
-    [ ("source", jsonString sourceLabel),
-      ("maxCapability", jsonString (renderAgentCapability (ceiling' ^. #maxCapability))),
-      ( "allowProviderArgs",
-        if ceiling' ^. #allowProviderArgs then "true" else "false"
-      ),
-      ( "allowedProviders",
-        jsonArray (map (jsonString . renderAgentProvider) (ceiling' ^. #allowedProviders))
-      ),
-      ("allowedTools", jsonArray (map jsonString (ceiling' ^. #allowedTools))),
-      ( "maxTimeout",
-        maybe "null" (jsonString . Text.pack . show) (ceiling' ^. #maxTimeout)
-      ),
-      ( "maxOutputLimit",
-        maybe "null" (Text.pack . show) (ceiling' ^. #maxOutputLimit)
-      )
+-- | The one shape @agent show --json@ emits, whatever happened.
+--
+-- A reader should not have to know which of three failure modes it is
+-- looking at before it can find the exit code: every field is always
+-- present, and the ones that do not apply are @null@. That is why a
+-- document that would not even parse still produces an object here,
+-- where it used to produce a bare resolution report or nothing at all.
+showJson ::
+  -- | The job that was asked about.
+  Text ->
+  -- | @shown@, @refused@, or @failed@.
+  Text ->
+  -- | The exit code the command is about to return.
+  Int ->
+  -- | The refusal or the configuration error, when there was one.
+  Maybe Text ->
+  -- | The resolution report, when resolution got far enough to produce
+  -- one. A failed resolution still carries provenance, and for an
+  -- explain command that is exactly what the operator needs.
+  Maybe ResolutionReport ->
+  -- | The ceiling and the file it came from, when one was loaded.
+  Maybe (Text, AgentCeiling) ->
+  -- | The rendered command, when one was rendered.
+  Maybe AgentCommand ->
+  Aeson.Value
+showJson jobName outcomeWord code message report ceiling' command =
+  Aeson.object
+    [ "job" Aeson..= jobName,
+      "outcome" Aeson..= outcomeWord,
+      "exitCode" Aeson..= code,
+      "message" Aeson..= message,
+      "configuration" Aeson..= fmap reportJson report,
+      "ceiling" Aeson..= fmap (uncurry ceilingJson) ceiling',
+      "command" Aeson..= fmap commandJson command
     ]
 
-commandJson :: AgentCommand -> Text
+-- | @settei@'s own JSON rendering of a resolution report, as a value
+-- rather than as text, so it nests inside the envelope instead of
+-- appearing as an escaped string.
+--
+-- The fallback keeps the text: a report that will not decode is still
+-- worth showing, and refusing to emit an envelope over it would lose
+-- the exit code too.
+reportJson :: ResolutionReport -> Aeson.Value
+reportJson report =
+  fromMaybe
+    (Aeson.String rendered)
+    (Aeson.decodeStrict (Text.encodeUtf8 rendered))
+  where
+    rendered = renderResolutionJson report
+
+ceilingJson :: Text -> AgentCeiling -> Aeson.Value
+ceilingJson sourceLabel ceiling' =
+  Aeson.object
+    [ "source" Aeson..= sourceLabel,
+      "maxCapability" Aeson..= renderAgentCapability (ceiling' ^. #maxCapability),
+      "allowProviderArgs" Aeson..= (ceiling' ^. #allowProviderArgs),
+      "allowedProviders"
+        Aeson..= map renderAgentProvider (ceiling' ^. #allowedProviders),
+      "allowedTools" Aeson..= (ceiling' ^. #allowedTools),
+      -- Null rather than a word, because "unlimited" is the absence of a
+      -- bound and a reader branching on null needs no vocabulary.
+      "maxTimeout"
+        Aeson..= fmap (Text.pack . show) (ceiling' ^. #maxTimeout),
+      "maxOutputLimit" Aeson..= (ceiling' ^. #maxOutputLimit)
+    ]
+
+commandJson :: AgentCommand -> Aeson.Value
 commandJson command =
-  jsonObject
-    [ ("executable", jsonString (Text.pack (command ^. #executable))),
-      ("arguments", jsonArray (map (jsonString . Text.pack) (command ^. #arguments))),
-      ( "promptTransport",
-        jsonString
-          ( case command ^. #promptTransport of
-              PromptOnStdin -> "stdin"
-              PromptAsArgument -> "argument"
-          )
-      )
+  Aeson.object
+    [ "executable" Aeson..= Text.pack (command ^. #executable),
+      "arguments" Aeson..= map Text.pack (command ^. #arguments),
+      "promptTransport"
+        Aeson..= ( case command ^. #promptTransport of
+                     PromptOnStdin -> "stdin" :: Text
+                     PromptAsArgument -> "argument"
+                 )
     ]

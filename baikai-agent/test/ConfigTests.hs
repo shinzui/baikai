@@ -10,6 +10,7 @@ module ConfigTests (configTests) where
 
 import Baikai.Agent
   ( AgentCapability (..),
+    AgentOutputFormat (..),
     AgentOutputMode (..),
     AgentProvider (..),
     CeilingViolation (..),
@@ -69,6 +70,7 @@ configTests =
           environmentLayerTest,
           defaultsTest,
           singleArgumentListTest,
+          outputFormatTest,
           missingFileTest
         ],
       testGroup
@@ -254,6 +256,7 @@ defaultsTest =
       job ^. #envRequires @?= []
       job ^. #timeout @?= Nothing
       job ^. #executable @?= Nothing
+      job ^. #outputFormat @?= TextFormat
 
 singleArgumentListTest :: TestTree
 singleArgumentListTest =
@@ -296,6 +299,22 @@ singleArgumentListTest =
       overridden <-
         resolveJob paths noEnvironment [override "jobs.none.extra-dirs" "/from-flag"] "none"
       overridden ^. #extraDirs @?= ["/from-flag"]
+
+outputFormatTest :: TestTree
+outputFormatTest =
+  testCase "output-format selects the structured result shape" $
+    -- The setting that lets an evidence record observe a run without
+    -- opening the raw-argument channel a ceiling closes by default.
+    withConfigs Nothing (Just (jobDocWith "read-only" ["output-format \"json\""])) $ \paths -> do
+      job <- resolveJob paths noEnvironment [] "demo"
+      job ^. #outputFormat @?= JsonFormat
+      -- A misspelling fails rather than falling back to text.
+      shouldFail <-
+        withConfigs Nothing (Just (jobDocWith "read-only" ["output-format \"jsonl\""])) $
+          \badPaths -> resolutionFailure badPaths "demo"
+      assertBool
+        ("the offending key is named: " <> Text.unpack shouldFail)
+        (Text.isInfixOf "jobs.demo.output-format" shouldFail)
 
 missingFileTest :: TestTree
 missingFileTest =

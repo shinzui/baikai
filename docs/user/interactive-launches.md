@@ -113,8 +113,8 @@ Four behaviors decide how a caller reads the result:
 
 Two preconditions are checked before anything is spawned: a working
 directory that does not exist yields `WorkingDirMissing`, and any
-variable named in `envPassthrough` that is unset or empty yields
-`MissingEnvironment` listing every one of them at once. `envPassthrough`
+variable named in `envRequires` that is unset or empty yields
+`MissingEnvironment` listing every one of them at once. `envRequires`
 is a precondition check, not a filter — the child inherits the parent's
 environment in full, because both tools need `HOME`, `PATH`, and their
 own credential files to work at all.

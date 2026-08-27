@@ -9,6 +9,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: `Baikai.Agent.AgentOutputFormat` (`TextFormat`, `JsonFormat`) with
+  `renderAgentOutputFormat` and `parseAgentOutputFormat`, and
+  `AgentRunRequest.outputFormat`, defaulting to `TextFormat`. `baikai-claude`
+  renders `--output-format json` and `baikai-openai` renders `--json`, both
+  right after the effort flags; `baikai-agent` reads it from
+  `jobs.<name>.output-format`. This is the one setting an evidence record needs
+  in order to observe a run's session, model and usage, and asking for it used
+  to require the `provider-args` channel that an operator ceiling closes by
+  default — an operator should not have to open a privileged channel to get a
+  record. (REV-2 F.14.)
+
 - `baikai`: `Baikai.Agent.AgentCeiling` gains three fields and the module gains
   the vocabulary they need. `allowedTools :: [Text]` names tool grants the
   operator permits beyond the ones `toolGrantsImpliedBy` (also new) says a
@@ -150,6 +161,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   maximum exists to refuse. Jobs resolved through `baikai-agent` are unaffected:
   that layer's own default supplies a finite limit, and only an explicit
   `output-limit "unlimited"` reaches the ceiling as `Nothing`.
+
+- `baikai-agent` (breaking): a relative `working-dir` resolves against the
+  repository root rather than the process's own directory, so `working-dir "."`
+  means the checkout whichever file declared it. Resolving against the process
+  directory made `"."` mean two places when two documents defined one job, since
+  which one it was depended on which layer won. An absolute path is unchanged.
+  (REV-2 F.14.)
+
+- `baikai-agent` (breaking): every `--json` output is now built with `aeson`
+  rather than a hand-rolled writer, and `agent show --json` always emits one
+  object with the same seven keys — `job`, `outcome` (`shown`, `refused` or
+  `failed`), `exitCode`, `message`, `configuration`, `ceiling`, `command` —
+  with `null` for the parts that do not apply. Previously a refusal emitted a
+  different shape from a success and a document that would not parse emitted a
+  bare resolution report or nothing at all, so a reader had to know which
+  failure mode it was looking at before it could find the exit code. `run --json`
+  keeps its `outcome` values and `list --json` is unchanged. (REV-2 F.14.)
 
 - `baikai-agent` (breaking): `--run-id` or `--require-evidence` without either
   `--evidence-file` or `--json` is now a usage error (64) naming both fixes.
@@ -313,6 +341,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a field of its generated catalog record. It is removed at the next major.
 
 ### Removed
+
+- `baikai` (breaking): `AgentRunRequest.envPassthrough` is renamed `envRequires`.
+  The field is a list of variables the job declares it requires, checked as a
+  precondition; it has never passed anything through, and the KDL key has said
+  `env-requires` since the setting existed.
 
 - `baikai` (breaking): `AgentRunFailure.OutputMalformed`, and with it
   `baikai-agent`'s exit code 70 and its `internalExitCode` export. Nothing ever

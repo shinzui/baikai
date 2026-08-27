@@ -4,6 +4,7 @@ import Baikai
 import Baikai.Agent
   ( AgentCapability (..),
     AgentCommand,
+    AgentOutputFormat (..),
     AgentPromptTransport (..),
     AgentProvider (..),
     AgentRenderError (..),
@@ -53,6 +54,7 @@ main =
         safetyRefusalTest,
         safetyStillRendersTest,
         agentCommandRenderingTest,
+        agentOutputFormatTest,
         agentCapabilityRenderingTests,
         agentEffortRenderingTests,
         agentThinkingTranslationTests,
@@ -297,6 +299,31 @@ agentCommandRenderingTest =
           ]
     cmd ^. #promptTransport @?= PromptOnStdin
     cmd ^. #promptText @?= "reconcile the grammar"
+
+-- | @output-format "json"@ is what lets an evidence record observe the
+-- session, the model and the token usage of a run. Before it existed the
+-- only way to ask was through the raw-argument channel, which an
+-- operator ceiling closes by default — so a job needed a privileged
+-- channel opened to produce a record.
+agentOutputFormatTest :: TestTree
+agentOutputFormatTest =
+  testCase "unattended claude argv asks for a structured result, and only when asked" $ do
+    let base = agentRunRequest AgentClaude "/work/project" "reconcile the grammar"
+    textual <- renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig base
+    -- The tool already defaults to text, so a flag restating it would be
+    -- noise a reader has to check.
+    textual ^. #arguments
+      @?= ["-p", "--no-session-persistence", "--permission-mode", "plan"]
+    structured <-
+      renderedAgentCommand ClaudeAgent.defaultClaudeAgentConfig (base & #outputFormat .~ JsonFormat)
+    structured ^. #arguments
+      @?= [ "-p",
+            "--no-session-persistence",
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "plan"
+          ]
 
 agentCapabilityRenderingTests :: TestTree
 agentCapabilityRenderingTests =

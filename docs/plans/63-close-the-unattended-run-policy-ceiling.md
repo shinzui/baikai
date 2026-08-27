@@ -76,8 +76,11 @@ grants it.
       `errorInfo` bound, staging path). (2026-08-27) All six fixes landed with their tests;
       the guide's exit-code table and CAP-18's exit-code sentence lost their `70` row in the
       same commit.
-- [ ] Milestone 4: 0.2 config-surface adjustments (`env-requires`, structured output,
+- [x] Milestone 4: 0.2 config-surface adjustments (`env-requires`, structured output,
       `show --json`), the ADR, the guide, both capability records, the changelog.
+      (2026-08-27) The rename, `AgentOutputFormat` on both renderers and in the KDL
+      schema, the repository-rooted working directory, the aeson envelopes, ADR `0012`,
+      the guide rewrite, CAP-17 and CAP-18, and the `[Unreleased]` changelog all landed.
 
 
 ## Surprises & Discoveries
@@ -112,6 +115,28 @@ grants it.
   which is the point — the check exists to defeat a committed link, so it reports where
   the link led. The assertion is now a suffix plus "not under the root".
   (2026-08-27, Milestone 1)
+
+- __Two `applyCeilingToJob` callers turned out to be one guard.__ The plan asked for
+  a `scopeViolations <> ceilingViolations` guard in `explain` and `execute`, which are
+  the only two places the ceiling was applied. Rather than write the concatenation
+  twice, `Cli.hs` now has one `ceilingGuard :: StagedJob -> AgentRunRequest -> Either
+  AgentRenderError ()`; `applyCeilingToJob` stays exported and is what a library caller
+  without provenance uses. (2026-08-27, Milestone 1)
+
+- __The refusal path had no evidence destination, so a usage error re-based it.__
+  `refusesAnImpossibleEvidenceRequirementTest` drove `--require-evidence` with neither
+  `--evidence-file` nor `--json`, which Milestone 3 makes a usage error (64) before the
+  refusal (77) can happen. The case is about the refusal, so it now names a
+  destination. Any later plan adding a precondition to a flag should expect the tests
+  that exercise that flag's *other* behaviour to need the precondition satisfied.
+  (2026-08-27, Milestone 3)
+
+- __`root </> "."` is a real path but an ugly one.__ Composing the repository root with
+  a relative working directory yields `<root>/.`, which is then rendered into
+  `codex exec --cd`, printed by `agent show`, and recorded as an evidence endpoint —
+  three places a person reads. `dropTrailingPathSeparator . normalise` gives the plain
+  directory in every case, including the absolute-path case it leaves alone.
+  (2026-08-27, Milestone 4)
 
 - __A test that sets a process-global environment variable races the fixture that
   reads it.__ The new `A REPOSITORY TOOL GRANT NEEDS AN OPERATOR GRANT` case began by
@@ -256,10 +281,102 @@ grants it.
   stays because `provider-args` is opaque by design and could still supply the flag.
   Date: 2026-08-27
 
+- Decision: The concatenation of scope violations and ceiling violations lives in one
+  `ceilingGuard` in `Baikai.Agent.Cli`, and `applyCeilingToJob` stays exported
+  unchanged.
+  Rationale: `explain` and `execute` are the only two callers, and writing the same
+  concatenation twice is how the two paths drift. `applyCeilingToJob` remains the
+  answer for a library caller that has a request and no provenance to check it
+  against.
+  Date: 2026-08-27
+
+- Decision: The rooted working directory is `dropTrailingPathSeparator . normalise` of
+  `repositoryRoot </> workingDir`, not the bare composition.
+  Rationale: the bare composition yields `<root>/.` for the commonest spelling, and
+  that string is rendered into `codex exec --cd`, printed by `agent show`, and recorded
+  as an evidence endpoint. All three are read by people.
+  Date: 2026-08-27
+
+- Decision: This plan's ADR is
+  `docs/adr/0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md`,
+  so the next plan to promote a record takes `0013`.
+  Rationale: landing order, per the allocation rule in the MasterPlan's Integration
+  Points. The distillation pass found nothing durable beyond that record: the evidence
+  destination rule, the bounded `errorInfo` and the unique staging name are documented
+  in `docs/user/unattended-agent-runs.md` where a caller meets them, and the
+  `envPassthrough` rename and `output-format` are surface facts the changelog and the
+  guide already carry.
+  Date: 2026-08-27
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Complete on 2026-08-27, four milestones in four commits (`c629195`, `bb5113a`,
+`a039ba9`, and the completion commit).
+
+Every setting a repository file can write is now bounded, refused from repository
+scope, or confined to the checkout. With no operator file, a repository job that sets
+`allowed-tools "Bash"` under `edit-workspace` exits 77 with
+
+```text
+refused: the request exceeds the permitted policy ceiling: tool grants Bash are not permitted under the maximum capability edit-workspace; add them to policy.allowed-tools in the operator file or raise policy.max-capability
+```
+
+before any process is created; writing `policy { allowed-tools "Bash" }` in the
+operator's own file makes the same command run. A repository `executable` or
+`extra-dirs` is refused naming the setting; a repository `working-dir` that leaves the
+root — including through a committed symbolic link — is refused naming both
+directories; `timeout` and `output-limit` have operator maxima, and a finite maximum
+refuses a job that omits the setting as well as one that exceeds it. An operator file
+under the checkout is refused with exit 78 and no ceiling, which closes both
+`--user-config .baikai/policy.kdl` and `XDG_CONFIG_HOME=$PWD/.baikai`; a misspelled
+`policy` key is an error rather than a silently ignored line. All three transcripts
+were run by hand against the built binary and match the plan's acceptance.
+
+The command surface stopped claiming things that were not true. Another job's unknown
+keys and the operator file's `policy` node no longer print on every run, while a typo
+inside the selected job still does and a repository `policy` node earns exactly one
+notice. `--run-id` and `--require-evidence` now need a destination, and `--json` is
+one; the record's `endpoint` resolves a relative executable the way the child does;
+`error_info` keeps the last 4096 bytes of standard error with a prefix saying what was
+dropped; the evidence staging file is created fresh with `O_EXCL`, so a planted
+symbolic link is never written through; and exit code 70, which nothing produced, is
+gone along with `OutputMalformed`.
+
+The 0.2 surface changes landed with them: `envPassthrough` is `envRequires`,
+`output-format "json"` renders `--output-format json` on Claude and `--json` on Codex
+so evidence can observe a run without opening the raw-argument channel, a relative
+`working-dir` resolves against the repository, and every `--json` output is
+aeson-built with `show --json` emitting one seven-key envelope whatever happened.
+
+The keyless `cabal test all` gate is green across all eight suites (113 in
+`baikai-agent-test`, up from 96), `nix fmt` leaves the tree unchanged, `nix flake
+check` passes, and `okf validate docs/capabilities` reports `OK: 22 concepts`. ADR
+`0012` records the decision, so the next plan to promote a record takes `0013`.
+
+Names EP-10 must cover, beyond what earlier plans recorded: on `Baikai.Agent`,
+`AgentOutputFormat (..)`, `renderAgentOutputFormat`, `parseAgentOutputFormat`,
+`ceilingViolations`, `defaultMaxOutputLimit`, `toolGrantsImpliedBy`, the three new
+`AgentCeiling` fields (`allowedTools`, `maxTimeout`, `maxOutputLimit`), the five new
+`CeilingViolation` constructors, and `AgentRunRequest.outputFormat`; on
+`Baikai.Agent.Config`, `ceilingViolations`, `repositoryScopeViolations`,
+`relevantWarnings`, `repositoryPolicyNotice`, the `AgentConfigPaths.repositoryRoot`
+field and the two new `AgentConfigError` constructors; on `Baikai.Agent.Run`,
+`errorInfoStderrTailBytes` and `executableForEvidence`. `Baikai.Agent.Cli` no longer
+exports `internalExitCode`. The `AgentCeiling` field set is final, as the plan
+promised: EP-10 must not change it.
+
+What a keyed or live run would still have to show: nothing in this plan needs one. The
+one external dependency is the two coding agents' help text, which was re-read before
+the grant model was written — `claude` 2.1.247 still documents `--allowedTools` as a
+"list of tool names to allow", and `codex exec` (0.150.1, one patch ahead of the
+plan's expectation) still has `--json`.
+
+Left undone deliberately: a result-schema setting (`--json-schema` on Claude,
+`--output-schema FILE` on Codex) is a different feature with a shape mismatch between
+the two tools, and the strict-evidence gate was not tightened to require
+`output-format "json"`, because `provider-args` is opaque by design and could still
+supply the flag.
 
 
 ## Context and Orientation

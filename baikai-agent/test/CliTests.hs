@@ -78,7 +78,10 @@ cliTests =
         [ showExplainsWithProvenanceTest,
           showRedactsProviderArgumentsTest,
           showPrintsConfigurationBeforeRefusalTest,
-          showReportsAnUnreadableFileTest
+          showReportsAnUnreadableFileTest,
+          showJsonFailureIsAnEnvelopeTest,
+          showJsonRefusalIsAnEnvelopeTest,
+          aRelativeWorkingDirIsTheRepositoryTest
         ],
       testGroup
         "the sync-keiro-dsl fixture"
@@ -375,6 +378,9 @@ showExplainsWithProvenanceTest =
         ("a line and column follow the path: " <> Text.unpack output)
         ((Text.pack path <> ":3:") `Text.isInfixOf` output)
       assertBool
+        ("the output format is named: " <> Text.unpack output)
+        ("jobs.demo.output-format" `Text.isInfixOf` output)
+      assertBool
         ("the ceiling is shown: " <> Text.unpack output)
         ("max-capability" `Text.isInfixOf` output)
       assertBool
@@ -452,6 +458,116 @@ showPrintsConfigurationBeforeRefusalTest =
         ( "full-access" `Text.isInfixOf` (finished ^. #standardError)
             && "edit-workspace" `Text.isInfixOf` (finished ^. #standardError)
         )
+
+-- | Every `show --json` path emits one object with the same seven keys,
+-- so a reader never has to know which of three failure modes it is
+-- looking at before it can find the exit code.
+showEnvelopeOf :: AgentCliRun -> IO (KeyMap.KeyMap Aeson.Value)
+showEnvelopeOf finished =
+  case Aeson.eitherDecodeStrict (Text.encodeUtf8 (finished ^. #standardOutput)) of
+    Left problem ->
+      assertFailure
+        ( "the envelope did not parse: "
+            <> problem
+            <> "\n"
+            <> Text.unpack (finished ^. #standardOutput)
+        )
+    Right (Aeson.Object envelope) -> do
+      mapM_
+        ( \key ->
+            assertBool
+              ("expected the key " <> show key <> " in: " <> show envelope)
+              (KeyMap.member key envelope)
+        )
+        ["job", "outcome", "exitCode", "message", "configuration", "ceiling", "command"]
+      pure envelope
+    Right other -> assertFailure ("expected one JSON object, got: " <> show other)
+
+showJsonFailureIsAnEnvelopeTest :: TestTree
+showJsonFailureIsAnEnvelopeTest =
+  testCase "a malformed document under --json still produces one envelope" $
+    -- The path that used to print a bare resolution report, or nothing
+    -- at all when there was no report to print.
+    withWorkspace $ \dir -> do
+      paths <- repositoryOnly dir "jobs {\n  demo {\n    provider \"claude\"\n"
+      finished <-
+        run paths ((options (AgentShow "demo")) {jsonOutput = True})
+      finished ^. #exitCode @?= configExitCode
+      envelope <- showEnvelopeOf finished
+      KeyMap.lookup "outcome" envelope @?= Just (Aeson.String "failed")
+      KeyMap.lookup "exitCode" envelope @?= Just (Aeson.Number 78)
+      KeyMap.lookup "job" envelope @?= Just (Aeson.String "demo")
+      KeyMap.lookup "command" envelope @?= Just Aeson.Null
+
+showJsonRefusalIsAnEnvelopeTest :: TestTree
+showJsonRefusalIsAnEnvelopeTest =
+  testCase "a refused job under --json produces the same envelope" $
+    withWorkspace $ \dir -> do
+      paths <-
+        repositoryOnly
+          dir
+          ( Text.unlines
+              [ "jobs {",
+                "  demo {",
+                "    provider \"claude\"",
+                "    working-dir \".\"",
+                "    safety { capability \"full-access\" }",
+                "  }",
+                "}"
+              ]
+          )
+      finished <- run paths ((options (AgentShow "demo")) {jsonOutput = True})
+      finished ^. #exitCode @?= refusedExitCode
+      envelope <- showEnvelopeOf finished
+      KeyMap.lookup "outcome" envelope @?= Just (Aeson.String "refused")
+      KeyMap.lookup "exitCode" envelope @?= Just (Aeson.Number 77)
+      -- The configuration and the ceiling are both present: a refused
+      -- job is exactly the case an operator most needs them for.
+      assertBool
+        ("expected a configuration object: " <> show envelope)
+        (KeyMap.lookup "configuration" envelope /= Just Aeson.Null)
+      assertBool
+        ("expected a ceiling object: " <> show envelope)
+        (KeyMap.lookup "ceiling" envelope /= Just Aeson.Null)
+      case KeyMap.lookup "message" envelope of
+        Just (Aeson.String message) ->
+          assertBool
+            ("the refusal names both values: " <> Text.unpack message)
+            ("full-access" `Text.isInfixOf` message && "edit-workspace" `Text.isInfixOf` message)
+        other -> assertFailure ("expected a message string, got: " <> show other)
+
+aRelativeWorkingDirIsTheRepositoryTest :: TestTree
+aRelativeWorkingDirIsTheRepositoryTest =
+  testCase "working-dir \".\" means the repository, whichever file declared it" $
+    -- Resolving against the process's own directory would be wrong for a
+    -- value that may come from either file: two documents defining one
+    -- job would make "." mean two places depending on which layer won.
+    withWorkspace $ \dir -> do
+      paths <-
+        repositoryOnly
+          dir
+          ( Text.unlines
+              [ "jobs {",
+                "  demo {",
+                "    provider    \"codex\"",
+                "    working-dir \".\"",
+                "    safety { capability \"read-only\" }",
+                "  }",
+                "}"
+              ]
+          )
+      finished <- run paths ((options (AgentShow "demo")) {jsonOutput = True})
+      finished ^. #exitCode @?= 0
+      envelope <- showEnvelopeOf finished
+      case KeyMap.lookup "command" envelope of
+        Just (Aeson.Object command) ->
+          case KeyMap.lookup "arguments" command of
+            Just (Aeson.Array args) ->
+              assertBool
+                ("expected --cd to name the repository root: " <> show args)
+                (Aeson.String (Text.pack (repositoryRootIn dir)) `elem` args)
+            other -> assertFailure ("expected an arguments array, got: " <> show other)
+        other -> assertFailure ("expected a command object, got: " <> show other)
 
 showReportsAnUnreadableFileTest :: TestTree
 showReportsAnUnreadableFileTest =

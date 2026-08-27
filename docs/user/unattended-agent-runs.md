@@ -90,12 +90,14 @@ effective configuration
   jobs.reconcile.model = (unset)
   jobs.reconcile.output = inherit
       from default rule inherit-output
+  jobs.reconcile.output-format = text
+      from default rule text-output-format
   jobs.reconcile.output-limit = Just 4194304
       from default rule default-output-limit
   jobs.reconcile.provider = "claude"
       from repository configuration at .baikai/agents.kdl:4:17
   jobs.reconcile.safety.allowed-tools = []
-      from default rule no-tool-restriction
+      from default rule no-tool-grants
   jobs.reconcile.safety.capability = "edit-workspace"
       from repository configuration at .baikai/agents.kdl:6:25
   jobs.reconcile.safety.provider-args = <redacted>
@@ -108,6 +110,9 @@ policy ceiling, from built-in default (no operator configuration file)
   max-capability       edit-workspace
   allow-provider-args  false
   allowed-providers    claude, codex
+  allowed-tools        (none beyond the capability)
+  max-timeout          unlimited
+  max-output-limit     67108864
 
 rendered command
   claude
@@ -161,6 +166,13 @@ Raw provider arguments appear as `<redacted>`, both in the effective
 configuration and in the rendered argument vector. See
 [Redaction](#redaction).
 
+Under `--json`, `show` always emits exactly one object with the same seven
+keys — `job`, `outcome`, `exitCode`, `message`, `configuration`, `ceiling`,
+`command` — whatever happened. `outcome` is `shown`, `refused` or `failed`, and
+the keys that do not apply are `null`. A reader never has to know which of
+three failure modes it is looking at before it can find the exit code, which is
+why even a document that will not parse produces an envelope.
+
 ### `baikai agent run`
 
 Resolves the job, caps it against the ceiling, renders the argument vector, and
@@ -192,9 +204,26 @@ Supplying either turns the recording on. With `--evidence-file` but no
 `--run-id`, the job's own name stands in as the run identifier; Baikai treats
 that value as opaque text and never parses it.
 
+**A record needs somewhere to go.** `--run-id` or `--require-evidence` without
+either `--evidence-file` or `--json` is a usage error (`64`), because building
+a record costs a `--version` probe of the tool and two digests and a record
+that is then dropped proves nothing. There is no safe default destination:
+standard output belongs to the agent's own answer, which a capturing script is
+reading.
+
+Under `--json` the record travels in the envelope as an `evidence` field,
+encoded exactly as `--evidence-file` would write it:
+
+```console
+$ baikai agent run review --prompt "look" --run-id nightly-42 --json | jq .evidence.run_id
+"nightly-42"
+```
+
 The record is written atomically — a uniquely named staging file beside the
-destination, followed by a rename — so a reader polling the path never sees a half-written
-object. It is never appended to: each run writes one complete record, so a
+destination, followed by a rename — so a reader polling the path never sees a
+half-written object. The staging name is not the destination plus a suffix: it
+is created fresh, so a symbolic link planted at a guessable name cannot make an
+unattended run overwrite a file of the planter's choosing. It is never appended to: each run writes one complete record, so a
 script wanting a log of many runs should point each run at its own path. A run
 that never started, because the executable was missing or a precondition
 failed, writes nothing at all; an empty file would claim a run happened.
@@ -257,10 +286,23 @@ legitimately differ in what they asked.
 Getting a `strength` above `requested_only` from an unattended run takes two
 things, and neither is the default. The job must **capture** output — under
 `inherit` the agent's bytes went to your terminal and Baikai never held them —
-and the tool must be configured to print a structured format, which means adding
-`--output-format json` for `claude` or `--json` for `codex exec` through the
-job's `provider-args`. Without both, the tool's session identifier, model, and
-token counts are genuinely unavailable and the record says so.
+and it must ask the tool for a structured format, which is `output-format
+"json"`:
+
+```kdl
+jobs {
+  review {
+    provider      "claude"
+    working-dir   "."
+    output        "capture"
+    output-format "json"
+    safety { capability "read-only" }
+  }
+}
+```
+
+Without both, the tool's session identifier, model, and token counts are
+genuinely unavailable and the record says so.
 
 ### Exit codes
 
@@ -357,21 +399,21 @@ A repository names jobs. Here is the complete shape, with every setting:
 ```kdl
 jobs {
   sync-keiro-dsl {
-    provider     "claude"          // required: claude | codex
-    working-dir  "."               // required
-    executable   "/usr/bin/claude" // optional: overrides PATH lookup
-    model        "sonnet"          // optional
-    effort       "high"            // optional: minimal|low|medium|high|xhigh|max
-    extra-dirs   "/path/one"       // optional list; default empty
-    timeout      "45m"             // optional; no limit when omitted
-    output       "inherit"         // inherit | capture | tee; default inherit
-    output-limit 4194304           // bytes per stream; default 4194304
-    env-requires "KEIRO_PATH"      // optional list of names; never values
+    provider      "claude"          // required: claude | codex
+    working-dir   "."               // required; must stay inside the repository
+    model         "sonnet"          // optional
+    effort        "high"            // optional: minimal|low|medium|high|xhigh|max
+    timeout       "45m"             // optional; no limit when omitted
+    output        "inherit"         // inherit | capture | tee; default inherit
+    output-format "text"            // text | json; default text
+    output-limit  4194304           // bytes per stream; default 4194304
+    env-requires  "KEIRO_PATH"      // optional list of names; never values
     safety {
       capability    "edit-workspace"        // required
-      allowed-tools "Read" "Write" "Edit"   // optional; refused for codex
+      allowed-tools "Read" "Write" "Edit"   // optional GRANTS; refused for codex
       provider-args "--betas" "context-1m"  // optional; SECRET, operator opt-in
     }
+    // executable and extra-dirs are NOT here: see the three treatments below.
   }
 }
 ```
@@ -380,6 +422,40 @@ Three settings are **required** and have no default: `provider`,
 `working-dir`, and `safety.capability`. The capability has no default on
 purpose — a job that forgot to state how much authority it wants must not
 silently receive some.
+
+### The three treatments
+
+A repository file is untrusted input: an automation daemon that checks out a
+repository is reading a file somebody else wrote. Every setting therefore gets
+one of three treatments, and which one it gets is a decision, not an accident.
+
+| Treatment | Settings | What it means |
+|-----------|----------|---------------|
+| **Bounded** | `provider`, `safety.capability`, `safety.allowed-tools`, `safety.provider-args`, `timeout`, `output-limit` | The operator's ceiling carries a maximum. A job over it is refused with exit `77` naming both values. |
+| **Operator-only** | `executable`, `extra-dirs` | A repository file may not set them at all; the refusal names the setting. The operator's own file and `--set` still can. |
+| **Confined** | `working-dir` | A repository value must resolve inside the repository, after following symbolic links. |
+
+`executable` is operator-only because it names the program to run: that
+program inherits the operator's environment and receives the prompt on its
+standard input, so a checkout choosing it is a checkout running code of its
+choice. `extra-dirs` is operator-only because, inside the repository, it adds
+nothing the working directory already gives — the only extra directories a
+checkout would ask for are outside it, which is the operator's grant to make.
+
+A repository setting either one is refused before anything starts:
+
+```console
+$ baikai agent run review --prompt "look around"
+refused: the request exceeds the permitted policy ceiling: the repository configuration set executable, which only the operator file or the command line may set
+$ echo $?
+77
+```
+
+An operator who wants one writes it in their own file, or passes it once:
+
+```console
+$ baikai agent run review --prompt "look" --set executable=/opt/bin/claude
+```
 
 ### Setting reference
 
@@ -394,10 +470,14 @@ silently receive some.
 | `extra-dirs` | list of paths | no | empty |
 | `timeout` | duration | no | no limit |
 | `output` | `inherit` \| `capture` \| `tee` | no | `inherit` |
+| `output-format` | `text` \| `json` | no | `text` |
 | `output-limit` | bytes, or `"unlimited"` | no | `4194304` (4 MiB) |
 | `env-requires` | list of variable names | no | empty |
-| `safety.allowed-tools` | list of tool names | no | empty (no narrowing) |
+| `safety.allowed-tools` | list of tool names | no | empty (no grants beyond the capability) |
 | `safety.provider-args` | list of raw arguments | no | empty |
+
+`executable` and `extra-dirs` are settable only from the operator file or
+`--set`; they are listed here because that is where you set them.
 
 A few settings deserve a note.
 
@@ -423,9 +503,33 @@ forty-five minutes, `"2h"` is two hours. A bare number means seconds, so
 to diagnose. Omitting the setting is how a run goes untimed.
 
 **`output-limit` is per stream, not in total.** Write `"unlimited"` to remove
-the bound. The default is concrete rather than unbounded because an operator
-who never mentions a limit should not be one runaway agent away from
-exhausting memory.
+the bound — though the operator's `policy.max-output-limit` has to permit it,
+and by default it does not. The default is concrete rather than unbounded
+because an operator who never mentions a limit should not be one runaway agent
+away from exhausting memory.
+
+**`safety.allowed-tools` is a list of grants, not a narrowing.** On Claude Code
+it becomes `--allowedTools`, whose help reads "list of tool names to allow": it
+pre-approves the named tools so the permission mode never raises a request for
+them, and in an unattended run a permission request nobody answers is denied.
+So it *widens* what the run may do. Which grants a job may ask for is bounded
+by the ceiling — see "The ceiling" below. `codex exec` has no equivalent flag
+and refuses a non-empty list rather than running without it.
+
+**`output-format "json"` is how an evidence record learns anything.** It
+renders `--output-format json` on Claude Code and `--json` on `codex exec`,
+both of which baikai's own readers parse, so the record can name the session,
+the model and the token usage. The default is the tool's own text, because a
+structured stream is not what someone watching a run wants to read. Asking for
+it used to require the `provider-args` channel, which the ceiling closes by
+default — an operator should not have to open a privileged channel to get a
+record.
+
+**A relative `working-dir` resolves against the repository**, not against the
+directory the command was started from, so `working-dir "."` means this
+checkout whichever file declared it. An absolute path is used as written, and a
+repository file's value — relative or absolute — must still resolve inside the
+repository.
 
 ### Lists take one value, several, or none
 
@@ -446,23 +550,39 @@ An operator's file can do everything a repository file can, and one thing a
 repository file cannot: set the **policy ceiling**.
 
 ```kdl
-// ~/.config/baikai/agents.kdl
+// ~/.config/baikai/agents.kdl — must lie outside every repository
 policy {
   max-capability      "edit-workspace"   // read-only | edit-workspace | full-access
   allow-provider-args #false
   allowed-providers   "claude" "codex"
+  allowed-tools       "Bash" "Skill"     // grants beyond the capability; default none
+  max-timeout         "2h"               // duration or "unlimited"; default unlimited
+  max-output-limit    67108864           // bytes or "unlimited"; default 67108864 (64 MiB)
 }
 
 // Defaults every job in every repository inherits, unless it says otherwise.
+// Two of these can be set from here and nowhere else.
 jobs {
   sync-keiro-dsl {
-    timeout "20m"
+    timeout    "20m"
+    executable "/opt/bin/claude"
+    extra-dirs "/srv/shared"
   }
 }
 ```
 
-Setting only one of the three policy settings is fine; the rest keep their
-defaults.
+Setting only one policy key is fine; the rest keep their defaults. A key under
+`policy` that baikai does not recognise is an **error**, not a warning:
+everywhere else a forward-compatible file should not stop an older binary, but
+for the one node whose purpose is limiting authority, a misspelling that
+silently left the default in force would be indefensible.
+
+```console
+$ baikai agent show review
+the operator configuration file /home/op/.config/baikai/agents.kdl sets a policy key that does not exist: policy.max-capabilty; a misspelled ceiling key would silently leave the default in force
+$ echo $?
+78
+```
 
 ## Precedence
 
@@ -471,10 +591,10 @@ Five layers. Later layers win.
 | # | Layer | Can set job settings | Can set the ceiling |
 |---|-------|----------------------|---------------------|
 | 1 | Built-in defaults | yes | yes (the default) |
-| 2 | Operator file | yes | **yes** |
-| 3 | Repository file | yes | **no** |
-| 4 | Environment | `provider`, `model`, `executable`, `timeout` only | **no** |
-| 5 | Command line | yes | **no** |
+| 2 | Operator file | yes, including `executable` and `extra-dirs` | **yes**, unless the file lies inside the repository |
+| 3 | Repository file | yes, except `executable` and `extra-dirs`; `working-dir` confined to the repository | **no** |
+| 4 | Environment | `provider`, `model`, `timeout` only | **no** |
+| 5 | Command line | yes, including `executable` and `extra-dirs` | **no** |
 
 A worked example. Suppose `provider` is set in three places:
 
@@ -505,20 +625,21 @@ file must not silently change which policy is in force.
 
 ### The environment layer is deliberately narrow
 
-Exactly four variables are bound:
+Exactly three variables are bound:
 
 | Variable | Sets |
 |----------|------|
 | `BAIKAI_AGENT_PROVIDER` | `provider` |
 | `BAIKAI_AGENT_MODEL` | `model` |
-| `BAIKAI_AGENT_EXECUTABLE` | `executable` |
 | `BAIKAI_AGENT_TIMEOUT` | `timeout` |
 
-The capability, the tool list, and the raw provider arguments are **not**
-bound, and this is not an oversight. An environment variable is easy to set
-accidentally and is inherited by every child process; letting one widen a
-job's authority would create exactly the ambient influence the ceiling exists
-to prevent.
+The capability, the tool list, the raw provider arguments, and **the
+executable** are not bound, and this is not an oversight. An environment
+variable is easy to set accidentally and is inherited by every child process;
+letting one widen a job's authority would create exactly the ambient influence
+the ceiling exists to prevent — and naming the program to run is the widest
+widening there is. An operator whose installation is not on `PATH` writes
+`executable` in their own file or passes `--set executable=…`.
 
 ## The ceiling
 
@@ -536,18 +657,74 @@ itself whatever it liked, and if a `--set` override could, then
 
 A repository file *may contain* a `policy` node. It simply has no effect on
 the ceiling. It is not an error, and it is not silently honored either; it is
-ignored.
+ignored — with one notice on standard error saying so, because whoever wrote
+it believed it would do something.
+
+### Which file is the operator file
+
+Three inputs choose it, in order: `--user-config PATH`, else
+`$XDG_CONFIG_HOME/baikai/agents.kdl`, else `$HOME/.config/baikai/agents.kdl`.
+
+Be precise about what that means. Those three are inputs to the **process**,
+so the ceiling is exactly as trustworthy as whoever starts the process. If an
+attacker can choose your flags or your environment, they can choose your
+ceiling, and no amount of care inside baikai changes that. "No repository
+file, environment variable, or flag can raise it" is a statement about the
+*layering* — the repository's own document never contributes to the ceiling —
+not a claim to survive a hostile parent process.
+
+What *can* be closed is the one shape in which the repository becomes the
+ceiling: a path under the checkout. `--user-config .baikai/policy.kdl` and
+`XDG_CONFIG_HOME=$PWD/.baikai` both name one, and both are refused:
+
+```console
+$ baikai agent show review --user-config .baikai/policy.kdl
+the operator configuration file /src/project/.baikai/policy.kdl lies inside the repository /src/project, so the repository could have written the policy ceiling; move it outside the checkout or pass --user-config with a path outside it
+$ echo $?
+78
+```
+
+Exit `78` rather than `77`: no ceiling could be established, which is a
+configuration error, not a policy refusal.
 
 ### With no operator file
 
-The default ceiling permits **read-only** and **edit-workspace** capability,
-refuses **full-access**, and refuses raw provider arguments. Both providers
-are permitted.
+The default ceiling permits **read-only** and **edit-workspace** capability
+and refuses **full-access**; refuses raw provider arguments; permits both
+providers; grants no tool beyond what the capability implies; permits an
+untimed run; and bounds each captured stream at 67108864 bytes (64 MiB).
 
 That default is what makes a job that changes files work on a fresh machine
-with no out-of-band setup step, while the two things that can widen authority
-without bound — sandbox-bypassing modes and arbitrary vendor flags — stay
-opt-in at operator scope.
+with no out-of-band setup step, while the things that can widen authority
+without bound — sandbox-bypassing modes, arbitrary vendor flags, shell access,
+and unbounded memory — stay opt-in at operator scope.
+
+### Tool grants
+
+`safety.allowed-tools` is a grant, so the ceiling bounds it. A grant passes
+when the maximum capability already implies it, or when the operator named it
+in `policy.allowed-tools`:
+
+| Maximum capability | Implied grants |
+|--------------------|----------------|
+| `read-only` | `Read`, `Glob`, `Grep`, `NotebookRead`, `TodoWrite` |
+| `edit-workspace` | the above plus `Edit`, `MultiEdit`, `Write`, `NotebookEdit` |
+| `full-access` | every grant |
+
+`Bash` is in no finite list on purpose: it runs arbitrary commands, which is
+what `full-access` means. A job that wants it under a lesser capability needs
+the operator to say so, once:
+
+```kdl
+policy {
+  allowed-tools "Bash" "Skill"
+}
+```
+
+Matching is exact on the whole string, so granting `"Bash"` does not permit
+`"Bash(git *)"` and granting `"Bash(git *)"` does not permit `"Bash"`. The
+lists are short and fail closed, so a coding agent that grows a new tool can
+only ever be refused — it can never widen a ceiling that already exists.
 
 ### Exceeding it is a refusal, not a downgrade
 
@@ -558,19 +735,33 @@ may edit ends up doing nothing and reporting success.
 The refusal names what was asked for and what is permitted:
 
 ```text
-the request exceeds the permitted policy ceiling: requested capability
-full-access exceeds the permitted maximum edit-workspace
+the request exceeds the permitted policy ceiling: requested capability full-access exceeds the permitted maximum edit-workspace
 ```
 
-The other two violations read:
+The others read:
 
 ```text
-raw provider arguments are not permitted: --betas context-1m
+raw provider arguments are not permitted; 2 requested, and their values are secret and are not shown
 provider codex is not permitted; permitted providers: claude
+tool grants Bash, Skill are not permitted under the maximum capability edit-workspace; add them to policy.allowed-tools in the operator file or raise policy.max-capability
+the requested timeout 3h exceeds the permitted maximum 2h
+the job sets no timeout, and the permitted maximum is 2h
+output-limit unlimited exceeds the permitted maximum 67108864 bytes
+the repository configuration set executable, which only the operator file or the command line may set
+the working directory /etc lies outside the repository /src/project
 ```
 
+The raw-argument refusal reports how many arguments were requested and never
+what they were: that setting is the one that can carry a credential, and a
+message quoting it would defeat the redaction the configuration layer applies.
+
+A finite `max-timeout` refuses a job that sets **no** timeout as well as one
+that sets too long a timeout, because a maximum you can defeat by omitting the
+setting is not a maximum. The same rule applies to `output-limit "unlimited"`
+under a finite `max-output-limit`, which is the default.
+
 Every violation is reported, not just the first, so fixing a job description
-takes one pass rather than three.
+takes one pass rather than several.
 
 ## Redaction
 
@@ -596,20 +787,23 @@ and both coding agents keep their own credentials in their own stores.
 ## Where a value came from
 
 Every resolution carries a report attributing each chosen value to the file it
-came from, including the exact line and column. Two renderings exist:
-`renderResolutionText` names the scope and shows what each value shadowed, and
-`renderResolutionJson` additionally carries the path, line, and column of every
-origin.
+came from, including the exact line and column. This is what `baikai agent
+show` prints under "effective configuration":
 
 ```text
-jobs.demo.provider = "claude"
-  from file source repository configuration (KDL v2)
-  shadowed: file source user configuration (KDL v2)
-jobs.demo.output = inherit
-  from default rule inherit-output
-jobs.demo.safety.provider-args = <redacted>
-  from default rule no-provider-args
+  jobs.demo.provider = claude
+      from repository configuration at .baikai/agents.kdl:4:17
+  jobs.demo.output = inherit
+      from default rule inherit-output (no output discipline configured)
+  jobs.demo.safety.provider-args = <redacted>
+      from default rule no-provider-args (nothing configured)
 ```
+
+A value that no layer supplied and that has no default reads `= (unset)`.
+
+Under `--json` the same report is the envelope's `configuration` field, in
+`settei`'s own JSON rendering, which carries the path, line and column of every
+origin as separate fields for a script to read.
 
 ## What a capability becomes
 
@@ -694,7 +888,8 @@ claude -p "$prompt" \
   || die "agent run failed"
 ```
 
-Every one of those flags becomes configuration. In `.baikai/agents.kdl`:
+Every one of those flags becomes configuration, and one of them also needs a
+line in the operator's own file. In `.baikai/agents.kdl`:
 
 ```kdl
 jobs {
@@ -707,6 +902,14 @@ jobs {
       allowed-tools "Read" "Write" "Edit" "Glob" "Grep" "Bash" "Skill" "TodoWrite"
     }
   }
+}
+```
+
+and, once, in `~/.config/baikai/agents.kdl`:
+
+```kdl
+policy {
+  allowed-tools "Bash" "Skill"
 }
 ```
 
@@ -729,6 +932,16 @@ Reading the translation piece by piece:
 - `--allowedTools Read Write …` becomes `allowed-tools`, and Baikai joins the
   names with commas into one argument rather than passing them separately,
   because the flag is variadic and separate values can absorb a following flag.
+  Six of those eight names are implied by `edit-workspace` and need nothing
+  further. `Bash` and `Skill` are not, because they are **grants** — a grant
+  pre-approves a tool the permission mode would otherwise have raised a request
+  for, and in an unattended run a request nobody answers is denied. That is why
+  the operator file above carries `policy { allowed-tools "Bash" "Skill" }`:
+  the repository asks, and the operator, once, permits. Without it the run is
+  refused with exit `77` naming all three of `Bash`, `edit-workspace` and
+  `policy.allowed-tools`.
+- The tool's own path is not in the repository file and cannot be: `executable`
+  and `extra-dirs` are settable only from the operator file or `--set`.
 - `--add-dir "$keiro_path"` stays on the command line as
   `--set extra-dirs="$keiro_path"`, because it is computed at run time from a
   registry lookup while everything else is static. Note the plural: the setting
@@ -757,24 +970,53 @@ The configuration layer lives in `Baikai.Agent.Config` in the `baikai-agent`
 package:
 
 ```haskell
+data AgentConfigPaths = AgentConfigPaths
+  { userConfig     :: !(Maybe FilePath)
+  , repoConfig     :: !(Maybe FilePath)
+  , repositoryRoot :: !FilePath
+  }
+
 resolveAgentJob ::
   AgentConfigPaths -> EnvSnapshot -> [CliOverride] -> Text ->
   IO (Either AgentConfigError (ResolveResult AgentJob))
 
 loadAgentCeiling  :: AgentConfigPaths -> IO (Either AgentConfigError AgentCeiling)
+ceilingViolations :: AgentCeiling -> AgentRunRequest -> [CeilingViolation]
 applyCeilingToJob :: AgentCeiling -> AgentRunRequest -> Either AgentRenderError AgentRunRequest
+
+repositoryScopeViolations ::
+  AgentConfigPaths -> ResolutionReport -> Text -> AgentJob -> IO [CeilingViolation]
 
 agentJobRequest :: AgentJob -> Text -> AgentRunRequest   -- the prompt arrives at call time
 listAgentJobs   :: AgentConfigPaths -> IO (Either AgentConfigError [AgentJobEntry])
 ```
 
 `defaultAgentConfigPaths` locates the two files described above, setting each
-to `Nothing` when it does not exist. The paths are an explicit record so a
-caller — or a test — can point somewhere else.
+to `Nothing` when it does not exist, and fills `repositoryRoot` from the
+process's current directory. The paths are an explicit record so a caller — or
+a test — can point somewhere else.
+
+`repositoryRoot` is the checkout. It is what confines a repository-supplied
+`working-dir` and what refuses an operator file lying inside the checkout, and
+`--config PATH` deliberately does not move it: a flag that could would defeat
+both properties.
 
 The ceiling is a **separate call** from job resolution, with a separate source
 list. That asymmetry is the security property, so it is two functions rather
 than one function with a flag.
+
+Two of the violations depend on **which file** supplied a value, and
+`applyAgentCeiling` sees a request rather than its provenance. Those come from
+`repositoryScopeViolations`, which reads the resolution report; a caller
+concatenates its answer with `ceilingViolations` and reports one refusal naming
+everything at once. That is what the command surface does:
+
+```haskell
+case repositoryScopeViolations paths report jobName job
+       <> ceilingViolations ceiling request of
+  []         -> proceed
+  violations -> refuse (CeilingRejected violations)
+```
 
 Turning a resolved job into something that runs takes two more steps: render it
 to an argument vector with `claudeAgentCommand` or `codexAgentCommand`, and

@@ -25,6 +25,7 @@ where
 import Baikai.Agent
   ( AgentCapability (..),
     AgentCommand (..),
+    AgentOutputFormat (..),
     AgentPromptTransport (..),
     AgentProvider (..),
     AgentRenderError (..),
@@ -100,6 +101,7 @@ codexAgentCommand cfg req
                 ["exec"]
                   <> modelArgs req
                   <> effortArgs req
+                  <> outputFormatArgs req
                   <> sandbox
                   <> ["--cd", req ^. #workingDir]
                   <> extraDirArgs req
@@ -170,6 +172,19 @@ toolRestrictionGuard req = case req ^. #safety . #allowedTools of
           \sandbox mode, or pass an explicit provider argument if your operator \
           \policy permits raw arguments"
       )
+
+-- | Ask @codex exec@ for machine-readable output.
+--
+-- @codex exec --json@ prints its events to standard output as JSONL,
+-- which is the shape
+-- 'Baikai.Provider.Cli.Internal.parseCodexJsonlStream' already parses;
+-- without it the tool prints a transcript meant for a person and an
+-- evidence record can observe nothing. There is no @text@ flag to
+-- render, because that is the default.
+outputFormatArgs :: AgentRunRequest -> [String]
+outputFormatArgs req = case req ^. #outputFormat of
+  TextFormat -> []
+  JsonFormat -> ["--json"]
 
 -- | A blank model value must not produce @--model ""@.
 modelArgs :: AgentRunRequest -> [String]

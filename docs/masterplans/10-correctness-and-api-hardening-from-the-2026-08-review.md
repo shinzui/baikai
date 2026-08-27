@@ -148,7 +148,7 @@ states the version (EP-10).
 | 3 | Make Anthropic thinking style and sampling support catalog-driven | docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md | None | EP-2 | Complete |
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Complete |
 | 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Complete |
-| 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | In Progress |
+| 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Complete |
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Not Started |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Not Started |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Not Started |
@@ -390,10 +390,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-5 M2: in-band `{"error": …}` frames on 2xx streams classified
 - [x] EP-5 M3: 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge semantics
 - [x] EP-5 M4: unreachable-shape tests retired; classifier module docs match the transport
-- [ ] EP-6 M1: ceiling gates every repository-settable field; `allowedTools` modelled as a grant
-- [ ] EP-6 M2: ceiling-file provenance decided and documented
-- [ ] EP-6 M3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint, `errorInfo` bound, staging path)
-- [ ] EP-6 M4: 0.2 config-surface adjustments (`env-requires`, structured output, `show --json`)
+- [x] EP-6 M1: ceiling gates every repository-settable field; `allowedTools` modelled as a grant
+- [x] EP-6 M2: ceiling-file provenance decided and documented
+- [x] EP-6 M3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint, `errorInfo` bound, staging path)
+- [x] EP-6 M4: 0.2 config-surface adjustments (`env-requires`, structured output, `show --json`)
 - [ ] EP-7 M1: symlinked kit sources refused on install, hash and status
 - [ ] EP-7 M2: library code returns typed errors; only the CLI exits
 - [ ] EP-7 M3: install fidelity (every listed file, phase-two rollback, unique temp names, manifest version gate, dirty-update refusal)
@@ -569,8 +569,45 @@ plans named (each plan's implementer reads this section before its first commit)
   changes. Any later plan that removes a name should schedule its test deletions in the
   same milestone. (2026-08-27, EP-5)
 
+- __A gate added to a shared check re-bases every test that reached it through a
+  default-valued record — again.__ EP-6's finite `maxOutputLimit` default makes
+  `applyAgentCeiling defaultAgentCeiling` refuse any request whose `outputLimit` is
+  `Nothing`, which is what `agentRunRequest` defaults to; five cases in
+  `baikai/test/AgentSpec.hs` had to start from a helper that sets a limit. This is the
+  third instance of the pattern EP-3 first recorded (a capability flag), and it is now
+  worth stating as a rule: __when a plan adds a bound to a check, grep for the
+  constructor that builds the checked value, not just for the field name.__ The default
+  is invisible at every call site. EP-8, EP-9 and EP-10 all add or move checks.
+  (2026-08-27, EP-6)
+- __Two top-level nodes of the same name in one KDL document are an array, not a
+  merge.__ Building a fixture by concatenating `jobs { … }` with a second `jobs { … }`
+  produces a repeated node, which settei reads as an array and then cannot traverse;
+  every key fails with `cannot traverse jobs through array in file source repository
+  configuration (KDL v2)`, which reads like a resolution bug rather than a malformed
+  fixture. EP-6 hit it twice. Any later plan composing KDL fixtures by concatenation
+  should compose /inside/ the node instead. (2026-08-27, EP-6)
+- __`canonicalizePath` on macOS resolves `/etc` to `/private/etc` and `/tmp` to
+  `/private/tmp`.__ Any test asserting a canonicalised path by equality against a
+  literal, or against a path built from `withSystemTempDirectory`'s answer, has to
+  canonicalise both sides or assert a suffix. (2026-08-27, EP-6)
+- __A test that writes a process-global environment variable races the case that reads
+  it.__ EP-6's new refusal case copied its fixture's `setEnv` calls and, under tasty's
+  parallel execution, overwrote the value the fixture's own fake was writing through.
+  The refusal case never reaches the runner, so it needed neither variable. Same shape
+  as EP-2's `ClientEnv` count race: a case that writes shared process state must either
+  not write it or be folded into the case that reads it. (2026-08-27, EP-6)
+
+
 ## Decision Log
 
+- Decision: EP-6's ADR is
+  `docs/adr/0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md`,
+  so the next plan to promote a record takes `0013`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-6's
+  distillation pass found nothing durable beyond that record: the evidence destination
+  rule, the bounded `errorInfo` and the unique staging name are documented in
+  `docs/user/unattended-agent-runs.md` where a caller meets them.
+  Date: 2026-08-27
 - Decision: EP-5's ADR is
   `docs/adr/0011-core-owns-transport-failure-classification.md`, so the next plan to
   promote a record takes `0012`.
@@ -676,6 +713,31 @@ plans named (each plan's implementer reads this section before its first commit)
 
 (To be filled during and after implementation.)
 
+EP-6 complete (2026-08-27), four milestones in four commits `c629195`, `bb5113a`,
+`a039ba9` and the completion commit. The unattended policy ceiling now gates every
+field a repository file can set: six are bounded by an operator maximum, `executable`
+and `extra-dirs` are refused from repository scope outright, and `working-dir` is
+confined to the checkout after following symbolic links. `allowedTools` is modelled
+and documented as the grant it is — a repository job asking for `Bash` under
+`edit-workspace` exits 77 naming `Bash`, `edit-workspace` and `policy.allowed-tools`
+before any process is created, and an operator opens it with one line in their own
+file. An operator file lying inside the checkout is refused with exit 78 and no
+ceiling, closing both `--user-config .baikai/policy.kdl` and
+`XDG_CONFIG_HOME=$PWD/.baikai`; a misspelled `policy` key is an error rather than a
+silently ignored line. The command surface stopped printing other jobs' unknown keys,
+stopped building evidence records with nowhere to send them, lost the exit code 70
+nothing produced, resolves a relative executable the way the child does, bounds
+`errorInfo` at 4096 bytes of standard error, and stages the evidence file under a
+fresh `O_EXCL` name so a planted symlink is never written through. The 0.2 surface
+changes landed with them: `envPassthrough` → `envRequires`, `output-format "json"` on
+both renderers, a repository-rooted `working-dir`, and aeson-built envelopes with
+`show --json` emitting one seven-key object whatever happened. The keyless `cabal test
+all` gate is green across all eight suites, `nix fmt` leaves the tree unchanged, `nix
+flake check` passes, and `okf validate docs/capabilities` reports `OK: 22 concepts`.
+ADR `0012` records the decision. The `AgentCeiling` field set is final and EP-10 must
+not change it; the names EP-10 must cover are listed in EP-6's own Outcomes section.
+No versions were bumped.
+
 EP-5 complete (2026-08-27), four milestones in four commits `45485d6`, `5d7610c`,
 `b5fd260` and the completion commit. A failure that lands while the response body is
 streaming is now the transient failure it is on both providers — a reset, a mid-chunk
@@ -771,6 +833,24 @@ carries `AgentTimedOut` — is recorded under `[Unreleased]` for EP-10 to versio
 
 
 ---
+
+Revision note (2026-08-27, EP-6 complete): EP-6's registry row is Complete and its
+four Progress lines are ticked. Four discoveries were added that bind later plans —
+the gate/default-valued-record pattern is now on its third instance and is stated as
+a rule for EP-8, EP-9 and EP-10 (grep for the constructor, not the field); two
+top-level KDL nodes of the same name are an array settei cannot traverse;
+`canonicalizePath` on macOS rewrites `/etc` and `/tmp`; and a test that writes a
+process-global environment variable races the case that reads it — and the Decision
+Log records that EP-6 took ADR number `0012`, so the next plan to promote a record
+takes `0013`. Every Integration Points commitment for EP-6 was met as written: the
+policy-model field set is exactly the one listed there (`policy.allowed-tools`,
+`policy.max-timeout`, `policy.max-output-limit`, `repositoryRoot`, the four
+violations, `outputFormat`, the `envPassthrough` → `envRequires` rename, the deletion
+of `OutputMalformed` and exit 70, and the removal of `BAIKAI_AGENT_EXECUTABLE`), the
+`AgentCeiling` field set is final for EP-10, and no version was bumped. Two names EP-6
+adds beyond that list are recorded for EP-10: `Baikai.Agent.ceilingViolations` (the
+pure violation list, so a caller can concatenate provenance-dependent violations with
+it) and `Baikai.Agent.defaultMaxOutputLimit`.
 
 Revision note (2026-08-27, EP-5 complete): EP-5's registry row is Complete and its four
 Progress lines are ticked. Four discoveries were added that bind later plans — an
