@@ -2,6 +2,20 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-19 (model-call evidence) and CAP-10 (OpenTelemetry span export)
+  record the 2026-08 evidence-truthfulness pass. Records are now
+  `baikai.model-call-evidence/2.0`, because two digests cover different bytes:
+  `response_commitment` no longer covers baikai's computed cost, which comes
+  from the caller's catalog rather than the response, and
+  `request_configuration` now summarises `output_config` and `response_format`
+  as it already summarised `tools` — a structured-output JSON schema is
+  author-written content wherever it appears. An evidence `endpoint` names the
+  host the call actually went to rather than `null` when the model carried no
+  base URL. On the span side, `gen_ai.response.model` is set only by the
+  evidence branch: the terminal branch set it from the requested id and, because
+  evidence is pushed first and `addAttributes` replaces a key, overwrote the
+  value a provider really did report.
+
 * **Update**: CAP-19 (model-call evidence) records two rules strict mode did not
   have. A caller's thinking level is now recorded on every evidence path — the
   consumer abort, an unregistered provider, a `complete` handler that threw, and

@@ -57,6 +57,7 @@ tests =
       toggleHostIndistinguishabilityTest,
       nonReasoningModelEvidenceTest,
       immediateErrorRecordsThinkingTest,
+      defaultHostEndpointTest,
       optOutTest
     ]
 
@@ -243,6 +244,19 @@ immediateErrorRecordsThinkingTest =
     assertBool
       "the mode must not collapse the request into absent"
       (thinkingOf ev "mode" /= Just (String "absent"))
+
+-- | A model carrying no base URL still records the host the call went
+-- to. See the Anthropic twin for why.
+defaultHostEndpointTest :: TestTree
+defaultHostEndpointTest =
+  testCase "a call with no base URL records the default host it went to" $ do
+    bodyRef <- newIORef Null
+    ev <-
+      oneEvidence
+        =<< replayWith bodyRef (testModel & #baseUrl .~ "") 200 successHeaders successBody baseOptions
+    case field "endpoint" ev of
+      Just (Object e) -> KeyMap.lookup "endpoint" e @?= Just (String "https://api.openai.com")
+      other -> assertFailure ("expected an endpoint identity, got: " <> show other)
 
 optOutTest :: TestTree
 optOutTest =

@@ -140,15 +140,35 @@ digest callers were told is content-free. The allow-list fails the other
 way: a genuinely new configuration field is silently omitted until
 someone adds it, which loses fidelity rather than leaking.
 
+A **JSON schema is content wherever it appears.** A structured-output
+schema carries author-written `description` strings that describe the
+caller's domain as freely as a prompt does, so `output_config` keeps its
+effort and reduces its `format` to a type and a character count, and
+`response_format` keeps its type and reduces its `json_schema` to a name,
+a strictness flag and a character count — the same treatment a tool's
+`input_schema` already got.
+
 On the three subprocess transports the request envelope is an argument
 vector rather than a JSON object, and the projection admits named fields
 only — so their configuration digest is currently degenerate. That is
 the allow-list failing safe, and it is noted here rather than hidden.
 
-`response_commitment` covers what came back, and is `"unobserved"` when
-the call failed before a complete response arrived. A digest of an empty
-envelope would be a real-looking value standing for a response that never
-came.
+`response_commitment` covers what came back — the assembled content, the
+stop reason, and the **provider-reported token counts** — and is
+`"unobserved"` when the call failed before a complete response arrived. A
+digest of an empty envelope would be a real-looking value standing for a
+response that never came.
+
+It deliberately does **not** cover the computed cost. The cost comes from
+the caller's own catalog rates rather than from the response, so
+including it made the digest change whenever a price was edited, and left
+a verifier holding only the response unable to recompute it.
+
+Both of those changes are why records now say
+`baikai.model-call-evidence/2.0`. A verifier selects its rules by
+`schema_version`: under `1.x`, `response_commitment` also covered the
+cost and `request_configuration` carried both structured-output schemas
+verbatim.
 
 ## Strength: what a record proves
 

@@ -16,8 +16,11 @@
 -- cannot forget it.
 module Baikai.Evidence.Build
   ( minimalEvidence,
+    minimalEvidenceAt,
     prepareEvidence,
+    prepareEvidenceAt,
     endpointIdentity,
+    endpointIdentityAt,
     sanitizeEndpoint,
     dispatchEnvelope,
     requestedTranslation,
@@ -133,8 +136,36 @@ minimalEvidence ::
   -- documentation rather than enforced by the type.
   Maybe BaikaiError ->
   IO (Maybe ModelCallEvidence)
-minimalEvidence m opts transport translation envelope started ended st err = do
-  mk <- prepareEvidence m opts transport translation envelope started
+minimalEvidence m opts =
+  minimalEvidenceAt (m ^. #baseUrl) m opts
+
+-- | 'minimalEvidence' against the base URL the adapter actually
+-- resolved, rather than the possibly-empty one on the 'Model'.
+--
+-- Both API adapters substitute a vendor default for an empty
+-- @baseUrl@ inside their own @prepareCall@, so the call goes to a
+-- definite host while the model still says @""@ — and
+-- 'sanitizeEndpoint' then recorded @null@ for a call whose destination
+-- was perfectly well known. The core cannot know a vendor default, so
+-- where no adapter ran @null@ remains the truthful answer and the
+-- unsuffixed functions keep passing @m ^. #baseUrl@.
+minimalEvidenceAt ::
+  -- | The resolved base URL.
+  Text ->
+  Model ->
+  Options ->
+  TransportKind ->
+  ThinkingTranslation ->
+  -- | The request envelope. Lazy, for the reason 'minimalEvidence'
+  -- documents at length.
+  Aeson.Value ->
+  UTCTime ->
+  UTCTime ->
+  CallStatus ->
+  Maybe BaikaiError ->
+  IO (Maybe ModelCallEvidence)
+minimalEvidenceAt baseUrl m opts transport translation envelope started ended st err = do
+  mk <- prepareEvidenceAt baseUrl m opts transport translation envelope started
   pure (fmap (\finish -> finish ended st err) mk)
 
 -- | 'minimalEvidence' for a transport that learns its terminal
@@ -162,12 +193,30 @@ prepareEvidence ::
   -- | Started at.
   UTCTime ->
   IO (Maybe (UTCTime -> CallStatus -> Maybe BaikaiError -> ModelCallEvidence))
-prepareEvidence m opts transport translation envelope started =
+prepareEvidence m opts =
+  prepareEvidenceAt (m ^. #baseUrl) m opts
+
+-- | 'prepareEvidence' against the base URL the adapter actually
+-- resolved. See 'minimalEvidenceAt'.
+prepareEvidenceAt ::
+  -- | The resolved base URL.
+  Text ->
+  Model ->
+  Options ->
+  TransportKind ->
+  ThinkingTranslation ->
+  -- | The request envelope. Lazy, for the reason 'minimalEvidence'
+  -- documents at length.
+  Aeson.Value ->
+  -- | Started at.
+  UTCTime ->
+  IO (Maybe (UTCTime -> CallStatus -> Maybe BaikaiError -> ModelCallEvidence))
+prepareEvidenceAt baseUrl m opts transport translation envelope started =
   case opts ^. #evidence of
     Nothing -> pure Nothing
     Just req -> do
       cid <- newCallId
-      let ep = endpointIdentity m transport
+      let ep = endpointIdentityAt baseUrl m transport
           commitment = commitmentDigest envelope
           configuration = configurationDigest envelope
       pure $
@@ -228,12 +277,17 @@ requestedTranslation opts = untranslatedThinking (opts ^. #thinking)
 -- executable, but neither fact is available to the core, and inventing
 -- one would be worse than admitting the gap.
 endpointIdentity :: Model -> TransportKind -> EndpointIdentity
-endpointIdentity m transport =
+endpointIdentity m = endpointIdentityAt (m ^. #baseUrl) m
+
+-- | 'endpointIdentity' against the base URL the adapter actually
+-- resolved. See 'minimalEvidenceAt'.
+endpointIdentityAt :: Text -> Model -> TransportKind -> EndpointIdentity
+endpointIdentityAt baseUrl m transport =
   EndpointIdentity
     { provider = m ^. #provider,
       api = renderApi (m ^. #api),
       transport = transport,
-      endpoint = sanitizeEndpoint (m ^. #baseUrl),
+      endpoint = sanitizeEndpoint baseUrl,
       baikaiVersion = baikaiPackageVersion,
       implementationVersion = Nothing
     }

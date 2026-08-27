@@ -231,7 +231,8 @@ openaiChatStreamWith driver m ctx opts =
         -- Credentials are not in it -- they travel in the headers built
         -- separately by 'Transport.requestHeaders'.
         mkEvidence <-
-          Build.prepareEvidence
+          Build.prepareEvidenceAt
+            (call ^. #baseUrl)
             m
             opts
             Ev.TransportHttpApi
@@ -267,6 +268,12 @@ data OpenAICall = OpenAICall
     requestHeaders :: !RequestHeaders,
     timeoutMs :: !(Maybe Int),
     requestBody :: !Aeson.Value,
+    -- | The base URL this call actually resolved to, which is the
+    -- vendor default when the model carries none. Carried so the
+    -- evidence endpoint names the host the call went to; the model's
+    -- own field can be @""@ for a call with a perfectly definite
+    -- destination.
+    baseUrl :: !Text,
     -- | What the caller's reasoning-effort preference became on this
     -- request, as 'streamRequestBody' described it. Carried from here
     -- rather than recomputed at the terminal: only the shaping step
@@ -275,13 +282,18 @@ data OpenAICall = OpenAICall
   }
   deriving stock (Generic)
 
+-- | The host this call goes to: the model's base URL, or OpenAI's when
+-- it carries none.
+resolvedBaseUrl :: Model -> Text
+resolvedBaseUrl m = case m ^. #baseUrl of
+  "" -> "https://api.openai.com"
+  u -> u
+
 prepareCall :: Model -> Context -> Options -> IO (Either BaikaiError OpenAICall)
 prepareCall m ctx opts = case mapRequest m ctx opts of
   Left e -> pure (Left (invalidRequest e))
   Right req -> do
-    let url = case m ^. #baseUrl of
-          "" -> "https://api.openai.com"
-          u -> u
+    let url = resolvedBaseUrl m
     -- Checked before the key is resolved, so a base URL baikai will not
     -- send to never causes a credential to be read out of the
     -- environment. The message names the problem and what to write
@@ -303,6 +315,7 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
                   requestHeaders = headers,
                   timeoutMs = opts ^. #timeoutMs,
                   requestBody = body,
+                  baseUrl = url,
                   thinking = translation
                 }
           )
@@ -757,7 +770,10 @@ responseEnvelope ass =
   Aeson.object
     [ "content" Aeson..= blocksInOrder ass,
       "stop_reason" Aeson..= (ass ^. #stopReason),
-      "usage" Aeson..= finalUsage ass
+      -- Token counts only: 'Ev.usageEnvelope' omits the cost, which
+      -- baikai computes from the caller's catalog rather than reads off
+      -- the response, and which a verifier therefore cannot reproduce.
+      "usage" Aeson..= Ev.usageEnvelope (finalUsage ass)
     ]
 
 -- | The version of this package, for the evidence record's endpoint
@@ -1371,7 +1387,8 @@ immediateError m opts err = do
               Msg.timestamp = Just now
             }
   ev <-
-    Build.minimalEvidence
+    Build.minimalEvidenceAt
+      (resolvedBaseUrl m)
       m
       opts
       Ev.TransportHttpApi

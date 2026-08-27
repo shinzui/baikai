@@ -164,6 +164,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   was private), `Baikai.Stream.requireEvidenceOnTerminal` and
   `Baikai.Provider.Registry.requireEvidenceOnResponse`. (REV-2 D.3.)
 
+- `baikai`: `Baikai.Evidence.usageEnvelope`, and
+  `Baikai.Evidence.Build.endpointIdentityAt`, `prepareEvidenceAt` and
+  `minimalEvidenceAt`, which take the base URL the adapter actually resolved.
+  The three unsuffixed functions remain and pass the model's own field.
+  (REV-2 D.8, D.11.)
+
 ### Changed
 
 - `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
@@ -414,6 +420,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   record the caller's request as `absent`, which
   `docs/adr/0002-requested-translated-observed-are-never-collapsed.md` forbids.
   (REV-2 D.2.)
+
+- **`baikai.model-call-evidence/2.0`.** Two digests cover different bytes, so a
+  verifier must now select its rules by `schema_version`. `response_commitment`
+  covers the provider-reported token counts and never baikai's computed cost:
+  the cost comes from the caller's catalog rates rather than from the response,
+  so the digest used to change whenever a price was edited and a verifier
+  holding only the response could not recompute it. `request_configuration`
+  summarises `output_config` and `response_format` as it already summarised
+  `tools`, because a structured-output JSON schema carries author-written
+  `description` strings and is content wherever it appears — the same schema was
+  stripped from `tools[].input_schema` and survived verbatim through the other
+  two keys. `thinking.mode` may also now be `"not_translated"`, which is a
+  compatible addition. (REV-2 D.7, D.11.)
+
+- `baikai-trace-otel`: `gen_ai.response.model` is set only by the evidence
+  branch, from the model the provider reported. The terminal branch set it from
+  the *requested* id, and since evidence is pushed before the terminal and
+  `addAttributes` replaces a key, that both labelled a request as an observation
+  on every call without evidence and overwrote the genuinely observed value on
+  every call with one. (REV-2 D.1.)
+
+- `baikai-claude`, `baikai-openai`: an evidence record's `endpoint` names the
+  host the call actually went to. Both adapters substitute a vendor default for
+  an empty `Model.baseUrl` inside `prepareCall`, so a call with a perfectly
+  definite destination recorded `endpoint: null`. Where no adapter ran, `null`
+  remains the truthful answer. (REV-2 D.8.)
 
 ### Deprecated
 

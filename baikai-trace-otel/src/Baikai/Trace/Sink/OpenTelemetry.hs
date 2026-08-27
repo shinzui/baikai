@@ -107,7 +107,15 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
             }
     sp <- Otel.createSpan tracer Context.empty spanName sargs
     pure (Map.insert eventId sp m)
-  CallFinished {eventId, timestamp, model, latencyMs, inputTokens, outputTokens, usd} ->
+  -- 'model' is deliberately not bound here. It is the /requested/ model
+  -- id on every 'TraceEvent' constructor, and 'gen_ai.response.model'
+  -- names what the provider served — an observation, which arrives on
+  -- 'CallEvidence' as 'observedModel'. Setting it here labelled the
+  -- requested id as the response model on every call that had no
+  -- evidence, and, because 'Otel.addAttributes' replaces an existing key
+  -- and evidence is pushed before the terminal, overwrote the genuinely
+  -- observed value on every call that did.
+  CallFinished {eventId, timestamp, latencyMs, inputTokens, outputTokens, usd} ->
     case Map.lookup eventId m of
       -- A terminal without a live span is unreachable for normal withTraceStream
       -- usage because each traced call drives a fresh fold. Keep the silent drop so
@@ -119,10 +127,9 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary} m ev = case ev
               maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_inputTokens (fromIntegral n :: Int64)) inputTokens $
                 maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_outputTokens (fromIntegral n :: Int64)) outputTokens $
                   maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
-                    AttrMap.insertByKey SC.genAi_response_model model $
-                      HashMap.fromList
-                        [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
-                        ]
+                    HashMap.fromList
+                      [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
+                      ]
         Otel.addAttributes sp attrs
         Otel.setStatus sp Otel.Ok
         Otel.endSpan sp (Just (utcToTimestamp timestamp))

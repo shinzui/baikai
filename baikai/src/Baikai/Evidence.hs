@@ -60,6 +60,7 @@ module Baikai.Evidence
     evidenceRequest,
 
     -- * Canonical encoding and digests
+    usageEnvelope,
     canonicalEncode,
     commitmentDigest,
     configurationDigest,
@@ -74,6 +75,7 @@ import Baikai.Api (Api (..))
 import Baikai.Error (BaikaiError)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Baikai.Usage (Usage)
+import Baikai.Usage qualified as Usage
 import Control.Exception (SomeException, try)
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson
@@ -473,6 +475,27 @@ untranslatedThinking = \case
         adjustments = []
       }
 
+-- | The usage a response digest commits to: the token counts the
+-- provider reported, and never the cost.
+--
+-- 'Usage.cost' is computed here from the caller's own catalog rates,
+-- not reported by the provider, so including it made
+-- @response_commitment@ change whenever pricing was edited and left a
+-- verifier holding only the response unable to recompute it. The six
+-- counts are listed through record selectors rather than encoded
+-- wholesale, so a field added to 'Usage' later does not silently join
+-- the digest.
+usageEnvelope :: Usage -> Value
+usageEnvelope u =
+  object
+    [ "input_tokens" .= Usage.inputTokens u,
+      "output_tokens" .= Usage.outputTokens u,
+      "cache_read_tokens" .= Usage.cacheReadTokens u,
+      "cache_write_tokens" .= Usage.cacheWriteTokens u,
+      "reasoning_tokens" .= Usage.reasoningTokens u,
+      "total_tokens" .= Usage.totalTokens u
+    ]
+
 -- ============================================================
 -- Endpoint and transport
 -- ============================================================
@@ -760,8 +783,27 @@ evidenceRequest rid =
 -- and @sampling_dropped_unsupported_api@ adjustment kinds. They are a
 -- compatible addition: a reader that switches on @kind@ and ignores
 -- what it does not know keeps working, and no existing digest changes.
+--
+-- The @2.0@ major bump changed what two digests cover, so a verifier
+-- must select its rules by @schema_version@ rather than assume:
+--
+-- * @response_commitment@ covers @{"content", "stop_reason", "usage"}@
+--   where @usage@ is the provider-reported token counts only
+--   ('usageEnvelope'). Under @1.x@ it also covered baikai's computed
+--   @cost@, which comes from the caller's catalog rates rather than
+--   from the response, so the digest changed whenever pricing was
+--   edited and a verifier holding only the response could not
+--   recompute it.
+-- * @request_configuration@ additionally summarises @output_config@ and
+--   @response_format@ ('configurationProjection'), because a
+--   structured-output JSON schema is author-written content wherever it
+--   appears. Under @1.x@ both survived verbatim.
+--
+-- A @1.x@ record's digests are recomputed under @1.x@ rules. One
+-- further compatible addition rides along: @thinking.mode@ may now be
+-- @"not_translated"@.
 evidenceSchemaVersion :: Text
-evidenceSchemaVersion = "baikai.model-call-evidence/1.1"
+evidenceSchemaVersion = "baikai.model-call-evidence/2.0"
 
 -- | Everything Baikai can say about one completed provider call.
 --
@@ -1079,12 +1121,24 @@ configurationDigest = digestOf . configurationProjection
 -- the digest until someone adds it here, which loses fidelity rather
 -- than leaking.
 --
--- Keys outside the list are dropped entirely. Three keys are kept but
+-- Keys outside the list are dropped entirely. Five keys are kept but
 -- replaced with structural summaries: @messages@ becomes one object
 -- per message carrying its role, its block count, and the total
 -- character length of every string inside it; @system@ becomes just
 -- that character count; @tools@ becomes each tool's name and nothing
--- else, so descriptions and JSON schemas do not survive.
+-- else; @output_config@ keeps its effort and reduces its @format@ to a
+-- type and a character count; and @response_format@ keeps its type and
+-- reduces its @json_schema@ to a name, a strictness flag and a
+-- character count.
+--
+-- The rule the last three share: __a JSON schema is content wherever it
+-- appears.__ A schema carries author-written @description@ strings that
+-- describe the caller's domain as freely as a prompt does.
+-- @tools[].input_schema@ was already stripped on that ground while the
+-- same kind of schema, reached through @output_config.format.schema@ or
+-- @response_format.json_schema@, survived verbatim into a digest
+-- callers were told is content-free. The names, types and flags around
+-- it are configuration in the sense a tool's name is.
 --
 -- A top-level value that is not an object has no named fields for the
 -- allow-list to admit, so it projects to 'Null' rather than passing
@@ -1098,6 +1152,8 @@ configurationProjection = \case
       "messages" -> [(k, summariseMessages v)]
       "system" -> [(k, charSummary v)]
       "tools" -> [(k, summariseTools v)]
+      "output_config" -> [(k, summariseOutputConfig v)]
+      "response_format" -> [(k, summariseResponseFormat v)]
       name
         | name `Set.member` configurationKeys -> [(k, v)]
         | otherwise -> []
@@ -1114,11 +1170,9 @@ configurationKeys =
       "max_completion_tokens",
       "max_tokens",
       "model",
-      "output_config",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
-      "response_format",
       "seed",
       "stop_sequences",
       "stream",
@@ -1172,6 +1226,56 @@ charSummary v = object ["chars" .= totalStringChars v]
 -- schema are author-written content. Both wire shapes are handled: the
 -- Anthropic form with @name@ at the top level, and the OpenAI form
 -- that nests it under @function@.
+-- | Anthropic's @output_config@: @{"effort": <text>, "format":
+-- {"type": ..., "schema": ...}}@ at claude 0.6 (@Claude.V1.Messages@,
+-- @OutputConfig@ and @OutputFormat@). Every key is kept as it is except
+-- @format@, whose schema is content.
+summariseOutputConfig :: Value -> Value
+summariseOutputConfig = \case
+  Object o -> Object (KeyMap.mapWithKey summarise o)
+  _ -> Null
+  where
+    summarise k v
+      | Key.toText k == "format" =
+          object
+            [ "type" .= formatType v,
+              "chars" .= totalStringChars v
+            ]
+      | otherwise = v
+    formatType = \case
+      Object f -> case KeyMap.lookup "type" f of
+        Just t@(String _) -> t
+        _ -> Null
+      _ -> Null
+
+-- | The OpenAI-compatible @response_format@: @{"type": "json_schema",
+-- "json_schema": {"name": ..., "strict": ..., "schema": ...}}@. The
+-- type, the schema's name and its strictness are configuration; the
+-- schema itself is content.
+summariseResponseFormat :: Value -> Value
+summariseResponseFormat = \case
+  Object o ->
+    object
+      [ "type" .= lookupString "type" o,
+        "json_schema" .= schemaSummary (KeyMap.lookup "json_schema" o)
+      ]
+  _ -> Null
+  where
+    lookupString k o = case KeyMap.lookup (Key.fromText k) o of
+      Just t@(String _) -> t
+      _ -> Null
+    schemaSummary = \case
+      Just v@(Object js) ->
+        object
+          [ "name" .= lookupString "name" js,
+            "strict" .= strictOf js,
+            "chars" .= totalStringChars v
+          ]
+      _ -> Null
+    strictOf js = case KeyMap.lookup "strict" js of
+      Just b@(Bool _) -> b
+      _ -> Null
+
 summariseTools :: Value -> Value
 summariseTools = \case
   Array xs -> Array (fmap summariseTool xs)

@@ -9,6 +9,7 @@ import Baikai.Error (BaikaiError, providerError)
 import Baikai.Evidence
   ( CallStatus (..),
     EvidenceRequest,
+    Observed (..),
     TransportKind (..),
     evidenceRequest,
     noThinkingRequested,
@@ -51,6 +52,7 @@ main =
     testGroup
       "baikai-trace-otel"
       [ successSpanTest,
+        observedModelSpanTest,
         failureSpanTest,
         abortSpanTest,
         evidenceSpanTest,
@@ -157,7 +159,14 @@ successSpanTest =
         assertBool "has gen_ai.operation.name" (HashMap.member "gen_ai.operation.name" attrs)
         assertBool "has gen_ai.request.model" (HashMap.member "gen_ai.request.model" attrs)
         assertBool "has gen_ai.request.max_tokens" (HashMap.member "gen_ai.request.max_tokens" attrs)
-        assertBool "has gen_ai.response.model" (HashMap.member "gen_ai.response.model" attrs)
+        -- Absent, not present: this stub reports no model, and
+        -- gen_ai.response.model names what the provider served. The
+        -- terminal used to set it from the /requested/ id, which is a
+        -- different fact and the one gen_ai.request.model already
+        -- carries.
+        assertBool
+          "gen_ai.response.model must be absent when the provider reported no model"
+          (not (HashMap.member "gen_ai.response.model" attrs))
         assertBool "has gen_ai.usage.input_tokens" (HashMap.member "gen_ai.usage.input_tokens" attrs)
         assertBool "has gen_ai.usage.output_tokens" (HashMap.member "gen_ai.usage.output_tokens" attrs)
         assertBool "has baikai.event_id" (HashMap.member "baikai.event_id" attrs)
@@ -312,6 +321,63 @@ registerOkWithEvidence a =
             CallSucceeded
             Nothing
         pure (stubResponse a & #evidence .~ ev)
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler,
+            describeThinking = \_ _ -> noThinkingRequested
+          }
+
+-- | The observed model reaches the span, and the requested one stays
+-- where it belongs.
+--
+-- Fails on the pre-fix code with the requested id under the response
+-- key: 'Baikai.Trace' pushes 'CallEvidence' before the terminal, and
+-- 'Otel.addAttributes' replaces an existing key, so the terminal's
+-- attribute won.
+observedModelSpanTest :: TestTree
+observedModelSpanTest =
+  testCase "A SERVED MODEL REACHES THE SPAN AND THE REQUESTED ONE DOES NOT OVERWRITE IT" $ do
+    let a = Custom "baikai-otel-observed-model"
+    registerOkObservingModel a
+    (tracer, getSpans) <- newTracerWithInMemory
+    _ <-
+      withTrace
+        (otelSink tracer)
+        (stubModel a)
+        stubContext
+        (stubOptions & #evidence .~ Just (evidenceRequest "run-otel-observed" :: EvidenceRequest))
+    spans <- getSpans
+    assertEqual "exactly one span recorded" 1 (length spans)
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
+        HashMap.lookup "gen_ai.response.model" attrs
+          @?= Just (Attr.toAttribute ("stub-1-as-served" :: Text))
+        HashMap.lookup "gen_ai.request.model" attrs
+          @?= Just (Attr.toAttribute ("stub-1" :: Text))
+      _ -> assertFailure "expected exactly one span"
+
+-- | 'registerOkWithEvidence' whose record observes a served model.
+registerOkObservingModel :: Api -> IO ()
+registerOkObservingModel a =
+  let handler m _ctx opts = do
+        now <- getCurrentTime
+        ev <-
+          minimalEvidence
+            m
+            opts
+            TransportHttpApi
+            noThinkingRequested
+            (Aeson.object ["model" Aeson..= (m ^. #modelId :: Text)])
+            now
+            now
+            CallSucceeded
+            Nothing
+        pure (stubResponse a & #evidence .~ fmap observeServedModel ev)
+      observeServedModel ev = ev & #observedModel .~ Observed "stub-1-as-served"
    in registerApiProvider
         ApiProvider
           { apiTag = a,

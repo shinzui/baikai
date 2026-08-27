@@ -4,9 +4,11 @@
 -- through.
 module EvidenceSpec (tests) where
 
+import Baikai.Cost (Cost (..), zeroCost)
 import Baikai.Evidence
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.ThinkingLevel (ThinkingLevel (..))
+import Baikai.Usage (Usage (..), zeroUsage)
 import Control.Concurrent (threadDelay)
 import Control.Monad (replicateM)
 import Data.Aeson (Value (Number, Object, String), object, (.=))
@@ -25,6 +27,7 @@ tests =
     "Evidence"
     [ canonicalTests,
       digestTests,
+      usageEnvelopeTests,
       redactionTests,
       observedTests,
       adjustmentJsonTests,
@@ -166,14 +169,20 @@ digestTests =
       -- changed, and every digest recorded by an earlier build has
       -- become unverifiable. That is a major bump of
       -- evidenceSchemaVersion, not a value to paste over.
+      --
+      -- Both values changed at schema version 2.0, because the fixture
+      -- gained an `output_config` and a `response_format` and the
+      -- projection now summarises both. They were recomputed only after
+      -- the redaction group above was green: a golden value pasted while
+      -- a marker still leaked would pin the leak.
       testCase "the request commitment matches the golden value" $ do
         env <- loadFixture
         commitmentDigest env
-          @?= "sha256:ee1baf81dad750bb61bbcd6a737b8266c206a4288403510be5e10cace20b5798",
+          @?= "sha256:7328ef9e177fbf71793c2167c25749b98845ecc5ea1cf9cd5a38ef3aa52d3b0b",
       testCase "the configuration digest matches the golden value" $ do
         env <- loadFixture
         configurationDigest env
-          @?= "sha256:858f0d5ec35ba6f8bac39140c6523785abcbf4e8007c770c1ba2e13f0e72d6b5",
+          @?= "sha256:5ed62ecd1a00798c06de88363e9f6a591610449f1e06fa8bd8260ee7934ea366",
       testCase "the configuration digest ignores content, the commitment does not" $ do
         let ask subject =
               object
@@ -204,6 +213,45 @@ digestTests =
     ]
 
 -- ============================================================
+-- The usage a response digest commits to
+-- ============================================================
+
+usageEnvelopeTests :: TestTree
+usageEnvelopeTests =
+  testGroup
+    "usage envelope"
+    [ testCase "two usages differing only in cost produce the same envelope" $ do
+        -- The cost is computed here from the caller's catalog rates, not
+        -- read off the response, so a verifier holding only the response
+        -- could not recompute a digest that covered it — and the digest
+        -- changed whenever a price was edited.
+        let cheap = zeroUsage {inputTokens = 10, outputTokens = 20}
+            dear = cheap {cost = zeroCost {usd = 1234}}
+        usageEnvelope cheap @?= usageEnvelope dear,
+      testCase "the encoded envelope carries no cost key" $ do
+        let encoded = BS8.unpack (canonicalEncode (usageEnvelope zeroUsage))
+        assertBool
+          ("cost survived into the usage envelope: " <> encoded)
+          (not ("cost" `isInfix` encoded))
+        mapM_
+          ( \k ->
+              assertBool
+                (k <> " missing from the usage envelope: " <> encoded)
+                (k `isInfix` encoded)
+          )
+          [ "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "reasoning_tokens",
+            "total_tokens"
+          ]
+    ]
+  where
+    isInfix needle haystack =
+      Text.isInfixOf (Text.pack needle) (Text.pack haystack)
+
+-- ============================================================
 -- Redaction
 -- ============================================================
 
@@ -230,7 +278,18 @@ redactionTests =
             "SYSTEM-PROMPT-BODY-MARKER",
             "REASONING-TEXT-MARKER",
             "TOOL-PAYLOAD-MARKER",
-            "Fetch a quarterly report by identifier."
+            "Fetch a quarterly report by identifier.",
+            -- A JSON schema is content wherever it appears. These two
+            -- markers sit in the `description` of a structured-output
+            -- schema reached two different ways: Anthropic's
+            -- `output_config.format.schema` and the OpenAI-compatible
+            -- `response_format.json_schema.schema`. The fixture is one
+            -- recorded envelope serving both the digest and the
+            -- redaction tests, and it already carries a non-wire
+            -- `extra_headers` key, so mixing an OpenAI-shaped key into
+            -- an Anthropic-shaped body is in keeping.
+            "OUTPUT-SCHEMA-MARKER",
+            "RESPONSE-SCHEMA-MARKER"
           ],
       testCase "the projection keeps the configuration it is supposed to" $ do
         env <- loadFixture
@@ -246,7 +305,13 @@ redactionTests =
             "max_tokens",
             "temperature",
             -- A tool's name is configuration; its description is not.
-            "fetch_report"
+            "fetch_report",
+            -- The same rule around a structured-output schema: the
+            -- effort, the schema's name and its strictness are how the
+            -- call is configured.
+            "effort",
+            "quarterly_report",
+            "strict"
           ],
       testCase "the commitment digest does see the content" $ do
         env <- loadFixture

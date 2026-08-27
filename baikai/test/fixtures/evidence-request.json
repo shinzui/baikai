@@ -51,5 +51,36 @@
         }
       }
     }
-  ]
+  ],
+  "output_config": {
+    "effort": "high",
+    "format": {
+      "type": "json_schema",
+      "schema": {
+        "type": "object",
+        "description": "OUTPUT-SCHEMA-MARKER: the shape a quarterly report answer must take.",
+        "properties": {
+          "revenue": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  },
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "quarterly_report",
+      "strict": true,
+      "schema": {
+        "type": "object",
+        "description": "RESPONSE-SCHEMA-MARKER: the same shape, spelled the OpenAI way.",
+        "properties": {
+          "revenue": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
 }

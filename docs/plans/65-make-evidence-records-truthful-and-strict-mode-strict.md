@@ -79,11 +79,11 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
       paths.
 - [x] M2: Haddock and record truth — `Trace/Event.hs` ordering, `Trace.hs` header,
       `docs/capabilities/model-call-evidence.md` lines 32/35/129, `CHANGELOG.md` 0.5.0.0 paragraph.
-- [ ] M3: OTel `CallFinished` branch stops setting `gen_ai.response.model`; `successSpanTest`
+- [x] M3: OTel `CallFinished` branch stops setting `gen_ai.response.model`; `successSpanTest`
       rewritten; `observedModelSpanTest` added; `TraceEvent.model` documented as the requested id.
-- [ ] M3: `endpointIdentityAt` / `prepareEvidenceAt` / `minimalEvidenceAt`; both adapters pass the
+- [x] M3: `endpointIdentityAt` / `prepareEvidenceAt` / `minimalEvidenceAt`; both adapters pass the
       resolved base URL; default-host tests.
-- [ ] M3: `usageEnvelope`; `output_config` and `response_format` summarised; fixture markers;
+- [x] M3: `usageEnvelope`; `output_config` and `response_format` summarised; fixture markers;
       golden digests recomputed; `evidenceSchemaVersion` bumped to `2.0`.
 - [ ] M4: `deriveStrength`; `anthropicStrength` and `openaiStrength` deleted; `subprocessStrength`
       delegates; response id counts as correlation; tests.
@@ -101,6 +101,22 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
   argument (`describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts`), which
   is the expression the OpenAI provider's own `describeThinking` field uses, so `immediateError`
   copies that rather than the two-argument form the plan quotes. (M1)
+
+- Anthropic's `output_config` is spelled exactly as the plan expected. Read from the
+  MercuryTechnologies `claude` SDK at
+  `/Users/shinzui/Keikaku/hub/haskell/claude-project/claude/src/Claude/V1/Messages.hs`:
+  `OutputConfig { effort :: Maybe Text, format :: Maybe OutputFormat }` and
+  `OutputFormat { type_ :: Text, schema :: Value }`, both encoded through the module's
+  `aesonOptions`, so the wire keys are `effort`, `format`, `type` and `schema`. (M3)
+
+- The recomputed golden digests, and how. The redaction group was made green first — a
+  golden value pasted while a marker still leaked would pin the leak — and then
+  `cabal test baikai --test-options='--pattern digests'` printed both new values, which
+  were copied from its `got:` lines. `request_commitment` moved from
+  `sha256:ee1baf81…5798` to `sha256:7328ef9e…3b0b`, and `request_configuration` from
+  `sha256:858f0d5e…d6b5` to `sha256:5ed62ecd…a366`. Both changed because the fixture
+  gained an `output_config` and a `response_format`; the configuration one would have
+  changed from the projection alone. (M3)
 
 - `TraceSpec`'s own sink-failure case had to change fixture. `strictSinkFailureTest`
   used `registerOk`, a provider that attaches no record, so the moment the record rule

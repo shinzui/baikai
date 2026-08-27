@@ -42,7 +42,7 @@ import Baikai.Content
 import Baikai.Context (Context)
 import Baikai.Cost (Cost (..), zeroCost, zeroCostBreakdown)
 import Baikai.Error (BaikaiError, decodeError)
-import Baikai.Evidence (EvidenceStrength (..), Observed (..))
+import Baikai.Evidence (EvidenceStrength (..), Observed (..), usageEnvelope)
 import Baikai.Message
   ( AssistantPayload (..),
     Message (..),
@@ -729,7 +729,8 @@ cliResponseEnvelope body used =
   Aeson.object
     [ "content" .= Vector.singleton (AssistantText (TextContent body)),
       "stop_reason" .= Stop,
-      "usage" .= used
+      -- Token counts only; see 'Evidence.usageEnvelope'.
+      "usage" .= usageEnvelope used
     ]
 
 -- | How much a subprocess call's evidence proves.

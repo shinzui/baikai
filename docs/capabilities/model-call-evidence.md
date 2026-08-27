@@ -132,6 +132,14 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   whose exact `Rational` amounts encode through an approximating `Scientific`, so
   a decoder would return a different value than was encoded. Read a record as a
   plain `Data.Aeson.Value`.
+- The two request digests and the response digest cover **different bytes since
+  `baikai.model-call-evidence/2.0`**, so a verifier must select its rules by
+  `schema_version` rather than assume. `response_commitment` now covers the
+  provider-reported token counts and never baikai's computed cost, which comes
+  from the caller's catalog and which a verifier holding only the response
+  cannot reproduce; `request_configuration` now summarises `output_config` and
+  `response_format` as it already summarised `tools`, because a structured-output
+  JSON schema is author-written content wherever it appears.
 - A record proves what a provider *said*, not what it did. It is a boundary
   record, not an attestation, and nothing here is signed.
 - Strict mode fails a call for exactly two reasons of baikai's own: a trace sink
