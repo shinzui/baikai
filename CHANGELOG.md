@@ -28,6 +28,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `baikai`: **breaking.** `Baikai.Embedding.EmbeddingModel.apiKey` is now
+  `Maybe ApiKeySource` rather than `ApiKeySource`. `Nothing` means the
+  conventional environment variable for the model's host, from
+  `defaultApiKeyEnvForBaseUrl` — the same table the chat providers use — and a
+  host that table does not know refuses with an `AuthError` naming
+  `EmbeddingModel.apiKey`. Migration: `apiKey = source` becomes
+  `apiKey = Just source`. `EmbeddingModel` also derives `Eq` and `Generic`, so
+  the `#field .~ value` idiom works on it as it does on every other record.
+  (REV-2 E.3.)
+
 - `baikai`: **breaking.** `AgentRunFailure`'s `RunTimedOut` constructor now
   carries a new record `AgentTimedOut` — the configured `limit` plus the
   `stdout` and `stderr` a timed-out run drained before its process group was
@@ -40,6 +50,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   already have changed the working tree.
 
 ### Fixed
+
+- `baikai`: an `EmbeddingModel` pointed at a non-OpenAI host no longer sends
+  `OPENAI_API_KEY` to it. The default key source was that variable whatever the
+  base URL said, so pointing the client at DeepSeek handed DeepSeek an OpenAI
+  credential. It now resolves per host, and refuses an unknown one. New
+  `resolveEmbeddingKey` and `embeddingClientEnv` expose both decisions without
+  making a request. (REV-2 E.3.)
+
+- `baikai`: `Baikai.Embedding.embed` no longer allocates a TLS manager per call.
+  It used the `openai` SDK's own `getClientEnv`, which builds a fresh manager
+  every time; it now takes one from `Baikai.Http`'s process-global cache, the
+  same one the chat providers use, so an embedding call and a chat call to one
+  host share a connection pool.
 
 - `baikai`: **a credential in a header is no longer printed.** `Options.headers`
   and `Model.headers` went through derived `Show` and `ToJSON` instances that

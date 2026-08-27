@@ -1,12 +1,16 @@
 -- | A small, provider-neutral embeddings client over an OpenAI-compatible
 -- @\/v1\/embeddings@ endpoint (EP-15).
 --
--- baikai shipped no embeddings client; this is the first. It reuses the same
--- @openai@ SDK path the OpenAI /chat/ provider already uses
--- ('OpenAI.V1.getClientEnv' + 'OpenAI.V1.makeMethods') and the sibling
--- 'OpenAI.V1.createEmbeddings' method, plus baikai's own 'Baikai.Auth' for key
--- resolution. It is policy-free (a plain @IO@ client, no effect binding) — the
--- effect interpreter lives one layer up in shikumi, exactly as @baikai-effectful@
+-- baikai shipped no embeddings client; this is the first. It reuses the
+-- @openai@ SDK's 'OpenAI.V1.makeMethods' and the sibling
+-- 'OpenAI.V1.createEmbeddings' method, baikai's own 'Baikai.Auth' for key
+-- resolution — the same per-host table the chat providers use — and
+-- baikai's own 'Baikai.Http' connection cache, which the chat providers
+-- share, so two calls to one host reuse one TLS manager rather than
+-- allocating one per call as the SDK's own @getClientEnv@ does.
+--
+-- It is policy-free (a plain @IO@ client, no effect binding) — the effect
+-- interpreter lives one layer up in shikumi, exactly as @baikai-effectful@
 -- relates to the transport.
 --
 -- An embedding model is named by a bare provider model-id string (e.g.
@@ -21,21 +25,27 @@ module Baikai.Embedding
     openAIEmbeddingModel,
     mkEmbeddingRequest,
     firstEmbedding,
+    resolveEmbeddingKey,
+    embeddingClientEnv,
     embed,
     embedOne,
   )
 where
 
 import Baikai.Auth (ApiKeySource (..), resolveApiKey)
-import Baikai.Error (BaikaiError, decodeError)
+import Baikai.Auth qualified as Auth
+import Baikai.Error (BaikaiError, authError, decodeError)
+import Baikai.Http qualified as Http
 import Control.Exception (throwIO)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 import OpenAI.V1 qualified as OpenAI
 import OpenAI.V1.Embeddings qualified as Emb
 import OpenAI.V1.Models qualified as OpenAIModels
+import Servant.Client qualified as Client
 
 -- | How to reach an embeddings endpoint and which model to ask for.
 data EmbeddingModel = EmbeddingModel
@@ -45,31 +55,38 @@ data EmbeddingModel = EmbeddingModel
     baseUrl :: !Text,
     -- | request a reduced dimensionality, or 'Nothing' for the model default
     dimensions :: !(Maybe Natural),
-    -- | how to resolve the API key (from "Baikai.Auth")
-    apiKey :: !ApiKeySource
+    -- | How to resolve the API key (from "Baikai.Auth"). 'Nothing' means
+    -- the conventional variable for this host, from
+    -- 'Auth.defaultApiKeyEnvForBaseUrl' — the same table the chat
+    -- providers consult — and a host that table does not know refuses
+    -- with an 'Baikai.Error.AuthError' rather than falling back to
+    -- another provider's credential. This mirrors
+    -- 'Baikai.Options.apiKey', which has meant exactly that all along.
+    apiKey :: !(Maybe ApiKeySource)
   }
-  deriving stock (Show)
+  deriving stock (Eq, Show, Generic)
 
 -- | A blank embedding model; a record-update target for hand-built models. Keyed
--- on @OPENAI_API_KEY@ by default.
+-- per host by default, so @api.openai.com@ resolves @OPENAI_API_KEY@ and
+-- @api.deepseek.com@ resolves @DEEPSEEK_API_KEY@.
 emptyEmbeddingModel :: EmbeddingModel
 emptyEmbeddingModel =
   EmbeddingModel
     { modelId = "",
       baseUrl = "",
       dimensions = Nothing,
-      apiKey = ApiKeyEnv "OPENAI_API_KEY"
+      apiKey = Nothing
     }
 
--- | The OpenAI default: @api.openai.com@, key from @OPENAI_API_KEY@, model-default
--- dimensionality.
+-- | The OpenAI default: @api.openai.com@, whose conventional key variable is
+-- @OPENAI_API_KEY@, and model-default dimensionality.
 openAIEmbeddingModel :: Text -> EmbeddingModel
 openAIEmbeddingModel mid =
   emptyEmbeddingModel
     { modelId = mid,
       baseUrl = "https://api.openai.com",
       dimensions = Nothing,
-      apiKey = ApiKeyEnv "OPENAI_API_KEY"
+      apiKey = Nothing
     }
 
 -- | Build the OpenAI @\/v1\/embeddings@ request for a single input text. Pure and
@@ -94,6 +111,40 @@ firstEmbedding objs =
     Just (obj, _) ->
       Right (Emb.embedding obj)
 
+-- | The key 'embed' will send: the explicit source when the model names
+-- one, otherwise the conventional variable for the model's host.
+--
+-- A host with no conventional variable is an 'Baikai.Error.AuthError'
+-- naming the host and telling the caller to set the field, rather than a
+-- silent fallback to @OPENAI_API_KEY@ — which is what this did before,
+-- and which sent an OpenAI key to whatever host the base URL named.
+--
+-- Exported so a caller can see which key a model resolves without
+-- making a request.
+resolveEmbeddingKey :: EmbeddingModel -> IO Text
+resolveEmbeddingKey m = case apiKey m of
+  Just source -> resolveApiKey source
+  Nothing -> case Auth.defaultApiKeyEnvForBaseUrl url of
+    Just name -> resolveApiKey (ApiKeyEnv name)
+    Nothing ->
+      throwIO
+        ( authError
+            ( "no default API key env is known for "
+                <> url
+                <> "; set EmbeddingModel.apiKey explicitly"
+            )
+        )
+  where
+    url = urlOf m
+
+-- | The cached connection 'embed' will use, from "Baikai.Http" — the
+-- same process-global cache the chat providers use, so an embeddings
+-- call and a chat call to one host share a TLS manager.
+--
+-- Exported so the sharing is observable without a network call.
+embeddingClientEnv :: EmbeddingModel -> IO Client.ClientEnv
+embeddingClientEnv = Http.getClientEnvCached . urlOf
+
 -- | Embed a batch of texts: one vector per input text, in input order. The SDK's
 -- @CreateEmbeddings.input@ is a single 'Text', so this loops one call per text. The
 -- transport exception (a Servant client error) is let propagate — error remapping
@@ -101,8 +152,8 @@ firstEmbedding objs =
 embed :: EmbeddingModel -> [Text] -> IO (Vector (Vector Double))
 embed _ [] = pure V.empty
 embed m texts = do
-  key <- resolveApiKey (apiKey m)
-  env <- OpenAI.getClientEnv (urlOf m)
+  key <- resolveEmbeddingKey m
+  env <- embeddingClientEnv m
   let create = OpenAI.createEmbeddings (OpenAI.makeMethods env key Nothing Nothing)
   V.fromList <$> traverse (embedText create) texts
   where

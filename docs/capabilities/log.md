@@ -27,6 +27,15 @@
   error; `tomllib` rejects the old output the same way. A body a literal string
   cannot hold falls back to a fully escaped basic string.
 
+* **Update**: CAP-6 (text embeddings) records that `EmbeddingModel.apiKey` is now
+  `Maybe ApiKeySource`, resolved through the same per-host table as chat calls,
+  and that an unknown host refuses rather than sending `OPENAI_API_KEY` to
+  whichever host the base URL named. The client also shares the process-global
+  connection cache with the chat providers instead of allocating a TLS manager
+  per call. The key-resolution and cache-sharing cases in
+  `baikai/test/EmbeddingSpec.hs` are added to the record's evidence, which
+  narrows — though does not close — the gap the 2026-08-10 entry recorded.
+
 ## 2026-08-10
 
 * **Add**: Adopt the shared OKF capability profile (okf-profiles
