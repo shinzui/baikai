@@ -149,12 +149,16 @@ sandboxArgs = \case
   AgentEditWorkspace -> Right ["--sandbox", "workspace-write"]
   AgentFullAccess -> Right ["--sandbox", "danger-full-access"]
 
--- | @codex exec@ has no tool allow-list flag, so a request that
--- restricts tools is refused rather than run with unrestricted tools. A
--- caller who narrows the tool set and gets a run with every tool
--- available has been given more authority than they asked for, which is
--- the silent downgrade this surface exists to prevent. The message names
--- the alternative so the error is actionable.
+-- | @codex exec@ has no tool allow-list flag, so a request that names
+-- tool grants is refused rather than run without them. A caller who
+-- granted a tool set and gets a run that ignores the list has been given
+-- something other than what they asked for, which is the silent
+-- substitution this surface exists to prevent. The message names the
+-- alternative so the error is actionable.
+--
+-- The operator's ceiling runs first, so a job that both grants a tool
+-- the operator forbids /and/ selects Codex hears about the policy
+-- problem — the one the operator can fix — rather than this one.
 toolRestrictionGuard :: AgentRunRequest -> Either AgentRenderError ()
 toolRestrictionGuard req = case req ^. #safety . #allowedTools of
   [] -> Right ()

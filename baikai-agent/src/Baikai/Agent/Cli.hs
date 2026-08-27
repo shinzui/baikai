@@ -58,10 +58,11 @@ import Baikai.Agent
     AgentOutputMode (..),
     AgentPromptTransport (..),
     AgentProvider (..),
-    AgentRenderError,
+    AgentRenderError (..),
     AgentRunFailure (..),
     AgentRunRequest,
     AgentRunResult,
+    CeilingViolation,
     renderAgentCapability,
     renderAgentProvider,
     renderAgentRenderError,
@@ -71,12 +72,13 @@ import Baikai.Agent.Config
   ( AgentConfigPaths (..),
     AgentJob,
     agentJobRequest,
-    applyCeilingToJob,
+    ceilingViolations,
     defaultAgentConfigPaths,
     listAgentJobs,
     loadAgentCeiling,
     renderAgentConfigError,
     renderAgentConfigScope,
+    repositoryScopeViolations,
     resolveAgentJob,
   )
 import Baikai.Agent.Run (runAgentCommand)
@@ -127,7 +129,7 @@ import Settei.Report
     reportNodes,
   )
 import Settei.Value (RawValue (..))
-import System.Directory (doesFileExist, renameFile)
+import System.Directory (doesFileExist, getCurrentDirectory, renameFile)
 import System.Exit (ExitCode (..))
 import System.IO (stdin)
 
@@ -551,17 +553,28 @@ runAgentCliWithPaths paths snapshot options = case options ^. #command of
 -- | Discovery, with explicit paths winning per scope. When both scopes
 -- are explicit nothing is discovered at all, so a fully specified
 -- invocation never reads @HOME@ or @XDG_CONFIG_HOME@.
+-- The repository root is always the process's own directory. @--config@
+-- chooses which file supplies repository-scope settings; it does not
+-- move the repository, because the root is what confines a
+-- repository-supplied working directory.
 effectiveConfigPaths :: AgentCliOptions -> IO AgentConfigPaths
-effectiveConfigPaths options =
+effectiveConfigPaths options = do
+  repositoryRoot <- getCurrentDirectory
   case (options ^. #userConfig, options ^. #repoConfig) of
     (Just user, Just repo) ->
-      pure AgentConfigPaths {userConfig = Just user, repoConfig = Just repo}
+      pure
+        AgentConfigPaths
+          { userConfig = Just user,
+            repoConfig = Just repo,
+            repositoryRoot
+          }
     (user, repo) -> do
       discovered <- defaultAgentConfigPaths
       pure
         AgentConfigPaths
           { userConfig = user <|> discovered ^. #userConfig,
-            repoConfig = repo <|> discovered ^. #repoConfig
+            repoConfig = repo <|> discovered ^. #repoConfig,
+            repositoryRoot
           }
 
 successfulRun :: Text -> Text -> AgentCliRun
@@ -617,7 +630,11 @@ data StagedJob = StagedJob
     report :: !ResolutionReport,
     warnings :: !Text,
     ceiling :: !AgentCeiling,
-    ceilingSource :: !Text
+    ceilingSource :: !Text,
+    -- | Violations that depend on which file supplied a value, which
+    -- the pure ceiling check cannot see. They are computed once here and
+    -- concatenated with it, so an operator sees one refusal.
+    scopeViolations :: ![CeilingViolation]
   }
   deriving stock (Generic)
 
@@ -661,24 +678,32 @@ stageJob paths snapshot options jobName = do
           -- path to it. It calls loadAgentCeiling and adds no override
           -- of its own.
           loadedCeiling <- loadAgentCeiling paths
-          pure $ case loadedCeiling of
-            Left problem ->
-              Left
-                StageFailure
-                  { exitCode = configExitCode,
-                    message = renderAgentConfigError problem,
-                    report = Nothing,
-                    warnings = warningsText
-                  }
-            Right ceiling' ->
-              Right
-                StagedJob
-                  { job,
-                    report = resolved ^. #report,
-                    warnings = warningsText,
-                    ceiling = ceiling',
-                    ceilingSource = ceilingSourceLabel paths
-                  }
+          let loadedOrFailed = case loadedCeiling of
+                Left problem ->
+                  Left
+                    StageFailure
+                      { exitCode = configExitCode,
+                        message = renderAgentConfigError problem,
+                        report = Nothing,
+                        warnings = warningsText
+                      }
+                Right ceiling' -> Right (ceiling', job)
+          case loadedOrFailed of
+            Left failure -> pure (Left failure)
+            Right (ceiling', job) -> do
+              scopeViolations <-
+                repositoryScopeViolations paths (resolved ^. #report) jobName job
+              pure
+                ( Right
+                    StagedJob
+                      { job,
+                        report = resolved ^. #report,
+                        warnings = warningsText,
+                        ceiling = ceiling',
+                        ceilingSource = ceilingSourceLabel paths,
+                        scopeViolations
+                      }
+                )
   where
     configFailure text =
       StageFailure
@@ -780,7 +805,7 @@ explain options jobName staged =
           . #providerArgs
           .~ ["<redacted>" | _ <- staged ^. #job . #providerArgs]
     rendered = do
-      _ <- applyCeilingToJob (staged ^. #ceiling) request
+      ceilingGuard staged request
       fst <$> renderJobCommand (staged ^. #job) displayRequest
     textSections =
       "job \""
@@ -860,12 +885,33 @@ renderLocation location =
     <> maybe "" (\line -> ":" <> Text.pack (show line)) (location ^. #line)
     <> maybe "" (\column -> ":" <> Text.pack (show column)) (location ^. #column)
 
+-- | Every way this job exceeds the operator's policy, as one refusal.
+--
+-- Two lists are concatenated because they answer different questions.
+-- 'ceilingViolations' compares the request against the ceiling and knows
+-- nothing about files; 'repositoryScopeViolations', already computed
+-- while staging, says which values the untrusted repository file was not
+-- allowed to supply at all. Reporting them together means an operator
+-- fixing a job description sees every problem in one run, which is the
+-- same property 'Baikai.Agent.applyAgentCeiling' has on its own.
+--
+-- The request is never clamped to fit: a job that asked for more than it
+-- may have is an error to report, not a request to quietly weaken.
+ceilingGuard :: StagedJob -> AgentRunRequest -> Either AgentRenderError ()
+ceilingGuard staged request =
+  case (staged ^. #scopeViolations) <> ceilingViolations (staged ^. #ceiling) request of
+    [] -> Right ()
+    violations -> Left (CeilingRejected violations)
+
 renderCeiling :: AgentCeiling -> Text
 renderCeiling ceiling' =
   Text.unlines
     [ "  max-capability       " <> renderAgentCapability (ceiling' ^. #maxCapability),
       "  allow-provider-args  " <> renderBool (ceiling' ^. #allowProviderArgs),
-      "  allowed-providers    " <> renderProviders (ceiling' ^. #allowedProviders)
+      "  allowed-providers    " <> renderProviders (ceiling' ^. #allowedProviders),
+      "  allowed-tools        " <> renderGrants (ceiling' ^. #allowedTools),
+      "  max-timeout          " <> renderUnlimited showText (ceiling' ^. #maxTimeout),
+      "  max-output-limit     " <> renderUnlimited showText (ceiling' ^. #maxOutputLimit)
     ]
   where
     renderBool True = "true"
@@ -873,6 +919,14 @@ renderCeiling ceiling' =
     renderProviders [] = "none"
     renderProviders providers =
       Text.intercalate ", " (map renderAgentProvider providers)
+    -- An empty grant list is not "none at all": the capability still
+    -- implies its own grants, and saying so stops an operator reading
+    -- this line as "no tools".
+    renderGrants [] = "(none beyond the capability)"
+    renderGrants grants = Text.intercalate ", " grants
+    renderUnlimited render = maybe "unlimited" render
+    showText :: (Show a) => a -> Text
+    showText = Text.pack . show
 
 -- | The rendered command, one flag per line.
 --
@@ -953,9 +1007,9 @@ execute options staged promptBody =
   where
     request0 = agentJobRequest (staged ^. #job) promptBody
     prepared = do
-      permitted <- applyCeilingToJob (staged ^. #ceiling) request0
-      (command, translation) <- renderJobCommand (staged ^. #job) permitted
-      pure (permitted, command, translation)
+      ceilingGuard staged request0
+      (command, translation) <- renderJobCommand (staged ^. #job) request0
+      pure (request0, command, translation)
     refusedRun message
       | options ^. #jsonOutput =
           AgentCliRun
@@ -1262,6 +1316,13 @@ ceilingJson sourceLabel ceiling' =
       ),
       ( "allowedProviders",
         jsonArray (map (jsonString . renderAgentProvider) (ceiling' ^. #allowedProviders))
+      ),
+      ("allowedTools", jsonArray (map jsonString (ceiling' ^. #allowedTools))),
+      ( "maxTimeout",
+        maybe "null" (jsonString . Text.pack . show) (ceiling' ^. #maxTimeout)
+      ),
+      ( "maxOutputLimit",
+        maybe "null" (Text.pack . show) (ceiling' ^. #maxOutputLimit)
       )
     ]
 

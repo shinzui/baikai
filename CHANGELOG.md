@@ -9,6 +9,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: `Baikai.Agent.AgentCeiling` gains three fields and the module gains
+  the vocabulary they need. `allowedTools :: [Text]` names tool grants the
+  operator permits beyond the ones `toolGrantsImpliedBy` (also new) says a
+  capability implies on its own; `maxTimeout :: Maybe NominalDiffTime` and
+  `maxOutputLimit :: Maybe Int` bound what any job may request, the second
+  defaulting to the new `defaultMaxOutputLimit` (67108864, sixty-four
+  mebibytes). `Baikai.Agent.ceilingViolations` is `applyAgentCeiling`'s violation
+  list on its own, so a caller can concatenate it with violations of its own.
+  (REV-2 F.3.)
+
+- `baikai-agent`: three operator-only `policy` keys — `policy.allowed-tools`,
+  `policy.max-timeout` (a duration or `"unlimited"`) and
+  `policy.max-output-limit` (a byte count or `"unlimited"`) — each defaulting
+  from `defaultAgentCeiling`, and all six ceiling fields now printed by
+  `agent show` and carried in its `--json` object.
+
+- `baikai-agent`: `Baikai.Agent.Config.repositoryScopeViolations`, which reads
+  the resolution report to say which values the untrusted repository file was
+  not allowed to supply at all. `Baikai.Agent.Cli` concatenates its answer with
+  the pure ceiling's, so an operator sees one refusal naming every problem.
+
 - `baikai`: `Baikai.Content.toolArgumentsFromText` and
   `Baikai.Content.isCutOffToolCall`. The first is the single rule that turns a
   tool call's accumulated argument text into its `arguments` value — empty text
@@ -102,6 +123,48 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   through the `openai` SDK.
 
 ### Changed
+
+- `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
+  On Claude Code it renders `--allowedTools`, whose help reads "list of tool
+  names to allow": it pre-approves tools the permission mode would otherwise
+  raise a request for, and in an unattended run a request nobody answers is
+  denied. The old Haddock called it "optional narrowing of the provider's tool
+  set", which was the opposite, and `applyAgentCeiling` never looked at it. It
+  is now bounded: a grant passes when the maximum capability implies it
+  (`read-only` implies `Read`, `Glob`, `Grep`, `NotebookRead`, `TodoWrite`;
+  `edit-workspace` adds `Edit`, `MultiEdit`, `Write`, `NotebookEdit`;
+  `full-access` implies every grant) or when the operator named it in
+  `policy.allowed-tools`. Matching is exact, so `Bash(git *)` is not `Bash`.
+  A repository job that grants itself `Bash` under `edit-workspace` — which
+  passed unexamined before — is now refused with exit 77 before any process is
+  created. (REV-2 F.3.)
+
+- `baikai` (breaking): `Baikai.Agent.CeilingViolation` gains five constructors:
+  `ToolGrantForbidden`, `TimeoutExceeded`, `OutputLimitExceeded`,
+  `RepositoryScopeForbidden` and `WorkingDirOutsideRepository`. A `case` over
+  the type that was exhaustive is no longer.
+
+- `baikai` (behaviour): the default ceiling has a finite `maxOutputLimit`, so
+  `applyAgentCeiling defaultAgentCeiling` now refuses a request whose
+  `outputLimit` is `Nothing` — capture without bound is exactly what the
+  maximum exists to refuse. Jobs resolved through `baikai-agent` are unaffected:
+  that layer's own default supplies a finite limit, and only an explicit
+  `output-limit "unlimited"` reaches the ceiling as `Nothing`.
+
+- `baikai-agent` (breaking): `AgentConfigPaths` gains `repositoryRoot`, the
+  directory the process runs in. `--config PATH` chooses which file supplies
+  repository-scope settings and does not move the root, because the root is what
+  confines a repository-supplied `working-dir`.
+
+- `baikai-agent` (breaking): a repository configuration file may no longer set
+  `executable` or a non-empty `extra-dirs`, and its `working-dir` must resolve —
+  after following symbolic links — inside the repository root. Each is refused
+  with exit 77 naming the setting, or naming both directories. The operator's
+  own file and `--set` may still set all three. `executable` turns configuration
+  into code execution with the operator's environment and the prompt on standard
+  input; `extra-dirs` inside the root adds nothing the working directory does not
+  already give, so the only ones a checkout would ask for are outside it.
+  (REV-2 F.3.)
 
 - `baikai`: a tool call cut off by the output cap is no longer executed.
   `runToolLoop` stops with the response and its tool calls intact when any call
@@ -199,6 +262,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a field of its generated catalog record. It is removed at the next major.
 
 ### Removed
+
+- `baikai-agent` (breaking): the `BAIKAI_AGENT_EXECUTABLE` environment binding.
+  An environment variable is inherited by every child process and is easy to set
+  by accident, and naming the program to run is the widest widening there is.
+  An operator whose installation is not on `PATH` writes `executable` in their
+  own configuration file or passes `--set`.
 
 - `baikai-claude`, `baikai-openai`: `responseToError` and `classifyErrorText`
   (and its private `classifySdkHttpText` half) from both

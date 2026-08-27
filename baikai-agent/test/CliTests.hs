@@ -41,13 +41,14 @@ import Settei.Env (EnvSnapshot, envSnapshot)
 import Settei.Key (parseKey)
 import Settei.Optparse (cliOverride)
 import System.Directory
-  ( doesFileExist,
+  ( createDirectoryIfMissing,
+    doesFileExist,
     getPermissions,
     setOwnerExecutable,
     setPermissions,
   )
 import System.Environment (setEnv)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO (IOMode (..), hClose, openFile, stdin)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
@@ -78,9 +79,15 @@ cliTests =
       testGroup
         "the sync-keiro-dsl fixture"
         [ syncKeiroDslRunsTest,
+          bashGrantIsRefusedUnderTheDefaultCeilingTest,
           swappingTheProviderIsAConfigurationChangeTest,
           swappingTheProviderRefusesATheToolListTest,
           theCeilingRefusesBeforeAnythingIsStartedTest
+        ],
+      testGroup
+        "repository scope through the command"
+        [ repositoryExecutableIsRefusedThroughTheCommandTest,
+          showListsTheCeilingFieldsTest
         ],
       testGroup
         "agent run"
@@ -144,10 +151,41 @@ withEvidence :: FilePath -> Text -> AgentCliOptions -> AgentCliOptions
 withEvidence path outerRun opts =
   opts {evidenceFile = Just path, runId = Just outerRun}
 
+-- | The checkout a test's repository document belongs to.
+--
+-- Real layout, not a convenience: a repository file may not set
+-- @executable@ or @extra-dirs@ and its @working-dir@ must resolve inside
+-- this directory, so a test that wrote both documents into one directory
+-- would be asserting against a shape the code refuses.
+repositoryRootIn :: FilePath -> FilePath
+repositoryRootIn dir = dir </> "repo"
+
+-- | Where the repository document lands, for a test that names it.
+repositoryDocumentIn :: FilePath -> FilePath
+repositoryDocumentIn dir = repositoryRootIn dir </> ".baikai" </> "agents.kdl"
+
+-- | Write the operator document, if there is one, outside the checkout,
+-- and the repository document inside it.
+pathsIn :: FilePath -> Maybe Text -> Text -> IO AgentConfigPaths
+pathsIn dir operatorDoc repoDoc = do
+  userConfig <- traverse (writeIn (dir </> "operator" </> "agents.kdl")) operatorDoc
+  repoConfig <- Just <$> writeIn (repositoryDocumentIn dir) repoDoc
+  pure
+    AgentConfigPaths
+      { userConfig,
+        repoConfig,
+        repositoryRoot = repositoryRootIn dir
+      }
+  where
+    writeIn path body = do
+      createDirectoryIfMissing True (takeDirectory path)
+      TextIO.writeFile path body
+      pure path
+
 -- | Paths naming only a repository document, which is the normal state
 -- for an operator who has written no policy file.
-repositoryOnly :: FilePath -> AgentConfigPaths
-repositoryOnly path = AgentConfigPaths {userConfig = Nothing, repoConfig = Just path}
+repositoryOnly :: FilePath -> Text -> IO AgentConfigPaths
+repositoryOnly dir repoDoc = pathsIn dir Nothing repoDoc
 
 -- | Write a KDL document into a temporary directory and hand back the
 -- workspace directory and the document's path.
@@ -210,21 +248,23 @@ fixturePrompt =
 resolveOne :: Text -> Text -> IO AgentJob
 resolveOne document jobName =
   withWorkspace $ \dir -> do
-    path <- writeDocument dir "repo.kdl" document
-    loaded <- resolveAgentJob (repositoryOnly path) noEnvironment [] jobName
+    paths <- repositoryOnly dir document
+    loaded <- resolveAgentJob paths noEnvironment [] jobName
     case loaded of
       Left problem -> assertFailure ("loading failed: " <> show problem)
       Right resolved -> case resolved ^. #answer of
         Left problems -> assertFailure ("resolution failed: " <> show problems)
         Right job -> pure job
 
+-- | A job with nothing but the required settings. It is never spawned,
+-- so the working directory is the repository itself.
 minimalJob :: Text -> Text -> Text
 minimalJob provider extra =
   Text.unlines
     [ "jobs {",
       "  demo {",
       "    provider \"" <> provider <> "\"",
-      "    working-dir \"/tmp\"",
+      "    working-dir \".\"",
       extra,
       "    safety { capability \"edit-workspace\" }",
       "  }",
@@ -268,7 +308,10 @@ listsNothingWhenUnconfiguredTest =
   testCase "an empty list exits 0 and keeps standard output empty" $ do
     -- An empty list is a normal state, not an error, and a script
     -- piping the output should never have to filter prose out of data.
-    finished <- run AgentConfigPaths {userConfig = Nothing, repoConfig = Nothing} (options AgentList)
+    finished <-
+      run
+        AgentConfigPaths {userConfig = Nothing, repoConfig = Nothing, repositoryRoot = "."}
+        (options AgentList)
     finished ^. #exitCode @?= 0
     finished ^. #standardOutput @?= ""
     assertBool
@@ -279,10 +322,9 @@ listsConfiguredJobsTest :: TestTree
 listsConfiguredJobsTest =
   testCase "configured jobs are listed, sorted, with their scope" $
     withWorkspace $ \dir -> do
-      path <-
-        writeDocument
+      paths <-
+        repositoryOnly
           dir
-          "repo.kdl"
           ( Text.unlines
               [ "jobs {",
                 "  zebra { provider \"claude\" }",
@@ -290,7 +332,7 @@ listsConfiguredJobsTest =
                 "}"
               ]
           )
-      finished <- run (repositoryOnly path) (options AgentList)
+      finished <- run paths (options AgentList)
       finished ^. #exitCode @?= 0
       let listed = Text.lines (finished ^. #standardOutput)
       map (take 1 . Text.words) listed @?= [["alpha"], ["zebra"]]
@@ -309,8 +351,9 @@ showExplainsWithProvenanceTest =
     -- renderResolutionText drops the location, so this is also the test
     -- that the command-line layer walks the report itself.
     withWorkspace $ \dir -> do
-      path <- writeDocument dir "repo.kdl" (minimalJob "claude" "")
-      finished <- run (repositoryOnly path) (options (AgentShow "demo"))
+      paths <- repositoryOnly dir (minimalJob "claude" "")
+      let path = repositoryDocumentIn dir
+      finished <- run paths (options (AgentShow "demo"))
       let output = finished ^. #standardOutput
       finished ^. #exitCode @?= 0
       assertBool
@@ -341,20 +384,15 @@ showRedactsProviderArgumentsTest =
     -- vector either, which is the easier of the two to overlook.
     withWorkspace $
       \dir -> do
-        userPath <-
-          writeDocument
+        paths <-
+          pathsIn
             dir
-            "user.kdl"
-            (Text.unlines ["policy {", "  allow-provider-args #true", "}"])
-        repoPath <-
-          writeDocument
-            dir
-            "repo.kdl"
+            (Just (Text.unlines ["policy {", "  allow-provider-args #true", "}"]))
             ( Text.unlines
                 [ "jobs {",
                   "  demo {",
                   "    provider \"claude\"",
-                  "    working-dir \"/tmp\"",
+                  "    working-dir \".\"",
                   "    safety {",
                   "      capability \"edit-workspace\"",
                   "      provider-args \"--api-key\" \"sk-not-a-real-key\"",
@@ -363,10 +401,7 @@ showRedactsProviderArgumentsTest =
                   "}"
                 ]
             )
-        finished <-
-          run
-            AgentConfigPaths {userConfig = Just userPath, repoConfig = Just repoPath}
-            (options (AgentShow "demo"))
+        finished <- run paths (options (AgentShow "demo"))
         let output = finished ^. #standardOutput <> finished ^. #standardError
         finished ^. #exitCode @?= 0
         assertBool
@@ -385,21 +420,20 @@ showPrintsConfigurationBeforeRefusalTest =
     -- A job the ceiling refuses is precisely the case an operator most
     -- needs `show` for; printing nothing would hide it.
     withWorkspace $ \dir -> do
-      path <-
-        writeDocument
+      paths <-
+        repositoryOnly
           dir
-          "repo.kdl"
           ( Text.unlines
               [ "jobs {",
                 "  demo {",
                 "    provider \"claude\"",
-                "    working-dir \"/tmp\"",
+                "    working-dir \".\"",
                 "    safety { capability \"full-access\" }",
                 "  }",
                 "}"
               ]
           )
-      finished <- run (repositoryOnly path) (options (AgentShow "demo"))
+      finished <- run paths (options (AgentShow "demo"))
       finished ^. #exitCode @?= refusedExitCode
       assertBool
         ("the configuration was printed: " <> Text.unpack (finished ^. #standardOutput))
@@ -414,8 +448,9 @@ showReportsAnUnreadableFileTest :: TestTree
 showReportsAnUnreadableFileTest =
   testCase "a malformed document exits with the configuration code" $
     withWorkspace $ \dir -> do
-      path <- writeDocument dir "repo.kdl" "jobs {\n  demo {\n    provider \"claude\"\n"
-      finished <- run (repositoryOnly path) (options (AgentShow "demo"))
+      paths <- repositoryOnly dir "jobs {\n  demo {\n    provider \"claude\"\n"
+      let path = repositoryDocumentIn dir
+      finished <- run paths (options (AgentShow "demo"))
       finished ^. #exitCode @?= configExitCode
       assertBool
         ("the file is named: " <> Text.unpack (finished ^. #standardError))
@@ -425,6 +460,27 @@ showReportsAnUnreadableFileTest =
 -- The sync-keiro-dsl fixture
 -- --------------------------------------------------------------------
 
+-- | The operator half of the motivating fixture.
+--
+-- Two things live here that a repository file may not supply. The
+-- @executable@ names which program runs, which is operator authority by
+-- definition. And @Bash@ and @Skill@ are grants outside what
+-- @edit-workspace@ implies, so the operator has to say they are
+-- permitted; the eight-tool list in the repository document below is
+-- unchanged, and it is that operator line which now lets it through.
+syncKeiroDslOperatorDocument :: FilePath -> Text
+syncKeiroDslOperatorDocument executable =
+  Text.unlines
+    [ "policy {",
+      "  allowed-tools \"Bash\" \"Skill\"",
+      "}",
+      "jobs {",
+      "  sync-keiro-dsl {",
+      "    executable \"" <> Text.pack executable <> "\"",
+      "  }",
+      "}"
+    ]
+
 -- | The translation of the motivating script's launch into
 -- configuration.
 --
@@ -433,14 +489,13 @@ showReportsAnUnreadableFileTest =
 -- output. The extra directory is deliberately __not__ here: it arrives
 -- on the command line as a single @--set@, which is what makes the
 -- "no provider flags in the script" claim testable.
-syncKeiroDslDocument :: FilePath -> FilePath -> Text
-syncKeiroDslDocument workingDir executable =
+syncKeiroDslDocument :: FilePath -> Text
+syncKeiroDslDocument workingDir =
   Text.unlines
     [ "jobs {",
       "  sync-keiro-dsl {",
       "    provider     \"claude\"",
       "    working-dir  \"" <> Text.pack workingDir <> "\"",
-      "    executable   \"" <> Text.pack executable <> "\"",
       "    output       \"capture\"",
       "    env-requires \"BAIKAI_TEST_CLAUDE_ARGV\" \"BAIKAI_TEST_CLAUDE_STDIN\"",
       "    safety {",
@@ -469,10 +524,14 @@ syncKeiroDslRunsTest =
           "claude"
           (recordingAgent "BAIKAI_TEST_CLAUDE_ARGV" "BAIKAI_TEST_CLAUDE_STDIN")
       promptPath <- writeDocument dir "prompt.txt" fixturePrompt
-      configPath <- writeDocument dir "repo.kdl" (syncKeiroDslDocument dir executable)
+      paths <-
+        pathsIn
+          dir
+          (Just (syncKeiroDslOperatorDocument executable))
+          (syncKeiroDslDocument (repositoryRootIn dir))
       finished <-
         run
-          (repositoryOnly configPath)
+          paths
           ( withOverride
               "extra-dirs"
               (Text.pack keiroPath)
@@ -498,6 +557,104 @@ syncKeiroDslRunsTest =
         ("the agent's answer is on standard output: " <> Text.unpack (finished ^. #standardOutput))
         ("reconciled the lexical surface" `Text.isInfixOf` (finished ^. #standardOutput))
 
+bashGrantIsRefusedUnderTheDefaultCeilingTest :: TestTree
+bashGrantIsRefusedUnderTheDefaultCeilingTest =
+  testCase "A REPOSITORY TOOL GRANT NEEDS AN OPERATOR GRANT" $
+    -- The same repository document as the fixture above, with no
+    -- operator policy. `--allowedTools Bash` is a grant: it pre-approves
+    -- shell access that the permission mode would otherwise have raised
+    -- a request for, and with nobody present that request is denied. So
+    -- an unattended run must not get it because a checkout asked.
+    withWorkspace $ \dir -> do
+      let argvRecord = dir </> "argv"
+      setEnv "BAIKAI_TEST_CLAUDE_ARGV" argvRecord
+      setEnv "BAIKAI_TEST_CLAUDE_STDIN" (dir </> "stdin")
+      executable <-
+        writeFakeAgent
+          dir
+          "claude"
+          (recordingAgent "BAIKAI_TEST_CLAUDE_ARGV" "BAIKAI_TEST_CLAUDE_STDIN")
+      promptPath <- writeDocument dir "prompt.txt" fixturePrompt
+      paths <-
+        pathsIn
+          dir
+          -- The executable only: no `policy` node, so the default
+          -- ceiling is in force.
+          (Just (operatorJob "sync-keiro-dsl" executable))
+          (syncKeiroDslDocument (repositoryRootIn dir))
+      finished <-
+        run paths (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
+      finished ^. #exitCode @?= refusedExitCode
+      let message = finished ^. #standardError
+      mapM_
+        ( \fragment ->
+            assertBool
+              ("expected " <> Text.unpack fragment <> " in: " <> Text.unpack message)
+              (fragment `Text.isInfixOf` message)
+        )
+        ["Bash", "edit-workspace", "policy.allowed-tools"]
+      -- Grants the capability already implies are not named, because
+      -- they are not the problem.
+      assertBool
+        ("Read is implied and must not be named: " <> Text.unpack message)
+        (not ("Read" `Text.isInfixOf` message))
+      started <- doesFileExist argvRecord
+      assertBool "nothing was started" (not started)
+
+repositoryExecutableIsRefusedThroughTheCommandTest :: TestTree
+repositoryExecutableIsRefusedThroughTheCommandTest =
+  testCase "a repository file naming the executable is refused before anything starts" $
+    withWorkspace $ \dir -> do
+      let argvRecord = dir </> "argv"
+      executable <-
+        writeFakeAgent dir "claude" ("#!/bin/sh\ntouch '" <> Text.pack argvRecord <> "'\n")
+      promptPath <- writeDocument dir "prompt.txt" fixturePrompt
+      paths <-
+        repositoryOnly
+          dir
+          ( Text.unlines
+              [ "jobs {",
+                "  demo {",
+                "    provider    \"claude\"",
+                "    working-dir \"" <> Text.pack (repositoryRootIn dir) <> "\"",
+                "    executable  \"" <> Text.pack executable <> "\"",
+                "    safety { capability \"edit-workspace\" }",
+                "  }",
+                "}"
+              ]
+          )
+      finished <- run paths (options (AgentRun "demo" (PromptFile promptPath)))
+      finished ^. #exitCode @?= refusedExitCode
+      assertBool
+        ("the setting is named: " <> Text.unpack (finished ^. #standardError))
+        ("executable" `Text.isInfixOf` (finished ^. #standardError))
+      started <- doesFileExist argvRecord
+      assertBool "the executable was never invoked" (not started)
+
+showListsTheCeilingFieldsTest :: TestTree
+showListsTheCeilingFieldsTest =
+  testCase "show prints every field of the ceiling" $
+    -- An operator reading `show` to find out why a job was refused needs
+    -- to see the limit that refused it, so every field is printed.
+    withWorkspace $ \dir -> do
+      paths <- repositoryOnly dir (minimalJob "claude" "")
+      finished <- run paths (options (AgentShow "demo"))
+      finished ^. #exitCode @?= 0
+      let output = finished ^. #standardOutput
+      mapM_
+        ( \field ->
+            assertBool
+              ("expected " <> Text.unpack field <> " in: " <> Text.unpack output)
+              (field `Text.isInfixOf` output)
+        )
+        [ "max-capability",
+          "allow-provider-args",
+          "allowed-providers",
+          "allowed-tools",
+          "max-timeout",
+          "max-output-limit"
+        ]
+
 swappingTheProviderIsAConfigurationChangeTest :: TestTree
 swappingTheProviderIsAConfigurationChangeTest =
   testCase "changing only the provider line moves the run to codex" $
@@ -515,16 +672,15 @@ swappingTheProviderIsAConfigurationChangeTest =
           "codex"
           (recordingAgent "BAIKAI_TEST_CODEX_ARGV" "BAIKAI_TEST_CODEX_STDIN")
       promptPath <- writeDocument dir "prompt.txt" fixturePrompt
-      configPath <-
-        writeDocument
+      paths <-
+        pathsIn
           dir
-          "repo.kdl"
+          (Just (operatorJob "sync-keiro-dsl" executable))
           ( Text.unlines
               [ "jobs {",
                 "  sync-keiro-dsl {",
                 "    provider     \"codex\"",
-                "    working-dir  \"" <> Text.pack dir <> "\"",
-                "    executable   \"" <> Text.pack executable <> "\"",
+                "    working-dir  \"" <> Text.pack (repositoryRootIn dir) <> "\"",
                 "    output       \"capture\"",
                 "    safety { capability \"edit-workspace\" }",
                 "  }",
@@ -532,9 +688,7 @@ swappingTheProviderIsAConfigurationChangeTest =
               ]
           )
       finished <-
-        run
-          (repositoryOnly configPath)
-          (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
+        run paths (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
       finished ^. #exitCode @?= 0
       argv <- recordedArgv argvRecord
       argv
@@ -542,7 +696,7 @@ swappingTheProviderIsAConfigurationChangeTest =
               "--sandbox",
               "workspace-write",
               "--cd",
-              Text.pack dir,
+              Text.pack (repositoryRootIn dir),
               "--skip-git-repo-check",
               "--ephemeral"
             ]
@@ -559,17 +713,19 @@ swappingTheProviderRefusesATheToolListTest =
       let argvRecord = dir </> "argv"
       executable <- writeFakeAgent dir "codex" "#!/bin/sh\ntouch \"$1\"\n"
       promptPath <- writeDocument dir "prompt.txt" fixturePrompt
-      configPath <-
-        writeDocument
+      paths <-
+        pathsIn
           dir
-          "repo.kdl"
+          (Just (operatorJob "sync-keiro-dsl" executable))
           ( Text.unlines
               [ "jobs {",
                 "  sync-keiro-dsl {",
                 "    provider     \"codex\"",
-                "    working-dir  \"" <> Text.pack dir <> "\"",
-                "    executable   \"" <> Text.pack executable <> "\"",
+                "    working-dir  \"" <> Text.pack (repositoryRootIn dir) <> "\"",
                 "    safety {",
+                -- Read and Write are implied by edit-workspace, so the
+                -- ceiling permits them; the refusal below is the Codex
+                -- renderer's, which is what this case is about.
                 "      capability    \"edit-workspace\"",
                 "      allowed-tools \"Read\" \"Write\"",
                 "    }",
@@ -578,9 +734,7 @@ swappingTheProviderRefusesATheToolListTest =
               ]
           )
       finished <-
-        run
-          (repositoryOnly configPath)
-          (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
+        run paths (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
       finished ^. #exitCode @?= refusedExitCode
       assertBool
         ("the message names the sandbox alternative: " <> Text.unpack (finished ^. #standardError))
@@ -599,25 +753,22 @@ theCeilingRefusesBeforeAnythingIsStartedTest =
       executable <-
         writeFakeAgent dir "claude" ("#!/bin/sh\ntouch '" <> Text.pack argvRecord <> "'\n")
       promptPath <- writeDocument dir "prompt.txt" fixturePrompt
-      configPath <-
-        writeDocument
+      paths <-
+        pathsIn
           dir
-          "repo.kdl"
+          (Just (operatorJob "sync-keiro-dsl" executable))
           ( Text.unlines
               [ "jobs {",
                 "  sync-keiro-dsl {",
                 "    provider    \"claude\"",
-                "    working-dir \"" <> Text.pack dir <> "\"",
-                "    executable  \"" <> Text.pack executable <> "\"",
+                "    working-dir \"" <> Text.pack (repositoryRootIn dir) <> "\"",
                 "    safety { capability \"full-access\" }",
                 "  }",
                 "}"
               ]
           )
       finished <-
-        run
-          (repositoryOnly configPath)
-          (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
+        run paths (options (AgentRun "sync-keiro-dsl" (PromptFile promptPath)))
       finished ^. #exitCode @?= refusedExitCode
       assertBool
         ("the refusal names both values: " <> Text.unpack (finished ^. #standardError))
@@ -631,21 +782,41 @@ theCeilingRefusesBeforeAnythingIsStartedTest =
 -- agent run
 -- --------------------------------------------------------------------
 
--- | A job rooted in the workspace, running the given script, capturing
--- output unless told otherwise.
-scriptedJob :: FilePath -> FilePath -> Text -> Text
-scriptedJob dir executable outputMode =
+-- | The operator half of a job: which program runs, and nothing else.
+--
+-- Every fixture that spawns a fake agent needs one of these, because a
+-- repository file that could name the program to run would turn a
+-- checkout into code execution with the operator's environment.
+operatorJob :: Text -> FilePath -> Text
+operatorJob jobName executable =
+  Text.unlines
+    [ "jobs {",
+      "  " <> jobName <> " {",
+      "    executable \"" <> Text.pack executable <> "\"",
+      "  }",
+      "}"
+    ]
+
+-- | The repository half of a scripted job: everything a checkout is
+-- allowed to say. It is rooted in the checkout, which is where a
+-- repository working directory has to stay.
+repositoryJob :: FilePath -> Text -> Text
+repositoryJob dir outputMode =
   Text.unlines
     [ "jobs {",
       "  demo {",
       "    provider    \"claude\"",
-      "    working-dir \"" <> Text.pack dir <> "\"",
-      "    executable  \"" <> Text.pack executable <> "\"",
+      "    working-dir \"" <> Text.pack (repositoryRootIn dir) <> "\"",
       "    output      \"" <> outputMode <> "\"",
       "    safety { capability \"edit-workspace\" }",
       "  }",
       "}"
     ]
+
+-- | Both halves of a scripted job, written where they belong.
+scriptedPaths :: FilePath -> FilePath -> Text -> IO AgentConfigPaths
+scriptedPaths dir executable outputMode =
+  pathsIn dir (Just (operatorJob "demo" executable)) (repositoryJob dir outputMode)
 
 propagatesTheAgentExitCodeTest :: TestTree
 propagatesTheAgentExitCodeTest =
@@ -655,9 +826,8 @@ propagatesTheAgentExitCodeTest =
     -- could not start" needs the codes to stay separate.
     withWorkspace $ \dir -> do
       executable <- writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\nexit 3\n"
-      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "capture")
-      finished <-
-        run (repositoryOnly configPath) (options (AgentRun "demo" (PromptInline "do the thing")))
+      paths <- scriptedPaths dir executable "capture"
+      finished <- run paths (options (AgentRun "demo" (PromptInline "do the thing")))
       finished ^. #exitCode @?= 3
       -- Nothing extra is narrated: the agent has already explained
       -- itself on its own standard error.
@@ -672,9 +842,8 @@ inheritModeCapturesNothingTest =
     withWorkspace $ \dir -> do
       executable <-
         writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\necho 'inherited line'\n"
-      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "inherit")
-      finished <-
-        run (repositoryOnly configPath) (options (AgentRun "demo" (PromptInline "do the thing")))
+      paths <- scriptedPaths dir executable "inherit"
+      finished <- run paths (options (AgentRun "demo" (PromptInline "do the thing")))
       finished ^. #exitCode @?= 0
       finished ^. #standardOutput @?= ""
       finished ^. #standardError @?= ""
@@ -683,10 +852,8 @@ reportsAMissingExecutableTest :: TestTree
 reportsAMissingExecutableTest =
   testCase "a missing coding-agent binary exits 69" $
     withWorkspace $ \dir -> do
-      configPath <-
-        writeDocument dir "repo.kdl" (scriptedJob dir (dir </> "not-installed") "capture")
-      finished <-
-        run (repositoryOnly configPath) (options (AgentRun "demo" (PromptInline "do the thing")))
+      paths <- scriptedPaths dir (dir </> "not-installed") "capture"
+      finished <- run paths (options (AgentRun "demo" (PromptInline "do the thing")))
       finished ^. #exitCode @?= 69
       assertBool
         ("the missing program is named: " <> Text.unpack (finished ^. #standardError))
@@ -705,10 +872,10 @@ writesTheEvidenceFileTest =
           dir
           "claude"
           "#!/bin/sh\ncat > /dev/null\necho 'the task is done'\n"
-      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "capture")
+      paths <- scriptedPaths dir executable "capture"
       finished <-
         run
-          (repositoryOnly configPath)
+          paths
           (withEvidence evidencePath "outer-run-7" (options (AgentRun "demo" (PromptInline "do the thing"))))
       finished ^. #exitCode @?= 0
       -- Nothing about the evidence file leaks onto the agent's own
@@ -740,9 +907,8 @@ writesNoEvidenceFileByDefaultTest =
       let evidencePath = dir </> "evidence.json"
       executable <-
         writeFakeAgent dir "claude" "#!/bin/sh\ncat > /dev/null\necho 'the task is done'\n"
-      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "capture")
-      finished <-
-        run (repositoryOnly configPath) (options (AgentRun "demo" (PromptInline "do the thing")))
+      paths <- scriptedPaths dir executable "capture"
+      finished <- run paths (options (AgentRun "demo" (PromptInline "do the thing")))
       finished ^. #exitCode @?= 0
       written <- doesFileExist evidencePath
       assertBool "no evidence file appeared" (not written)
@@ -763,10 +929,10 @@ refusesAnImpossibleEvidenceRequirementTest =
         writeFakeAgent dir "claude" ("#!/bin/sh\ntouch '" <> Text.pack argvRecord <> "'\n")
       -- `inherit` sends the agent's bytes to the terminal, so baikai
       -- holds nothing and can observe nothing however the run goes.
-      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "inherit")
+      paths <- scriptedPaths dir executable "inherit"
       finished <-
         run
-          (repositoryOnly configPath)
+          paths
           ( requiringEvidence
               EvidenceCorrelated
               (options (AgentRun "demo" (PromptInline "do the thing")))
@@ -789,10 +955,9 @@ refusesAnEmptyPromptTest =
   testCase "an empty prompt is a usage error, not an expensive run" $
     withWorkspace $ \dir -> do
       executable <- writeFakeAgent dir "claude" "#!/bin/sh\nexit 0\n"
-      configPath <- writeDocument dir "repo.kdl" (scriptedJob dir executable "capture")
+      paths <- scriptedPaths dir executable "capture"
       emptyPrompt <- writeDocument dir "empty.txt" ""
-      finished <-
-        run (repositoryOnly configPath) (options (AgentRun "demo" (PromptFile emptyPrompt)))
+      finished <- run paths (options (AgentRun "demo" (PromptFile emptyPrompt)))
       finished ^. #exitCode @?= usageExitCode
       assertBool
         ("the empty source is named: " <> Text.unpack (finished ^. #standardError))

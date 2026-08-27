@@ -56,11 +56,21 @@ module Baikai.Agent
     agentRunRequest,
 
     -- * The operator policy ceiling
-    AgentCeiling (maxCapability, allowProviderArgs, allowedProviders),
+    AgentCeiling
+      ( maxCapability,
+        allowProviderArgs,
+        allowedProviders,
+        allowedTools,
+        maxTimeout,
+        maxOutputLimit
+      ),
     defaultAgentCeiling,
+    defaultMaxOutputLimit,
+    toolGrantsImpliedBy,
     CeilingViolation (..),
     renderCeilingViolation,
     applyAgentCeiling,
+    ceilingViolations,
 
     -- * The rendered command
     AgentPromptTransport (..),
@@ -143,10 +153,21 @@ parseAgentCapability _ = Nothing
 data AgentSafety = AgentSafety
   { -- | How much filesystem authority the run requests.
     capability :: !AgentCapability,
-    -- | Optional narrowing of the provider's tool set. An empty list
-    -- means \"do not restrict tools beyond what the capability
-    -- implies\"; a non-empty list is rendered where the provider
-    -- supports a tool allow-list.
+    -- | Tools this run is __granted__ — pre-approved — beyond what the
+    -- capability's permission mode approves on its own. This is a
+    -- widening, not a narrowing: on Claude Code the list renders as
+    -- @--allowedTools@, whose help reads \"list of tool names to
+    -- allow\", so @allowedTools = [\"Bash\"]@ under an
+    -- @edit-workspace@ capability pre-approves shell access that the
+    -- permission mode would otherwise have raised a request for, and in
+    -- an unattended run a request nobody answers is denied. An empty
+    -- list grants nothing beyond the mode, which is the default. Codex
+    -- has no equivalent flag and its renderer refuses a non-empty list.
+    --
+    -- Because a grant is authority, an operator ceiling bounds it: see
+    -- 'toolGrantsImpliedBy' and 'AgentCeiling.allowedTools'. The
+    -- narrowing flags Claude Code also has, @--tools@ and
+    -- @--disallowedTools@, are not modelled here.
     allowedTools :: ![Text],
     -- | Raw provider arguments Baikai does not model, passed through
     -- verbatim. This is a privileged channel: arbitrary vendor flags
@@ -159,8 +180,8 @@ data AgentSafety = AgentSafety
   }
   deriving stock (Eq, Show, Generic)
 
--- | A safety request for the given capability, with no tool narrowing
--- and no raw provider arguments.
+-- | A safety request for the given capability, with no tool grants
+-- beyond what the capability implies and no raw provider arguments.
 agentSafety :: AgentCapability -> AgentSafety
 agentSafety cap =
   AgentSafety
@@ -305,7 +326,21 @@ data AgentCeiling = AgentCeiling
     allowProviderArgs :: !Bool,
     -- | The providers jobs may select. An empty list permits __no__
     -- provider; it does not mean \"all providers\".
-    allowedProviders :: ![AgentProvider]
+    allowedProviders :: ![AgentProvider],
+    -- | Tool grants the operator permits beyond the ones
+    -- 'toolGrantsImpliedBy' the maximum capability already allows.
+    -- Matching is exact on the whole string, so granting @\"Bash\"@
+    -- does not permit @\"Bash(git *)\"@ and vice versa: a job asks for
+    -- exactly the spelling the operator wrote, or it is refused.
+    allowedTools :: ![Text],
+    -- | The longest wall-clock limit any job may request. 'Nothing'
+    -- permits an unlimited run, which is the default. A finite maximum
+    -- also refuses a job that requests __no__ timeout at all, because a
+    -- maximum defeated by omitting the setting is not a maximum.
+    maxTimeout :: !(Maybe NominalDiffTime),
+    -- | The largest per-stream output capture any job may request.
+    -- 'Nothing' permits @output-limit \"unlimited\"@.
+    maxOutputLimit :: !(Maybe Int)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -324,8 +359,52 @@ defaultAgentCeiling =
   AgentCeiling
     { maxCapability = AgentEditWorkspace,
       allowProviderArgs = False,
-      allowedProviders = [AgentClaude, AgentCodex]
+      allowedProviders = [AgentClaude, AgentCodex],
+      allowedTools = [],
+      maxTimeout = Nothing,
+      maxOutputLimit = Just defaultMaxOutputLimit
     }
+
+-- | The largest per-stream output capture the default ceiling permits:
+-- sixty-four mebibytes, sixteen times the per-stream default a job gets
+-- when it mentions no limit at all.
+--
+-- Concrete rather than unbounded because the memory belongs to the host
+-- the operator owns, not to the repository that wrote the job: a
+-- checkout writing @output-limit \"unlimited\"@ is asking to buffer an
+-- entire runaway agent in the operator's address space, and it should
+-- have to ask the operator rather than help itself. Sixty-four
+-- mebibytes is far more than any real run prints, so a job that hits
+-- it has gone wrong.
+defaultMaxOutputLimit :: Int
+defaultMaxOutputLimit = 67108864
+
+-- | The tool grants a capability implies on its own, or 'Nothing' when
+-- the capability implies every grant.
+--
+-- The names are Claude Code's built-in tools at version 2.1.247. The
+-- lists are deliberately short and fail closed: a tool name that is not
+-- listed here can only ever be refused unless the maximum capability is
+-- 'AgentFullAccess' or the operator names it in
+-- 'AgentCeiling.allowedTools', so a coding agent that grows a new tool
+-- can never widen an existing ceiling by accident.
+--
+-- @Bash@ is absent from every finite list on purpose. It runs arbitrary
+-- commands, which is what 'AgentFullAccess' means; a job that wants it
+-- under a lesser capability needs the operator to say so.
+toolGrantsImpliedBy :: AgentCapability -> Maybe [Text]
+toolGrantsImpliedBy AgentReadOnly = Just readTools
+toolGrantsImpliedBy AgentEditWorkspace = Just (readTools <> editTools)
+toolGrantsImpliedBy AgentFullAccess = Nothing
+
+-- | Grants that read but change nothing.
+readTools :: [Text]
+readTools = ["Read", "Glob", "Grep", "NotebookRead", "TodoWrite"]
+
+-- | Grants that change files, which 'AgentEditWorkspace' adds to
+-- 'readTools'.
+editTools :: [Text]
+editTools = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
 
 -- | One way a request exceeded a ceiling.
 data CeilingViolation
@@ -347,6 +426,31 @@ data CeilingViolation
     ProviderArgsForbidden ![Text]
   | -- | The requested provider, then the permitted providers.
     ProviderForbidden !AgentProvider ![AgentProvider]
+  | -- | The requested tool grants that are not permitted, then the
+    -- maximum capability in force. A grant is authority, so the
+    -- capability is named: it is what decides which grants are implied
+    -- without the operator writing anything.
+    ToolGrantForbidden ![Text] !AgentCapability
+  | -- | The requested wall-clock limit ('Nothing' is \"no limit\"),
+    -- then the permitted maximum.
+    TimeoutExceeded !(Maybe NominalDiffTime) !NominalDiffTime
+  | -- | The requested per-stream capture ('Nothing' is @unlimited@),
+    -- then the permitted maximum in bytes.
+    OutputLimitExceeded !(Maybe Int) !Int
+  | -- | The leaf name of a setting only operator scope may supply, for
+    -- example @executable@, that a repository file supplied.
+    --
+    -- Unlike every other violation this one is about /where/ a value
+    -- came from rather than what it was, so 'applyAgentCeiling' cannot
+    -- produce it: that function sees a request, not the provenance of
+    -- each field. It is produced by the configuration layer, which
+    -- reads provenance from the resolution report, and is carried in
+    -- the same list so an operator sees one refusal.
+    RepositoryScopeForbidden !Text
+  | -- | The working directory a repository file asked for, after
+    -- resolving symbolic links, then the repository root it must lie
+    -- inside.
+    WorkingDirOutsideRepository !FilePath !FilePath
   deriving stock (Eq, Show, Generic)
 
 -- | One line of plain English naming what was asked for and what is
@@ -369,6 +473,55 @@ renderCeilingViolation (ProviderForbidden requested permitted) =
   where
     renderPermittedProviders [] = "none"
     renderPermittedProviders ps = Text.intercalate ", " (map renderAgentProvider ps)
+renderCeilingViolation (ToolGrantForbidden grants permitted) =
+  "tool grants "
+    <> Text.intercalate ", " grants
+    <> " are not permitted under the maximum capability "
+    <> renderAgentCapability permitted
+    <> "; add them to policy.allowed-tools in the operator file or raise \
+       \policy.max-capability"
+renderCeilingViolation (TimeoutExceeded Nothing permitted) =
+  "the job sets no timeout, and the permitted maximum is "
+    <> renderCeilingDuration permitted
+renderCeilingViolation (TimeoutExceeded (Just requested) permitted) =
+  "the requested timeout "
+    <> renderCeilingDuration requested
+    <> " exceeds the permitted maximum "
+    <> renderCeilingDuration permitted
+renderCeilingViolation (OutputLimitExceeded Nothing permitted) =
+  "output-limit unlimited exceeds the permitted maximum "
+    <> Text.pack (show permitted)
+    <> " bytes"
+renderCeilingViolation (OutputLimitExceeded (Just requested) permitted) =
+  "the requested output-limit "
+    <> Text.pack (show requested)
+    <> " exceeds the permitted maximum "
+    <> Text.pack (show permitted)
+    <> " bytes"
+renderCeilingViolation (RepositoryScopeForbidden name) =
+  "the repository configuration set "
+    <> name
+    <> ", which only the operator file or the command line may set"
+renderCeilingViolation (WorkingDirOutsideRepository resolved root) =
+  "the working directory "
+    <> Text.pack resolved
+    <> " lies outside the repository "
+    <> Text.pack root
+
+-- | A duration in one of the spellings the configuration layer's
+-- @timeout@ parser accepts, so a refusal names a value an operator can
+-- paste straight back into @policy.max-timeout@. @show@ on a
+-- 'NominalDiffTime' prints @7200s@, which that parser does accept but
+-- which no operator writes.
+renderCeilingDuration :: NominalDiffTime -> Text
+renderCeilingDuration value
+  | seconds > 0, seconds `mod` 3600 == 0 = spell (seconds `div` 3600) "h"
+  | seconds > 0, seconds `mod` 60 == 0 = spell (seconds `div` 60) "m"
+  | otherwise = spell seconds "s"
+  where
+    seconds :: Integer
+    seconds = truncate value
+    spell magnitude unit = Text.pack (show magnitude) <> unit
 
 -- | Check a request against a ceiling. Returns the request
 -- __unchanged__ when it is within the ceiling, and every violation
@@ -385,28 +538,68 @@ renderCeilingViolation (ProviderForbidden requested permitted) =
 -- This function does not inspect the contents of the requested
 -- 'providerArgs'. See that field's documentation for why a denylist of
 -- dangerous flags would be false confidence rather than a boundary.
+--
+-- Two violations this function never produces are
+-- 'RepositoryScopeForbidden' and 'WorkingDirOutsideRepository'. Both
+-- depend on which configuration file supplied a value, and a request
+-- carries no provenance; the configuration layer produces them and
+-- concatenates them with this function's list, so a caller sees one
+-- refusal naming everything at once.
 applyAgentCeiling :: AgentCeiling -> AgentRunRequest -> Either [CeilingViolation] AgentRunRequest
 applyAgentCeiling limit request
   | null violations = Right request
   | otherwise = Left violations
+  where
+    violations = ceilingViolations limit request
+
+-- | Every way a request exceeds a ceiling, as a list a caller can
+-- concatenate with the provenance-dependent violations the
+-- configuration layer produces. 'applyAgentCeiling' is this function
+-- plus the decision to return the request unchanged when the list is
+-- empty.
+ceilingViolations :: AgentCeiling -> AgentRunRequest -> [CeilingViolation]
+ceilingViolations limit request =
+  concat
+    [ [ ProviderForbidden requestedProvider permittedProviders
+      | requestedProvider `notElem` permittedProviders
+      ],
+      [ CapabilityExceeded requestedCapability permittedCapability
+      | requestedCapability > permittedCapability
+      ],
+      [ ProviderArgsForbidden requestedArgs
+      | not (null requestedArgs),
+        not (limit ^. #allowProviderArgs)
+      ],
+      [ ToolGrantForbidden forbiddenGrants permittedCapability
+      | not (null forbiddenGrants)
+      ],
+      [ TimeoutExceeded requestedTimeout permittedTimeout
+      | Just permittedTimeout <- [limit ^. #maxTimeout],
+        maybe True (> permittedTimeout) requestedTimeout
+      ],
+      [ OutputLimitExceeded requestedOutputLimit permittedLimit
+      | Just permittedLimit <- [limit ^. #maxOutputLimit],
+        maybe True (> permittedLimit) requestedOutputLimit
+      ]
+    ]
   where
     requestedProvider = request ^. #provider
     permittedProviders = limit ^. #allowedProviders
     requestedCapability = request ^. #safety . #capability
     permittedCapability = limit ^. #maxCapability
     requestedArgs = request ^. #safety . #providerArgs
-    violations =
-      concat
-        [ [ ProviderForbidden requestedProvider permittedProviders
-          | requestedProvider `notElem` permittedProviders
-          ],
-          [ CapabilityExceeded requestedCapability permittedCapability
-          | requestedCapability > permittedCapability
-          ],
-          [ ProviderArgsForbidden requestedArgs
-          | not (null requestedArgs),
-            not (limit ^. #allowProviderArgs)
-          ]
+    requestedTimeout = request ^. #timeout
+    requestedOutputLimit = request ^. #outputLimit
+    -- A capability implying every grant permits the whole list; any
+    -- other capability permits its implied names plus whatever the
+    -- operator granted, matched exactly.
+    forbiddenGrants = case toolGrantsImpliedBy permittedCapability of
+      Nothing -> []
+      Just implied ->
+        [ grant
+        | grant <- request ^. #safety . #allowedTools,
+          grant `notElem` implied,
+          grant `notElem` (limit ^. #allowedTools)
         ]
 
 -- | How the prompt reaches the child process.

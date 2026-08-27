@@ -18,6 +18,10 @@ tests =
       multipleViolationTest,
       emptyAllowedProvidersTest,
       providerArgsCeilingTest,
+      toolGrantCeilingTest,
+      impliedGrantsTest,
+      timeoutCeilingTest,
+      outputLimitCeilingTest,
       violationRenderingTest,
       capturedOutputTest,
       failureRenderingTest,
@@ -73,21 +77,43 @@ canonicalRenderingTest =
     parseAgentOutputMode "tee" @?= Just TeeOutput
     parseAgentOutputMode "Tee" @?= Nothing
 
+-- | A request carrying a per-stream output limit.
+--
+-- 'agentRunRequest' defaults 'outputLimit' to 'Nothing', which means
+-- \"capture without bound\", and the default ceiling's
+-- 'defaultMaxOutputLimit' refuses exactly that. Every case below that is
+-- not itself about the output limit starts from this helper, so the
+-- violation it asserts is the only one in the list. Jobs resolved
+-- through @baikai-agent@ never hit this, because that layer's own
+-- default supplies a finite limit.
+bounded :: AgentRunRequest -> AgentRunRequest
+bounded request = request & #outputLimit .~ Just 4096
+
 -- | Accepting a request must return it byte-identical. The equality
 -- assertion against the original value is what proves no clamping
 -- happened.
 ceilingAcceptanceTest :: TestTree
 ceilingAcceptanceTest =
   testCase "the default ceiling accepts read-only and edit-workspace unchanged" $ do
-    let readOnly = agentRunRequest AgentClaude "/tmp/work" "look around"
-        editing = readOnly & #safety .~ agentSafety AgentEditWorkspace
+    let readOnly = bounded (agentRunRequest AgentClaude "/tmp/work" "look around")
+        editing =
+          readOnly
+            & #safety
+            .~ (agentSafety AgentEditWorkspace & #allowedTools .~ ["Read", "Edit"])
+            & #timeout
+            .~ Just 600
+            & #outputLimit
+            .~ Just 1024
     applyAgentCeiling defaultAgentCeiling readOnly @?= Right readOnly
+    -- Grants the capability already implies, a timeout under an
+    -- unlimited maximum, and a limit under the default maximum all pass
+    -- through untouched.
     applyAgentCeiling defaultAgentCeiling editing @?= Right editing
 
 ceilingRefusalTest :: TestTree
 ceilingRefusalTest =
   testCase "the ceiling refuses with the exact violation for each closed channel" $ do
-    let base = agentRunRequest AgentClaude "/tmp/work" "rewrite everything"
+    let base = bounded (agentRunRequest AgentClaude "/tmp/work" "rewrite everything")
         greedy = base & #safety .~ agentSafety AgentFullAccess
         rawArgs =
           base
@@ -95,7 +121,7 @@ ceilingRefusalTest =
             . #providerArgs
             .~ ["--dangerously-skip-permissions", "--verbose"]
         claudeOnly = defaultAgentCeiling & #allowedProviders .~ [AgentClaude]
-        codexRequest = agentRunRequest AgentCodex "/tmp/work" "rewrite everything"
+        codexRequest = bounded (agentRunRequest AgentCodex "/tmp/work" "rewrite everything")
     applyAgentCeiling defaultAgentCeiling greedy
       @?= Left [CapabilityExceeded AgentFullAccess AgentEditWorkspace]
     applyAgentCeiling defaultAgentCeiling rawArgs
@@ -118,7 +144,7 @@ multipleViolationTest =
             & #allowedProviders
             .~ [AgentClaude]
         req =
-          agentRunRequest AgentCodex "/tmp/work" "rewrite everything"
+          bounded (agentRunRequest AgentCodex "/tmp/work" "rewrite everything")
             & #safety
             .~ ( agentSafety AgentFullAccess
                    & #providerArgs
@@ -137,8 +163,8 @@ emptyAllowedProvidersTest :: TestTree
 emptyAllowedProvidersTest =
   testCase "an empty allowedProviders list permits no provider" $ do
     let closed = defaultAgentCeiling & #allowedProviders .~ []
-        claudeRequest = agentRunRequest AgentClaude "/tmp/work" "hello"
-        codexRequest = agentRunRequest AgentCodex "/tmp/work" "hello"
+        claudeRequest = bounded (agentRunRequest AgentClaude "/tmp/work" "hello")
+        codexRequest = bounded (agentRunRequest AgentCodex "/tmp/work" "hello")
     applyAgentCeiling closed claudeRequest
       @?= Left [ProviderForbidden AgentClaude []]
     applyAgentCeiling closed codexRequest
@@ -148,7 +174,7 @@ providerArgsCeilingTest :: TestTree
 providerArgsCeilingTest =
   testCase "raw provider arguments pass only when the operator opens the channel" $ do
     let req =
-          agentRunRequest AgentClaude "/tmp/work" "hello"
+          bounded (agentRunRequest AgentClaude "/tmp/work" "hello")
             & #safety
             . #providerArgs
             .~ ["--some-vendor-flag"]
@@ -156,6 +182,92 @@ providerArgsCeilingTest =
     applyAgentCeiling defaultAgentCeiling req
       @?= Left [ProviderArgsForbidden ["--some-vendor-flag"]]
     applyAgentCeiling permissive req @?= Right req
+
+-- | A tool grant is authority, so the capability decides which grants
+-- need no operator involvement and the operator's allow-list supplies
+-- the rest. @Bash@ is in neither implied set, which is the whole point
+-- of the finding this pins: a repository file granting itself shell
+-- access under @edit-workspace@ must be refused.
+toolGrantCeilingTest :: TestTree
+toolGrantCeilingTest =
+  testCase "a tool grant needs the capability to imply it or the operator to grant it" $ do
+    let granting names =
+          bounded (agentRunRequest AgentClaude "/tmp/work" "look around")
+            & #safety
+            .~ (agentSafety AgentEditWorkspace & #allowedTools .~ names)
+        bash = granting ["Bash"]
+    applyAgentCeiling defaultAgentCeiling bash
+      @?= Left [ToolGrantForbidden ["Bash"] AgentEditWorkspace]
+    applyAgentCeiling (defaultAgentCeiling & #allowedTools .~ ["Bash"]) bash @?= Right bash
+    applyAgentCeiling (defaultAgentCeiling & #maxCapability .~ AgentFullAccess) bash
+      @?= Right bash
+    -- Matching is exact on the whole string. A pattern-scoped grant is a
+    -- different grant, so granting the bare name does not permit it and
+    -- an operator who wants it writes it out.
+    let scoped = granting ["Bash(git *)"]
+    applyAgentCeiling (defaultAgentCeiling & #allowedTools .~ ["Bash"]) scoped
+      @?= Left [ToolGrantForbidden ["Bash(git *)"] AgentEditWorkspace]
+    -- Grants the capability already implies need no operator at all,
+    -- and only the forbidden ones are named in the refusal.
+    applyAgentCeiling defaultAgentCeiling (granting ["Read", "Write", "Bash", "WebFetch"])
+      @?= Left [ToolGrantForbidden ["Bash", "WebFetch"] AgentEditWorkspace]
+
+-- | The implied grant lists are a security boundary, so they are pinned
+-- name by name rather than by a property. A name added here widens every
+-- ceiling in existence, which should require editing this test.
+impliedGrantsTest :: TestTree
+impliedGrantsTest =
+  testCase "each capability implies exactly the documented grants" $ do
+    toolGrantsImpliedBy AgentReadOnly
+      @?= Just ["Read", "Glob", "Grep", "NotebookRead", "TodoWrite"]
+    toolGrantsImpliedBy AgentEditWorkspace
+      @?= Just
+        [ "Read",
+          "Glob",
+          "Grep",
+          "NotebookRead",
+          "TodoWrite",
+          "Edit",
+          "MultiEdit",
+          "Write",
+          "NotebookEdit"
+        ]
+    toolGrantsImpliedBy AgentFullAccess @?= Nothing
+
+-- | A finite maximum bounds a requested timeout and also refuses a job
+-- that requests none, because a maximum an operator can defeat by
+-- omitting the setting is not a maximum.
+timeoutCeilingTest :: TestTree
+timeoutCeilingTest =
+  testCase "a finite max-timeout refuses a longer run and an untimed one" $ do
+    let twoHours = defaultAgentCeiling & #maxTimeout .~ Just 7200
+        asking limit = bounded (agentRunRequest AgentClaude "/tmp/work" "work") & #timeout .~ limit
+    applyAgentCeiling twoHours (asking (Just 3600)) @?= Right (asking (Just 3600))
+    applyAgentCeiling twoHours (asking (Just 7200)) @?= Right (asking (Just 7200))
+    applyAgentCeiling twoHours (asking (Just 10800))
+      @?= Left [TimeoutExceeded (Just 10800) 7200]
+    applyAgentCeiling twoHours (asking Nothing) @?= Left [TimeoutExceeded Nothing 7200]
+    -- The default maximum is unlimited, so an untimed run passes.
+    applyAgentCeiling defaultAgentCeiling (asking Nothing) @?= Right (asking Nothing)
+
+-- | The default maximum is finite, so @unlimited@ is refused until the
+-- operator opens it. The memory belongs to the operator's host.
+outputLimitCeilingTest :: TestTree
+outputLimitCeilingTest =
+  testCase "a finite max-output-limit refuses a larger capture and an unlimited one" $ do
+    let asking limit =
+          bounded (agentRunRequest AgentClaude "/tmp/work" "work") & #outputLimit .~ limit
+        unbounded = defaultAgentCeiling & #maxOutputLimit .~ Nothing
+    defaultMaxOutputLimit @?= 67108864
+    applyAgentCeiling defaultAgentCeiling (asking (Just 1024))
+      @?= Right (asking (Just 1024))
+    applyAgentCeiling defaultAgentCeiling (asking (Just defaultMaxOutputLimit))
+      @?= Right (asking (Just defaultMaxOutputLimit))
+    applyAgentCeiling defaultAgentCeiling (asking (Just (defaultMaxOutputLimit + 1)))
+      @?= Left [OutputLimitExceeded (Just (defaultMaxOutputLimit + 1)) defaultMaxOutputLimit]
+    applyAgentCeiling defaultAgentCeiling (asking Nothing)
+      @?= Left [OutputLimitExceeded Nothing defaultMaxOutputLimit]
+    applyAgentCeiling unbounded (asking Nothing) @?= Right (asking Nothing)
 
 -- | Pin that both the requested and the permitted value appear, not
 -- the exact sentence, so wording can improve without breaking tests.
@@ -186,6 +298,48 @@ violationRenderingTest =
     assertBool
       ("expected both providers in: " <> Text.unpack providerMessage)
       ("codex" `Text.isInfixOf` providerMessage && "claude" `Text.isInfixOf` providerMessage)
+
+    -- A grant refusal must name what to do about it, because the fix is
+    -- in a file the person reading the message may not know exists.
+    let grantMessage =
+          renderCeilingViolation (ToolGrantForbidden ["Bash", "Skill"] AgentEditWorkspace)
+    mapM_
+      ( \fragment ->
+          assertBool
+            ("expected " <> Text.unpack fragment <> " in: " <> Text.unpack grantMessage)
+            (fragment `Text.isInfixOf` grantMessage)
+      )
+      ["Bash", "Skill", "edit-workspace", "policy.allowed-tools"]
+
+    -- Durations are rendered in the spellings the configuration parser
+    -- accepts, so an operator can paste the maximum back into their file.
+    let overTime = renderCeilingViolation (TimeoutExceeded (Just 10800) 7200)
+        untimed = renderCeilingViolation (TimeoutExceeded Nothing 7200)
+    assertBool
+      ("expected both durations in: " <> Text.unpack overTime)
+      ("3h" `Text.isInfixOf` overTime && "2h" `Text.isInfixOf` overTime)
+    assertBool
+      ("expected the permitted maximum in: " <> Text.unpack untimed)
+      ("2h" `Text.isInfixOf` untimed && "no timeout" `Text.isInfixOf` untimed)
+
+    let overBytes = renderCeilingViolation (OutputLimitExceeded (Just 99999999) 67108864)
+        unlimitedBytes = renderCeilingViolation (OutputLimitExceeded Nothing 67108864)
+    assertBool
+      ("expected both byte counts in: " <> Text.unpack overBytes)
+      ("99999999" `Text.isInfixOf` overBytes && "67108864" `Text.isInfixOf` overBytes)
+    assertBool
+      ("expected the word unlimited in: " <> Text.unpack unlimitedBytes)
+      ("unlimited" `Text.isInfixOf` unlimitedBytes && "67108864" `Text.isInfixOf` unlimitedBytes)
+
+    let scopeMessage = renderCeilingViolation (RepositoryScopeForbidden "executable")
+    assertBool
+      ("expected the setting name in: " <> Text.unpack scopeMessage)
+      ("executable" `Text.isInfixOf` scopeMessage)
+    let outsideMessage =
+          renderCeilingViolation (WorkingDirOutsideRepository "/etc" "/tmp/checkout")
+    assertBool
+      ("expected both paths in: " <> Text.unpack outsideMessage)
+      ("/etc" `Text.isInfixOf` outsideMessage && "/tmp/checkout" `Text.isInfixOf` outsideMessage)
 
 capturedOutputTest :: TestTree
 capturedOutputTest =

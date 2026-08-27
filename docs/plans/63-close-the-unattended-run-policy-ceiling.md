@@ -65,8 +65,10 @@ grants it.
 
 ## Progress
 
-- [ ] Milestone 1: ceiling gates every repository-settable field; `allowedTools` modelled as a
-      grant.
+- [x] Milestone 1: ceiling gates every repository-settable field; `allowedTools` modelled as a
+      grant. (2026-08-27) Core types, `applyAgentCeiling`, the three `policy` keys,
+      `repositoryScopeViolations`, the reworked test harnesses and the twelve new cases all
+      landed; the keyless `cabal test all` is green across all eight suites.
 - [ ] Milestone 2: ceiling-file provenance decided and documented.
 - [ ] Milestone 3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint,
       `errorInfo` bound, staging path).
@@ -76,7 +78,42 @@ grants it.
 
 ## Surprises & Discoveries
 
-(None yet.)
+- __The finite `maxOutputLimit` default re-bases every ceiling test built from
+  `agentRunRequest`.__ `agentRunRequest` defaults `outputLimit` to `Nothing`, meaning
+  "capture without bound", and the plan's own decision makes a finite maximum refuse
+  exactly that. So `applyAgentCeiling defaultAgentCeiling (agentRunRequest …)` — which
+  five cases in `baikai/test/AgentSpec.hs` asserted was `Right` — became a refusal, and
+  the two `Left` cases gained a second violation. Every case that is not itself about
+  the output limit now starts from a local `bounded` helper that sets a limit, with the
+  reason written beside it. This is the same shape EP-3 recorded for `Model.reasoning`:
+  a gate added to a check re-bases every test that reached the checked path through a
+  default-valued record, and the default is invisible at the call site. The behaviour
+  itself is deliberate and is recorded in `CHANGELOG.md` under `[Unreleased]`: through
+  `baikai-agent` it cannot arise, because that layer's own default supplies a finite
+  limit and only an explicit `output-limit "unlimited"` reaches the ceiling as
+  `Nothing`. (2026-08-27, Milestone 1)
+
+- __Two top-level `jobs` nodes in one KDL document are an array, not a merge.__ The
+  plan's fixtures build a document by concatenating `jobDoc "edit-workspace"` with a
+  second document carrying only `executable`. settei-kdl reads the repeated node as an
+  array and every key then fails to resolve with `cannot traverse jobs through array in
+  file source repository configuration (KDL v2)` — a message that reads like a
+  resolution bug rather than a malformed fixture. `jobDoc` now takes the extra lines and
+  writes one node (`jobDocWith`), and the operator-scope fixtures use a single-node
+  helper. Any later plan composing KDL fixtures by concatenation will hit this.
+  (2026-08-27, Milestone 1)
+
+- __`canonicalizePath` on macOS resolves `/etc` to `/private/etc`.__ The symlink-escape
+  case asserted the violation named `/etc` exactly; it names the fully canonical path,
+  which is the point — the check exists to defeat a committed link, so it reports where
+  the link led. The assertion is now a suffix plus "not under the root".
+  (2026-08-27, Milestone 1)
+
+- __`codex-cli` is at 0.150.1, not the 0.149.1 the plan expected.__ The four flags the
+  plan's model rests on are unchanged: `claude` 2.1.247 still documents
+  `--allowedTools` as a "list of tool names to allow", and `codex exec` still has
+  `--json` and `--output-schema FILE`. The grant model is only right while that sentence
+  is, so it was re-read rather than assumed. (2026-08-27, Milestone 1)
 
 
 ## Decision Log

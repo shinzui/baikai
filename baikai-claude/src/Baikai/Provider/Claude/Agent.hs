@@ -185,8 +185,17 @@ claudeEffortValue :: ThinkingLevel -> Text
 claudeEffortValue ThinkingMinimal = "low"
 claudeEffortValue lvl = renderThinkingLevel lvl
 
--- | Join tool names with commas into one argument rather than passing
--- several values, because @--allowedTools@ is variadic and separate
+-- | Render the request's tool __grants__.
+--
+-- @--allowedTools@ pre-approves the named tools: its help reads "list
+-- of tool names to allow", so this widens what the permission mode
+-- would approve on its own rather than narrowing it. Whether the
+-- operator permits each grant has already been decided by
+-- 'Baikai.Agent.applyAgentCeiling' before a renderer is reached, so
+-- nothing is checked here.
+--
+-- The names are joined with commas into one argument rather than passed
+-- as several values, because @--allowedTools@ is variadic and separate
 -- values could absorb a following flag.
 allowedToolArgs :: AgentRunRequest -> [String]
 allowedToolArgs req = case req ^. #safety . #allowedTools of

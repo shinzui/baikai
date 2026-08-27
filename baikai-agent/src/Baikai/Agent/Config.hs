@@ -38,6 +38,8 @@ module Baikai.Agent.Config
     agentCeilingConfig,
     loadAgentCeiling,
     applyCeilingToJob,
+    ceilingViolations,
+    repositoryScopeViolations,
 
     -- * Enumeration
     AgentJobEntry (..),
@@ -64,9 +66,11 @@ import Baikai.Agent
     AgentRenderError (..),
     AgentRunRequest,
     AgentSafety,
+    CeilingViolation (..),
     agentRunRequest,
     agentSafety,
     applyAgentCeiling,
+    ceilingViolations,
     defaultAgentCeiling,
     parseAgentCapability,
     parseAgentOutputMode,
@@ -78,6 +82,7 @@ import Baikai.Agent
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
+import Data.List (isPrefixOf)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
@@ -105,6 +110,7 @@ import Settei.Kdl
   )
 import Settei.Key (Key, keySegments, parseKey)
 import Settei.Optparse (CliOverride, cliSources)
+import Settei.Report (ResolutionReport, reportNodes)
 import Settei.Resolve (ResolveResult, defaultResolveOptions, resolve)
 import Settei.Setting
   ( Setting,
@@ -126,9 +132,9 @@ import Settei.Value
     runDecoder,
     textDecoder,
   )
-import System.Directory (doesFileExist)
+import System.Directory (canonicalizePath, doesFileExist, getCurrentDirectory)
 import System.Environment (lookupEnv)
-import System.FilePath ((</>))
+import System.FilePath (pathSeparator, (</>))
 
 -- | The configured shape of one named job.
 --
@@ -161,7 +167,8 @@ data AgentJob = AgentJob
     -- that forgot to state its authority must not silently receive
     -- some.
     capability :: !AgentCapability,
-    -- | Optional narrowing of the provider's tool set.
+    -- | Tools granted beyond what the capability implies. Bounded by
+    -- the operator's ceiling; see 'Baikai.Agent.toolGrantsImpliedBy'.
     allowedTools :: ![Text],
     -- | Raw provider arguments passed through verbatim. Classified
     -- __secret__, because it is the one field an operator could write a
@@ -215,7 +222,19 @@ data AgentJobEntry = AgentJobEntry
 -- the real @HOME@ or @XDG_CONFIG_HOME@.
 data AgentConfigPaths = AgentConfigPaths
   { userConfig :: !(Maybe FilePath),
-    repoConfig :: !(Maybe FilePath)
+    repoConfig :: !(Maybe FilePath),
+    -- | The repository the run is working in: the directory the process
+    -- was started in, which is also the directory
+    -- 'defaultAgentConfigPaths' looks for @.baikai\/agents.kdl@ under.
+    --
+    -- @--config PATH@ chooses which /file/ supplies repository-scope
+    -- settings; it does not move the root. The root is what confines a
+    -- repository-supplied @working-dir@ and what refuses an operator
+    -- file that lies inside the checkout, and both properties would be
+    -- defeated by a flag that could move it. It is an explicit field
+    -- rather than a call to 'getCurrentDirectory' at each use so a test
+    -- can point it at a temporary directory.
+    repositoryRoot :: !FilePath
   }
   deriving stock (Eq, Show, Generic)
 
@@ -380,6 +399,16 @@ outputLimitDecoder =
       Right (bytes :: Int) | bytes > 0 -> Right (Just bytes)
       _ -> Left (decodeFailure key "a positive number of bytes, or the word unlimited")
 
+-- | A duration, or the word @unlimited@ for no bound at all.
+--
+-- The same spelling @output-limit@ uses for its own no-bound case, so an
+-- operator learns one word rather than two.
+maxTimeoutDecoder :: Decoder (Maybe NominalDiffTime)
+maxTimeoutDecoder =
+  decoder $ \key raw -> case raw of
+    RawText "unlimited" -> Right Nothing
+    _ -> fmap Just (runDecoder durationDecoder key raw)
+
 providerSetting :: Text -> Setting AgentProvider
 providerSetting jobName =
   publicSettingWithRenderer
@@ -429,11 +458,17 @@ capabilitySetting jobName =
     capabilityDecoder
     renderAgentCapability
 
+-- | Tools the run is granted beyond what its capability implies.
+--
+-- A grant, not a narrowing: on Claude Code this becomes
+-- @--allowedTools@, which pre-approves the named tools. The ceiling
+-- bounds it, so a repository asking for @Bash@ under @edit-workspace@ is
+-- refused until the operator writes @policy.allowed-tools@.
 allowedToolsSetting :: Text -> Setting [Text]
 allowedToolsSetting jobName =
   publicShowSetting
     (jobKey jobName "safety.allowed-tools")
-    "Narrowing of the provider's tool set"
+    "Tools granted beyond what the capability implies"
     (scalarOrListDecoder textDecoder)
 
 -- | Raw provider arguments, classified __secret__.
@@ -511,7 +546,7 @@ agentJobConfig jobName =
     <*> required (workingDirSetting jobName)
     <*> withDefault (extraDirsSetting jobName) (emptyListDefault "no-extra-dirs")
     <*> required (capabilitySetting jobName)
-    <*> withDefault (allowedToolsSetting jobName) (emptyListDefault "no-tool-restriction")
+    <*> withDefault (allowedToolsSetting jobName) (emptyListDefault "no-tool-grants")
     <*> withDefault (providerArgsSetting jobName) (emptyListDefault "no-provider-args")
     <*> optional (timeoutSetting jobName)
     <*> withDefault
@@ -553,12 +588,16 @@ agentJobRequest job promptBody =
 
 -- | Environment variables that may influence a job, bound explicitly.
 --
--- The set is small and deliberately chosen: the provider, the model, the
--- executable, and the timeout. The capability, the tool list, and the
--- raw provider arguments are __not__ bound. An environment variable is
--- easy to set accidentally and is inherited by every child process, so
--- letting one widen a job's authority would create exactly the ambient
--- influence the ceiling exists to prevent.
+-- The set is small and deliberately chosen: the provider, the model, and
+-- the timeout. The capability, the tool list, the raw provider
+-- arguments, and __the executable__ are not bound. An environment
+-- variable is easy to set accidentally and is inherited by every child
+-- process, so letting one widen a job's authority would create exactly
+-- the ambient influence the ceiling exists to prevent — and naming the
+-- program to run is the widest widening there is, since the named
+-- program inherits the operator's environment and receives the prompt on
+-- its standard input. An operator whose installation is not on @PATH@
+-- writes @executable@ in their own file or passes @--set@.
 --
 -- The binding list is a function of the job name rather than a module
 -- constant, because every key contains the name. Forcing it for any name
@@ -572,7 +611,6 @@ agentEnvBindings jobName =
     ( bindings
         [ binding (EnvName "BAIKAI_AGENT_PROVIDER") (jobKey jobName "provider"),
           binding (EnvName "BAIKAI_AGENT_MODEL") (jobKey jobName "model"),
-          binding (EnvName "BAIKAI_AGENT_EXECUTABLE") (jobKey jobName "executable"),
           binding (EnvName "BAIKAI_AGENT_TIMEOUT") (jobKey jobName "timeout")
         ]
     )
@@ -600,7 +638,8 @@ defaultAgentConfigPaths = do
       userPath = fmap (\base -> base </> "baikai" </> "agents.kdl") configBase
   userConfig <- maybe (pure Nothing) whenPresent userPath
   repoConfig <- whenPresent (".baikai" </> "agents.kdl")
-  pure AgentConfigPaths {userConfig, repoConfig}
+  repositoryRoot <- getCurrentDirectory
+  pure AgentConfigPaths {userConfig, repoConfig, repositoryRoot}
   where
     nonEmptyPath dir = if null dir then Nothing else Just dir
     whenPresent path = do
@@ -693,12 +732,36 @@ agentCeilingConfig =
           "no operator policy configured"
           (defaultAgentCeiling ^. #allowedProviders)
       )
+    <*> withDefault
+      allowedToolsCeilingSetting
+      ( constantDefault
+          (RuleName "default-allowed-tool-grants")
+          "no operator policy configured"
+          (defaultAgentCeiling ^. #allowedTools)
+      )
+    <*> withDefault
+      maxTimeoutSetting
+      ( constantDefault
+          (RuleName "default-max-timeout")
+          "no operator policy configured"
+          (defaultAgentCeiling ^. #maxTimeout)
+      )
+    <*> withDefault
+      maxOutputLimitSetting
+      ( constantDefault
+          (RuleName "default-max-output-limit")
+          "no operator policy configured"
+          (defaultAgentCeiling ^. #maxOutputLimit)
+      )
   where
-    buildCeiling cap rawArgs providers =
+    buildCeiling cap rawArgs providers grants timeoutMax outputMax =
       defaultAgentCeiling
         & #maxCapability .~ cap
         & #allowProviderArgs .~ rawArgs
         & #allowedProviders .~ providers
+        & #allowedTools .~ grants
+        & #maxTimeout .~ timeoutMax
+        & #maxOutputLimit .~ outputMax
     maxCapabilitySetting =
       publicSettingWithRenderer
         (validKey "policy.max-capability")
@@ -715,6 +778,21 @@ agentCeilingConfig =
         (validKey "policy.allowed-providers")
         "Providers jobs may select"
         (scalarOrListDecoder providerDecoder)
+    allowedToolsCeilingSetting =
+      publicShowSetting
+        (validKey "policy.allowed-tools")
+        "Tool grants permitted beyond the ones the maximum capability implies"
+        (scalarOrListDecoder textDecoder)
+    maxTimeoutSetting =
+      publicShowSetting
+        (validKey "policy.max-timeout")
+        "Longest wall-clock limit any job may request"
+        maxTimeoutDecoder
+    maxOutputLimitSetting =
+      publicShowSetting
+        (validKey "policy.max-output-limit")
+        "Largest per-stream capture any job may request"
+        outputLimitDecoder
 
 -- | Load the operator's policy ceiling.
 --
@@ -764,6 +842,88 @@ applyCeilingToJob ceiling' request =
   case applyAgentCeiling ceiling' request of
     Left violations -> Left (CeilingRejected violations)
     Right permitted -> Right permitted
+
+-- | The violations that depend on __which file__ supplied a value.
+--
+-- 'Baikai.Agent.applyAgentCeiling' cannot produce these: it sees a
+-- request, and a request carries no record of where each field came
+-- from. This function reads that record from the resolution report and
+-- returns violations in the same vocabulary, so a caller concatenates
+-- the two lists and reports one refusal naming everything at once.
+--
+-- Three settings are treated specially, and the reasoning is the same in
+-- each case — the repository file is untrusted input, so it may not
+-- choose things that reach outside itself.
+--
+-- @executable@ names the program to run. A repository that could set it
+-- turns a configuration file into code execution with the operator's
+-- environment and the prompt on standard input; an operator whose
+-- installation is not on @PATH@ sets it in their own file or with
+-- @--set@.
+--
+-- @extra-dirs@ names directories the run may reach __beyond__ its
+-- working directory. Inside the repository it adds nothing the working
+-- directory does not already give, so the only extra directory a
+-- repository would ask for is one outside the checkout — the operator's
+-- grant to make. An empty resolved list is not a violation, so a
+-- repository may write @extra-dirs@ with no arguments.
+--
+-- @working-dir@ must resolve inside 'repositoryRoot'. Canonicalising
+-- first is what defeats a committed symbolic link: @work -> \/@ would
+-- otherwise pass a textual prefix check.
+repositoryScopeViolations ::
+  AgentConfigPaths ->
+  ResolutionReport ->
+  -- | The job the report resolved.
+  Text ->
+  AgentJob ->
+  IO [CeilingViolation]
+repositoryScopeViolations paths report jobName job = do
+  workingDirViolations <-
+    if setByRepository "working-dir"
+      then confineWorkingDir (paths ^. #repositoryRoot) (job ^. #workingDir)
+      else pure []
+  pure
+    ( concat
+        [ [RepositoryScopeForbidden "executable" | setByRepository "executable"],
+          [ RepositoryScopeForbidden "extra-dirs"
+          | setByRepository "extra-dirs",
+            not (null (job ^. #extraDirs))
+          ],
+          workingDirViolations
+        ]
+    )
+  where
+    setByRepository leaf = any (matches leaf) (reportNodes report)
+    matches leaf node =
+      node ^. #key == jobKey jobName leaf
+        && maybe
+          False
+          ((== renderAgentConfigScope RepositoryScope) . (^. #name))
+          (node ^. #origin)
+
+-- | Refuse a working directory that resolves outside the repository
+-- root, naming both the resolved directory and the root.
+--
+-- An absolute @working-dir@ passes through @\<\/\>@ unchanged, so one
+-- expression covers both spellings, and a relative one resolves against
+-- the root rather than the process directory — which makes
+-- @working-dir \"\.\"@ mean the repository whichever file declared it.
+--
+-- @canonicalizePath@ resolves the longest prefix that exists, so a
+-- working directory that does not exist yet still gets an answer here
+-- and is reported later, by the runner, as 'WorkingDirMissing'.
+confineWorkingDir :: FilePath -> FilePath -> IO [CeilingViolation]
+confineWorkingDir root workingDir = do
+  canonicalRoot <- canonicalizePath root
+  resolved <- canonicalizePath (root </> workingDir)
+  pure
+    [ WorkingDirOutsideRepository resolved canonicalRoot
+    | not (inside canonicalRoot resolved)
+    ]
+  where
+    inside base path =
+      path == base || (base <> [pathSeparator]) `isPrefixOf` path
 
 -- | Every configured job name, sorted, each attributed to the
 -- highest-precedence scope defining it.

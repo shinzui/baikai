@@ -9,8 +9,10 @@
 module ConfigTests (configTests) where
 
 import Baikai.Agent
-  ( AgentOutputMode (..),
+  ( AgentCapability (..),
+    AgentOutputMode (..),
     AgentProvider (..),
+    CeilingViolation (..),
     renderAgentRenderError,
   )
 import Baikai.Agent.Config
@@ -25,10 +27,12 @@ import Baikai.Agent.Config
     loadAgentCeiling,
     parseDuration,
     renderAgentConfigError,
+    repositoryScopeViolations,
     resolveAgentJob,
   )
 import Control.Lens ((^.))
 import Data.Generics.Labels ()
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TextIO
@@ -36,7 +40,11 @@ import Settei.Env (EnvSnapshot, envSnapshot)
 import Settei.Key (parseKey)
 import Settei.Optparse (CliOverride, cliOverride)
 import Settei.Render (renderErrorsText, renderResolutionJson, renderResolutionText)
-import System.FilePath ((</>))
+import System.Directory
+  ( createDirectoryIfMissing,
+    createDirectoryLink,
+  )
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -75,6 +83,15 @@ configTests =
           commandLineCannotRaiseTheCeilingTest
         ],
       testGroup
+        "repository scope"
+        [ repositoryExecutableIsRefusedTest,
+          repositoryExtraDirsAreRefusedTest,
+          operatorScopeMaySetBothTest,
+          workingDirMustStayInsideTheRootTest,
+          executableIsNotEnvBoundTest,
+          ceilingPolicyKeysTest
+        ],
+      testGroup
         "enumeration"
         [ listJobsTest
         ],
@@ -84,15 +101,26 @@ configTests =
 -- | Write the supplied documents into a temporary directory and hand
 -- back paths pointing at them. Either scope may be absent, which is the
 -- normal state for an operator who has written no policy file.
+--
+-- The two documents go into __different__ directories, laid out the way
+-- a real machine lays them out: the repository document under a checkout
+-- root, and the operator document in a sibling directory outside it.
+-- That is not cosmetic. A repository-supplied @working-dir@ is confined
+-- to the root, and an operator file that lies inside the root is refused
+-- outright, so a layout that put both files in one directory would make
+-- every scope test assert against a shape the code refuses.
 withConfigs :: Maybe Text -> Maybe Text -> (AgentConfigPaths -> IO a) -> IO a
 withConfigs userDoc repoDoc action =
   withSystemTempDirectory "baikai-agent-config" $ \dir -> do
-    userConfig <- traverse (writeDoc dir "user.kdl") userDoc
-    repoConfig <- traverse (writeDoc dir "repo.kdl") repoDoc
-    action AgentConfigPaths {userConfig, repoConfig}
+    let repositoryRoot = dir </> "repo"
+    createDirectoryIfMissing True repositoryRoot
+    userConfig <- traverse (writeDoc (dir </> "operator" </> "agents.kdl")) userDoc
+    repoConfig <-
+      traverse (writeDoc (repositoryRoot </> ".baikai" </> "agents.kdl")) repoDoc
+    action AgentConfigPaths {userConfig, repoConfig, repositoryRoot}
   where
-    writeDoc dir fileName body = do
-      let path = dir </> fileName
+    writeDoc path body = do
+      createDirectoryIfMissing True (takeDirectory path)
       TextIO.writeFile path body
       pure path
 
@@ -129,18 +157,33 @@ resolutionFailure paths jobName = do
 
 -- | A complete job that asks for the given capability.
 jobDoc :: Text -> Text
-jobDoc capability =
+jobDoc capability = jobDocWith capability []
+
+-- | The same job with extra lines inside its @demo@ node.
+--
+-- The extras go inside rather than into a second document, because two
+-- top-level @jobs@ nodes in one KDL document are a /repeated/ node,
+-- which settei reads as an array and then cannot traverse — the failure
+-- reads @cannot traverse jobs through array@ and looks like a resolution
+-- bug rather than a malformed fixture.
+jobDocWith :: Text -> [Text] -> Text
+jobDocWith capability extras =
   Text.unlines
-    [ "jobs {",
-      "  demo {",
-      "    provider \"claude\"",
-      "    working-dir \"/tmp\"",
-      "    safety {",
-      "      capability \"" <> capability <> "\"",
-      "    }",
-      "  }",
-      "}"
-    ]
+    ( [ "jobs {",
+        "  demo {",
+        "    provider \"claude\"",
+        -- The repository root, which is where a repository-supplied
+        -- working directory has to stay.
+        "    working-dir \".\""
+      ]
+        <> map ("    " <>) extras
+        <> [ "    safety {",
+             "      capability \"" <> capability <> "\"",
+             "    }",
+             "  }",
+             "}"
+           ]
+    )
 
 repositoryBeatsUserTest :: TestTree
 repositoryBeatsUserTest =
@@ -509,6 +552,170 @@ commandLineCannotRaiseTheCeilingTest =
           assertBool
             ("the refusal names the permitted maximum: " <> Text.unpack message)
             (Text.isInfixOf "edit-workspace" message)
+
+-- --------------------------------------------------------------------
+-- Repository scope
+-- --------------------------------------------------------------------
+
+-- | The violations that depend on which file supplied a value.
+--
+-- These cannot come from the pure ceiling check, which sees a request
+-- and not its provenance, so they are computed from the resolution
+-- report instead.
+scopeViolationsFor :: AgentConfigPaths -> Text -> IO [CeilingViolation]
+scopeViolationsFor paths jobName = do
+  loaded <- resolveAgentJob paths noEnvironment [] jobName
+  case loaded of
+    Left problem ->
+      assertFailure ("loading failed: " <> Text.unpack (renderAgentConfigError problem))
+    Right resolved -> case resolved ^. #answer of
+      Left problems ->
+        assertFailure ("resolution failed: " <> Text.unpack (renderErrorsText problems))
+      Right job -> repositoryScopeViolations paths (resolved ^. #report) jobName job
+
+repositoryExecutableIsRefusedTest :: TestTree
+repositoryExecutableIsRefusedTest =
+  testCase "A REPOSITORY FILE CANNOT SET THE EXECUTABLE"
+    $
+    -- `executable` turns a configuration file into code execution: the
+    -- named program inherits the operator's environment and receives the
+    -- prompt on its standard input. A checkout must not choose it.
+    withConfigs
+      Nothing
+      (Just (jobDocWith "edit-workspace" ["executable \"/opt/bin/claude\""]))
+    $ \paths -> do
+      violations <- scopeViolationsFor paths "demo"
+      violations @?= [RepositoryScopeForbidden "executable"]
+
+repositoryExtraDirsAreRefusedTest :: TestTree
+repositoryExtraDirsAreRefusedTest =
+  testCase "a repository file cannot grant itself extra directories"
+    $
+    -- Inside the root `extra-dirs` adds nothing the working directory
+    -- does not already give, so the only ones a repository would ask for
+    -- are outside it.
+    withConfigs
+      Nothing
+      (Just (jobDocWith "edit-workspace" ["extra-dirs \"/Users/op/.ssh\""]))
+    $ \paths -> do
+      violations <- scopeViolationsFor paths "demo"
+      violations @?= [RepositoryScopeForbidden "extra-dirs"]
+
+operatorScopeMaySetBothTest :: TestTree
+operatorScopeMaySetBothTest =
+  testCase "the operator's own file may set the executable and extra directories"
+    $ withConfigs
+      ( Just
+          ( operatorSettingsDoc
+              ["executable \"/opt/bin/claude\"", "extra-dirs \"/Users/op/.ssh\""]
+          )
+      )
+      (Just (jobDoc "edit-workspace"))
+    $ \paths -> do
+      violations <- scopeViolationsFor paths "demo"
+      violations @?= []
+
+workingDirMustStayInsideTheRootTest :: TestTree
+workingDirMustStayInsideTheRootTest =
+  testCase "a repository working directory must resolve inside the repository" $
+    withSystemTempDirectory "baikai-agent-workdir" $ \dir -> do
+      let repositoryRoot = dir </> "repo"
+      createDirectoryIfMissing True (repositoryRoot </> ".baikai")
+      -- A checkout could commit a symbolic link out of itself, so the
+      -- check canonicalises before comparing; a textual prefix test
+      -- would let this through.
+      createDirectoryLink "/" (repositoryRoot </> "escape")
+      let check workingDir = do
+            TextIO.writeFile
+              (repositoryRoot </> ".baikai" </> "agents.kdl")
+              (workingDirJobDoc workingDir)
+            scopeViolationsFor
+              AgentConfigPaths
+                { userConfig = Nothing,
+                  repoConfig = Just (repositoryRoot </> ".baikai" </> "agents.kdl"),
+                  repositoryRoot
+                }
+              "demo"
+      check "." >>= (@?= [])
+      check "sub" >>= (@?= [])
+      inParent <- check ".."
+      case inParent of
+        [WorkingDirOutsideRepository _ _] -> pure ()
+        other -> assertFailure ("expected one out-of-root violation, got: " <> show other)
+      throughLink <- check "escape/etc"
+      case throughLink of
+        [WorkingDirOutsideRepository resolved reportedRoot] -> do
+          -- The violation names where the link actually led, not the
+          -- spelling the document used, so an operator reading it sees
+          -- the escape. The exact string is the fully canonical one,
+          -- which on macOS makes @\/etc@ read @\/private\/etc@ — hence
+          -- the suffix rather than an equality.
+          assertBool
+            ("expected the link's target in the violation: " <> resolved)
+            ("etc" `isSuffixOf` resolved)
+          assertBool
+            ("expected a directory outside the root: " <> resolved)
+            (not ((reportedRoot <> "/") `isPrefixOf` resolved))
+        other -> assertFailure ("expected one out-of-root violation, got: " <> show other)
+
+executableIsNotEnvBoundTest :: TestTree
+executableIsNotEnvBoundTest =
+  testCase "no environment variable names the executable" $
+    -- An environment variable is inherited by every child process and is
+    -- easy to set by accident, so the one setting that chooses which
+    -- program runs is not bound to one.
+    withConfigs Nothing (Just (jobDoc "read-only")) $ \paths -> do
+      job <-
+        resolveJob paths (envSnapshot [("BAIKAI_AGENT_EXECUTABLE", "/evil")]) [] "demo"
+      job ^. #executable @?= Nothing
+
+ceilingPolicyKeysTest :: TestTree
+ceilingPolicyKeysTest =
+  testCase "the operator's file sets the grant list and both maxima"
+    $ withConfigs
+      ( Just
+          ( Text.unlines
+              [ "policy {",
+                "  allowed-tools \"Bash\"",
+                "  max-timeout \"2h\"",
+                "  max-output-limit \"unlimited\"",
+                "}"
+              ]
+          )
+      )
+      (Just (jobDoc "read-only"))
+    $ \paths -> do
+      loaded <- loadAgentCeiling paths
+      case loaded of
+        Left problem ->
+          assertFailure
+            ("loading the ceiling failed: " <> Text.unpack (renderAgentConfigError problem))
+        Right ceiling' -> do
+          ceiling' ^. #allowedTools @?= ["Bash"]
+          ceiling' ^. #maxTimeout @?= Just 7200
+          ceiling' ^. #maxOutputLimit @?= Nothing
+          -- The unset keys keep their defaults, so an operator who
+          -- writes one line still gets a complete ceiling.
+          ceiling' ^. #maxCapability @?= AgentEditWorkspace
+
+-- | An operator document supplying the given lines to the @demo@ job.
+operatorSettingsDoc :: [Text] -> Text
+operatorSettingsDoc settings =
+  Text.unlines
+    (["jobs {", "  demo {"] <> map ("    " <>) settings <> ["  }", "}"])
+
+-- | A complete job rooted at the given working directory.
+workingDirJobDoc :: Text -> Text
+workingDirJobDoc workingDir =
+  Text.unlines
+    [ "jobs {",
+      "  demo {",
+      "    provider \"claude\"",
+      "    working-dir \"" <> workingDir <> "\"",
+      "    safety { capability \"read-only\" }",
+      "  }",
+      "}"
+    ]
 
 listJobsTest :: TestTree
 listJobsTest =
