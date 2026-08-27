@@ -93,6 +93,7 @@ test-suite baikai-claude-test
     CliEvidenceSpec
     ErrorClassSpec
     EvidenceSpec
+    LifecycleSpec
     ShapeSpec
     SseSpec
     ThinkingSpec

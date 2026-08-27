@@ -9,6 +9,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: new exposed module `Baikai.Provider.Internal.StreamWorker` — the
+  bounded hand-off both HTTP providers now use between their SSE worker thread
+  and the consumer draining the stream. `FrameQueue` is a 64-slot `TBQueue` plus
+  a closed flag; `forkFrameWorker` closes the queue however the body ends, and
+  `withFrameWorker` runs the consumer under `Stream.bracketIO` so the worker is
+  killed when the stream stops. The module is exposed like
+  `Baikai.Provider.Cli.Internal`, outside the PVP promise. See
+  [docs/adr/0010](docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md).
+
 - `baikai`: every Anthropic model in the generated catalog now carries an
   explicit `CompatAnthropicMessages` record stating the two request-shaping
   facts of its generation: `AnthropicMessagesCompat.thinkingStyle` (which
@@ -59,6 +68,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   through the `openai` SDK.
 
 ### Changed
+
+- `baikai-claude`, `baikai-openai`: a consumer that stops reading now stops the
+  provider. Both packages fork their SSE worker under `Stream.bracketIO` and
+  hand frames through the bounded `FrameQueue` above instead of an unbounded
+  `Chan`. A consumer that cancels — `Ctrl-C`, `System.Timeout.timeout`,
+  `cancel` — releases the HTTP connection immediately; a consumer that abandons
+  the stream (`Stream.take 3`) stops the socket read within 64 further frames
+  and releases the connection at the next major garbage collection. Previously
+  the worker read the entire generation into memory for a consumer that would
+  never look at it, and the provider billed all of it. The three cleanup
+  strengths are stated in
+  [docs/adr/0010](docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md)
+  and in caller terms in `docs/user/streaming.md`.
 
 - `baikai`: `Baikai.Model.anthropicMessagesCompatFor` no longer overlays a
   thinking style guessed from the model id onto a model whose `compat` is
@@ -117,6 +139,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   already have changed the working tree.
 
 ### Fixed
+
+- `baikai-claude`, `baikai-openai`: an asynchronous exception delivered to the
+  stream worker can no longer strand its consumer. End-of-frames is a flag set
+  by the worker fork's own `finally` rather than a sentinel value pushed onto
+  the channel, so a worker that dies without running its normal exit path still
+  ends the stream in an `EventError`. Previously the consumer blocked until the
+  runtime's deadlock detector noticed.
 
 - `baikai-smoke`: two keyed cases against `claude-sonnet-5` — one asking for
   thinking (which is a 400 before this release) and one setting `temperature` — plus

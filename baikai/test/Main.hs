@@ -32,6 +32,7 @@ import GenModelsSpec qualified
 import HelpersSpec qualified
 import InteractiveSpec qualified
 import StreamSpec qualified
+import StreamWorkerSpec qualified
 import Streamly.Data.Stream qualified as Stream
 import StrictEvidenceSpec qualified
 import SurfaceSpec qualified
@@ -117,6 +118,7 @@ main = do
         HelpersSpec.tests,
         InteractiveSpec.tests,
         StreamSpec.tests,
+        StreamWorkerSpec.tests,
         StrictEvidenceSpec.tests,
         SurfaceSpec.tests,
         ThinkingLevelSpec.tests,

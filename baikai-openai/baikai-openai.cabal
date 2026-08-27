@@ -89,6 +89,7 @@ test-suite baikai-openai-test
     CliEvidenceSpec
     ErrorClassSpec
     EvidenceSpec
+    LifecycleSpec
     ReasoningSpec
     ShapeSpec
     SseSpec

@@ -60,12 +60,12 @@ it.
 
 ## Progress
 
-- [ ] M1: `Baikai.Provider.Internal.StreamWorker` (bounded `FrameQueue`, `forkFrameWorker`,
+- [x] M1: `Baikai.Provider.Internal.StreamWorker` (bounded `FrameQueue`, `forkFrameWorker`,
       `withFrameWorker`) added to `baikai`, with `baikai/test/StreamWorkerSpec.hs`
-- [ ] M1: Claude worker on the frame queue under `Stream.bracketIO`; `killThread` cleanup
-- [ ] M1: OpenAI worker on the frame queue under `Stream.bracketIO`; `killThread` cleanup
-- [ ] M1: `LifecycleSpec.hs` in both provider suites (four tests each) green
-- [ ] M1: ADR `docs/adr/000N-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`
+- [x] M1: Claude worker on the frame queue under `Stream.bracketIO`; `killThread` cleanup
+- [x] M1: OpenAI worker on the frame queue under `Stream.bracketIO`; `killThread` cleanup
+- [x] M1: `LifecycleSpec.hs` in both provider suites (four tests each) green
+- [x] M1: ADR `docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`
       written and listed in `docs/adr/README.md`
 - [ ] M2: Claude pre-seeds `EventStart`; `message_start` updates the skeleton only
 - [ ] M2: `Event.hs` "temporary gap" note retired; `StartPayload.responseId` Haddock corrected

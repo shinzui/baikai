@@ -67,6 +67,13 @@ import Baikai.Evidence.Build qualified as Build
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
+import Baikai.Provider.Internal.StreamWorker
+  ( FrameQueue,
+    newFrameQueue,
+    pullFrame,
+    pushFrame,
+    withFrameWorker,
+  )
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyException)
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape, streamRequestBody)
@@ -94,8 +101,6 @@ import Baikai.Stream.Event
 import Baikai.Url qualified as Url
 import Baikai.Usage qualified as Usage
 import Control.Applicative ((<|>))
-import Control.Concurrent (forkIO)
-import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (SomeAsyncException (..), SomeException, fromException, throwIO, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value (..), (.:?))
@@ -155,13 +160,28 @@ registerWithRegistry reg =
 
 -- | Streaming producer for the OpenAI Chat Completions API.
 --
--- Forks one worker thread per call that drives
--- 'OpenAI.createChatCompletionStream' (the raw 'Aeson.Value'
--- variant, not the typed one — see module docs for why). The
--- worker pushes raw chunk values onto a 'Chan' terminated by
--- 'Nothing'; the consumer translates each chunk into zero or more
--- baikai 'AssistantMessageEvent' values and terminates with exactly
--- one 'EventDone' or 'EventError'.
+-- Forks one worker thread per call that drives the local
+-- OpenAI-compatible SSE transport ('liveSseDriver'), pushing classified
+-- errors and decoded chunk values onto a bounded
+-- 'Baikai.Provider.Internal.StreamWorker.FrameQueue'. The consumer
+-- translates each chunk into zero or more baikai
+-- 'AssistantMessageEvent' values, beginning with exactly one
+-- 'EventStart' and terminating with exactly one 'EventDone' or
+-- 'EventError'.
+--
+-- The queue is bounded at
+-- 'Baikai.Provider.Internal.StreamWorker.frameQueueCapacity' frames, so
+-- a consumer that stops pulling stops the socket read after at most that
+-- many further frames rather than letting the worker drain a whole
+-- generation nobody will read.
+--
+-- The worker runs under a bracket, so the connection comes back
+-- immediately when the stream ends normally or when an exception reaches
+-- the draining thread (@Ctrl-C@, 'System.Timeout.timeout', @cancel@),
+-- and at the next major garbage collection when a consumer simply
+-- abandons the stream. "Baikai.Provider.Internal.StreamWorker" documents
+-- why those three strengths differ and how a caller stops
+-- deterministically.
 openaiChatStream ::
   Model -> Context -> Options -> Stream IO AssistantMessageEvent
 openaiChatStream = openaiChatStreamWith liveSseDriver
@@ -201,10 +221,9 @@ openaiChatStreamWith driver m ctx opts =
     case setup of
       Left err -> Stream.fromList <$> immediateError m opts err
       Right call -> do
-        ch <- newChan :: IO (Chan (Maybe (Either BaikaiError RawChunk)))
+        q <- newFrameQueue :: IO (FrameQueue (Either BaikaiError RawChunk))
         tref <- newIORef False
         mref <- newIORef Nothing
-        _ <- forkIO (worker driver call mref ch)
         startTime <- getCurrentTime
         -- The request body is the envelope the two digests commit to:
         -- it is exactly the JSON this call is about to put on the wire.
@@ -220,7 +239,7 @@ openaiChatStreamWith driver m ctx opts =
             startTime
         let initialState =
               ProducerState
-                { chan = ch,
+                { chan = q,
                   pending = [EventStart StartPayload {partial = skeletonStart m startTime, responseId = Nothing}],
                   assembler = emptyAssembler m startTime,
                   finished = False,
@@ -228,7 +247,7 @@ openaiChatStreamWith driver m ctx opts =
                   metadataRef = mref,
                   evidence = mkEvidence
                 }
-        pure (Stream.unfoldrM step initialState)
+        pure (withFrameWorker q (worker driver call mref q) (Stream.unfoldrM step initialState))
 
 skeletonStart :: Model -> UTCTime -> Msg.Message
 skeletonStart _m start =
@@ -323,13 +342,23 @@ data RawUsage = RawUsage
   }
   deriving stock (Show, Generic)
 
+-- | Worker body: drive the transport, forwarding decoded chunks onto the
+-- frame queue. Any synchronous exception is converted into a classified
+-- error frame so the consumer side can translate it through the normal
+-- path.
+--
+-- Nothing here signals end-of-frames: that is the queue's closed flag,
+-- set by 'Baikai.Provider.Internal.StreamWorker.forkFrameWorker''s
+-- @finally@ however this body ends. A sentinel push would block on a
+-- full queue, which is exactly the state a stopped consumer leaves
+-- behind.
 worker ::
   SseDriver ->
   OpenAICall ->
   IORef (Maybe ResponseMetadata) ->
-  Chan (Maybe (Either BaikaiError RawChunk)) ->
+  FrameQueue (Either BaikaiError RawChunk) ->
   IO ()
-worker driver call metaRef ch = do
+worker driver call metaRef q = do
   r <-
     trySync
       $ Transport.runWithTimeout (call ^. #timeoutMs)
@@ -339,15 +368,14 @@ worker driver call metaRef ch = do
         (call ^. #requestBody)
         (writeIORef metaRef . Just)
       $ \case
-        Left be -> writeChan ch (Just (Left be))
+        Left be -> pushFrame q (Left be)
         Right val -> case parseChunk val of
-          Left err -> writeChan ch (Just (Left (providerError (Text.pack err))))
-          Right chunk -> writeChan ch (Just (Right chunk))
+          Left err -> pushFrame q (Left (providerError (Text.pack err)))
+          Right chunk -> pushFrame q (Right chunk)
   case r of
     Right Nothing -> pure ()
-    Right (Just be) -> writeChan ch (Just (Left be))
-    Left e -> writeChan ch (Just (Left (exceptionToError e)))
-  writeChan ch Nothing
+    Right (Just be) -> pushFrame q (Left be)
+    Left e -> pushFrame q (Left (exceptionToError e))
 
 -- | Aeson parser tolerant of partial tool-call fields.
 parseChunk :: Value -> Either String RawChunk
@@ -482,7 +510,7 @@ fromInt = \case
 -- ============================================================
 
 data ProducerState = ProducerState
-  { chan :: !(Chan (Maybe (Either BaikaiError RawChunk))),
+  { chan :: !(FrameQueue (Either BaikaiError RawChunk)),
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
@@ -515,7 +543,7 @@ step s
         )
   | s ^. #finished = pure Nothing
   | otherwise = do
-      mRaw <- readChan (s ^. #chan)
+      mRaw <- pullFrame (s ^. #chan)
       -- After the read, because the worker writes the metadata before it
       -- writes anything onto the channel: taking it here means every
       -- path out of this branch — including the one where the channel

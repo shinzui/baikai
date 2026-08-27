@@ -56,6 +56,13 @@ import Baikai.Provider.Claude.Shape (streamRequestBody)
 import Baikai.Provider.Claude.Sse (claudeSseStreamValueWithHeaders)
 import Baikai.Provider.Claude.Sse qualified as Sse
 import Baikai.Provider.Claude.Transport qualified as Transport
+import Baikai.Provider.Internal.StreamWorker
+  ( FrameQueue,
+    newFrameQueue,
+    pullFrame,
+    pushFrame,
+    withFrameWorker,
+  )
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
@@ -78,8 +85,6 @@ import Baikai.Stream.Event
 import Baikai.Url qualified as Url
 import Baikai.Usage qualified as Usage
 import Claude.V1.Messages qualified as Messages
-import Control.Concurrent (forkIO)
-import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Exception (SomeAsyncException (..), SomeException, fromException, throwIO, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value)
@@ -135,13 +140,28 @@ registerWithRegistry reg =
 
 -- | Streaming producer for the Anthropic Messages API.
 --
--- Forks one worker thread per call that drives
--- the local Claude SSE transport; the worker pushes classified
--- errors or typed 'Messages.MessageStreamEvent' values onto a bounded
--- 'Chan' terminated by 'Nothing'. The returned 'Stream' is a
--- translator: it pulls raw events from the channel and emits zero or
--- more 'AssistantMessageEvent' values per upstream event, terminating
--- with exactly one 'EventDone' or 'EventError'.
+-- Forks one worker thread per call that drives the local Claude SSE
+-- transport, pushing classified errors and typed
+-- 'Messages.MessageStreamEvent' values onto a bounded
+-- 'Baikai.Provider.Internal.StreamWorker.FrameQueue'. The returned
+-- 'Stream' is a translator: it pulls raw events off that queue and emits
+-- zero or more 'AssistantMessageEvent' values per upstream event,
+-- beginning with exactly one 'EventStart' and terminating with exactly
+-- one 'EventDone' or 'EventError'.
+--
+-- The queue is bounded at
+-- 'Baikai.Provider.Internal.StreamWorker.frameQueueCapacity' frames, so
+-- a consumer that stops pulling stops the socket read after at most that
+-- many further frames rather than letting the worker drain a whole
+-- generation nobody will read.
+--
+-- The worker runs under a bracket, so the connection comes back
+-- immediately when the stream ends normally or when an exception reaches
+-- the draining thread (@Ctrl-C@, 'System.Timeout.timeout', @cancel@),
+-- and at the next major garbage collection when a consumer simply
+-- abandons the stream. "Baikai.Provider.Internal.StreamWorker" documents
+-- why those three strengths differ and how a caller stops
+-- deterministically.
 --
 -- Producer-side exceptions (HTTP failure, decode failure inside the
 -- SDK, etc.) are caught with 'try' and re-encoded into an
@@ -181,10 +201,9 @@ claudeMessagesStreamWith driver m ctx opts =
     case setup of
       Left err -> Stream.fromList <$> immediateError m opts err
       Right call -> do
-        ch <- newChan :: IO (Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)))
+        q <- newFrameQueue :: IO (FrameQueue (Either BaikaiError Messages.MessageStreamEvent))
         tref <- newIORef False
         mref <- newIORef Nothing
-        _ <- forkIO (worker driver call mref ch)
         startTime <- getCurrentTime
         -- The request body is the envelope the two digests commit to:
         -- it is exactly the JSON this call is about to put on the wire.
@@ -200,7 +219,7 @@ claudeMessagesStreamWith driver m ctx opts =
             startTime
         let initialState =
               ProducerState
-                { chan = ch,
+                { chan = q,
                   pending = [],
                   assembler = emptyAssembler m startTime,
                   finished = False,
@@ -208,7 +227,7 @@ claudeMessagesStreamWith driver m ctx opts =
                   metadataRef = mref,
                   evidence = mkEvidence
                 }
-        pure (Stream.unfoldrM step initialState)
+        pure (withFrameWorker q (worker driver call mref q) (Stream.unfoldrM step initialState))
 
 -- | Per-call prepared values, including the shaped JSON request body
 -- passed to the local streaming transport.
@@ -261,34 +280,38 @@ prepareCall m ctx opts = do
                   }
             )
 
--- | Worker body: drive the SDK's typed callback, forwarding events
--- onto the channel. Any exception is converted into a synthetic
--- @Error@ raw event so the consumer side can translate it through
--- the normal channel. After the SDK call returns (success or
--- handled failure) we close the channel with 'Nothing'.
+-- | Worker body: drive the SDK's typed callback, forwarding events onto
+-- the frame queue. Any synchronous exception is converted into a
+-- classified error frame so the consumer side can translate it through
+-- the normal path.
+--
+-- Nothing here signals end-of-frames: that is the queue's closed flag,
+-- set by 'Baikai.Provider.Internal.StreamWorker.forkFrameWorker''s
+-- @finally@ however this body ends. A sentinel push would block on a
+-- full queue, which is exactly the state a stopped consumer leaves
+-- behind.
 worker ::
   SseDriver ->
   ClaudeCall ->
   IORef (Maybe Sse.ResponseMetadata) ->
-  Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent)) ->
+  FrameQueue (Either BaikaiError Messages.MessageStreamEvent) ->
   IO ()
-worker driver call metaRef ch = do
+worker driver call metaRef q = do
   r <-
     trySync $
       Transport.runWithTimeout (call ^. #timeoutMs) $
         driver
           call
           (writeIORef metaRef . Just)
-          (writeChan ch . Just)
+          (pushFrame q)
   case r of
     Right Nothing -> pure ()
-    Right (Just be) -> writeChan ch (Just (Left be))
-    Left e -> writeChan ch (Just (Left (exceptionToError e)))
-  writeChan ch Nothing
+    Right (Just be) -> pushFrame q (Left be)
+    Left e -> pushFrame q (Left (exceptionToError e))
 
 -- | The streaming 'Stream' state.
 data ProducerState = ProducerState
-  { chan :: !(Chan (Maybe (Either BaikaiError Messages.MessageStreamEvent))),
+  { chan :: !(FrameQueue (Either BaikaiError Messages.MessageStreamEvent)),
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
@@ -321,7 +344,7 @@ step s
         )
   | s ^. #finished = pure Nothing
   | otherwise = do
-      mRaw <- readChan (s ^. #chan)
+      mRaw <- pullFrame (s ^. #chan)
       -- After the read, because the worker writes the metadata before it
       -- writes anything onto the channel: taking it here means every
       -- path out of this branch — including the one where the channel
