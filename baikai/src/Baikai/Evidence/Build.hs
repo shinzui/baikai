@@ -29,6 +29,10 @@ module Baikai.Evidence.Build
     sinkFailureIsFatal,
     sinkFailureError,
 
+    -- * Strict mode
+    strictnessOf,
+    missingEvidenceError,
+
     -- * The pre-dispatch strictness gate
     EvidenceRefusal (..),
     renderEvidenceRefusal,
@@ -182,6 +186,25 @@ prepareEvidence m opts transport translation envelope started =
           )
             { errorInfo = err
             }
+
+-- | The strictness a call was dispatched under. A call with no
+-- evidence request is best-effort.
+strictnessOf :: Options -> EvidenceStrictness
+strictnessOf opts =
+  maybe EvidenceBestEffort (^. #strictness) (opts ^. #evidence)
+
+-- | The error a strict call fails with when its provider produced a
+-- successful terminal and attached no evidence record to it.
+--
+-- Built with 'providerError' for the reason 'sinkFailureError' is:
+-- nothing about the request was invalid and the provider did its job,
+-- and 'Baikai.Error.ErrorCategory' is closed. The message prefix is the
+-- contract until the surface freeze decides on a category.
+missingEvidenceError :: BaikaiError
+missingEvidenceError =
+  providerError
+    "this call required evidence, but the provider attached no evidence record to its \
+    \terminal event; the response is reported failed rather than left unaccounted for"
 
 -- | The translation to record where no provider adapter ran: an
 -- unregistered provider, and a @complete@ handler that threw before

@@ -29,10 +29,10 @@ evidence:
     proves: "The canonical hashing core and the vocabulary: canonicalEncode gives a JSON value exactly one byte representation, commitmentDigest and configurationDigest differ in what they cover, and Observed distinguishes a reported value from an unreported one with no defaulting function."
   - kind: test
     resource: baikai/test/StrictEvidenceSpec.hs
-    proves: "Strict mode's behaviour, including the sink-failure hook."
+    proves: "Strict mode's pre-dispatch gate, and that a strict call whose provider attached no record fails after the call rather than succeeding silently, with the provider's content kept."
   - kind: test
     resource: baikai/test/TraceSpec.hs
-    proves: "A successful call emits exactly one evidence record with status succeeded, and the record is emitted before the terminal call_finished/call_failed rather than after."
+    proves: "Exactly one evidence record per call under every way a call can end — success, provider failure, consumer abort, unregistered provider — that each of those paths records the thinking level the caller asked for rather than collapsing it into absent, and that a strict call whose provider attached no record fails and emits no record."
   - kind: test
     resource: baikai-claude/test/EvidenceSpec.hs
     proves: "The Anthropic transport records the model Anthropic reported running, the request-id correlation header, and reaches model_observed only when both arrived — never from a 2xx alone."
@@ -134,6 +134,12 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   plain `Data.Aeson.Value`.
 - A record proves what a provider *said*, not what it did. It is a boundary
   record, not an attestation, and nothing here is signed.
-- `onSinkFailure` is documented as a hook a future release replaces. Much of the
-  supporting machinery lives in `Baikai.Provider.Cli.Internal`, which is outside
-  the PVP contract — hence `experimental`.
+- Strict mode fails a call for exactly two reasons of baikai's own: a trace sink
+  that threw, so the record did not survive; and a successful terminal that
+  carried no record at all, so none was ever built
+  (`docs/adr/0014-strict-evidence-means-a-record-exists.md`). Both are reported
+  through `providerError` until the surface freeze decides whether the closed
+  `ErrorCategory` should gain a case. On the error path the provider's own error
+  is kept, because it is the more useful of the two.
+- Much of the supporting machinery lives in `Baikai.Provider.Cli.Internal`, which
+  is outside the PVP contract — hence `experimental`.

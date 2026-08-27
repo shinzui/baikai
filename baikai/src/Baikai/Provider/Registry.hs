@@ -26,6 +26,7 @@ module Baikai.Provider.Registry
     lookupApiProvider,
     completeRequestWith,
     completeRequest,
+    requireEvidenceOnResponse,
     runToolLoopWith,
     runToolLoop,
     completeText,
@@ -36,6 +37,7 @@ import Baikai.Api (Api, renderApi)
 import Baikai.Content (AssistantContent (..), ToolCall, isCutOffToolCall)
 import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
+import Baikai.Error qualified as Error
 import Baikai.Evidence (ThinkingTranslation)
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
@@ -156,7 +158,7 @@ completeRequestWith reg m ctx opts = do
   mProvider <- lookupApiProviderWith reg (Model.api m)
   case mProvider of
     Just p -> case evidenceRefusals p m opts of
-      [] -> complete p m ctx opts
+      [] -> requireEvidenceOnResponse opts <$> complete p m ctx opts
       refusals -> refusedResponse m opts (describeThinking p m opts) refusals
     Nothing -> do
       now <- getCurrentTime
@@ -178,6 +180,39 @@ completeRequestWith reg m ctx opts = do
           (Just err)
       let resp = errorResponse m now 0 err
       pure resp {evidence = ev}
+
+-- | The 'Response' twin of 'Baikai.Stream.requireEvidenceOnTerminal':
+-- fail a strict call whose successful response carries no evidence
+-- record.
+--
+-- Both dispatch points need the rule because the built-in providers'
+-- @complete@ is @streamingComplete . stream@, which reassembles the
+-- provider's own stream and never passes through
+-- 'Baikai.Stream.streamRequestWith'. A caller using 'completeRequest'
+-- with no sink at all therefore gets the same guarantee as a streaming
+-- one: under 'Evidence.EvidenceRequired', a record exists or the call
+-- failed.
+--
+-- A response that already failed keeps its own error, which is more
+-- useful than this one and already satisfies the contract.
+requireEvidenceOnResponse :: Options -> Response -> Response
+requireEvidenceOnResponse opts resp = case Build.strictnessOf opts of
+  Evidence.EvidenceRequired _ | recordMissing -> failResponse resp
+  _ -> resp
+  where
+    recordMissing = case (responseError resp, resp) of
+      (Nothing, Response {evidence = Nothing}) -> True
+      _ -> False
+
+    failResponse r@Response {message = msg} =
+      r
+        { errorInfo = Just Build.missingEvidenceError,
+          message =
+            msg
+              { stopReason = ErrorReason,
+                errorMessage = Just (Error.message Build.missingEvidenceError)
+              }
+        }
 
 -- | Every reason strict evidence mode must refuse this call before it
 -- is dispatched, or an empty list.

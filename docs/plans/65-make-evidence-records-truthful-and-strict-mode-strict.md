@@ -74,10 +74,10 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
       `noThinkingRequested`.
 - [x] M1: tests — abort, unregistered provider, throwing handler, both `immediateError`s record
       the caller's level.
-- [ ] M2: `missingEvidenceError`, `requireEvidenceOnTerminal`, `requireEvidenceOnResponse`, wired
+- [x] M2: `missingEvidenceError`, `requireEvidenceOnTerminal`, `requireEvidenceOnResponse`, wired
       into `streamRequestWith` and `completeRequestWith`; tests for strict, best-effort and error
       paths.
-- [ ] M2: Haddock and record truth — `Trace/Event.hs` ordering, `Trace.hs` header,
+- [x] M2: Haddock and record truth — `Trace/Event.hs` ordering, `Trace.hs` header,
       `docs/capabilities/model-call-evidence.md` lines 32/35/129, `CHANGELOG.md` 0.5.0.0 paragraph.
 - [ ] M3: OTel `CallFinished` branch stops setting `gen_ai.response.model`; `successSpanTest`
       rewritten; `observedModelSpanTest` added; `TraceEvent.model` documented as the requested id.
@@ -101,6 +101,22 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
   argument (`describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts`), which
   is the expression the OpenAI provider's own `describeThinking` field uses, so `immediateError`
   copies that rather than the two-argument form the plan quotes. (M1)
+
+- `TraceSpec`'s own sink-failure case had to change fixture. `strictSinkFailureTest`
+  used `registerOk`, a provider that attaches no record, so the moment the record rule
+  landed it fired first and the case asserted "the error names the sink" against the
+  missing-record error. Its assertion is unchanged and still the point; the fixture is now
+  `registerOkWithEvidence`, so the sink is the only reason that call can fail — which is
+  what its sibling `strictSinkFailureIsStillOneTerminalTest` already did for the same
+  reason. A test meaning to exercise the sink rule must build a record; this is recorded in
+  ADR 0014's Consequences. (M2)
+
+- The ADR was written in Milestone 2 rather than Milestone 4, and is numbered `0014`
+  rather than `0006` (0006 through 0013 were taken by EP-1 through EP-7). Milestone 2's
+  documentation edits — the capability record's Limits and the `[Unreleased]` changelog
+  entry — both need to cite it, and a document that links a file which does not yet exist
+  is a broken link at that commit. Milestone 4's ADR work is now the three revisions only.
+  (M2)
 
 - `traceEvent` needed the registry as well as `finalizeTrace`. The plan named only
   `finalizeTrace`, but `traceEvent` is one of its three call sites and had no registry in scope,

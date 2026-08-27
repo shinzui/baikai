@@ -410,6 +410,24 @@ dispatchTests =
         registerApiProviderWith reg countingProvider
         resp <- completeRequestWith reg customModel testContext emptyOptions
         responseError resp @?= Nothing
+        flattenAssistantText (flattenAssistantBlocks resp) @?= "the provider ran",
+      testCase "a strict completeRequest with a record-less provider fails after the call" $ do
+        -- The gate lets this through: a custom provider declaring
+        -- requested_only can satisfy a requested_only requirement, and
+        -- one that builds a minimal record does. This one does not, and
+        -- the failure is caught at the terminal instead — with no sink
+        -- anywhere, which is the point of enforcing at dispatch.
+        reg <- newProviderRegistry
+        registerApiProviderWith reg countingProvider
+        resp <- completeRequestWith reg customModel testContext (strictly EvidenceRequestedOnly)
+        case responseError resp of
+          Nothing -> assertFailure "expected the missing record to fail the call"
+          Just err ->
+            assertBool
+              ("the message names the missing record: " <> Text.unpack (err ^. #message))
+              ("attached no evidence record" `Text.isInfixOf` (err ^. #message))
+        -- The provider was reached and its content is kept, so a caller
+        -- reading the failure can still see what came back.
         flattenAssistantText (flattenAssistantBlocks resp) @?= "the provider ran"
     ]
 

@@ -9,7 +9,7 @@ module TraceSpec (tests) where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
-import Baikai.Error (BaikaiError, providerError)
+import Baikai.Error (BaikaiError, ErrorCategory (..), providerError)
 import Baikai.Evidence
   ( ModelCallEvidence,
     TransportKind (..),
@@ -537,7 +537,12 @@ evidenceTests =
       strictSinkFailureIsStillOneTerminalTest,
       optOutSilentTest,
       optOutGoldenTest,
-      envelopeNotForcedTest
+      envelopeNotForcedTest,
+      strictNoRecordFailsTest,
+      strictNoRecordIsOneTerminalTest,
+      strictWithRecordSucceedsTest,
+      strictNoRecordErrorPathKeepsProviderErrorTest,
+      bestEffortNoRecordStillSucceedsTest
     ]
 
 -- | Assert the shape every record this plan produces must have: the
@@ -666,7 +671,11 @@ strictSinkFailureTest =
     -- something they cannot account for, with no way to notice: evidence
     -- that can vanish without the caller noticing is not evidence.
     let a = Custom "baikai-evidence-strict-throwing-sink"
-    registerOk a
+    -- The evidence-building fixture, so the sink is the only reason this
+    -- call can fail. With a provider that attaches no record, a strict
+    -- call now fails on that account before the sink is ever reached,
+    -- and this case would assert the sink rule against the record rule.
+    registerOkWithEvidence a
     result <-
       timeout 5000000 (withTrace throwingSink (stubModel a) stubContext strictOptions)
     case result of
@@ -680,6 +689,86 @@ strictSinkFailureTest =
             assertBool
               ("the error names the sink: " <> Text.unpack (be ^. #message))
               ("trace sink failed" `Text.isInfixOf` (be ^. #message))
+
+-- | Strict mode guaranteed that a record which was built and then lost
+-- fails the call. It did not guarantee that one was built: a provider
+-- that attached nothing returned a successful response and wrote no
+-- @call_evidence@ line, with no error anywhere.
+strictNoRecordFailsTest :: TestTree
+strictNoRecordFailsTest =
+  testCase "A STRICT CALL WHOSE PROVIDER ATTACHED NO RECORD FAILS, AND EMITS NO RECORD" $ do
+    let a = Custom "baikai-evidence-strict-no-record"
+    registerOk a
+    (ref, sink) <- memorySink
+    resp <- withTrace sink (stubModel a) stubContext strictOptions
+    let AssistantPayload {stopReason = sr} = resp ^. #message
+    sr @?= ErrorReason
+    case responseError resp of
+      Nothing -> assertFailure "expected the missing record to fail the call"
+      Just be -> do
+        be ^. #category @?= OtherError
+        assertBool
+          ("the error names the missing record: " <> Text.unpack (be ^. #message))
+          ("attached no evidence record" `Text.isInfixOf` (be ^. #message))
+    events <- awaitEvents ref 2
+    length [e | e@CallStarted {} <- events] @?= 1
+    length [e | e@CallFailed {} <- events] @?= 1
+    length (evidencesIn events) @?= 0
+
+-- | The rewrite produces one terminal, not two.
+strictNoRecordIsOneTerminalTest :: TestTree
+strictNoRecordIsOneTerminalTest =
+  testCase "a record-less strict stream yields one EventError and no EventDone" $ do
+    let a = Custom "baikai-evidence-strict-no-record-stream"
+    registerOk a
+    events <-
+      Stream.toList (withTraceStream silent (stubModel a) stubContext strictOptions)
+    length [e | e@(EventDone _) <- events] @?= 0
+    length [e | e@(EventError _) <- events] @?= 1
+
+-- | The rewrite fires on the absence of a record, not on strictness
+-- alone.
+strictWithRecordSucceedsTest :: TestTree
+strictWithRecordSucceedsTest =
+  testCase "a strict call whose provider attached a record still succeeds" $ do
+    let a = Custom "baikai-evidence-strict-with-record"
+    registerOkWithEvidence a
+    (ref, sink) <- memorySink
+    resp <- withTrace sink (stubModel a) stubContext strictOptions
+    let AssistantPayload {stopReason = sr} = resp ^. #message
+    sr @?= Stop
+    responseError resp @?= Nothing
+    events <- awaitEvents ref 3
+    length (evidencesIn events) @?= 1
+
+-- | On the error path the provider's own error is the more useful of
+-- the two, and the strict contract already holds: the call failed.
+strictNoRecordErrorPathKeepsProviderErrorTest :: TestTree
+strictNoRecordErrorPathKeepsProviderErrorTest =
+  testCase "a failed strict call keeps the provider's own error" $ do
+    let a = Custom "baikai-evidence-strict-provider-error"
+    registerFail a (providerError "stub-failure")
+    resp <- withTrace silent (stubModel a) stubContext strictOptions
+    case responseError resp of
+      Nothing -> assertFailure "expected the provider's failure to reach the response"
+      Just be -> do
+        assertBool
+          ("the provider's error survives: " <> Text.unpack (be ^. #message))
+          ("stub-failure" `Text.isInfixOf` (be ^. #message))
+        assertBool
+          "the missing-record error must not overwrite it"
+          (not ("attached no evidence record" `Text.isInfixOf` (be ^. #message)))
+
+-- | Best effort never refuses, here as everywhere.
+bestEffortNoRecordStillSucceedsTest :: TestTree
+bestEffortNoRecordStillSucceedsTest =
+  testCase "a best-effort call whose provider attached no record still succeeds" $ do
+    let a = Custom "baikai-evidence-best-effort-no-record"
+    registerOk a
+    resp <- withTrace silent (stubModel a) stubContext evidenceOptions
+    let AssistantPayload {stopReason = sr} = resp ^. #message
+    sr @?= Stop
+    responseError resp @?= Nothing
 
 -- | The exactly-once guarantee still holds when the terminal is
 -- rewritten.

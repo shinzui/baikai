@@ -153,6 +153,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   those bytes; `newSidecarMeta` takes both. `kit update` gains `--force`.
   (REV-2 F.12, Theme 8.2.)
 
+- `baikai`: `Baikai.Evidence.ThinkingModeNotTranslated`, encoded as
+  `"not_translated"`, and `Baikai.Evidence.untranslatedThinking`; and
+  `Baikai.Evidence.Build.requestedTranslation`. A path where no adapter ran to
+  translate the caller's level now records the level and says the translation is
+  unknown, instead of saying nothing was asked. (REV-2 D.2.)
+
+- `baikai`: `Baikai.Evidence.Build.missingEvidenceError`,
+  `Baikai.Evidence.Build.strictnessOf` (moved here from `Baikai.Trace`, where it
+  was private), `Baikai.Stream.requireEvidenceOnTerminal` and
+  `Baikai.Provider.Registry.requireEvidenceOnResponse`. (REV-2 D.3.)
+
 ### Changed
 
 - `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
@@ -386,6 +397,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   overwrite them; `kit update --force` reinstalls anyway. Sidecars written
   before this release carry no such hash and are updated without the check.
   (REV-2 Theme 8.2.)
+
+- `baikai`: under `EvidenceRequired`, a successful terminal that carries no
+  evidence record fails the call with `missingEvidenceError` rather than
+  returning a silent success with zero `call_evidence` lines. Strict mode
+  guaranteed that a record which was built and then lost fails the call; it did
+  not guarantee that one was built. The rule is applied at both dispatch points,
+  so `completeRequest` with no sink gets the same guarantee as a streaming call;
+  a failed call keeps the provider's own error, and best effort is unchanged.
+  See `docs/adr/0014-strict-evidence-means-a-record-exists.md`. (REV-2 D.3.)
+
+- `baikai`: a caller's thinking level is recorded on every evidence path — the
+  consumer abort, an unregistered provider, a `complete` handler that threw, and
+  each provider's `immediateError`. The abort path asks the registered adapter's
+  own `describeThinking`; the others record `not_translated`. All four used to
+  record the caller's request as `absent`, which
+  `docs/adr/0002-requested-translated-observed-are-never-collapsed.md` forbids.
+  (REV-2 D.2.)
 
 ### Deprecated
 
@@ -817,6 +845,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   provider-observed field set to `"unobserved"`. That is not a placeholder: it
   is a truthful record for a transport that has not yet been taught to observe
   anything. Later releases teach each transport to observe more.
+
+  (Correction added 2026-08-27: the two paragraphs above describe the release
+  inaccurately and are kept as shipped rather than rewritten. `onSinkFailure`
+  did not await a future release — it shipped in 0.5.0.0 together with
+  `sinkFailureIsFatal` and `sinkFailureError`, which already fail a strict
+  caller's call when the sink throws. And not every 0.5.0.0 record has `strength`
+  `requested_only`: the provider entries below describe what each transport
+  reports, and the HTTP adapters reach `correlated` and `model_observed`.)
 
   **A caller who does not opt in pays nothing.** With `Options.evidence` absent
   no digest is computed, no call identifier is generated, no evidence event is

@@ -49,6 +49,14 @@ import Numeric.Natural (Natural)
 -- looked identical in a trace. The field is still 'Maybe' because a
 -- non-assistant terminal has no usage at all, but a zero cost now
 -- renders as @0@.
+--
+-- The @model@ field carries the __requested__ 'Baikai.Model.modelId' on
+-- every constructor, including 'CallEvidence'. The model the provider
+-- actually served — which can differ, and which is an observation
+-- rather than a request — is available only inside 'CallEvidence'\'s
+-- record, as
+-- 'Baikai.Evidence.ModelCallEvidence'\'s @observedModel@. A sink must
+-- not present @model@ under a response-model key.
 data TraceEvent
   = CallStarted
       { eventId :: !Text,
@@ -86,8 +94,10 @@ data TraceEvent
       }
   | -- | The complete evidence record for one terminal provider call.
     --
-    -- Emitted exactly once per call, immediately after the matching
-    -- 'CallFinished' or 'CallFailed', and only when the caller set
+    -- Emitted exactly once per call, immediately __before__ the
+    -- matching 'CallFinished' or 'CallFailed', so a sink that keys
+    -- per-call state off the started/terminal pair still has the call
+    -- open when the record arrives. Only when the caller set
     -- 'Baikai.Options.evidence' and the provider built a record. A
     -- consumer that wants only evidence can filter on this kind alone,
     -- and a consumer written before this constructor existed is

@@ -24,6 +24,7 @@ module Baikai.Stream
     streamingComplete,
     reassembleResponse,
     liftCompleteToStream,
+    requireEvidenceOnTerminal,
   )
 where
 
@@ -108,9 +109,15 @@ streamRequestWith reg m ctx opts =
     case mProvider of
       Nothing -> Stream.fromList <$> noProviderEvents m opts
       Just p -> case evidenceRefusals p m opts of
-        [] -> pure (stream p m ctx opts)
+        [] -> pure (applyStrict (stream p m ctx opts))
         refusals ->
           Stream.fromList <$> refusedEvents m opts (describeThinking p m opts) refusals
+  where
+    -- A best-effort or opted-out call pays one 'Maybe' test here and no
+    -- per-event map; only a strict call is rewritten event by event.
+    applyStrict = case Build.strictnessOf opts of
+      Evidence.EvidenceRequired _ -> fmap (requireEvidenceOnTerminal opts)
+      Evidence.EvidenceBestEffort -> id
 
 -- | Stream a request through the process-global registry, invoking the
 -- callback once per event, then return the same reassembled 'Response'
@@ -586,6 +593,47 @@ errorEvents m opts startTs e = do
     [ EventStart StartPayload {partial = msg, responseId = Nothing},
       EventError (errorTerminal ev Nothing ErrorReason msg err)
     ]
+
+-- | Fail a strict call whose successful terminal carries no evidence
+-- record.
+--
+-- Strict mode already guaranteed that a record which was built and then
+-- lost fails the call; it did not guarantee that one was built. A
+-- provider that attaches nothing returned a successful response and
+-- wrote no @call_evidence@ line, with no error anywhere — evidence that
+-- can vanish without the caller noticing is not evidence. Under
+-- 'Evidence.EvidenceRequired' such a terminal becomes an 'EventError'
+-- carrying 'Build.missingEvidenceError'.
+--
+-- Everything else is returned unchanged: an error terminal (whose own
+-- error is more useful than this one and which already satisfies the
+-- contract — the call failed), any terminal carrying a record, every
+-- non-terminal event, and every best-effort or opted-out call.
+requireEvidenceOnTerminal :: Options -> AssistantMessageEvent -> AssistantMessageEvent
+requireEvidenceOnTerminal opts ev = case (Build.strictnessOf opts, ev) of
+  (Evidence.EvidenceRequired _, EventDone p)
+    | Nothing <- p ^. #evidence ->
+        EventError
+          ( p
+              & #reason
+                .~ ErrorReason
+              & #errorInfo
+                .~ Just Build.missingEvidenceError
+              & #message
+                %~ markFailed
+          )
+  _ -> ev
+  where
+    markFailed = \case
+      AssistantMessage p ->
+        AssistantMessage
+          ( p
+              & #stopReason
+                .~ ErrorReason
+              & #errorMessage
+                .~ Just (Build.missingEvidenceError ^. #message)
+          )
+      other -> other
 
 -- | The synthetic error stream used when no provider is registered for
 -- the model's API tag.

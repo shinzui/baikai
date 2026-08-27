@@ -55,10 +55,8 @@ import Baikai.Error (BaikaiError, providerError)
 -- both belong in this module, so the status constructors stay behind
 -- the @Evidence.@ qualifier.
 import Baikai.Evidence
-  ( EvidenceStrictness (..),
-    ModelCallEvidence,
+  ( ModelCallEvidence,
     newCallId,
-    noThinkingRequested,
   )
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
@@ -355,13 +353,7 @@ reportSinkError s opts = do
             else Nothing
         )
   where
-    strictness = strictnessOf opts
-
--- | The strictness a call was dispatched under. A call with no evidence
--- request is best-effort.
-strictnessOf :: Options -> EvidenceStrictness
-strictnessOf opts =
-  maybe EvidenceBestEffort (^. #strictness) (opts ^. #evidence)
+    strictness = Build.strictnessOf opts
 
 traceEvent ::
   ProviderRegistry ->

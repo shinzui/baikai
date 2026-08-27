@@ -2,6 +2,21 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-19 (model-call evidence) records two rules strict mode did not
+  have. A caller's thinking level is now recorded on every evidence path — the
+  consumer abort, an unregistered provider, a `complete` handler that threw, and
+  each provider's `immediateError` — with the abort path asking the registered
+  adapter's own describer and the rest spelling the new `not_translated` mode;
+  all four used to record the request as `absent`, which
+  `docs/adr/0002-requested-translated-observed-are-never-collapsed.md` forbids.
+  And a strict call whose provider attaches no record now fails, rather than
+  returning a silent success with zero `call_evidence` lines
+  (`docs/adr/0014-strict-evidence-means-a-record-exists.md`). The `proves`
+  sentences for `StrictEvidenceSpec` and `TraceSpec` are rewritten to what the
+  suite actually pins, and the Limits list no longer says `onSinkFailure` awaits
+  a replacement — it shipped in 0.5.0.0 — and states the two strict-mode failure
+  rules instead.
+
 * **Update**: CAP-21 (kit installer) records the 2026-08 hardening pass. The
   manifest is now checked physically as well as lexically: a source path that
   crosses a symbolic link, or whose canonical form lies outside the kit
