@@ -5,20 +5,19 @@ module Baikai.Kit.Sidecar
     newSidecarMeta,
     sidecarPath,
     readSidecar,
-    writeSidecar,
   )
 where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
 import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
 import Baikai.Kit.Error (KitError (..))
-import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemName, itemVersion, kitItemKind)
+import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemName, itemVersion)
 import Baikai.Kit.Path (safeSourcePath)
 import Baikai.Prelude
 import Control.Exception (IOException, try)
 import Crypto.Hash (Digest, SHA256)
 import Crypto.Hash qualified as Hash
-import Data.Aeson (eitherDecodeFileStrict', encode)
+import Data.Aeson (eitherDecodeFileStrict')
 import Data.Binary.Put (putWord64be, runPut)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -27,16 +26,26 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath (dropExtension, takeDirectory, (</>))
+import System.Directory (doesFileExist)
+import System.FilePath (dropExtension, (</>))
 import System.IO (hPutStrLn, stderr)
 
+-- | The metadata written beside each installed asset.
+--
+--   @installedFiles@ and @installedHash@ describe what this tool wrote
+--   for one provider — the file names relative to that provider's target
+--   directory, and the hash of exactly those bytes — so @kit update@ can
+--   tell a file the user edited from one it installed. Both are 'Nothing'
+--   in sidecars written before those fields existed, and such an item is
+--   updated without the check.
 data SidecarMeta = SidecarMeta
   { name :: !Text,
     kind :: !Text,
     version :: !(Maybe Text),
     hash :: !Text,
-    installedAt :: !Text
+    installedAt :: !Text,
+    installedFiles :: !(Maybe [Text]),
+    installedHash :: !(Maybe Text)
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
@@ -102,15 +111,11 @@ readSidecar p = do
           hPutStrLn stderr $ "Warning: failed to parse sidecar " <> p <> ": " <> err
           pure Nothing
 
-writeSidecar :: AgentAssetProvider -> KitItem -> FilePath -> Text -> Text -> IO ()
-writeSidecar provider item targetBase sidecarName hashStr = do
-  meta <- newSidecarMeta item hashStr
-  let out = sidecarPath provider (kitItemKind item) (itemName item) targetBase sidecarName
-  createDirectoryIfMissing True (takeDirectory out)
-  LBS.writeFile out (encode meta)
-
-newSidecarMeta :: KitItem -> Text -> IO SidecarMeta
-newSidecarMeta item hashStr = do
+-- | Build the sidecar for one provider: the upstream content hash, the
+--   names this install writes for that provider, and the hash of the
+--   bytes it writes.
+newSidecarMeta :: KitItem -> Text -> [Text] -> Text -> IO SidecarMeta
+newSidecarMeta item hashStr writtenFiles writtenHash = do
   now <- getCurrentTime
   let stamp = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
   pure
@@ -119,5 +124,7 @@ newSidecarMeta item hashStr = do
         kind = itemKind item,
         version = itemVersion item,
         hash = hashStr,
-        installedAt = stamp
+        installedAt = stamp,
+        installedFiles = Just writtenFiles,
+        installedHash = Just writtenHash
       }

@@ -71,9 +71,9 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] Milestone 2: `ensureKitRepo` returns `Either KitError KitRepo`; `loadManifest`/`loadManifestMaybe` return typed errors; `installItem`, `installFrom`, `listAvailable`, `updateKit`, `uninstallItem`, `kitStatus` return `Either`/reports; `requireSafe` deleted; no `exitFailure` remains outside `Baikai.Kit.Command`.
 - [x] Milestone 2: `runKitCommand` and the exiting `runKit` in `Command.hs`; existing `try @ExitCode` tests moved onto `runKit`; offline-status test green.
 - [x] Milestone 2: ADR `docs/adr/0013-library-code-never-calls-exitfailure.md` written and indexed in `docs/adr/README.md`.
-- [ ] Milestone 3: multi-file agents installed under `<agents dir>/<name>/`; destination pre-check; `openTempFile` temp names; journaled phase two with backups and restore; `executePlanWith` test seam.
-- [ ] Milestone 3: manifest `version` gate (`supportedManifestVersions = [1, 2]`); `installedFiles`/`installedHash` in `SidecarMeta`; `reinstallPresent` with `OverwritePolicy`; `--force` on `kit update`; `stripYamlFrontmatter` normalises every branch.
-- [ ] Milestone 3: fidelity tests green; `CHANGELOG.md` `[Unreleased]` entries written.
+- [x] Milestone 3: multi-file agents installed under `<agents dir>/<name>/`; destination pre-check; `openTempFile` temp names; journaled phase two with backups and restore; `executePlanWith` test seam.
+- [x] Milestone 3: manifest `version` gate (`supportedManifestVersions = [1, 2]`); `installedFiles`/`installedHash` in `SidecarMeta`; `reinstallPresent` with `OverwritePolicy`; `--force` on `kit update`; `stripYamlFrontmatter` normalises every branch.
+- [x] Milestone 3: fidelity tests green; `CHANGELOG.md` `[Unreleased]` entries written.
 - [ ] Milestone 4: `docs/user/kit.md`, `docs/capabilities/kit-installer.md` and `docs/capabilities/log.md` updated; `okf validate docs/capabilities` green; keyless `cabal test all` gate green.
 
 
@@ -88,6 +88,12 @@ implementation. Provide concise evidence.
   is reading a child process's status, not exiting. The boundary is pinned with
   the narrower `grep -rn "exitFailure\|exitWith" baikai-kit/src`, which matches
   only `Command.hs` (its import and its one call). Recorded in ADR 0013.
+
+- `UpdateReport.refresh` is `Maybe RepoRefresh`, not `RepoRefresh`. The plan
+  gave `reinstallPresent` the same record as `updateKit`, but
+  `reinstallPresent` refreshes nothing, so any `RepoRefresh` it named would be
+  a claim it cannot make. `Nothing` says "no refresh was attempted" and the CLI
+  prints no headline for it.
 
 - `updateKit` was given its `UpdateReport` in Milestone 2 rather than Milestone
   3. The plan had it return `IO (Either KitError ())` in Milestone 2, which

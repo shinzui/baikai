@@ -145,6 +145,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `renderStatusTable`; `Baikai.Kit.Command.runKitCommand`. `KitState` gains
   `KitUpstreamRefused`, rendered `refused`. (REV-2 E.5, F.10, F.11.)
 
+- `baikai-kit`: `Baikai.Kit.Install.OverwritePolicy` (`KeepLocalEdits`,
+  `OverwriteLocalEdits`), `reinstallPresent` (the network-free half of
+  `updateKit`), and `PlannedWrite`/`WriteContent`/`executePlan`/`executePlanWith`
+  as a test seam. `SidecarMeta` gains `installedFiles` and `installedHash`,
+  which record what this tool wrote for one provider and the hash of exactly
+  those bytes; `newSidecarMeta` takes both. `kit update` gains `--force`.
+  (REV-2 F.12, Theme 8.2.)
+
 ### Changed
 
 - `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
@@ -366,6 +374,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `baikai-kit`: a manifest whose `version` is not 1 or 2 is refused with
   `KitManifestVersionUnsupported` instead of being decoded and installed.
   (REV-2 F.12.)
+
+- `baikai-kit`: an agent that lists several `files` installs all of them. The
+  first becomes the provider's agent file as before, and each remaining file
+  goes into a resource directory named after the agent beside it
+  (`<agents dir>/<name>/<file>`), which uninstall removes with the agent. Only
+  the first file used to be installed. (REV-2 F.12.)
+
+- `baikai-kit`: `kit update` skips an item whose installed files no longer hash
+  to what its sidecar recorded, printing the `--force` invocation that would
+  overwrite them; `kit update --force` reinstalls anyway. Sidecars written
+  before this release carry no such hash and are updated without the check.
+  (REV-2 Theme 8.2.)
 
 ### Deprecated
 
@@ -698,6 +718,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   without validating it, a second unsanitised join that grew after the July
   hardening pass validated the first. Both now go through `itemSources` and
   `safeSourcePath`. (REV-2 Theme 8.1.)
+
+- `baikai-kit`: an install that fails while renaming files into place now
+  restores what was there before, or names the paths it could not restore.
+  Phase two was a bare loop of renames, so a failure part-way left earlier
+  renames in place while the message said "no changes were made". Temporary
+  files are also created with `openTempFile`, so two concurrent installs of one
+  item no longer clobber each other's staging file, and a destination that is a
+  directory is refused before anything is written. (REV-2 F.12.)
+
+- `baikai-kit`: `Baikai.Kit.Install.stripYamlFrontmatter` normalises line
+  endings to LF on every branch. Input without frontmatter, and input whose
+  frontmatter is never closed, used to keep their `\r` characters and leak them
+  into the Codex agent TOML. (REV-2 Theme 8.7.)
+
+- `baikai-kit`: an `IOException` raised while reinstalling during `kit update`
+  is returned as `KitWriteFailed` instead of escaping as an uncaught exception.
+  (REV-2 Theme 8.4.)
 
 ## [baikai 0.5.0.0] - 2026-08-05
 

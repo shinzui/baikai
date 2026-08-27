@@ -13,19 +13,24 @@ import Baikai.Kit
     KitManifest (..),
     KitScope (UserScope),
     KitState (..),
+    OverwritePolicy (..),
+    PlannedWrite (..),
     PullResult (..),
     RemovalOutcome (..),
     SidecarMeta (..),
     SkillEntry (..),
     UpstreamAvailability (..),
+    WriteContent (..),
     classify,
     collectStatus,
     computeKitHash,
+    executePlanWith,
     installItem,
     kitStatus,
     loadManifest,
     pullKitRepo,
     readSidecar,
+    reinstallPresent,
     renderState,
     renderUninstallReport,
     runKit,
@@ -53,6 +58,8 @@ import System.Directory
     doesPathExist,
     listDirectory,
     removeDirectoryRecursive,
+    removeFile,
+    renameFile,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -76,7 +83,8 @@ main =
           classifyTests,
           statusFilesystemTests,
           installRoundTripTests,
-          typedErrorTests
+          typedErrorTests,
+          installFidelityTests
         ]
 
 manifestTests :: TestTree
@@ -243,7 +251,10 @@ frontmatterTests =
         stripYamlFrontmatter "---\nname: x\n---" @?= "",
       testCase "stripYamlFrontmatter leaves non-frontmatter and unterminated blocks unchanged" $ do
         stripYamlFrontmatter "Body.\n" @?= "Body.\n"
-        stripYamlFrontmatter "---\nname: x\nBody.\n" @?= "---\nname: x\nBody.\n"
+        stripYamlFrontmatter "---\nname: x\nBody.\n" @?= "---\nname: x\nBody.\n",
+      testCase "stripYamlFrontmatter normalises line endings on every branch" $ do
+        stripYamlFrontmatter "Body.\r\n" @?= "Body.\n"
+        stripYamlFrontmatter "---\r\nname: x\r\nBody.\r\n" @?= "---\nname: x\nBody.\n"
     ]
 
 statusFilesystemTests :: TestTree
@@ -366,7 +377,7 @@ installRoundTripTests =
           case result of
             PullFailed _ -> pure ()
             PullSucceeded -> assertFailure "expected fake .git cache pull to fail"
-          updateResult <- updateKit testConfig Nothing
+          updateResult <- updateKit testConfig Nothing KeepLocalEdits
           assertKitError "KitPullFailed" isPullFailed updateResult
     ]
 
@@ -402,6 +413,115 @@ typedErrorTests =
               other -> assertFailure ("expected an unavailable upstream, got " <> show other)
     ]
 
+installFidelityTests :: TestTree
+installFidelityTests =
+  testGroup
+    "Install fidelity"
+    [ testCase "multi-file agent installs every listed file" $
+        withPreparedKitHome $ \home cache -> do
+          plantMultiFileAgent cache
+          let claudeBase = home </> ".config" </> "testkit" </> "agents"
+              claudeAgents = claudeBase </> ".claude" </> "agents"
+              codexAgents = home </> ".codex" </> "agents"
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope
+          assertFileExists (claudeAgents </> "reviewer.md")
+          assertFileExists (claudeAgents </> "reviewer" </> "guide.md")
+          assertFileExists (codexAgents </> "reviewer.toml")
+          assertFileExists (codexAgents </> "reviewer" </> "guide.md")
+          meta <- readSidecar (claudeAgents </> "reviewer.testkit-kit.json")
+          case meta of
+            Just sidecar -> (sidecar ^. #installedFiles) @?= Just ["reviewer.md", "reviewer" <> "/" <> "guide.md"]
+            Nothing -> assertFailure "expected an agent sidecar"
+          _ <- assertRight =<< uninstallItem testConfig "reviewer" UserScope
+          assertDirectoryMissing (claudeAgents </> "reviewer")
+          assertDirectoryMissing (codexAgents </> "reviewer"),
+      testCase "phase-two failure restores the previous files" $
+        withSystemTempDirectory "baikai-kit-journal" $ \dir -> do
+          BS.writeFile (dir </> "a.txt") "old"
+          let writes =
+                [ PlannedWrite {destination = dir </> "a.txt", content = WriteBytes "new"},
+                  PlannedWrite {destination = dir </> "b.txt", content = WriteBytes "new"}
+                ]
+              failingRename temp dest
+                | "b.txt" `isSuffixOf` dest = do
+                    takeDirectory temp @?= dir
+                    assertBool "temporary should keep the tmp suffix" (".baikai-kit-tmp" `isSuffixOf` temp)
+                    assertBool "temporary name should be unique" (temp /= dest <> ".baikai-kit-tmp")
+                    ioError (userError "boom")
+                | otherwise = renameFile temp dest
+          result <- executePlanWith failingRename writes
+          case result of
+            Left (KitWriteFailed _ restored broken) -> do
+              restored @?= [dir </> "a.txt"]
+              broken @?= []
+            other -> assertFailure ("expected KitWriteFailed, got " <> show other)
+          kept <- BS.readFile (dir </> "a.txt")
+          kept @?= "old"
+          assertFileMissing (dir </> "b.txt")
+          tmpFiles <- findFilesWithSuffix dir ".baikai-kit-tmp"
+          tmpFiles @?= []
+          bakFiles <- findFilesWithSuffix dir ".baikai-kit-bak"
+          bakFiles @?= [],
+      testCase "destination directory is refused before any write" $
+        withPreparedKitHome $ \home _cache -> do
+          let claudeAgents = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "agents"
+          createDirectoryIfMissing True (claudeAgents </> "reviewer.md")
+          result <- installItem testConfig "reviewer" UserScope
+          assertKitError "KitWriteFailed" isWriteFailed result
+          assertFileMissing (home </> ".codex" </> "agents" </> "reviewer.toml"),
+      testCase "unsupported manifest version is refused" $
+        withPreparedKitHome $ \_home cache -> do
+          BS.writeFile (cache </> "kit.json") manifestWithUnsupportedVersionJson
+          loaded <- loadManifest cache
+          case loaded of
+            Left (KitManifestVersionUnsupported _ 99) -> pure ()
+            other -> assertFailure ("expected KitManifestVersionUnsupported 99, got " <> show other)
+          installed <- installItem testConfig "demo" UserScope
+          assertKitError "KitManifestVersionUnsupported" isVersionUnsupported installed,
+      testCase "a sidecar written before the installed-file fields still decodes" $
+        case Aeson.eitherDecodeStrict' legacySidecarJson :: Either String SidecarMeta of
+          Right meta -> do
+            (meta ^. #name) @?= ("demo" :: Text)
+            (meta ^. #installedFiles) @?= Nothing
+            (meta ^. #installedHash) @?= Nothing
+          Left err -> assertFailure ("expected a legacy sidecar to decode: " <> err),
+      testCase "update skips locally modified items unless forced" $
+        withPreparedKitHome $ \home cache -> do
+          let claudeSkill = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
+              upstream = cache </> "skills" </> "demo" </> "SKILL.md"
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          BS.writeFile (claudeSkill </> "SKILL.md") "my edits"
+          BS.writeFile upstream "new upstream"
+          manifest <- assertRight =<< loadManifest cache
+          kept <- assertRight =<< reinstallPresent testConfig cache manifest (Just "demo") KeepLocalEdits
+          (kept ^. #skipped) @?= [("demo", UserScope)]
+          (kept ^. #updated) @?= []
+          mine <- BS.readFile (claudeSkill </> "SKILL.md")
+          mine @?= "my edits"
+          forced <- assertRight =<< reinstallPresent testConfig cache manifest (Just "demo") OverwriteLocalEdits
+          (forced ^. #updated) @?= [("demo", UserScope)]
+          (forced ^. #skipped) @?= []
+          fresh <- BS.readFile (claudeSkill </> "SKILL.md")
+          fresh @?= "new upstream"
+          -- A sidecar from before this release records no installed hash,
+          -- so the item is reinstalled without the check.
+          BS.writeFile (claudeSkill </> ".testkit-kit.json") legacySidecarJson
+          BS.writeFile (claudeSkill </> "SKILL.md") "my edits again"
+          legacy <- assertRight =<< reinstallPresent testConfig cache manifest (Just "demo") KeepLocalEdits
+          (legacy ^. #updated) @?= [("demo", UserScope)]
+          (legacy ^. #skipped) @?= [],
+      testCase "a write failure during update is returned, not thrown" $
+        withPreparedKitHome $ \home _cache -> do
+          let claudeAgents = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "agents"
+              cache = home </> ".cache" </> "testkit" </> "kit"
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope
+          removeFile (claudeAgents </> "reviewer.md")
+          createDirectoryIfMissing True (claudeAgents </> "reviewer.md")
+          manifest <- assertRight =<< loadManifest cache
+          result <- reinstallPresent testConfig cache manifest (Just "reviewer") OverwriteLocalEdits
+          assertKitError "KitWriteFailed" isWriteFailed result
+    ]
+
 decodeFixture :: FilePath -> IO KitManifest
 decodeFixture file = do
   bytes <- BS.readFile ("test/fixtures" </> file)
@@ -416,7 +536,9 @@ mkSidecar mVersion h =
       kind = "skill",
       version = mVersion,
       hash = h,
-      installedAt = "2026-05-13T00:00:00Z"
+      installedAt = "2026-05-13T00:00:00Z",
+      installedFiles = Nothing,
+      installedHash = Nothing
     }
 
 mkSkillItem :: Text -> Maybe Text -> KitItem
@@ -492,6 +614,49 @@ manifestWithSymlinkedFileJson =
         "}],",
         "\"agents\":[]} "
       ]
+
+-- | Rewrite the fixture kit so its agent lists two files below a
+--   directory of its own.
+plantMultiFileAgent :: FilePath -> IO ()
+plantMultiFileAgent cache = do
+  createDirectoryIfMissing True (cache </> "agents" </> "reviewer")
+  BS.writeFile (cache </> "agents" </> "reviewer" </> "reviewer.md") "---\nname: reviewer\n---\nReview carefully.\n"
+  BS.writeFile (cache </> "agents" </> "reviewer" </> "guide.md") "How to review.\n"
+  BS.writeFile (cache </> "kit.json") manifestWithMultiFileAgentJson
+
+manifestWithMultiFileAgentJson :: BS.ByteString
+manifestWithMultiFileAgentJson =
+  Text.Encoding.encodeUtf8 $
+    Text.concat
+      [ "{\"version\":2,",
+        "\"skills\":[],",
+        "\"agents\":[{",
+        "\"name\":\"reviewer\",",
+        "\"description\":\"Review agent\",",
+        "\"version\":\"0.1.0\",",
+        "\"path\":\"agents/reviewer\",",
+        "\"files\":[\"reviewer.md\",\"guide.md\"]",
+        "}]} "
+      ]
+
+manifestWithUnsupportedVersionJson :: BS.ByteString
+manifestWithUnsupportedVersionJson =
+  Text.Encoding.encodeUtf8 $
+    Text.concat
+      [ "{\"version\":99,",
+        "\"skills\":[{",
+        "\"name\":\"demo\",",
+        "\"description\":\"Demo skill\",",
+        "\"version\":\"0.1.0\",",
+        "\"path\":\"skills/demo\",",
+        "\"files\":[\"SKILL.md\"]",
+        "}],",
+        "\"agents\":[]} "
+      ]
+
+legacySidecarJson :: BS.ByteString
+legacySidecarJson =
+  "{\"name\":\"demo\",\"kind\":\"skill\",\"version\":\"0.1.0\",\"hash\":\"sha256:x\",\"installedAt\":\"t\"}"
 
 manifestJson :: BS.ByteString
 manifestJson =
@@ -579,6 +744,9 @@ isPullFailed = \case KitPullFailed _ -> True; _ -> False
 
 isManifestMissing :: KitError -> Bool
 isManifestMissing = \case KitManifestMissing _ -> True; _ -> False
+
+isVersionUnsupported :: KitError -> Bool
+isVersionUnsupported = \case KitManifestVersionUnsupported _ _ -> True; _ -> False
 
 isManifestInvalid :: KitError -> Bool
 isManifestInvalid = \case KitManifestInvalid _ _ -> True; _ -> False

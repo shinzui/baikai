@@ -14,7 +14,8 @@ where
 import Baikai.Kit.Config (KitConfig, KitScope (..), scopeLabel)
 import Baikai.Kit.Error (KitError, renderKitError)
 import Baikai.Kit.Install
-  ( UpdateReport,
+  ( OverwritePolicy (..),
+    UpdateReport,
     installFrom,
     loadManifest,
     renderAvailable,
@@ -35,7 +36,7 @@ import System.IO (stderr)
 data KitCommand
   = KitList
   | KitInstall !Text !KitScope
-  | KitUpdate !(Maybe Text)
+  | KitUpdate !(Maybe Text) !OverwritePolicy
   | KitUninstall !Text !KitScope
   | KitStatus
   deriving stock (Show)
@@ -63,8 +64,8 @@ runKitCommand config = \case
       installFrom config (repo ^. #dir) manifest n scope `thenE` \item ->
         printed $
           "Installed " <> itemKind item <> " '" <> itemName item <> "' to " <> scopeLabel scope <> " scope."
-  KitUpdate n ->
-    updateKit config n `thenE` (printed . renderUpdateReport)
+  KitUpdate n policy ->
+    updateKit config n policy `thenE` (printed . renderUpdateReport)
   KitUninstall n scope ->
     uninstallItem config n scope `thenE` (printed . renderUninstallReport n scope)
   KitStatus -> do
@@ -123,17 +124,33 @@ runKit config kitCommand = do
 
 renderUpdateReport :: UpdateReport -> Text
 renderUpdateReport report =
-  Text.intercalate "\n" (headline : updatedLines ++ [summary])
+  Text.intercalate "\n" (headline ++ updatedLines ++ skippedLines ++ [summary] ++ skipSummary)
   where
     headline = case report ^. #refresh of
-      RepoCloned -> "Kit repository cloned."
-      RepoPulled -> "Kit repository updated."
-      RepoStale _ -> "Kit repository updated."
+      Nothing -> []
+      Just RepoCloned -> ["Kit repository cloned."]
+      Just RepoPulled -> ["Kit repository updated."]
+      Just (RepoStale _) -> ["Kit repository updated."]
     updatedLines =
       [ "Updated '" <> n <> "' (" <> scopeLabel scope <> ")"
       | (n, scope) <- report ^. #updated
       ]
+    -- A skip is not a failure: the command still exits 0, and the line
+    -- says exactly which invocation would overwrite the edits.
+    skippedLines =
+      [ "Skipped '"
+          <> n
+          <> "' ("
+          <> scopeLabel scope
+          <> "): installed files were modified locally; run 'kit update "
+          <> n
+          <> " --force' to overwrite."
+      | (n, scope) <- report ^. #skipped
+      ]
     summary = "Updated " <> Text.pack (show (length (report ^. #updated))) <> " item(s)."
+    skipSummary
+      | null (report ^. #skipped) = []
+      | otherwise = ["Skipped " <> Text.pack (show (length (report ^. #skipped))) <> " item(s)."]
 
 installParser :: Parser KitCommand
 installParser =
@@ -145,6 +162,10 @@ updateParser :: Parser KitCommand
 updateParser =
   KitUpdate
     <$> optional (strArgument (metavar "NAME" <> help "Name of a specific item to update (default: all)"))
+    <*> flag
+      KeepLocalEdits
+      OverwriteLocalEdits
+      (long "force" <> help "Reinstall items even if their installed files were modified locally")
 
 uninstallParser :: Parser KitCommand
 uninstallParser =
