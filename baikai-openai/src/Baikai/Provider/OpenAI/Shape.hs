@@ -53,21 +53,29 @@ import OpenAI.V1.Chat.Completions qualified as Chat
 -- knows. Written as an explicit pipeline rather than the point-free
 -- composition it used to be, so the description has somewhere to escape
 -- to.
+-- The 'Bool' after the compat record is whether the chosen model
+-- advertises reasoning support ('Baikai.Model.reasoning'); see
+-- 'injectThinkingShape'.
 shapeRequestBody ::
-  OpenAICompletionsCompat -> Options -> Aeson.Value -> (Aeson.Value, ThinkingTranslation)
-shapeRequestBody compat opts body =
+  OpenAICompletionsCompat ->
+  Bool ->
+  Options ->
+  Aeson.Value ->
+  (Aeson.Value, ThinkingTranslation)
+shapeRequestBody compat modelReasons opts body =
   let renamed = renameMaxTokens compat body
       stripped = dropUnsupportedStrict compat renamed
-      (thought, translation) = injectThinkingShape compat opts stripped
+      (thought, translation) = injectThinkingShape compat modelReasons opts stripped
    in (injectCacheControl compat opts thought, translation)
 
 streamRequestBody ::
   OpenAICompletionsCompat ->
+  Bool ->
   Options ->
   Chat.CreateChatCompletion ->
   (Aeson.Value, ThinkingTranslation)
-streamRequestBody compat opts req =
-  shapeRequestBody compat opts (Aeson.toJSON req')
+streamRequestBody compat modelReasons opts req =
+  shapeRequestBody compat modelReasons opts (Aeson.toJSON req')
   where
     req' =
       req
@@ -118,11 +126,39 @@ dropUnsupportedStrict compat
 -- in @baikai-openai/test/ShapeSpec.hs@; 'compatibleEffort' is scoped by
 -- its own documentation to the non-native shapes and must not be
 -- applied here.
+--
+-- The 'Bool' is whether the chosen model advertises reasoning support
+-- ('Baikai.Model.reasoning'). It is consulted /before/ the host's
+-- 'ThinkingFormat', because the two questions are different and the
+-- model's answer is the stronger one: a host may speak a perfectly good
+-- reasoning dialect while the model selected on it cannot reason at all.
+-- @gpt-4o-mini@ on OpenAI's own host is exactly that, and a level on it
+-- used to put @reasoning_effort@ on the wire and take a 400 for it. The
+-- level is now dropped and recorded as
+-- 'ThinkingDroppedUnsupportedModel', which is what
+-- @docs\/user\/model-call-evidence.md@ has always promised baikai-wide
+-- and what the Anthropic adapter has always done.
 injectThinkingShape ::
-  OpenAICompletionsCompat -> Options -> Aeson.Value -> (Aeson.Value, ThinkingTranslation)
-injectThinkingShape compat opts body =
+  OpenAICompletionsCompat ->
+  Bool ->
+  Options ->
+  Aeson.Value ->
+  (Aeson.Value, ThinkingTranslation)
+injectThinkingShape compat modelReasons opts body =
   case thinking opts of
     Nothing -> (body, noThinkingRequested)
+    Just lvl
+      | not modelReasons ->
+          ( body,
+            ThinkingTranslation
+              { requested = Just lvl,
+                mode = ThinkingModeUnsupported,
+                effortText = Nothing,
+                budgetTokens = Nothing,
+                wireField = Nothing,
+                adjustments = [ThinkingDroppedUnsupportedModel lvl]
+              }
+          )
     Just lvl -> case thinkingFormat compat of
       ThinkingFormatOpenAI ->
         let e = renderThinkingLevel lvl
@@ -183,9 +219,11 @@ injectThinkingShape compat opts body =
 -- first time either changes, and the divergence is silent; there is no
 -- cheaper way to be sure this agrees with the wire than to ask the
 -- function that writes the wire.
-describeThinkingShape :: OpenAICompletionsCompat -> Options -> ThinkingTranslation
-describeThinkingShape compat opts =
-  snd (injectThinkingShape compat opts (Aeson.object []))
+-- | What 'injectThinkingShape' would record, without building a body.
+-- The 'Bool' is 'Baikai.Model.reasoning', as there.
+describeThinkingShape :: OpenAICompletionsCompat -> Bool -> Options -> ThinkingTranslation
+describeThinkingShape compat modelReasons opts =
+  snd (injectThinkingShape compat modelReasons opts (Aeson.object []))
 
 effortTranslation :: ThinkingLevel -> Text -> Text -> ThinkingTranslation
 effortTranslation lvl wire field =

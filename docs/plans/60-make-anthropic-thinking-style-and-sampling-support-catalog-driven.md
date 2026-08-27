@@ -80,8 +80,9 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
 - [x] M2: cache-write pricing limitation documented; `ThinkingSpec`, `Main.hs` and
       `EvidenceSpec` cases in `baikai-claude/test/`, including the usage-mapping pin.
       (2026-08-27)
-- [ ] M3: OpenAI-compatible reasoning controls gated on `Model.reasoning`; the two pinned
+- [x] M3: OpenAI-compatible reasoning controls gated on `Model.reasoning`; the two pinned
       tests re-based; gate tests added; `model-call-evidence.md` table corrected.
+      (2026-08-27)
 - [ ] M4: every Anthropic catalog id pinned in `ThinkingSpec` and `CatalogSpec`, both
       guarded against `allModels`.
 - [ ] M4: `ThinkingSmoke` cases for `claude-sonnet-5`; `apiCases` gains DeepSeek and
@@ -104,6 +105,18 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
   block" case searched the rendered catalog for `"compat"` and failed on the
   file-level directive four lines from the top. It asserts on `"compat": {` — the
   per-model block's opening — instead. (2026-08-27, M1)
+- __Two more pinned tests than the plan named had to be re-based on a reasoning
+  model.__ The plan predicted `ShapeSpec.deepseekShapeTest` and
+  `EvidenceSpec.toggleHostIndistinguishabilityTest`. Gating also broke
+  `ShapeSpec.compatibleHigherEffortClampTest` and the two
+  `nativeVersusCompatibleTests` DeepSeek rows, all three built on
+  `deepseek_deepseek_chat` (`reasoning = False`), and the whole
+  `baikai-openai/test/Main.hs` strict-gate group, whose `shapeFor` helper builds on
+  `emptyModel` (also `reasoning = False`). Each is a case about a *host* vocabulary,
+  so each moved to `deepseek_deepseek_reasoner` or passes `True` explicitly, with a
+  comment saying why. A plan gating a capability flag should expect every test that
+  reached the gated code through a default-valued model to need the same treatment.
+  (2026-08-27, M3)
 - __The repository formatter and `CatalogSpec` can contradict each other.__ The
   generator's first compat rendering laid the record update out as
   `compat = CompatAnthropicMessages` with the record on following lines; `ormolu`

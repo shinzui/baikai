@@ -90,8 +90,9 @@ mean reimplementing every provider's translation and per-host
 compatibility lookup, and would silently diverge the first time a
 translation changed.
 
-There are six places baikai currently weakens a reasoning request, and
-only four of them are effort mappings at all:
+There are eight places baikai currently adjusts a request between what
+you asked for and what goes on the wire; only four of them are effort
+mappings, and two are not about reasoning at all:
 
 | adjustment | when |
 |---|---|
@@ -100,7 +101,17 @@ only four of them are effort mappings at all:
 | `effort_omitted` | Anthropic's adaptive `high` sends no effort field, making the request indistinguishable on the wire from the provider's own default |
 | `thinking_dropped_unsupported_model` | the chosen model does not advertise reasoning support |
 | `thinking_dropped_unsupported_host` | the host exposes no reasoning controls |
-| `thinking_dropped_budget_exceeded` | the computed thinking budget does not fit the resolved output-token ceiling — **the least discoverable of the six**, because it fires when you lower `maxTokens` on a reasoning model |
+| `thinking_dropped_budget_exceeded` | the computed thinking budget does not fit the resolved output-token ceiling — **the least discoverable of them**, because it fires when you lower `maxTokens` on a reasoning model |
+| `sampling_dropped_unsupported_model` | `temperature` and `top_p` were removed because the model generation rejects them (Anthropic's adaptive-era generations return a 400 for them) |
+| `sampling_dropped_unsupported_api` | `seed`, `frequency_penalty` or `presence_penalty` were removed because the API has no such field on any generation (Anthropic Messages) |
+
+The last two carry a `fields` array naming what was removed, in wire
+order, and **no** `requested` level — they are not about thinking, and
+they appear on calls whose `thinking.mode` is `absent`. Strict evidence
+mode does not refuse a call over them: the contract is refusing a call
+that would weaken the requested *thinking level*, and a parameter the API
+never had is not that. The drop is still in the record, where you can see
+it.
 
 The native OpenAI shape is deliberately not on that list. It sends every
 canonical level verbatim and expresses all six exactly.

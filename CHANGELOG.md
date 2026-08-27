@@ -70,6 +70,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `CompatAnthropicMessages (defaultAnthropicMessagesCompat {thinkingStyle = AnthropicThinkingAdaptive, supportsSamplingParameters = False})`
   or start from the catalog value.
 
+- `baikai-openai`: **breaking.** `Baikai.Provider.OpenAI.Shape`'s
+  `injectThinkingShape`, `describeThinkingShape`, `shapeRequestBody` and
+  `streamRequestBody` take a `Bool` after the compat record — whether the model
+  advertises reasoning support (`Model.reasoning`). A level on a `reasoning = False`
+  model now sends no `reasoning_effort`, `reasoning`, `thinking` or `enable_thinking`
+  key on any host, and records `thinking_dropped_unsupported_model` instead. The model
+  check runs before the host-format check. This is what stops `gpt-4o-mini` plus a
+  level from 400ing. (REV-2 C.4.)
+
 - `baikai-claude`: `anthropic_claude_sonnet_4_6` now sends the adaptive
   thinking shape rather than `budget_tokens`. The budget shape is deprecated
   for that generation; baikai sends the shape Anthropic documents as current.

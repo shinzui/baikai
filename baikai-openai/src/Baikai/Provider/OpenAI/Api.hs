@@ -142,7 +142,7 @@ openaiChatProvider =
       -- Runs the real shaping function and keeps only its description,
       -- so the gate's answer and the wire's behaviour cannot disagree.
       describeThinking = \m opts ->
-        describeThinkingShape (openaiCompletionsCompatFor m) opts
+        describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts
     }
 
 -- | Install the OpenAI Chat Completions handler into an explicit registry.
@@ -274,7 +274,7 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
         key <- Transport.resolveKey url opts
         env <- Transport.getClientEnvCached url
         let compat = openaiCompletionsCompatFor m
-            (body, translation) = streamRequestBody compat opts req
+            (body, translation) = streamRequestBody compat (m ^. #reasoning) opts req
             headers = Transport.requestHeaders key m opts
         pure
           ( Right

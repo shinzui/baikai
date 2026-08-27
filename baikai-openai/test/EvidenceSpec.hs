@@ -53,6 +53,7 @@ tests =
     [ successEvidenceTest,
       rateLimitEvidenceTest,
       toggleHostIndistinguishabilityTest,
+      nonReasoningModelEvidenceTest,
       optOutTest
     ]
 
@@ -239,7 +240,7 @@ replayWith bodyRef model status headers chunks opts = do
             stream = openaiChatStreamWith driver,
             complete = streamingComplete (openaiChatStreamWith driver),
             describeThinking = \m opts' ->
-              describeThinkingShape (openaiCompletionsCompatFor m) opts'
+              describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts'
           }
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink
@@ -301,9 +302,16 @@ testModel =
 
 -- | The same model pinned to a host that accepts a bare thinking
 -- toggle, which is the shape the indistinguishability case is about.
+--
+-- @reasoning@ is forced on: 'testModel' is @gpt-4o-mini@, which cannot
+-- reason, and a level on such a model is now dropped before the host's
+-- shape is consulted. The case is about the /host/ collapsing every
+-- level onto one toggle, so it needs a model that reaches the host at
+-- all. 'ShapeSpec.nonReasoningModelGateTest' covers the other half.
 toggleModel :: Model
 toggleModel =
   testModel
+    & #reasoning .~ True
     & #compat
       .~ CompatOpenAICompletions
         defaultOpenAICompletionsCompat {thinkingFormat = ThinkingFormatZai}
@@ -333,6 +341,36 @@ successBody =
     "\"choices\":[],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":5}}\n\n",
     "data: [DONE]\n\n"
   ]
+
+nonReasoningModelEvidenceTest :: TestTree
+nonReasoningModelEvidenceTest =
+  testCase "a level on a non-reasoning model is dropped and the record says so" $ do
+    -- gpt-4o-mini cannot reason. Before this, a level on it put
+    -- reasoning_effort on the wire and took a 400; now nothing is sent
+    -- and the record names the drop, which is what
+    -- docs/user/model-call-evidence.md has always promised baikai-wide.
+    bodyRef <- newIORef Null
+    events <-
+      replayWith
+        bodyRef
+        testModel
+        200
+        successHeaders
+        successBody
+        (baseOptions & #thinking .~ Just ThinkingMax)
+    ev <- oneEvidence events
+    body <- readIORef bodyRef
+    lookupIn "reasoning_effort" body @?= Nothing
+    thinkingOf ev "mode" @?= Just (String "unsupported")
+    thinkingOf ev "requested" @?= Just (String "max")
+    thinkingOf ev "wire_field" @?= Just Null
+    case thinkingOf ev "adjustments" of
+      Just (Array adjustments) -> case Vector.toList adjustments of
+        [Object a] -> do
+          KeyMap.lookup "kind" a @?= Just (String "thinking_dropped_unsupported_model")
+          KeyMap.lookup "requested" a @?= Just (String "max")
+        other -> assertFailure ("expected exactly one adjustment, got: " <> show other)
+      other -> assertFailure ("expected an adjustments array, got: " <> show other)
 
 -- ============================================================
 -- Assertions on the encoded record

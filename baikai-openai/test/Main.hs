@@ -530,6 +530,7 @@ strictEvidenceTests =
           (ThinkingDroppedUnsupportedHost ThinkingMax)
           ( describeThinkingShape
               (defaultOpenAICompletionsCompat {thinkingFormat = ThinkingFormatNone})
+              True
               (emptyOptions & #thinking .~ Just ThinkingMax)
           ),
       testCase "THE NATIVE OPENAI SHAPE IS NOT A DOWNGRADE AND MUST NOT BE REFUSED" $ do
@@ -564,9 +565,14 @@ strictEvidenceTests =
           other -> assertFailure ("expected a strength refusal, got: " <> show other)
     ]
   where
+    -- reasoning = True throughout: every case in this group is about
+    -- what a /host/ shape does to a level. A model that cannot reason
+    -- drops the level before the host is consulted at all, which
+    -- ShapeSpec.nonReasoningModelGateTest covers separately.
     shapeFor url lvl =
       describeThinkingShape
         (openaiCompletionsCompatFor (emptyModel & #baseUrl .~ url & #api .~ OpenAIChatCompletions))
+        True
         (emptyOptions & #thinking .~ Just lvl)
     expectDowngrade expected translation =
       case checkEvidenceRequirements

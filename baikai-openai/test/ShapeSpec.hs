@@ -14,7 +14,7 @@ import Baikai.Provider.OpenAI.Api
   )
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (streamRequestBody)
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
@@ -39,22 +39,81 @@ tests =
       strictModeGateTest,
       usageStreamingGateTest,
       zeroCapOmissionTest,
-      indexlessToolDeltaTest
+      indexlessToolDeltaTest,
+      nonReasoningModelGateTest
     ]
 
 deepseekShapeTest :: TestTree
 deepseekShapeTest =
   testCase "DeepSeek request body uses max_tokens and reasoning shape" $ do
+    -- deepseek-reasoner rather than deepseek-chat: the point of this
+    -- case is DeepSeek's wire shape, and the shape only reaches the
+    -- wire for a model whose catalog entry says it can reason.
+    -- deepseek-chat cannot, and is now covered by
+    -- 'nonReasoningModelGateTest'. Same host, same compat record.
     value <-
       shapedBody
-        Models.deepseek_deepseek_chat
+        Models.deepseek_deepseek_reasoner
         (emptyOptions & #thinking .~ Just ThinkingHigh)
         emptyContext
     lookupTop "max_completion_tokens" value @?= Nothing
-    lookupTop "max_tokens" value @?= Just (Number 8192)
+    lookupTop "max_tokens" value
+      @?= Just (Number (fromIntegral (Models.deepseek_deepseek_reasoner ^. #maxOutputTokens)))
     lookupTop "thinking" value
       @?= Just (Aeson.object ["type" .= ("enabled" :: Text.Text)])
     lookupTop "reasoning_effort" value @?= Just (String "high")
+
+-- | A level on a model that does not advertise reasoning support sends
+-- no reasoning control at all, on any host, and says so.
+--
+-- Before this, @gpt-4o-mini@ plus any level put @reasoning_effort@ on
+-- the wire and took a 400 for it, and @deepseek-chat@ took DeepSeek's
+-- @thinking@ object. The catalog's @reasoning@ flag is the
+-- authoritative capability fact, and this is the check the Anthropic
+-- adapter has always made.
+nonReasoningModelGateTest :: TestTree
+nonReasoningModelGateTest =
+  testGroup
+    "a level on a non-reasoning model is dropped and recorded"
+    [ testCase "deepseek-chat sends neither thinking nor reasoning_effort" $ do
+        (value, translation) <-
+          shapedCall
+            Models.deepseek_deepseek_chat
+            (emptyOptions & #thinking .~ Just ThinkingHigh)
+            emptyContext
+        lookupTop "thinking" value @?= Nothing
+        lookupTop "reasoning_effort" value @?= Nothing
+        translation ^. #mode @?= ThinkingModeUnsupported
+        translation ^. #requested @?= Just ThinkingHigh
+        translation ^. #wireField @?= Nothing
+        translation ^. #adjustments @?= [ThinkingDroppedUnsupportedModel ThinkingHigh],
+      testCase "gpt-4o-mini on OpenAI's own host sends no reasoning_effort" $ do
+        (value, translation) <-
+          shapedCall
+            Models.openai_gpt_4o_mini
+            (emptyOptions & #thinking .~ Just ThinkingHigh)
+            emptyContext
+        lookupTop "reasoning_effort" value @?= Nothing
+        translation ^. #adjustments @?= [ThinkingDroppedUnsupportedModel ThinkingHigh],
+      testCase "the model check precedes the host-format check" $ do
+        -- A non-reasoning model on a host whose format is None would
+        -- record ThinkingDroppedUnsupportedHost if the checks ran the
+        -- other way round. The model's answer is the stronger one.
+        (_, translation) <-
+          shapedCall
+            ( Models.openai_gpt_4o_mini
+                & #compat
+                  .~ CompatOpenAICompletions
+                    defaultOpenAICompletionsCompat {thinkingFormat = ThinkingFormatNone}
+            )
+            (emptyOptions & #thinking .~ Just ThinkingHigh)
+            emptyContext
+        translation ^. #adjustments @?= [ThinkingDroppedUnsupportedModel ThinkingHigh],
+      testCase "a non-reasoning model with no level requested records nothing" $ do
+        (_, translation) <- shapedCall Models.openai_gpt_4o_mini emptyOptions emptyContext
+        translation ^. #mode @?= ThinkingModeAbsent
+        translation ^. #adjustments @?= []
+    ]
 
 nativeHigherEffortTests :: TestTree
 nativeHigherEffortTests =
@@ -76,9 +135,12 @@ nativeHigherEffortTests =
 compatibleHigherEffortClampTest :: TestTree
 compatibleHigherEffortClampTest =
   testCase "OpenAI-compatible higher reasoning effort clamps to high" $ do
+    -- The reasoning model on the same host: the point is DeepSeek's
+    -- effort vocabulary, which is only reached for a model that can
+    -- reason at all.
     value <-
       shapedBody
-        Models.deepseek_deepseek_chat
+        Models.deepseek_deepseek_reasoner
         (emptyOptions & #thinking .~ Just ThinkingMax)
         emptyContext
     lookupTop "reasoning_effort" value @?= Just (String "high")
@@ -255,7 +317,7 @@ nativeVersusCompatibleTests =
         assertEffort Models.openai_gpt_5_6_terra ThinkingXHigh "xhigh" [],
       testCase "deepseek xhigh clamps to high and records it" $
         assertEffort
-          Models.deepseek_deepseek_chat
+          Models.deepseek_deepseek_reasoner
           ThinkingXHigh
           "high"
           [EffortClamped ThinkingXHigh "high"],
@@ -263,7 +325,7 @@ nativeVersusCompatibleTests =
         assertEffort Models.openai_gpt_5_6_terra ThinkingMax "max" [],
       testCase "deepseek max clamps to high and records it" $
         assertEffort
-          Models.deepseek_deepseek_chat
+          Models.deepseek_deepseek_reasoner
           ThinkingMax
           "high"
           [EffortClamped ThinkingMax "high"]
@@ -386,7 +448,7 @@ shapedBody model opts ctx = fst <$> shapedCall model opts ctx
 shapedCall :: Model -> Options -> Context -> IO (Value, ThinkingTranslation)
 shapedCall model opts ctx = do
   req <- either (assertFailure . Text.unpack) pure (mapRequest model ctx opts)
-  pure (streamRequestBody (openaiCompletionsCompatFor model) opts req)
+  pure (streamRequestBody (openaiCompletionsCompatFor model) (model ^. #reasoning) opts req)
 
 lookupTop :: Text.Text -> Value -> Maybe Value
 lookupTop field = lookupPath [field]

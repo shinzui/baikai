@@ -111,6 +111,36 @@ The OpenAI provider auto-detects the compat record from the
 explicitly if you need something the auto-detection doesn't
 cover.
 
+Two things auto-detection cannot know, because they are facts about the
+*model generation* rather than the host:
+
+- **`reasoning` defaults to `False`.** `Options.thinking` reaches the
+  wire only for a model that advertises reasoning support, on either API
+  provider. A level on a hand-rolled model that left `reasoning` at its
+  default is dropped, and the drop is recorded as
+  `thinking_dropped_unsupported_model` in the call's evidence. Set
+  `reasoning = True` if the model can reason.
+
+- **A hand-rolled Anthropic model naming an adaptive-era id needs its
+  compat record.** `CompatNone` means the budget thinking shape with
+  sampling parameters supported, which every generation before Opus 4.7
+  accepts. If your `modelId` is `claude-sonnet-5`, `claude-opus-4-7`,
+  `claude-opus-4-8` or `claude-fable-5`, write:
+
+  ```haskell
+  compat =
+    CompatAnthropicMessages
+      defaultAnthropicMessagesCompat
+        { thinkingStyle = AnthropicThinkingAdaptive
+        , supportsSamplingParameters = False
+        }
+  ```
+
+  or start from a catalog model's `compat` value. baikai does not guess
+  this from the model id: it used to, from a hand-written prefix table,
+  and the table did not know `claude-sonnet-5`. See
+  [ADR 0009](../adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md).
+
 ## Base URLs
 
 `baseUrl` is the **API root**: the host, or the prefix under which a host
@@ -226,10 +256,39 @@ shape selected by the model's compatibility record:
 | Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
 | `ThinkingFormatNone` | Omits the control. |
 
-The chosen model must still support reasoning, and a host may reject a
-level that its particular model does not accept. Anthropic omits the
-thinking shape entirely for models whose catalog entry does not
-advertise reasoning support.
+The chosen model must still support reasoning: on **both** API
+providers, a level on a model whose catalog entry says `reasoning =
+False` sends no reasoning control at all and records
+`thinking_dropped_unsupported_model`. That check runs before the host's
+wire shape is consulted, because a host may speak a perfectly good
+reasoning dialect while the model selected on it cannot reason —
+`gpt-4o-mini` on OpenAI's own host, or `deepseek-chat` on DeepSeek's.
+
+### Sampling parameters
+
+`Options` carries five sampling controls. Which of them reach which API
+is a fact of the API and of the model generation, and every drop is
+recorded in the call's evidence rather than being silent:
+
+| `Options` field | OpenAI Chat Completions | Anthropic Messages |
+|---|---|---|
+| `temperature` | sent | sent, unless the generation rejects it |
+| `topP` | sent | sent, unless the generation rejects it |
+| `seed` | sent | **no such field**, recorded as `sampling_dropped_unsupported_api` |
+| `frequencyPenalty` | sent | **no such field**, same |
+| `presencePenalty` | sent | **no such field**, same |
+
+Anthropic's adaptive-era generations — `claude-sonnet-5`,
+`claude-opus-4-7`, `claude-opus-4-8`, `claude-fable-5` — return a 400 for
+`temperature`, `top_p` and `top_k`. baikai reads
+`AnthropicMessagesCompat.supportsSamplingParameters` off the model's
+catalog record, omits the parameters rather than sending a request it
+knows will fail, and records
+`sampling_dropped_unsupported_model` with the field names.
+
+`Options.metadata` is forwarded by neither API provider. Anthropic's
+`metadata` accepts only `user_id` and rejects other keys, so forwarding
+an arbitrary map would trade a silent drop for a 400.
 
 The batch `claude -p` and `codex exec` providers forward
 `Options.thinking` as the app's reasoning-effort flag: `claude -p`

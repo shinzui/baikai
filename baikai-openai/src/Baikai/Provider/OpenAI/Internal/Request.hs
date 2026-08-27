@@ -63,8 +63,14 @@ mapRequest m ctx opts = do
           then Nothing
           else Just (Vector.map (mkOpenAITool compat) (ctx ^. #tools))
       toolChoiceField = fmap mkOpenAIToolChoice (opts ^. #toolChoice)
+      -- The model's capability is consulted before the host's wire
+      -- shape, and for the same reason Shape.injectThinkingShape does
+      -- it in that order: a host may speak a good reasoning dialect
+      -- while the model selected on it cannot reason at all.
       reasoningEffortField =
-        applyThinkingFormat compat (opts ^. #thinking)
+        if m ^. #reasoning
+          then applyThinkingFormat compat (opts ^. #thinking)
+          else Nothing
       responseFormatField =
         fmap (mkOpenAIResponseFormat compat) (opts ^. #responseFormat)
   pure
@@ -108,10 +114,17 @@ mkOpenAIResponseFormat compat JsonSchema {name = n, schema = s, strict = st} =
 -- the SDK does not support natively.
 --
 -- The non-OpenAI thinking formats (DeepSeek, OpenRouter, Together,
--- Z.ai, Qwen) require additional top-level JSON keys the upstream
--- @openai@ Haskell SDK does not expose. They are silently dropped on
--- this revision; see the EP-5 Decision Log for the rationale and
--- pointers to the workaround when one is needed.
+-- Z.ai, Qwen) need top-level JSON keys the upstream @openai@ Haskell
+-- SDK does not expose, so this function returns 'Nothing' for them.
+-- They are __not__ dropped: 'Baikai.Provider.OpenAI.Shape.injectThinkingShape'
+-- injects each host's own keys into the serialized body afterwards,
+-- and it is the function that records what the level became. Nothing
+-- here needs to, which is why this one returns a bare 'Maybe'.
+--
+-- The caller gates this on 'Baikai.Model.reasoning': a level on a model
+-- that does not advertise reasoning support is dropped and recorded by
+-- 'Baikai.Provider.OpenAI.Shape.injectThinkingShape', which sees the
+-- same flag.
 applyThinkingFormat ::
   OpenAICompletionsCompat ->
   Maybe ThinkingLevel ->
