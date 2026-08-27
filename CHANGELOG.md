@@ -7,6 +7,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai`: new exposed module `Baikai.Url` — the one place baikai turns a URL
+  into a host name. `parseUrl` yields a `UrlParts` record with the scheme, host,
+  port and path, plus flags saying whether userinfo, a query string or a
+  fragment were present; it never holds their text, so the value cannot carry a
+  secret into a log line. Alongside it: `urlHost`, `hostMatchesSuffix` (moved
+  from `Baikai.Compat`, which now re-exports both), `renderEndpoint`,
+  `stripApiVersion`, and `baseUrlProblem`, which says why a URL is unusable as a
+  `Model.baseUrl` and what to do instead. See
+  [docs/adr/0008](docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md).
+
+- `baikai`: new exposed module `Baikai.Http` — `canonicalBaseUrl`,
+  `getClientEnvCached` and `cachedClientEnvCount`, the process-global
+  `ClientEnv` cache that both HTTP provider packages now share instead of each
+  keeping its own. Core gains direct `build-depends` on `servant-client`,
+  `http-client` and `http-client-tls`, which were already in its install plan
+  through the `openai` SDK.
+
 ### Changed
 
 - `baikai`: **breaking.** `AgentRunFailure`'s `RunTimedOut` constructor now
@@ -21,6 +40,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   already have changed the working tree.
 
 ### Fixed
+
+- `baikai`: **the host parse no longer lets a base URL choose which key baikai
+  sends.** `urlHost` took the text after the *last* `@` anywhere in a URL, so
+  `https://proxy.example.com/v1?u=@api.openai.com` named the host
+  `api.openai.com`: `defaultApiKeyEnvForBaseUrl` resolved `OPENAI_API_KEY`,
+  `autoDetectOpenAICompletions` returned OpenAI's own compatibility record, and
+  the bearer token went to `proxy.example.com`. Anyone who could set `baseUrl` —
+  a `Model` decoded from JSON, a proxy override — could pick which provider's
+  credential to be handed. The same defect broke the benign direction:
+  `https://api.openai.com/v1/@x` named the host `x` and resolved no key at all.
+  The authority now ends at the first `/`, `?` or `#`, and userinfo is only ever
+  the last `@` inside it. (REV-2 A.1 / E.1.)
+
+- `baikai`: `Baikai.Evidence.Build.sanitizeEndpoint` was a second, separately
+  written parser that bounded the authority at the first `/` only, so a URL with
+  a query and no path recorded the wrong host. It is now `renderEndpoint <$>
+  parseUrl`, which also means a recorded endpoint has a lower-cased scheme and
+  host; the path keeps its case and trailing slash.
+
+- `baikai-openai`, `baikai-claude`: the `ClientEnv` cache was duplicated in each
+  package and keyed on the raw base-URL text, so `https://h` and `https://h/`
+  were two TLS managers and two connection pools to one host. There is now one
+  cache, in `Baikai.Http`, keyed on the canonical rendering of the parsed base
+  URL. `Transport.getClientEnvCached` and `Transport.cachedClientEnvCount` are
+  re-exports of the core functions and keep their signatures.
 
 - `baikai-agent`: a timed-out run now **escalates to `SIGKILL`**. The runner
   interrupts the child's whole process group, then terminates it, then kills it,

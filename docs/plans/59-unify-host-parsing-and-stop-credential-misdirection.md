@@ -69,11 +69,11 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] M1: `baikai/src/Baikai/Url.hs` created with `parseUrl`, `urlHost`, `hostMatchesSuffix`, `renderEndpoint`, `stripApiVersion`, `baseUrlProblem`; registered in `baikai/baikai.cabal`.
-- [ ] M1: `Baikai.Compat` re-exports `urlHost` and `hostMatchesSuffix` from `Baikai.Url`; its own definitions deleted; `Baikai.Auth` and `Baikai.Evidence.Build` (`sanitizeEndpoint`, `dropUserInfo` deleted) rewired.
-- [ ] M1: `baikai/src/Baikai/Http.hs` created: `canonicalBaseUrl`, `getClientEnvCached`, `cachedClientEnvCount`; both provider `Transport.hs` delegate to it; core `build-depends` gains `servant-client`, `http-client`, `http-client-tls`.
-- [ ] M1: `baikai/test/UrlSpec.hs` written and registered; the four negative cases added to `baikai/test/Main.hs`; cache-key normalisation case added to both `TransportSpec.hs`.
-- [ ] M1: ADR "there is one URL host parser and every consumer uses it" created at the next free number in `docs/adr/` and listed in `docs/adr/README.md`; `CHANGELOG.md` `[Unreleased]` entries written.
+- [x] M1 (2026-08-27): `baikai/src/Baikai/Url.hs` created with `parseUrl`, `urlHost`, `hostMatchesSuffix`, `renderEndpoint`, `stripApiVersion`, `baseUrlProblem`; registered in `baikai/baikai.cabal`.
+- [x] M1 (2026-08-27): `Baikai.Compat` re-exports `urlHost` and `hostMatchesSuffix` from `Baikai.Url`; its own definitions deleted; `Baikai.Auth` and `Baikai.Evidence.Build` (`sanitizeEndpoint` is now `renderEndpoint <$> parseUrl`, `dropUserInfo` deleted) rewired.
+- [x] M1 (2026-08-27): `baikai/src/Baikai/Http.hs` created: `canonicalBaseUrl`, `getClientEnvCached`, `cachedClientEnvCount`; both provider `Transport.hs` delegate to it; core `build-depends` gains `servant-client`, `http-client`, `http-client-tls`.
+- [x] M1 (2026-08-27): `baikai/test/UrlSpec.hs` written and registered; the negative cases added to `baikai/test/Main.hs` including a QuickCheck property over four `@`-bearing suffixes; the cache-key normalisation assertions folded into the existing cache case in both `TransportSpec.hs`.
+- [x] M1 (2026-08-27): `docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md` created and listed in `docs/adr/README.md`; `CHANGELOG.md` `[Unreleased]` entries written.
 - [ ] M2: `isCredentialHeader`, `redactHeaderValues`, `redactedMarker` added to `Baikai.Auth`; hand-written `Show`/`ToJSON` on `Options` and `Model`; field-coverage guard test and redaction tests in `baikai/test/Main.hs`.
 - [ ] M2: `resolveApiKey` treats an empty (whitespace-only) variable as unset; `HelpersSpec` cases added; Haddock and `docs/user/getting-started.md` updated.
 - [ ] M3: `EmbeddingModel` derives `Eq`/`Generic`; `apiKey :: Maybe ApiKeySource`; `resolveEmbeddingKey` and `embeddingClientEnv` added; `embed` routes through `Baikai.Http`; `EmbeddingSpec` cases added; `docs/capabilities/text-embeddings.md` updated.
@@ -110,6 +110,43 @@ Four discoveries from plan research are recorded here so they are not lost:
   "keep all headers intact" (`Types.hs:617-619`). With `redirectCount = 0` the 3xx
   response is returned to the caller untouched (`Client.hs:284`), which is exactly what
   the SSE reader needs: it already classifies any non-2xx into one in-band error.
+
+Recorded during implementation.
+
+- __The credential misdirection, reproduced.__ `UrlSpec` was written and run before
+  `Baikai.Compat` was rewired, so its assertions still went through the old parser:
+
+  ```text
+    the authority ends at the first /, ? or #
+      an @ in the query does not rename the host:  FAIL
+        expected: Nothing
+         but got: Just "OPENAI_API_KEY"
+      an @ in the path does not rename the host:   FAIL
+        expected: Just "OPENAI_API_KEY"
+         but got: Nothing
+    rendering an endpoint
+      userinfo, query and fragment are gone …:     FAIL
+        expected: Just "https://host.example:8443/a/b"
+         but got: Just "https://Host.example:8443/a/b"
+  ```
+
+  The first is the defect itself: a base URL of
+  `https://proxy.example.com/v1?u=@api.openai.com` resolved `OPENAI_API_KEY`, which
+  baikai would then have sent to `proxy.example.com`. The second is the same defect in
+  the benign direction. The third is the evidence endpoint's separate parser, which
+  never lower-cased the host. (2026-08-27, M1)
+- __Two cache cases cannot both count.__ Moving the `ClientEnv` cache into core made it
+  one process-global map shared by both provider suites' cases. A second case that read
+  the count and expected it to move by exactly one raced the first under tasty's
+  parallel execution and failed with `expected: 2, but got: 3`. The normalisation
+  assertions are folded into the existing cache case in each suite rather than added
+  beside it, so only one case per process reads that counter. (2026-08-27, M1)
+- The plan's M1 sketch had `canonicalBaseUrl` call `baseUrlProblem`, which would have
+  landed M4's refusals — a scheme-less base URL, a query string — three milestones
+  early and without the tests that pin them. M1's `canonicalBaseUrl` refuses only what
+  it genuinely cannot build a `BaseUrl` from: no host, no scheme, or a scheme other
+  than `http`/`https`. Likewise `stripApiVersion` is defined in M1 and applied in M4,
+  as the plan's own note says. (2026-08-27, M1)
 
 
 ## Decision Log
@@ -252,6 +289,24 @@ Record every decision made while working on the plan.
   Rationale: the corpus is a plain-file convention
   (`docs/adr/0001-architecture-decision-record-convention.md`), numbered sequentially
   and never renumbered; EP-1 also creates a record and the two plans run in parallel.
+  Date: 2026-08-27
+  Resolved at implementation: EP-1 landed first and took both `0006` and `0007` (the
+  second from its distillation pass), so this record is
+  `docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md`.
+- Decision: M1's `canonicalBaseUrl` refuses only what it cannot build a `BaseUrl` from
+  — no host, no scheme, or a scheme other than `http`/`https` — and does not call
+  `baseUrlProblem`; `stripApiVersion` is defined in M1 and applied in M4.
+  Rationale: the plan's M1 sketch would have landed M4's refusals and M4's path
+  composition three milestones early, without the tests that pin them and without the
+  before-and-after evidence M4's acceptance asks for. The parser is still the single
+  source of the host in M1, which is what M1 is for.
+  Date: 2026-08-27
+- Decision: the cache-key normalisation assertions live inside each provider suite's
+  existing `clientEnvCacheTest` rather than in a case of their own.
+  Rationale: the cache is now one process-global map, and two parallel cases that each
+  read its size and expect it to move by exactly one race each other — observed as
+  `expected: 2, but got: 3` in `baikai-claude`. One counting case per process is the
+  only shape that is not flaky.
   Date: 2026-08-27
 
 

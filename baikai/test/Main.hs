@@ -32,6 +32,7 @@ import Test.Tasty.QuickCheck (Gen)
 import Test.Tasty.QuickCheck qualified as QC
 import ThinkingLevelSpec qualified
 import TraceSpec qualified
+import UrlSpec qualified
 import UsageSpec qualified
 
 -- | Ground the test provider on a 'Custom' API tag so it does not
@@ -111,6 +112,7 @@ main = do
         SurfaceSpec.tests,
         ThinkingLevelSpec.tests,
         TraceSpec.tests,
+        UrlSpec.urlTests,
         UsageSpec.tests
       ]
 
@@ -204,12 +206,24 @@ tests =
           ^. #thinkingFormat
           @?= ThinkingFormatOpenRouter
         autoDetectOpenAICompletions ""
-          @?= defaultOpenAICompletionsCompat,
+          @?= defaultOpenAICompletionsCompat
+        -- An "@" after the authority names nothing. A parser that took
+        -- the text after the last "@" anywhere would hand a proxy the
+        -- vendor's own compatibility record, and then its key.
+        autoDetectOpenAICompletions "https://proxy.example.com/v1?u=@api.deepseek.com"
+          @?= defaultOpenAICompletionsCompat
+        urlHost "https://proxy.example.com/v1?u=@api.deepseek.com"
+          @?= Just "proxy.example.com",
       QC.testProperty "unknown OpenAI host suffixes use defaults" $
         QC.forAll unknownHostGen $ \host ->
           QC.property $
             autoDetectOpenAICompletions ("https://" <> Text.pack host)
               == defaultOpenAICompletionsCompat,
+      QC.testProperty "no trailing @-suffix can rename a host" $
+        QC.forAll ((,) <$> unknownHostGen <*> QC.elements atSuffixes) $ \(host, suffix) ->
+          QC.property $
+            urlHost ("https://" <> Text.pack host <> suffix)
+              == Just (Text.pack host),
       testCase "default API-key env table matches known hosts" $ do
         defaultApiKeyEnvForBaseUrl "https://api.deepseek.com/v1"
           @?= Just "DEEPSEEK_API_KEY"
@@ -220,7 +234,20 @@ tests =
         defaultApiKeyEnvForBaseUrl "https://api.xyz.ai"
           @?= Nothing
         defaultApiKeyEnvForBaseUrl ""
-          @?= Nothing,
+          @?= Nothing
+        -- The credential-misdirection case. Every one of these named a
+        -- known vendor host before the authority was bounded properly,
+        -- so each resolved that vendor's key and sent it to the proxy.
+        defaultApiKeyEnvForBaseUrl "https://proxy.example.com/v1?u=@api.openai.com"
+          @?= Nothing
+        defaultApiKeyEnvForBaseUrl "https://proxy.example.com?u=@api.anthropic.com"
+          @?= Nothing
+        defaultApiKeyEnvForBaseUrl "https://proxy.example.com#@api.deepseek.com"
+          @?= Nothing
+        -- And the benign case the same defect broke in the other
+        -- direction: an "@" in the path is part of the path.
+        defaultApiKeyEnvForBaseUrl "https://api.openai.com/v1/@x"
+          @?= Just "OPENAI_API_KEY",
       testCase "explicit OpenAI compat overrides baseUrl auto-detection" $ do
         let explicit =
               defaultOpenAICompletionsCompat
@@ -366,3 +393,14 @@ unknownHostGen :: Gen String
 unknownHostGen = do
   label <- QC.listOf1 (QC.elements (['a' .. 'z'] <> ['0' .. '9']))
   pure (label <> ".example.invalid")
+
+-- | Ways of writing another provider's host after the authority ends.
+-- None of them may change which host a URL names, because which host a
+-- URL names is which key baikai sends.
+atSuffixes :: [Text]
+atSuffixes =
+  [ "/v1?u=@api.openai.com",
+    "/@api.anthropic.com",
+    "?x=@api.deepseek.com",
+    "#@openrouter.ai"
+  ]

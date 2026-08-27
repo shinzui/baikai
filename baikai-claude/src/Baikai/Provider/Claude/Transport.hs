@@ -13,10 +13,10 @@ import Baikai.Compat (AnthropicMessagesCompat (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), authError)
+import Baikai.Http (cachedClientEnvCount, getClientEnvCached)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model (..))
 import Baikai.Options (Options (..))
-import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Crypto.Hash (Digest, SHA256)
@@ -28,25 +28,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector qualified as Vector
-import Network.HTTP.Client qualified as HTTP
-import Network.HTTP.Client.TLS qualified as TLS
 import Network.HTTP.Types.Header (RequestHeaders)
-import Servant.Client qualified as Client
-import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout qualified as Timeout
-
-getClientEnvCached :: Text -> IO Client.ClientEnv
-getClientEnvCached baseUrl =
-  modifyMVar clientEnvCache $ \cache ->
-    case Map.lookup baseUrl cache of
-      Just env -> pure (cache, env)
-      Nothing -> do
-        env <- newClientEnv baseUrl
-        pure (Map.insert baseUrl env cache, env)
-
-cachedClientEnvCount :: IO Int
-cachedClientEnvCount =
-  modifyMVar clientEnvCache $ \cache -> pure (cache, Map.size cache)
 
 requestHeaders ::
   Text ->
@@ -137,16 +120,6 @@ timeoutError ms =
       exitCode = Nothing
     }
 
-newClientEnv :: Text -> IO Client.ClientEnv
-newClientEnv baseUrl = do
-  parsed <- Client.parseBaseUrl (Text.unpack baseUrl)
-  manager <-
-    TLS.newTlsManagerWith
-      TLS.tlsManagerSettings
-        { HTTP.managerResponseTimeout = HTTP.responseTimeoutNone
-        }
-  pure (Client.mkClientEnv manager parsed)
-
 applyHeaderOverrides ::
   RequestHeaders ->
   [(Text, Text)] ->
@@ -158,7 +131,3 @@ applyHeaderOverrides =
       let nameBytes = Text.encodeUtf8 name
           ciName = CI.mk nameBytes
        in (ciName, Text.encodeUtf8 value) : filter ((/= ciName) . fst) headers
-
-{-# NOINLINE clientEnvCache #-}
-clientEnvCache :: MVar (Map.Map Text Client.ClientEnv)
-clientEnvCache = unsafePerformIO (newMVar Map.empty)

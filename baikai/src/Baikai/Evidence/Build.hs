@@ -58,6 +58,7 @@ import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Prelude
 import Baikai.ThinkingLevel (renderThinkingLevel)
+import Baikai.Url qualified as Url
 import Control.Exception (SomeException, displayException)
 import Data.Aeson qualified as Aeson
 import Data.Maybe (fromMaybe)
@@ -198,41 +199,26 @@ endpointIdentity m transport =
 
 -- | Reduce a base URL to scheme, host, port, and path.
 --
--- The query string is dropped __wholesale__ rather than filtered field
--- by field, because some gateways carry an API key in a query
--- parameter and an allow-list of safe parameter names would be wrong
--- the first time a host invented one. Any @userinfo@ component
--- (@https:\/\/user:secret\@host\/@) is dropped for the same reason. A
--- fragment cannot carry a credential to a server but is dropped too,
--- since it is never part of what was requested.
+-- This is "Baikai.Url" applied to the recording problem: 'Url.parseUrl'
+-- never holds the userinfo, the query string or the fragment in the
+-- first place, and 'Url.renderEndpoint' can only put back what it has.
+-- The query string is therefore dropped __wholesale__ rather than
+-- filtered field by field, which is the right behaviour rather than a
+-- convenient one: some gateways carry an API key in a query parameter,
+-- and an allow-list of safe parameter names would be wrong the first
+-- time a host invented one. Userinfo
+-- (@https:\/\/user:secret\@host\/@) goes for the same reason; a
+-- fragment cannot carry a credential to a server but is never part of
+-- what was requested either.
+--
+-- The scheme and host come back lower-cased, because that is what
+-- "Baikai.Url" says a host is; the path is kept verbatim.
 --
 -- An empty base URL yields 'Nothing' rather than an empty string, so a
 -- reader can tell "baikai recorded no endpoint" from "the endpoint was
 -- the empty string".
 sanitizeEndpoint :: Text -> Maybe Text
-sanitizeEndpoint raw
-  | Text.null trimmed = Nothing
-  | Text.null cleaned = Nothing
-  | otherwise = Just cleaned
-  where
-    trimmed = Text.strip raw
-    withoutFragment = Text.takeWhile (/= '#') trimmed
-    withoutQuery = Text.takeWhile (/= '?') withoutFragment
-    cleaned = dropUserInfo withoutQuery
-
--- | Drop a @user:password\@@ prefix from the authority component,
--- keeping the scheme. Splits on the last @\@@ before the first @\/@ of
--- the path so that an @\@@ later in the path is not mistaken for
--- userinfo.
-dropUserInfo :: Text -> Text
-dropUserInfo url =
-  let (scheme, rest) = case Text.breakOn "://" url of
-        (s, r) | not (Text.null r) -> (s <> "://", Text.drop 3 r)
-        _ -> ("", url)
-      (authority, path) = Text.break (== '/') rest
-   in case Text.breakOnEnd "@" authority of
-        (before, after) | not (Text.null before) -> scheme <> after <> path
-        _ -> scheme <> authority <> path
+sanitizeEndpoint = fmap Url.renderEndpoint . Url.parseUrl
 
 -- | The request envelope for the paths where __no provider adapter ran
 -- to completion__, and therefore no wire request body exists for this

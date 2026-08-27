@@ -10,6 +10,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Network.HTTP.Types.Header (RequestHeaders)
+import Servant.Client qualified as Client
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
@@ -24,9 +25,21 @@ tests =
       unknownHostKeyTest
     ]
 
+-- | One entry per target, and one notion of what a target is.
+--
+-- Both halves are asserted in a single case because the cache is
+-- process-global and this suite runs in parallel: two cases each reading
+-- a count and expecting it to move by exactly one would race each other.
+--
+-- The normalisation half is what makes the count meaningful. The key is
+-- the canonical rendering of "Baikai.Url"'s parse rather than the
+-- caller's text, so a trailing slash and a capitalised host do not each
+-- open their own connection pool to the same host — and the two provider
+-- packages, which now share one cache in @Baikai.Http@, cannot disagree
+-- about which target a URL names.
 clientEnvCacheTest :: TestTree
 clientEnvCacheTest =
-  testCase "cached ClientEnv is allocated once for a base URL" $ do
+  testCase "the ClientEnv cache allocates once per normalised base URL" $ do
     let url = "https://cache-openai.test"
     before <- Transport.cachedClientEnvCount
     _ <- Transport.getClientEnvCached url
@@ -35,6 +48,13 @@ clientEnvCacheTest =
     afterSecond <- Transport.cachedClientEnvCount
     afterFirst @?= before + 1
     afterSecond @?= afterFirst
+    -- A different spelling of the same target: capitalised host,
+    -- trailing slash.
+    env <- Transport.getClientEnvCached "https://Cache-openai.test/"
+    afterVariant <- Transport.cachedClientEnvCount
+    afterVariant @?= afterSecond
+    Client.baseUrlHost (Client.baseUrl env) @?= "cache-openai.test"
+    Client.baseUrlPath (Client.baseUrl env) @?= ""
 
 requestHeadersTest :: TestTree
 requestHeadersTest =

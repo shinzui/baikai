@@ -21,7 +21,10 @@
 --
 -- Auto-detection from a 'Baikai.Model.Model' @baseUrl@ provides
 -- reasonable defaults so callers rarely need to spell out a full
--- compat record.
+-- compat record. The host it detects on comes from "Baikai.Url", the
+-- only place in baikai that turns a URL into a host name; 'urlHost' and
+-- 'hostMatchesSuffix' are re-exported from here so a caller reasoning
+-- about auto-detection has them to hand.
 module Baikai.Compat
   ( -- * OpenAI Chat Completions compat
     OpenAICompletionsCompat
@@ -57,6 +60,7 @@ module Baikai.Compat
   )
 where
 
+import Baikai.Url (hostMatchesSuffix, urlHost)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -298,27 +302,3 @@ autoDetectAnthropicMessages url
   where
     host = urlHost url
     matches suffix = maybe False (`hostMatchesSuffix` suffix) host
-
--- | Extract a hostname from a URL-ish value. This is intentionally
--- small and total rather than a validating URI parser: it drops an
--- optional scheme, optional userinfo, then stops at '/', ':', '?', or
--- '#'. Empty results return 'Nothing'.
-urlHost :: Text -> Maybe Text
-urlHost raw =
-  let noScheme = case Text.breakOn "://" raw of
-        (_, rest) | not (Text.null rest) -> Text.drop 3 rest
-        _ -> raw
-      noUser = last (Text.splitOn "@" noScheme)
-      host = Text.toLower (Text.strip (Text.takeWhile hostChar noUser))
-   in if Text.null host then Nothing else Just host
-  where
-    hostChar c = c /= '/' && c /= ':' && c /= '?' && c /= '#'
-
--- | Match a hostname against a suffix at a label boundary.
-hostMatchesSuffix :: Text -> Text -> Bool
-hostMatchesSuffix host suffix =
-  let h = Text.toLower (Text.strip host)
-      s = Text.toLower (Text.strip suffix)
-   in not (Text.null h)
-        && not (Text.null s)
-        && (h == s || ("." <> s) `Text.isSuffixOf` h)

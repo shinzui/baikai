@@ -14,8 +14,8 @@ module Baikai.Auth
   )
 where
 
-import Baikai.Compat (hostMatchesSuffix, urlHost)
 import Baikai.Error (authError)
+import Baikai.Url (hostMatchesSuffix, urlHost)
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Aeson (ToJSON (toJSON), object, (.=))
