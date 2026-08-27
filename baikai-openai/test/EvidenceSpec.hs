@@ -15,6 +15,7 @@
 module EvidenceSpec (tests) where
 
 import Baikai
+import Baikai.Model (openaiCompletionsCompatFor)
 import Baikai.Models.Generated (openai_gpt_4o_mini)
 import Baikai.Provider.OpenAI.Api (SseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
@@ -55,6 +56,7 @@ tests =
       rateLimitEvidenceTest,
       toggleHostIndistinguishabilityTest,
       nonReasoningModelEvidenceTest,
+      immediateErrorRecordsThinkingTest,
       optOutTest
     ]
 
@@ -210,6 +212,37 @@ toggleHostIndistinguishabilityTest =
           Just (String lvl) <- [KeyMap.lookup "requested" a]
         ]
       _ -> []
+
+-- | A call refused before the request was built still records the level
+-- the caller asked for, described by the adapter's own describer.
+--
+-- 'Transport.resolveKey' refuses an unknown host rather than reading an
+-- environment variable, so 'prepareCall' fails with an AuthError
+-- whatever the developer's shell holds, the adapter takes
+-- 'immediateError', and the replay driver is never reached.
+immediateErrorRecordsThinkingTest :: TestTree
+immediateErrorRecordsThinkingTest =
+  testCase "a call refused before the request was built still records the requested level" $ do
+    bodyRef <- newIORef Null
+    let model = testModel & #baseUrl .~ "https://unknown-host.example"
+        opts =
+          emptyOptions
+            & #evidence .~ Just (evidenceRequest "run-54")
+            & #thinking .~ Just ThinkingHigh
+    ev <-
+      oneEvidence
+        =<< replayWith bodyRef model 200 successHeaders successBody opts
+    field "status" ev @?= Just (String "failed")
+    thinkingOf ev "requested" @?= Just (String "high")
+    let described =
+          describeThinkingShape (openaiCompletionsCompatFor model) (model ^. #reasoning) opts
+        expectedMode = case Aeson.toJSON described of
+          Object d -> KeyMap.lookup "mode" d
+          _ -> Nothing
+    thinkingOf ev "mode" @?= expectedMode
+    assertBool
+      "the mode must not collapse the request into absent"
+      (thinkingOf ev "mode" /= Just (String "absent"))
 
 optOutTest :: TestTree
 optOutTest =

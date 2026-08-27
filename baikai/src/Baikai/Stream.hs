@@ -36,7 +36,7 @@ import Baikai.Content
 import Baikai.Content qualified as Content
 import Baikai.Context (Context)
 import Baikai.Error (BaikaiError, providerError, providerUnavailable)
-import Baikai.Evidence (ModelCallEvidence, noThinkingRequested)
+import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
@@ -576,7 +576,7 @@ errorEvents m opts startTs e = do
       m
       opts
       (Build.transportForModel m)
-      noThinkingRequested
+      (Build.requestedTranslation opts)
       (Build.dispatchEnvelope m opts)
       startTs
       now
@@ -659,7 +659,7 @@ noProviderEvents m opts = do
       m
       opts
       (Build.transportForModel m)
-      noThinkingRequested
+      (Build.requestedTranslation opts)
       (Build.dispatchEnvelope m opts)
       now
       now

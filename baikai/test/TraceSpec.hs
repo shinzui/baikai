@@ -27,6 +27,7 @@ import Baikai.Response (Response (..), responseError)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
@@ -65,6 +66,7 @@ tests =
       earlyAbortTest,
       fidelityTest,
       evidenceTests,
+      requestedLevelTests,
       encodingTests
     ]
 
@@ -389,6 +391,121 @@ registerOkWithEvidence a =
             complete = handler,
             describeThinking = \_ _ -> noThinkingRequested
           }
+
+-- | 'registerOk' with an honest describer.
+--
+-- The other fixtures answer 'noThinkingRequested' whatever the caller
+-- set, which is exactly what hid the defect these tests pin: a stub
+-- that always says "nothing was asked" cannot tell a path that lost the
+-- caller's level from one that kept it.
+registerOkHonest :: Api -> IO ()
+registerOkHonest a =
+  let handler _m _ctx _opts = pure (stubResponse a)
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler,
+            describeThinking = \_ o -> Build.requestedTranslation o
+          }
+
+-- | A describer that answers with a wire shape of its own, so a test
+-- can tell "the core asked the adapter" from "the core spelled
+-- not_translated itself".
+registerOkBudgetDescriber :: Api -> IO ()
+registerOkBudgetDescriber a =
+  let handler _m _ctx _opts = pure (stubResponse a)
+      budgetTranslation o =
+        Ev.ThinkingTranslation
+          { Ev.requested = o ^. #thinking,
+            Ev.mode = Ev.ThinkingModeBudget,
+            Ev.effortText = Nothing,
+            Ev.budgetTokens = Just 1024,
+            Ev.wireField = Just "thinking",
+            Ev.adjustments = []
+          }
+   in registerApiProvider
+        ApiProvider
+          { apiTag = a,
+            stream = liftCompleteToStream handler,
+            complete = handler,
+            describeThinking = \_ o -> budgetTranslation o
+          }
+
+thinkingOptions :: Options
+thinkingOptions = evidenceOptions & #thinking .~ Just ThinkingMax
+
+-- | Read one key out of the encoded @thinking@ object.
+thinkingField :: Text -> ModelCallEvidence -> Maybe Value
+thinkingField k ev =
+  KeyMap.lookup (Key.fromText k) (asObject (maybe Null id (evidenceField "thinking" ev)))
+
+requestedLevelTests :: TestTree
+requestedLevelTests =
+  testGroup
+    "the caller's thinking level on every evidence path"
+    [ abortRecordsRequestedLevelTest,
+      abortUsesTheAdapterDescriberTest,
+      noProviderRecordsRequestedLevelTest,
+      throwingHandlerRecordsRequestedLevelTest
+    ]
+
+abortRecordsRequestedLevelTest :: TestTree
+abortRecordsRequestedLevelTest =
+  testCase "an abandoned stream records the level the caller asked for" $ do
+    let a = Custom "baikai-trace-abort-thinking"
+    registerOkHonest a
+    (ref, sink) <- memorySink
+    emitted <-
+      Stream.toList
+        (Stream.take 1 (withTraceStream sink (stubModel a) stubContext thinkingOptions))
+    length emitted @?= 1
+    events <- awaitEvents ref 3
+    ev <- exactlyOneEvidence events
+    thinkingField "requested" ev @?= Just (String "max")
+    thinkingField "mode" ev @?= Just (String "not_translated")
+
+abortUsesTheAdapterDescriberTest :: TestTree
+abortUsesTheAdapterDescriberTest =
+  testCase "an abandoned stream asks the registered adapter to describe the translation" $ do
+    let a = Custom "baikai-trace-abort-describer"
+    registerOkBudgetDescriber a
+    (ref, sink) <- memorySink
+    emitted <-
+      Stream.toList
+        (Stream.take 1 (withTraceStream sink (stubModel a) stubContext thinkingOptions))
+    length emitted @?= 1
+    events <- awaitEvents ref 3
+    ev <- exactlyOneEvidence events
+    thinkingField "requested" ev @?= Just (String "max")
+    -- The proof that the core consulted the adapter rather than
+    -- spelling not_translated unconditionally.
+    thinkingField "mode" ev @?= Just (String "budget")
+    thinkingField "budget_tokens" ev @?= Just (Number 1024)
+
+noProviderRecordsRequestedLevelTest :: TestTree
+noProviderRecordsRequestedLevelTest =
+  testCase "an unregistered provider records the level the caller asked for" $ do
+    let a = Custom "baikai-trace-unregistered-thinking"
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext thinkingOptions
+    events <- awaitEvents ref 3
+    ev <- exactlyOneEvidence events
+    thinkingField "requested" ev @?= Just (String "max")
+    thinkingField "mode" ev @?= Just (String "not_translated")
+
+throwingHandlerRecordsRequestedLevelTest :: TestTree
+throwingHandlerRecordsRequestedLevelTest =
+  testCase "a handler that threw records the level the caller asked for" $ do
+    let a = Custom "baikai-trace-throwing-thinking"
+    registerFail a (providerError "stub-failure")
+    (ref, sink) <- memorySink
+    _ <- withTrace sink (stubModel a) stubContext thinkingOptions
+    events <- awaitEvents ref 3
+    ev <- exactlyOneEvidence events
+    thinkingField "requested" ev @?= Just (String "max")
+    thinkingField "mode" ev @?= Just (String "not_translated")
+    evidenceField "status" ev @?= Just (String "failed")
 
 evidencesIn :: [TraceEvent] -> [ModelCallEvidence]
 evidencesIn events = [ev | CallEvidence {evidence = ev} <- events]

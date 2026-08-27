@@ -42,6 +42,7 @@ module Baikai.Evidence
     ThinkingAdjustment (..),
     weakensThinking,
     noThinkingRequested,
+    untranslatedThinking,
 
     -- * Endpoint and transport
     EndpointIdentity (..),
@@ -173,7 +174,7 @@ observedValue = \case
 -- | Which shape a provider's thinking configuration took on the wire.
 --
 -- Encodes as a lowercase string: @budget@, @adaptive@, @flag@,
--- @toggle@, @unsupported@, @absent@.
+-- @toggle@, @unsupported@, @not_translated@, @absent@.
 data ThinkingMode
   = -- | The provider took an explicit token budget.
     ThinkingModeBudget
@@ -186,6 +187,13 @@ data ThinkingMode
   | -- | The caller requested a level and this transport cannot express
     -- any part of it.
     ThinkingModeUnsupported
+  | -- | The caller requested a level and no provider adapter ran to
+    -- translate it: the call was refused, never dispatched, or
+    -- abandoned before the adapter could describe what it did. The
+    -- request is recorded; the translation is unknown. Distinct from
+    -- 'ThinkingModeAbsent' (nothing requested) and from
+    -- 'ThinkingModeUnsupported' (an adapter looked and could not).
+    ThinkingModeNotTranslated
   | -- | The caller requested no level at all.
     ThinkingModeAbsent
   deriving stock (Eq, Show, Generic)
@@ -197,6 +205,7 @@ renderThinkingMode = \case
   ThinkingModeFlag -> "flag"
   ThinkingModeToggle -> "toggle"
   ThinkingModeUnsupported -> "unsupported"
+  ThinkingModeNotTranslated -> "not_translated"
   ThinkingModeAbsent -> "absent"
 
 parseThinkingMode :: Text -> Maybe ThinkingMode
@@ -206,6 +215,7 @@ parseThinkingMode = \case
   "flag" -> Just ThinkingModeFlag
   "toggle" -> Just ThinkingModeToggle
   "unsupported" -> Just ThinkingModeUnsupported
+  "not_translated" -> Just ThinkingModeNotTranslated
   "absent" -> Just ThinkingModeAbsent
   _ -> Nothing
 
@@ -442,6 +452,26 @@ noThinkingRequested =
       wireField = Nothing,
       adjustments = []
     }
+
+-- | The translation for a path where no adapter ran: the caller's
+-- level exactly, and no claim about the wire. 'noThinkingRequested'
+-- when no level was set, so the two statements stay distinct.
+--
+-- The 'adjustments' list is empty on purpose: an untranslated request
+-- has not been downgraded, it has not been looked at, and strict
+-- evidence mode refuses a call over a non-empty list.
+untranslatedThinking :: Maybe ThinkingLevel -> ThinkingTranslation
+untranslatedThinking = \case
+  Nothing -> noThinkingRequested
+  Just lvl ->
+    ThinkingTranslation
+      { requested = Just lvl,
+        mode = ThinkingModeNotTranslated,
+        effortText = Nothing,
+        budgetTokens = Nothing,
+        wireField = Nothing,
+        adjustments = []
+      }
 
 -- ============================================================
 -- Endpoint and transport

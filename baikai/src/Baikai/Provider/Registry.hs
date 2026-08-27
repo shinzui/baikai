@@ -36,7 +36,7 @@ import Baikai.Api (Api, renderApi)
 import Baikai.Content (AssistantContent (..), ToolCall, isCutOffToolCall)
 import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
-import Baikai.Evidence (ThinkingTranslation, noThinkingRequested)
+import Baikai.Evidence (ThinkingTranslation)
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..), ToolResult, toolResultErrorText, user)
@@ -170,7 +170,7 @@ completeRequestWith reg m ctx opts = do
           m
           opts
           (Build.transportForModel m)
-          noThinkingRequested
+          (Build.requestedTranslation opts)
           (Build.dispatchEnvelope m opts)
           now
           now

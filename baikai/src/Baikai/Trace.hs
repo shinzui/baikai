@@ -67,6 +67,7 @@ import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Prelude
 import Baikai.Provider.Registry (ProviderRegistry, globalProviderRegistry)
+import Baikai.Provider.Registry qualified as Registry
 import Baikai.Response (Response)
 import Baikai.StopReason (StopReason (ErrorReason))
 import Baikai.Stream (reassembleResponse, streamRequestWith)
@@ -157,8 +158,8 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
         -- is already over — so a fatal sink failure discovered here has
         -- nowhere to go but the stderr line 'reportSinkError' already
         -- wrote. The terminal event below is where it can still matter.
-        (void (finalizeTrace state eid start m opts))
-        (Stream.mapM (traceEvent state eid start m opts) (streamRequestWith reg m ctx opts))
+        (void (finalizeTrace reg state eid start m opts))
+        (Stream.mapM (traceEvent reg state eid start m opts) (streamRequestWith reg m ctx opts))
 
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
 -- 'Response' through 'reassembleResponse'.
@@ -235,8 +236,8 @@ newTraceState = do
 -- answer can still change the call's outcome; by cleanup time the
 -- stream is over.
 finalizeTrace ::
-  TraceState -> Text -> UTCTime -> Model -> Options -> IO (Maybe BaikaiError)
-finalizeTrace s eid start m opts = do
+  ProviderRegistry -> TraceState -> Text -> UTCTime -> Model -> Options -> IO (Maybe BaikaiError)
+finalizeTrace reg s eid start m opts = do
   alreadyClosed <-
     atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
   if alreadyClosed
@@ -262,12 +263,26 @@ finalizeTrace s eid start m opts = do
         -- would misattribute it. The digests are over
         -- 'Build.dispatchEnvelope' — see its documentation for what that
         -- does and does not commit to.
+        --
+        -- The translation comes from the registered adapter's own
+        -- 'Registry.describeThinking': the adapter /did/ run on this
+        -- path, so its description is the truthful one and the only one
+        -- @docs\/adr\/0003-the-adapter-owns-the-translation-description.md@
+        -- permits. Where no provider is registered there is nothing to
+        -- ask, and 'Build.requestedTranslation' says the caller\'s level
+        -- was never translated. Either way the caller\'s own level is
+        -- recorded, which passing 'Evidence.noThinkingRequested' here
+        -- silently denied.
+        mProvider <- Registry.lookupApiProviderWith reg (m ^. #api)
+        let translation = case mProvider of
+              Just p -> Registry.describeThinking p m opts
+              Nothing -> Build.requestedTranslation opts
         mev <-
           Build.minimalEvidence
             m
             opts
             (Build.transportForModel m)
-            noThinkingRequested
+            translation
             (Build.dispatchEnvelope m opts)
             start
             now
@@ -349,6 +364,7 @@ strictnessOf opts =
   maybe EvidenceBestEffort (^. #strictness) (opts ^. #evidence)
 
 traceEvent ::
+  ProviderRegistry ->
   TraceState ->
   Text ->
   UTCTime ->
@@ -356,7 +372,7 @@ traceEvent ::
   Options ->
   AssistantMessageEvent ->
   IO AssistantMessageEvent
-traceEvent state eid start m opts ev = do
+traceEvent reg state eid start m opts ev = do
   case ev of
     EventDone TerminalPayload {message = msg, evidence = mev} -> do
       now <- getCurrentTime
@@ -396,7 +412,7 @@ traceEvent state eid start m opts ev = do
       pushEvidence state eid now m mev
       writeChan (state ^. #chan) (Just finished)
       writeIORef (state ^. #terminalSent) True
-      fatal <- finalizeTrace state eid start m opts
+      fatal <- finalizeTrace reg state eid start m opts
       -- A strict caller whose record did not survive gets a failed call
       -- rather than an answer they cannot account for. This is the only
       -- place in baikai where a call that reached the provider and came
@@ -423,7 +439,7 @@ traceEvent state eid start m opts ev = do
       -- Already an error: a sink failure on top changes nothing the
       -- caller can act on, and overwriting the provider's own error with
       -- baikai's would lose the more useful of the two.
-      _ <- finalizeTrace state eid start m opts
+      _ <- finalizeTrace reg state eid start m opts
       pure ev
     _ -> pure ev
 

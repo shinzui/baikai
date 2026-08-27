@@ -55,6 +55,7 @@ tests =
       thinkingEvidenceTest,
       samplingEvidenceTest,
       cacheUsageEvidenceTest,
+      immediateErrorRecordsThinkingTest,
       optOutTest
     ]
 
@@ -176,6 +177,35 @@ thinkingEvidenceTest =
         KeyMap.lookup "effort_text" t @?= Just Null
         KeyMap.lookup "wire_field" t @?= Just (String "thinking")
         KeyMap.lookup "adjustments" t @?= Just (Array Vector.empty)
+      other -> assertFailure ("expected a thinking translation, got: " <> show other)
+
+-- | A call refused before the request was built still records the level
+-- the caller asked for, described by the adapter's own describer.
+--
+-- 'Transport.resolveKey' refuses an unknown host rather than reading an
+-- environment variable, so 'prepareCall' fails with an AuthError
+-- whatever the developer's shell holds, the adapter takes
+-- 'immediateError', and the replay driver is never reached.
+immediateErrorRecordsThinkingTest :: TestTree
+immediateErrorRecordsThinkingTest =
+  testCase "a call refused before the request was built still records the requested level" $ do
+    let model = testModel & #baseUrl .~ "https://unknown-host.example"
+        opts =
+          emptyOptions
+            & #evidence .~ Just (evidenceRequest "run-53")
+            & #thinking .~ Just ThinkingHigh
+    ev <- oneEvidence =<< replayWith model 200 successHeaders successBody opts
+    field "status" ev @?= Just (String "failed")
+    case field "thinking" ev of
+      Just (Object t) -> do
+        KeyMap.lookup "requested" t @?= Just (String "high")
+        let expectedMode = case Aeson.toJSON (describeThinkingFor model opts) of
+              Object d -> KeyMap.lookup "mode" d
+              _ -> Nothing
+        KeyMap.lookup "mode" t @?= expectedMode
+        assertBool
+          "the mode must not collapse the request into absent"
+          (KeyMap.lookup "mode" t /= Just (String "absent"))
       other -> assertFailure ("expected a thinking translation, got: " <> show other)
 
 optOutTest :: TestTree

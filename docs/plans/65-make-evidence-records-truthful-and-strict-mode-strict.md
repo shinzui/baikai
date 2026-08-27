@@ -68,11 +68,11 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
 
 ## Progress
 
-- [ ] M1: `ThinkingModeNotTranslated` (`"not_translated"`) and `untranslatedThinking` in
+- [x] M1: `ThinkingModeNotTranslated` (`"not_translated"`) and `untranslatedThinking` in
       `baikai/src/Baikai/Evidence.hs`; `requestedTranslation` in `baikai/src/Baikai/Evidence/Build.hs`.
-- [ ] M1: the four core adapter-less paths and both providers' `immediateError` stop passing
+- [x] M1: the four core adapter-less paths and both providers' `immediateError` stop passing
       `noThinkingRequested`.
-- [ ] M1: tests — abort, unregistered provider, throwing handler, both `immediateError`s record
+- [x] M1: tests — abort, unregistered provider, throwing handler, both `immediateError`s record
       the caller's level.
 - [ ] M2: `missingEvidenceError`, `requireEvidenceOnTerminal`, `requireEvidenceOnResponse`, wired
       into `streamRequestWith` and `completeRequestWith`; tests for strict, best-effort and error
@@ -95,9 +95,17 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
 
 ## Surprises & Discoveries
 
-(None yet. Record here the exact wire spelling of Anthropic's `output_config` keys once you have
-read the SDK, the recomputed golden digests with the command that produced them, and anything EP-3
-or EP-4 moved before this plan started.)
+- EP-3 and EP-4 landed before this plan, so two orientation counts differ from what the plan
+  predicted. `rg -n 'describeThinking =' --type haskell --type md` finds 30, not 24 — EP-3 added
+  fixtures. And `describeThinkingShape` now takes the model's `reasoning` record as a second
+  argument (`describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts`), which
+  is the expression the OpenAI provider's own `describeThinking` field uses, so `immediateError`
+  copies that rather than the two-argument form the plan quotes. (M1)
+
+- `traceEvent` needed the registry as well as `finalizeTrace`. The plan named only
+  `finalizeTrace`, but `traceEvent` is one of its three call sites and had no registry in scope,
+  so both take a `ProviderRegistry` as their first parameter now. Nothing exported changes and
+  EP-9's rebase is still a one-line signature edit. (M1)
 
 
 ## Decision Log

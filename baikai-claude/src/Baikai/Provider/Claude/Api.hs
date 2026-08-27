@@ -959,7 +959,11 @@ immediateError m opts err = do
       m
       opts
       Ev.TransportHttpApi
-      Ev.noThinkingRequested
+      -- The adapter's own describer, not 'Ev.noThinkingRequested': the
+      -- caller's level is a fact about the call even when the request
+      -- was never built, and this function is the only description
+      -- ADR 0003 permits anyone to use for this provider.
+      (describeThinkingFor m opts)
       (Build.dispatchEnvelope m opts)
       now
       now

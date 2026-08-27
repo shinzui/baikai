@@ -20,6 +20,7 @@ module Baikai.Evidence.Build
     endpointIdentity,
     sanitizeEndpoint,
     dispatchEnvelope,
+    requestedTranslation,
     transportForModel,
     baikaiPackageVersion,
 
@@ -53,6 +54,7 @@ import Baikai.Evidence
     declaredStrength,
     newCallId,
     renderEvidenceStrength,
+    untranslatedThinking,
     weakensThinking,
   )
 import Baikai.Model (Model)
@@ -180,6 +182,21 @@ prepareEvidence m opts transport translation envelope started =
           )
             { errorInfo = err
             }
+
+-- | The translation to record where no provider adapter ran: an
+-- unregistered provider, and a @complete@ handler that threw before
+-- returning.
+--
+-- It carries the caller's level and says @not_translated@, so the
+-- record states the request without claiming a wire shape that was
+-- never built. Where an adapter /did/ run — the consumer-abort path in
+-- "Baikai.Trace", and each adapter's own @immediateError@ — call that
+-- adapter's @describeThinking@ instead; re-deriving a description in
+-- the core is what
+-- @docs\/adr\/0003-the-adapter-owns-the-translation-description.md@
+-- forbids.
+requestedTranslation :: Options -> ThinkingTranslation
+requestedTranslation opts = untranslatedThinking (opts ^. #thinking)
 
 -- | Where a call went, without recording a credential.
 --

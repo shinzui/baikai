@@ -1375,7 +1375,11 @@ immediateError m opts err = do
       m
       opts
       Ev.TransportHttpApi
-      Ev.noThinkingRequested
+      -- The adapter's own describer, not 'Ev.noThinkingRequested': the
+      -- caller's level is a fact about the call even when the request
+      -- was never built, and this is the expression the provider's own
+      -- 'describeThinking' field uses.
+      (describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts)
       (Build.dispatchEnvelope m opts)
       now
       now
