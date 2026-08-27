@@ -1,6 +1,7 @@
 module Baikai.Kit.Sidecar
   ( SidecarMeta (..),
     computeKitHash,
+    hashEntries,
     newSidecarMeta,
     sidecarPath,
     readSidecar,
@@ -10,16 +11,18 @@ where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
 import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
+import Baikai.Kit.Error (KitError (..))
 import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemName, itemVersion, kitItemKind)
-import Baikai.Kit.Path (safeRelativePath)
+import Baikai.Kit.Path (safeSourcePath)
 import Baikai.Prelude
+import Control.Exception (IOException, try)
 import Crypto.Hash (Digest, SHA256)
 import Crypto.Hash qualified as Hash
 import Data.Aeson (eitherDecodeFileStrict', encode)
 import Data.Binary.Put (putWord64be, runPut)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.List (sort)
+import Data.List (sortOn)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Time.Clock (getCurrentTime)
@@ -38,20 +41,43 @@ data SidecarMeta = SidecarMeta
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
 
-computeKitHash :: FilePath -> [Text] -> IO Text
-computeKitHash baseDir relFiles = do
-  chunks <- mapM (readOne baseDir) (sort relFiles)
-  let digest = Hash.hash (BS.concat chunks) :: Digest SHA256
-      hex = Text.pack (show digest)
-  pure ("sha256:" <> hex)
+-- | Content hash of the listed files, which lie at @base '</>' file@
+--   below the kit checkout @root@.
+--
+--   The hashed bytes are, per file sorted by name: the file name relative
+--   to @base@, NUL, the big-endian length, the content, NUL — unchanged
+--   from earlier releases, so existing sidecars keep matching. Every file
+--   is resolved through 'safeSourcePath' first, so a symbolic link
+--   anywhere below @root@ refuses the hash instead of being read through.
+computeKitHash :: FilePath -> FilePath -> [FilePath] -> IO (Either KitError Text)
+computeKitHash root base relFiles = do
+  results <- traverse readOne relFiles
+  pure (hashEntries <$> sequence results)
   where
-    readOne :: FilePath -> Text -> IO BS.ByteString
-    readOne dir rel = do
-      safeRel <- either (ioError . userError . Text.unpack) pure (safeRelativePath rel)
-      content <- BS.readFile (dir </> safeRel)
-      let pathBytes = Text.Encoding.encodeUtf8 (Text.pack safeRel)
-          lenBytes = LBS.toStrict (runPut (putWord64be (fromIntegral (BS.length content))))
-      pure $ BS.concat [pathBytes, BS.singleton 0x00, lenBytes, content, BS.singleton 0x00]
+    readOne :: FilePath -> IO (Either KitError (FilePath, BS.ByteString))
+    readOne rel = do
+      resolved <- safeSourcePath root (base </> rel)
+      case resolved of
+        Left err -> pure (Left err)
+        Right path -> do
+          content <- try @IOException (BS.readFile path)
+          pure $ case content of
+            Left e -> Left (KitSourceUnreadable path (Text.pack (show e)))
+            Right bytes -> Right (rel, bytes)
+
+-- | The pure core: hash already-read (relative name, bytes) pairs.
+hashEntries :: [(FilePath, BS.ByteString)] -> Text
+hashEntries entries = "sha256:" <> Text.pack (show digest)
+  where
+    digest = Hash.hash (BS.concat (map chunk (sortOn fst entries))) :: Digest SHA256
+    chunk (rel, content) =
+      BS.concat
+        [ Text.Encoding.encodeUtf8 (Text.pack rel),
+          BS.singleton 0x00,
+          LBS.toStrict (runPut (putWord64be (fromIntegral (BS.length content)))),
+          content,
+          BS.singleton 0x00
+        ]
 
 sidecarPath :: AgentAssetProvider -> KitItemKind -> Text -> FilePath -> Text -> FilePath
 sidecarPath provider SkillKind itemName' targetBase sidecarName =

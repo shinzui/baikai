@@ -1,6 +1,7 @@
 module Baikai.Kit
   ( module Baikai.Kit.Command,
     module Baikai.Kit.Config,
+    module Baikai.Kit.Error,
     module Baikai.Kit.Install,
     module Baikai.Kit.Manifest,
     module Baikai.Kit.Path,
@@ -13,6 +14,7 @@ where
 
 import Baikai.Kit.Command
 import Baikai.Kit.Config
+import Baikai.Kit.Error
 import Baikai.Kit.Install
 import Baikai.Kit.Manifest
 import Baikai.Kit.Path

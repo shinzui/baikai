@@ -65,9 +65,9 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 here, even if it requires splitting a partially completed task into two ("done" vs.
 "remaining"). This section must always reflect the actual current state of the work.
 
-- [ ] Milestone 1: create `baikai-kit/src/Baikai/Kit/Error.hs` with `KitError` and `renderKitError`; add `safeSourcePath` to `baikai-kit/src/Baikai/Kit/Path.hs` and delete `safeUnder`; add `itemSources` to `baikai-kit/src/Baikai/Kit/Manifest.hs`.
-- [ ] Milestone 1: route `computeKitHash` (`Sidecar.hs`), `planInstall` (`Install.hs`) and `upstreamHash` (`Status.hs`) through `safeSourcePath`; add `KitUpstreamRefused` to `KitState`.
-- [ ] Milestone 1: symlink fixture tests (install, hash, status) green; `cabal build all --enable-tests` green.
+- [x] Milestone 1: create `baikai-kit/src/Baikai/Kit/Error.hs` with `KitError` and `renderKitError`; add `safeSourcePath` to `baikai-kit/src/Baikai/Kit/Path.hs` and delete `safeUnder`; add `itemSources` to `baikai-kit/src/Baikai/Kit/Manifest.hs`.
+- [x] Milestone 1: route `computeKitHash` (`Sidecar.hs`), `planInstall` (`Install.hs`) and `upstreamHash` (`Status.hs`) through `safeSourcePath`; add `KitUpstreamRefused` to `KitState`.
+- [x] Milestone 1: symlink fixture tests (install, hash, status) green; `cabal build all --enable-tests` green.
 - [ ] Milestone 2: `ensureKitRepo` returns `Either KitError KitRepo`; `loadManifest`/`loadManifestMaybe` return typed errors; `installItem`, `installFrom`, `listAvailable`, `updateKit`, `uninstallItem`, `kitStatus` return `Either`/reports; `requireSafe` deleted; no `exitFailure` remains outside `Baikai.Kit.Command`.
 - [ ] Milestone 2: `runKitCommand` and the exiting `runKit` in `Command.hs`; existing `try @ExitCode` tests moved onto `runKit`; offline-status test green.
 - [ ] Milestone 2: ADR `docs/adr/NNNN-library-code-never-calls-exitfailure.md` written and indexed in `docs/adr/README.md`.

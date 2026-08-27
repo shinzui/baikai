@@ -51,6 +51,7 @@ library
     Baikai.Kit
     Baikai.Kit.Command
     Baikai.Kit.Config
+    Baikai.Kit.Error
     Baikai.Kit.Install
     Baikai.Kit.Manifest
     Baikai.Kit.Path

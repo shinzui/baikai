@@ -11,8 +11,9 @@ where
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
 import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
 import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, providerLabel, sidecarFileName)
+import Baikai.Kit.Error (KitError (..))
 import Baikai.Kit.Install (loadManifestMaybe, lookupItem)
-import Baikai.Kit.Manifest (AgentEntry, KitItem (..), KitItemKind (..), agentSources, itemKind, itemVersion, kindLabel)
+import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemSources, itemVersion, kindLabel)
 import Baikai.Kit.Repo (ensureKitRepo)
 import Baikai.Kit.Sidecar (SidecarMeta, computeKitHash, readSidecar, sidecarPath)
 import Baikai.Prelude
@@ -31,6 +32,7 @@ data KitState
   | KitDirty
   | KitDirtyOutdated
   | KitDelisted
+  | KitUpstreamRefused
   | KitUnknown
   deriving stock (Eq, Ord, Show)
 
@@ -52,6 +54,7 @@ renderState = \case
   KitDirty -> "dirty"
   KitDirtyOutdated -> "dirty+outdated"
   KitDelisted -> "delisted"
+  KitUpstreamRefused -> "refused"
   KitUnknown -> "unknown"
 
 classify :: Maybe SidecarMeta -> Maybe KitItem -> Maybe Text -> KitState
@@ -84,8 +87,10 @@ collectStatus config cacheDir scopes = do
     forM items $ \(provider, baseDir, itemName', scannedKind) -> do
       let mItem = lookupItem itemName' =<< mManifest
       mSidecar <- readSidecar (sidecarPath provider scannedKind itemName' baseDir (sidecarFileName config))
-      mUpstreamHash <- upstreamHash cacheDir mItem
-      let state' = classify mSidecar mItem mUpstreamHash
+      upstream <- upstreamHash cacheDir mItem
+      let state' = case upstream of
+            Left _ -> KitUpstreamRefused
+            Right mUpstreamHash -> classify mSidecar mItem mUpstreamHash
       pure
         StatusRow
           { name = itemName',
@@ -106,20 +111,25 @@ resolveCacheOrEmpty config = do
       pure (if manifestExists then dir else "")
     Left _ -> pure ""
 
-upstreamHash :: FilePath -> Maybe KitItem -> IO (Maybe Text)
-upstreamHash "" _ = pure Nothing
-upstreamHash _ Nothing = pure Nothing
-upstreamHash cacheDir (Just (KitSkillItem entry)) =
-  tryHash (cacheDir </> Text.unpack (entry ^. #path)) (entry ^. #files)
-upstreamHash cacheDir (Just (KitAgentItem entry)) =
-  tryHash (agentSourceBase cacheDir entry) (map (Text.pack . snd) (agentSources entry))
-
-tryHash :: FilePath -> [Text] -> IO (Maybe Text)
-tryHash base files = do
-  result <- try @IOException (computeKitHash base files)
-  case result of
-    Right h -> pure (Just h)
-    Left _ -> pure Nothing
+-- | The hash of an item's sources as they are in the cached checkout.
+--
+--   @Right Nothing@ means there is nothing to compare against: no cache,
+--   no manifest entry, or an upstream source that is simply gone. A
+--   'Left' means the upstream listing is one this installer refuses to
+--   read — a symbolic link, an escaping path, an unsafe manifest string —
+--   which 'collectStatus' shows as 'KitUpstreamRefused'.
+upstreamHash :: FilePath -> Maybe KitItem -> IO (Either KitError (Maybe Text))
+upstreamHash "" _ = pure (Right Nothing)
+upstreamHash _ Nothing = pure (Right Nothing)
+upstreamHash cacheDir (Just item) =
+  case itemSources item of
+    Left err -> pure (Left err)
+    Right sources -> do
+      result <- computeKitHash cacheDir (sources ^. #base) (sources ^. #files)
+      pure $ case result of
+        Left (KitSourceMissing _) -> Right Nothing
+        Left err -> Left err
+        Right h -> Right (Just h)
 
 scanInstalled :: KitConfig -> KitScope -> IO [(AgentAssetProvider, FilePath, Text, KitItemKind)]
 scanInstalled config scope = fmap concat $
@@ -201,12 +211,6 @@ aggregateStatusRows rows =
     summarize groupRows@(firstRow : _) =
       firstRow & #providers .~ Text.intercalate "," (sort (nub (map (^. #providers) groupRows)))
     summarize [] = error "aggregateStatusRows: empty group"
-
-agentSourceBase :: FilePath -> AgentEntry -> FilePath
-agentSourceBase repoDir entry =
-  case entry ^. #files of
-    Just _ -> repoDir </> Text.unpack (entry ^. #path)
-    Nothing -> repoDir </> takeDirectory (Text.unpack (entry ^. #path))
 
 agentExtension :: AgentAssetProvider -> String
 agentExtension provider =

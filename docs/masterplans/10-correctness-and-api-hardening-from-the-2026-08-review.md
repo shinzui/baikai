@@ -149,7 +149,7 @@ states the version (EP-10).
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Complete |
 | 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Complete |
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Complete |
-| 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Not Started |
+| 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | In Progress |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Not Started |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Not Started |
 | 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Not Started |

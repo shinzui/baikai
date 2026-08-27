@@ -21,16 +21,20 @@ import Baikai.AgentAssets
   )
 import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (InteractiveProjectScope))
 import Baikai.Kit.Config (KitConfig, KitScope (..), kitCacheDir, providerAgentsBase, providerLabel, scopeLabel, sidecarFileName)
+import Baikai.Kit.Error (KitError (..), renderKitError)
 import Baikai.Kit.Manifest
   ( AgentEntry,
+    ItemSources,
     KitItem (..),
     KitItemKind (..),
     KitManifest (..),
     SkillEntry,
     itemKind,
+    itemName,
+    itemSources,
     kitItemKind,
   )
-import Baikai.Kit.Path (safeItemName, safeRelativePath)
+import Baikai.Kit.Path (safeItemName, safeSourcePath)
 import Baikai.Kit.Repo (PullResult (..), ensureKitRepo, pullKitRepo)
 import Baikai.Kit.Sidecar (computeKitHash, newSidecarMeta, sidecarPath)
 import Baikai.Prelude
@@ -51,7 +55,7 @@ import System.Directory
     renameFile,
   )
 import System.Exit (exitFailure)
-import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
 
 data PlannedWrite = PlannedWrite
@@ -115,13 +119,16 @@ installItem config itemN scope = do
       hPutStrLn stderr $ "Error: '" <> Text.unpack itemN <> "' not found in kit manifest."
       exitFailure
     Just item -> do
-      result <- try @IOException (doInstall config repoDir item scope)
+      result <- try @KitError (try @IOException (doInstall config repoDir item scope))
       case result of
-        Right () ->
+        Right (Right ()) ->
           Text.IO.putStrLn $
             "Installed " <> itemKind item <> " '" <> itemN <> "' to " <> scopeLabel scope <> " scope."
-        Left e -> do
+        Right (Left e) -> do
           hPutStrLn stderr $ "Error: install failed, no changes were made: " <> show e
+          exitFailure
+        Left kitErr -> do
+          Text.IO.hPutStrLn stderr ("Error: " <> renderKitError kitErr)
           exitFailure
 
 uninstallItem :: KitConfig -> Text -> KitScope -> IO ()
@@ -213,80 +220,58 @@ doInstall config repoDir item scope =
   planInstall config repoDir item scope >>= executePlan
 
 planInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> IO [PlannedWrite]
-planInstall config repoDir item@(KitSkillItem entry) scope = do
-  safeName <- requireSafe "skill name" (safeItemName (entry ^. #name))
-  safePath <- requireSafe "skill path" (safeRelativePath (entry ^. #path))
-  safeFiles <- traverse (requireSafe "skill file" . safeRelativePath) (entry ^. #files)
-  let sourceDir = repoDir </> safePath
-  forM_ safeFiles $ \file -> requireSourceFile (sourceDir </> file)
-  hashStr <- computeKitHash sourceDir (map Text.pack safeFiles)
+planInstall config repoDir item scope = do
+  safeName <- orThrow (KitUnsafeName (itemName item)) (safeItemName (itemName item))
+  sources <- either throwIO pure (itemSources item)
+  resolved <- resolveSources repoDir sources
+  hashStr <- either throwIO pure =<< computeKitHash repoDir (sources ^. #base) (sources ^. #files)
   meta <- newSidecarMeta item hashStr
-  fmap concat $
-    forM (config ^. #providers) $ \provider -> do
-      targetBase <- providerAgentsBase config provider scope
-      let targetDir = skillTarget config provider targetBase safeName
-          fileWrites =
-            [ PlannedWrite
-                { destination = targetDir </> file,
-                  content = CopyFrom (sourceDir </> file)
-                }
-            | file <- safeFiles
-            ]
-          sidecarWrite =
-            PlannedWrite
-              { destination = sidecarPath provider (kitItemKind item) (Text.pack safeName) targetBase (sidecarFileName config),
-                content = WriteBytes (encode meta)
-              }
-      pure (fileWrites ++ [sidecarWrite])
-planInstall config repoDir item@(KitAgentItem entry) scope = do
-  safeName <- requireSafe "agent name" (safeItemName (entry ^. #name))
-  (sourceBase, relFiles, primarySource) <- safeAgentSources repoDir entry
-  forM_ relFiles $ \file -> requireSourceFile (sourceBase </> file)
-  hashStr <- computeKitHash sourceBase (map Text.pack relFiles)
-  meta <- newSidecarMeta item hashStr
-  body <- Text.IO.readFile primarySource
-  fmap concat $
-    forM (config ^. #providers) $ \provider -> do
-      targetBase <- providerAgentsBase config provider scope
-      let dstFile = agentTarget config provider targetBase safeName
-          agentWrite =
-            case provider of
-              InteractiveClaude ->
-                PlannedWrite {destination = dstFile, content = CopyFrom primarySource}
-              InteractiveCodex ->
-                PlannedWrite
-                  { destination = dstFile,
-                    content = WriteBytes (LBS.fromStrict (Text.Encoding.encodeUtf8 (agentAsCodexToml entry body)))
-                  }
-          sidecarWrite =
-            PlannedWrite
-              { destination = sidecarPath provider (kitItemKind item) (Text.pack safeName) targetBase (sidecarFileName config),
-                content = WriteBytes (encode meta)
-              }
-      pure [agentWrite, sidecarWrite]
+  let sidecarWrite provider targetBase =
+        PlannedWrite
+          { destination = sidecarPath provider (kitItemKind item) (Text.pack safeName) targetBase (sidecarFileName config),
+            content = WriteBytes (encode meta)
+          }
+  case item of
+    KitSkillItem _ ->
+      fmap concat $
+        forM (config ^. #providers) $ \provider -> do
+          targetBase <- providerAgentsBase config provider scope
+          let targetDir = skillTarget config provider targetBase safeName
+              fileWrites =
+                [ PlannedWrite {destination = targetDir </> rel, content = CopyFrom source}
+                | (rel, source) <- resolved
+                ]
+          pure (fileWrites ++ [sidecarWrite provider targetBase])
+    KitAgentItem entry -> do
+      primarySource <- case resolved of
+        (_, source) : _ -> pure source
+        [] -> throwIO (KitItemHasNoFiles (entry ^. #name))
+      body <- Text.IO.readFile primarySource
+      fmap concat $
+        forM (config ^. #providers) $ \provider -> do
+          targetBase <- providerAgentsBase config provider scope
+          let dstFile = agentTarget config provider targetBase safeName
+              agentWrite =
+                case provider of
+                  InteractiveClaude ->
+                    PlannedWrite {destination = dstFile, content = CopyFrom primarySource}
+                  InteractiveCodex ->
+                    PlannedWrite
+                      { destination = dstFile,
+                        content = WriteBytes (LBS.fromStrict (Text.Encoding.encodeUtf8 (agentAsCodexToml entry body)))
+                      }
+          pure [agentWrite, sidecarWrite provider targetBase]
 
-safeAgentSources :: FilePath -> AgentEntry -> IO (FilePath, [FilePath], FilePath)
-safeAgentSources repoDir entry =
-  case entry ^. #files of
-    Just files -> do
-      safePath <- requireSafe "agent path" (safeRelativePath (entry ^. #path))
-      safeFiles <- traverse (requireSafe "agent file" . safeRelativePath) files
-      case safeFiles of
-        [] -> do
-          hPutStrLn stderr $ "Error: agent '" <> Text.unpack (entry ^. #name) <> "' has no source files."
-          exitFailure
-        primaryRel : _ -> do
-          let sourceBase = repoDir </> safePath
-          pure (sourceBase, safeFiles, sourceBase </> primaryRel)
-    Nothing -> do
-      safePath <- requireSafe "agent path" (safeRelativePath (entry ^. #path))
-      let fileName = takeFileName safePath
-      pure (repoDir </> takeDirectory safePath, [fileName], repoDir </> safePath)
+-- | Resolve every listed file through 'safeSourcePath', pairing the name
+-- relative to the item's base with the absolute path to read.
+resolveSources :: FilePath -> ItemSources -> IO [(FilePath, FilePath)]
+resolveSources repoDir sources =
+  forM (sources ^. #files) $ \rel -> do
+    resolved <- safeSourcePath repoDir ((sources ^. #base) </> rel)
+    (rel,) <$> either throwIO pure resolved
 
-requireSourceFile :: FilePath -> IO ()
-requireSourceFile path = do
-  exists <- doesFileExist path
-  unless exists (ioError (userError ("source file does not exist: " <> path)))
+orThrow :: (Text -> KitError) -> Either Text a -> IO a
+orThrow toError = either (throwIO . toError) pure
 
 executePlan :: [PlannedWrite] -> IO ()
 executePlan writes = do

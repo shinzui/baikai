@@ -6,6 +6,7 @@ import Baikai.Interactive (InteractiveProvider (InteractiveClaude, InteractiveCo
 import Baikai.Kit
   ( AgentEntry (..),
     KitConfig (..),
+    KitError (..),
     KitItem (..),
     KitItemKind (..),
     KitManifest (..),
@@ -21,10 +22,11 @@ import Baikai.Kit
     installItem,
     pullKitRepo,
     readSidecar,
+    renderState,
     renderUninstallReport,
     safeItemName,
     safeRelativePath,
-    safeUnder,
+    safeSourcePath,
     sidecarFileName,
     sidecarPath,
     stripYamlFrontmatter,
@@ -41,6 +43,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import System.Directory
   ( createDirectoryIfMissing,
+    createDirectoryLink,
     doesDirectoryExist,
     doesFileExist,
     doesPathExist,
@@ -64,6 +67,7 @@ main =
         [ manifestTests,
           hashTests,
           pathSafetyTests,
+          symlinkSafetyTests,
           frontmatterTests,
           classifyTests,
           statusFilesystemTests,
@@ -96,16 +100,16 @@ hashTests =
           BS.writeFile (dir </> "a.md") "alpha"
           BS.writeFile (dir </> "b.md") "beta"
           BS.writeFile (dir </> "c.md") "gamma"
-          h1 <- computeKitHash dir ["a.md", "b.md", "c.md"]
-          h2 <- computeKitHash dir ["c.md", "a.md", "b.md"]
+          h1 <- assertRight =<< computeKitHash dir "." ["a.md", "b.md", "c.md"]
+          h2 <- assertRight =<< computeKitHash dir "." ["c.md", "a.md", "b.md"]
           h1 @?= h2
           assertBool "hash should carry sha256 prefix" ("sha256:" `Text.isPrefixOf` h1),
       testCase "computeKitHash changes when file content changes" $
         withSystemTempDirectory "baikai-kit-hash-mut" $ \dir -> do
           BS.writeFile (dir </> "a.md") "alpha"
-          before <- computeKitHash dir ["a.md"]
+          before <- assertRight =<< computeKitHash dir "." ["a.md"]
           BS.writeFile (dir </> "a.md") "alpha-modified"
-          after <- computeKitHash dir ["a.md"]
+          after <- assertRight =<< computeKitHash dir "." ["a.md"]
           assertBool "hashes must differ after content change" (before /= after)
     ]
 
@@ -164,8 +168,6 @@ pathSafetyTests =
       testCase "safeItemName rejects multi-component and hidden names" $ do
         safeItemName "reviewer" @?= Right "reviewer"
         mapM_ (assertLeft . safeItemName) ["a/b", ".", ".hidden"],
-      testCase "safeUnder rejects an absolute right operand" $
-        assertLeft (safeUnder "/base" "/etc/passwd"),
       testCase "install refuses a manifest file path that escapes the install root" $
         withPreparedKitHome $ \home cache -> do
           BS.writeFile (cache </> "kit.json") maliciousManifestJson
@@ -179,6 +181,46 @@ pathSafetyTests =
           result <- try @ExitCode (uninstallItem testConfig "../victim" UserScope)
           result @?= Left (ExitFailure 1)
           assertDirectoryExists victim
+    ]
+
+symlinkSafetyTests :: TestTree
+symlinkSafetyTests =
+  testGroup
+    "Symlink safety"
+    [ testCase "safeSourcePath refuses a symlinked component" $
+        withPreparedKitHome $ \home cache -> do
+          plantSymlinkedSource home cache
+          refused <- safeSourcePath cache ("skills" </> "demo" </> "sub" </> "secret.txt")
+          refused @?= Left (KitSourceSymlink (cache </> "skills" </> "demo" </> "sub"))
+          absolute <- safeSourcePath cache "/etc/passwd"
+          case absolute of
+            Left (KitUnsafePath _ _) -> pure ()
+            other -> assertFailure ("expected KitUnsafePath, got " <> show other)
+          plain <- safeSourcePath cache ("skills" </> "demo" </> "SKILL.md")
+          plain @?= Right (cache </> "skills" </> "demo" </> "SKILL.md"),
+      testCase "computeKitHash refuses a symlinked source" $
+        withPreparedKitHome $ \home cache -> do
+          plantSymlinkedSource home cache
+          hashed <- computeKitHash cache ("skills" </> "demo") ["SKILL.md", "sub" </> "secret.txt"]
+          hashed @?= Left (KitSourceSymlink (cache </> "skills" </> "demo" </> "sub")),
+      testCase "install refuses a symlinked source and writes nothing" $
+        withPreparedKitHome $ \home cache -> do
+          plantSymlinkedSource home cache
+          let claudeSkill = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
+          result <- try @ExitCode (installItem testConfig "demo" UserScope)
+          result @?= Left (ExitFailure 1)
+          assertFileMissing (claudeSkill </> "sub" </> "secret.txt")
+          assertFileMissing (claudeSkill </> "SKILL.md"),
+      testCase "status reports refused when upstream lists a symlinked source" $
+        withPreparedKitHome $ \home cache -> do
+          installItem testConfig "demo" UserScope
+          plantSymlinkedSource home cache
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          let demoRows = filter ((== "demo") . view #name) rows
+          assertBool "expected demo status rows" (not (null demoRows))
+          mapM_ (\row -> row ^. #state @?= KitUpstreamRefused) demoRows,
+      testCase "renderState names the refused state" $
+        renderState KitUpstreamRefused @?= "refused"
     ]
 
 frontmatterTests :: TestTree
@@ -383,6 +425,31 @@ withPreparedKitHome action =
     restoreHome Nothing = unsetEnv "HOME"
     restoreHome (Just value) = setEnv "HOME" value
 
+-- | Plant a committed-symlink kit: a directory link out of the checkout
+--   and a manifest that lists a file below it.
+plantSymlinkedSource :: FilePath -> FilePath -> IO ()
+plantSymlinkedSource home cache = do
+  let outsideDir = takeDirectory home </> "outside"
+  createDirectoryIfMissing True outsideDir
+  BS.writeFile (outsideDir </> "secret.txt") "top secret\n"
+  createDirectoryLink outsideDir (cache </> "skills" </> "demo" </> "sub")
+  BS.writeFile (cache </> "kit.json") manifestWithSymlinkedFileJson
+
+manifestWithSymlinkedFileJson :: BS.ByteString
+manifestWithSymlinkedFileJson =
+  Text.Encoding.encodeUtf8 $
+    Text.concat
+      [ "{\"version\":2,",
+        "\"skills\":[{",
+        "\"name\":\"demo\",",
+        "\"description\":\"Demo skill\",",
+        "\"version\":\"0.1.0\",",
+        "\"path\":\"skills/demo\",",
+        "\"files\":[\"SKILL.md\",\"sub/secret.txt\"]",
+        "}],",
+        "\"agents\":[]} "
+      ]
+
 manifestJson :: BS.ByteString
 manifestJson =
   Text.Encoding.encodeUtf8 $
@@ -451,6 +518,11 @@ maliciousManifestJson =
         "}],",
         "\"agents\":[]} "
       ]
+
+assertRight :: (Show e) => Either e a -> IO a
+assertRight = \case
+  Right value -> pure value
+  Left err -> assertFailure ("expected Right, got Left " <> show err)
 
 assertLeft :: (Show b) => Either a b -> IO ()
 assertLeft result =
