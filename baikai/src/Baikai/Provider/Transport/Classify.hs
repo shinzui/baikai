@@ -38,8 +38,10 @@ import Baikai.Error
     ErrorCategory (..),
     httpError,
     invalidRequest,
+    parseHttpDate,
     parseRetryAfterSeconds,
     providerError,
+    retryAfterSecondsAt,
   )
 import Control.Exception (SomeException, displayException, fromException)
 import Data.ByteString (ByteString)
@@ -63,7 +65,7 @@ import Foreign.C.Error
 -- which collides with the 'ErrorCategory' constructor of that name.
 import GHC.IO.Exception qualified as IOE
 import Network.HTTP.Client qualified as HTTP
-import Network.HTTP.Types.Header (hRetryAfter)
+import Network.HTTP.Types.Header (hDate, hRetryAfter)
 import Network.HTTP.Types.Status (statusCode)
 import Network.TLS qualified as TLS
 
@@ -94,7 +96,16 @@ classifyHttpExceptionContent = \case
   -- http-client.
   HTTP.StatusCodeException resp body ->
     let hdrs = HTTP.responseHeaders resp
-        retryAfter = parseRetryAfterSeconds . decodeLenient =<< lookup hRetryAfter hdrs
+        headerText name = decodeLenient <$> lookup name hdrs
+        -- The server's own Date is the reference instant, so an
+        -- HTTP-date Retry-After does not inherit this machine's clock
+        -- skew. Falling back to epoch would be worse than falling back
+        -- to the integer form alone, so a missing Date leaves the date
+        -- form unconverted here; the transports, which are in IO, use
+        -- the local clock instead.
+        retryAfter = case parseHttpDate =<< headerText hDate of
+          Just reference -> retryAfterSecondsAt reference =<< headerText hRetryAfter
+          Nothing -> parseRetryAfterSeconds =<< headerText hRetryAfter
      in httpError (statusCode (HTTP.responseStatus resp)) retryAfter (decodeLenient body)
   -- The connection could not be made, or went quiet, or went away.
   HTTP.ConnectionFailure e -> transient ("connection failure: " <> Text.pack (displayException e))

@@ -8,6 +8,7 @@ import Control.Exception (bracket, try)
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
 import Data.CaseInsensitive qualified as CI
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -27,6 +28,7 @@ tests =
       requestHeadersTest,
       sessionAffinityTest,
       timeoutTest,
+      nonPositiveTimeoutTest,
       unknownHostKeyTest,
       unusableBaseUrlTest
     ]
@@ -98,6 +100,23 @@ timeoutTest =
         be ^. #category @?= TransientError
         "timeoutMs=1" `Text.isInfixOf` (be ^. #message) @?= True
       Nothing -> assertFailure "expected timeout error"
+
+nonPositiveTimeoutTest :: TestTree
+nonPositiveTimeoutTest =
+  testCase "runWithTimeout rejects a non-positive bound without running the action" $ do
+    -- System.Timeout.timeout returns immediately at zero and runs
+    -- unbounded below it, so both spellings used to fail instantly as a
+    -- retryable TransientError, which a retry loop re-issues forever for
+    -- what is a caller-side mistake.
+    forM_ [0, -5] $ \ms -> do
+      ran <- newIORef False
+      result <- Transport.runWithTimeout (Just ms) (writeIORef ran True)
+      case result of
+        Just be -> do
+          be ^. #category @?= InvalidRequest
+          isRetryable be @?= False
+        Nothing -> assertFailure ("expected an InvalidRequest for timeoutMs=" <> show ms)
+      readIORef ran >>= (@?= False)
 
 unknownHostKeyTest :: TestTree
 unknownHostKeyTest =

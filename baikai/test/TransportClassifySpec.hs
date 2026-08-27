@@ -19,10 +19,15 @@ import Baikai.Provider.Transport.Classify
     classifyTransportException,
   )
 import Control.Exception (toException)
+import Data.ByteString (ByteString)
+import Data.CaseInsensitive qualified as CI
 import Data.Text qualified as Text
 import Foreign.C.Error (Errno (..), eCONNABORTED, eCONNRESET)
 import GHC.IO.Exception qualified as IOE
 import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Client.Internal qualified as HTTPI
+import Network.HTTP.Types.Status (mkStatus)
+import Network.HTTP.Types.Version (http11)
 import Network.TLS qualified as TLS
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
@@ -163,6 +168,29 @@ httpContentTests =
       assertNotRetryable
         InvalidRequest
         (classifyHttpExceptionContent (HTTP.WrongRequestBodyStreamSize 10 4)),
+    -- Unreachable from baikai's own transports, which never install
+    -- throwErrorStatusCodes; pinned for third-party providers built on
+    -- http-client, and because it is the one arm that reads headers.
+    testCase "StatusCodeException classifies by status and converts an HTTP-date Retry-After" $ do
+      let be =
+            classifyHttpExceptionContent
+              ( HTTP.StatusCodeException
+                  ( statusResponse
+                      429
+                      [ ("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"),
+                        ("Date", "Wed, 21 Oct 2026 07:27:15 GMT")
+                      ]
+                  )
+                  "slow down"
+              )
+      category be @?= RateLimited
+      httpStatus be @?= Just 429
+      retryAfterSeconds be @?= Just 45,
+    testCase "StatusCodeException falls back to the integer form when there is no Date" $ do
+      let be =
+            classifyHttpExceptionContent
+              (HTTP.StatusCodeException (statusResponse 429 [("Retry-After", "9")]) "")
+      retryAfterSeconds be @?= Just 9,
     -- A server that does not speak HTTP, or a proxy or TLS setup that
     -- cannot work, will answer the retry exactly the same way.
     testCase "InvalidStatusLine, TooManyHeaderFields and TlsNotSupported are not retryable" $ do
@@ -171,6 +199,21 @@ httpContentTests =
       assertNotRetryable OtherError (classifyHttpExceptionContent HTTP.TlsNotSupported)
       assertNotRetryable OtherError (classifyHttpExceptionContent (HTTP.TooManyRedirects []))
   ]
+
+-- | The header-carrying half of a 'HTTP.StatusCodeException': the body
+-- travels separately, so the response's own body is @()@.
+statusResponse :: Int -> [(ByteString, ByteString)] -> HTTP.Response ()
+statusResponse status hdrs =
+  HTTPI.Response
+    { HTTPI.responseStatus = mkStatus status "",
+      HTTPI.responseVersion = http11,
+      HTTPI.responseHeaders = [(CI.mk n, v) | (n, v) <- hdrs],
+      HTTPI.responseBody = (),
+      HTTPI.responseCookieJar = HTTP.createCookieJar [],
+      HTTPI.responseClose' = HTTPI.ResponseClose (pure ()),
+      HTTPI.responseOriginalRequest = HTTP.defaultRequest,
+      HTTPI.responseEarlyHints = []
+    }
 
 -- ============================================================
 -- TLS

@@ -21,21 +21,24 @@ import Baikai
     TerminalPayload (..),
     TextContent (..),
     emptyContext,
+    emptyModel,
     emptyOptions,
   )
 import Baikai.Api (Api (..))
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), isRetryable)
 import Baikai.Model (Model)
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
-import Baikai.Provider.Claude.Api (SseDriver, claudeMessagesStreamWith)
+import Baikai.Provider.Claude.Api (SseDriver, claudeMessagesStream, claudeMessagesStreamWith)
 import Baikai.Provider.Claude.Sse (sseFromResponse)
 import Contract (assertErrorContract)
-import Control.Exception (SomeException, throwIO, toException)
-import Control.Lens ((&), (.~))
+import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent.MVar (newEmptyMVar, takeMVar, tryPutMVar)
+import Control.Exception (SomeException, bracket, finally, handle, throwIO, toException)
+import Control.Lens ((&), (.~), (^.))
 import Data.ByteString (ByteString)
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
@@ -45,8 +48,10 @@ import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.Internal qualified as HTTPI
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
+import Network.Socket qualified as Socket
 import Network.TLS qualified as TLS
 import Streamly.Data.Stream qualified as Stream
+import System.Timeout qualified as Timeout
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -80,6 +85,29 @@ tests =
         be <- terminalError events
         category be @?= TransientError
         assertBool "a torn-down TLS session is retryable" (isRetryable be),
+      testCase "a stalled socket is cut off by timeoutMs as TransientError" $ do
+        (events, _) <- withStalledServer $ \port -> drainLive port (Just 200)
+        assertErrorContract events
+        be <- terminalError events
+        category be @?= TransientError
+        assertBool "a timed-out call is retryable" (isRetryable be)
+        assertBool
+          ("the message names the bound that fired: " <> show (be ^. #message))
+          ("timeoutMs=200" `Text.isInfixOf` (be ^. #message)),
+      testCase "timeoutMs of zero is rejected as InvalidRequest before any connection" $ do
+        (events, accepted) <- withStalledServer $ \port -> drainLive port (Just 0)
+        assertErrorContract events
+        be <- terminalError events
+        category be @?= InvalidRequest
+        assertBool "a caller-side mistake is not retryable" (not (isRetryable be))
+        accepted @?= 0,
+      testCase "a negative timeoutMs is rejected as InvalidRequest" $ do
+        (events, accepted) <- withStalledServer $ \port -> drainLive port (Just (-1))
+        assertErrorContract events
+        be <- terminalError events
+        category be @?= InvalidRequest
+        assertBool "a caller-side mistake is not retryable" (not (isRetryable be))
+        accepted @?= 0,
       testCase "a programming error in the body path stays OtherError" $ do
         events <- drainFailing contentChunks (toException (userError "bug in callback"))
         assertErrorContract events
@@ -179,3 +207,61 @@ terminalText events = case reverse events of
   (EventError TerminalPayload {message = AssistantMessage AssistantPayload {content = blocks}} : _) ->
     Text.concat [t | AssistantText TextContent {text = t} <- Vector.toList blocks]
   _ -> ""
+
+-- ============================================================
+-- A socket that never answers
+-- ============================================================
+
+-- | A TCP listener on @127.0.0.1@ that accepts one connection and holds
+-- it open without ever reading or writing: an HTTP server that has
+-- stalled after the connect succeeded.
+--
+-- Port @0@ asks the kernel for a free port, so the test never collides
+-- with anything else on the machine or with a parallel run of itself.
+-- The returned count is how many connections were accepted, which is
+-- what proves a refused bound opened no socket at all.
+withStalledServer :: (Int -> IO a) -> IO (a, Int)
+withStalledServer body = bracket open Socket.close $ \listener -> do
+  port <- Socket.socketPort listener
+  accepted <- newIORef (0 :: Int)
+  release <- newEmptyMVar
+  acceptor <- forkIO . handle (\(_ :: SomeException) -> pure ()) $ do
+    (conn, _) <- Socket.accept listener
+    modifyIORef' accepted (+ 1)
+    takeMVar release
+    Socket.close conn
+  result <- body (fromIntegral port) `finally` (tryPutMVar release () >> killThread acceptor)
+  count <- readIORef accepted
+  pure (result, count)
+  where
+    open = do
+      s <- Socket.socket Socket.AF_INET Socket.Stream Socket.defaultProtocol
+      Socket.setSocketOption s Socket.ReuseAddr 1
+      Socket.bind s (Socket.SockAddrInet 0 (Socket.tupleToHostAddress (127, 0, 0, 1)))
+      Socket.listen s 1
+      pure s
+
+-- | Drain the /live/ stream against a local port, under a guard that
+-- turns a stuck run into a failure rather than a hung suite.
+drainLive :: Int -> Maybe Int -> IO [AssistantMessageEvent]
+drainLive port bound = do
+  let model = stallModel port
+      opts = testOptions & #timeoutMs .~ bound
+  result <- Timeout.timeout 10_000_000 (Stream.toList (claudeMessagesStream model emptyContext opts))
+  case result of
+    Just events -> pure events
+    Nothing -> assertFailure "the ten-second guard fired: timeoutMs never did"
+
+-- | A model pointed at the local listener. Built from 'emptyModel' so no
+-- catalog base URL can override the port under test.
+stallModel :: Int -> Model
+stallModel port =
+  emptyModel
+    & #modelId
+      .~ "stall-test"
+    & #provider
+      .~ "test"
+    & #api
+      .~ AnthropicMessages
+    & #baseUrl
+      .~ Text.pack ("http://127.0.0.1:" <> show port)

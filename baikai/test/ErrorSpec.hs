@@ -9,10 +9,13 @@ import Baikai.Error
     httpError,
     invalidRequest,
     isRetryable,
+    parseHttpDate,
     parseRetryAfterSeconds,
     processError,
     rateLimited,
+    retryAfterSecondsAt,
   )
+import Data.Time (UTCTime)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
@@ -47,9 +50,33 @@ httpHelperTests =
           @?= ContextOverflow,
       testCase "integer Retry-After parses as seconds" $
         parseRetryAfterSeconds "12" @?= Just 12,
-      testCase "HTTP-date Retry-After is ignored" $
-        parseRetryAfterSeconds "Wed, 21 Oct 2026 07:28:00 GMT" @?= Nothing
+      -- The integer-only contract is now deliberate rather than a
+      -- limitation: converting a date needs a reference instant, which
+      -- 'retryAfterSecondsAt' takes and this function cannot.
+      testCase "parseRetryAfterSeconds is integer-only" $
+        parseRetryAfterSeconds "Wed, 21 Oct 2026 07:28:00 GMT" @?= Nothing,
+      testCase "HTTP-date Retry-After yields seconds from the reference instant" $
+        retryAfterSecondsAt referenceInstant "Wed, 21 Oct 2026 07:28:00 GMT" @?= Just 30,
+      -- The server is saying "now", not "some time last week".
+      testCase "HTTP-date Retry-After in the past yields zero" $
+        retryAfterSecondsAt referenceInstant "Wed, 21 Oct 2026 07:00:00 GMT" @?= Just 0,
+      testCase "integer Retry-After ignores the reference instant" $
+        retryAfterSecondsAt referenceInstant "12" @?= Just 12,
+      testCase "malformed Retry-After yields Nothing" $
+        retryAfterSecondsAt referenceInstant "soonish" @?= Nothing,
+      testCase "parseHttpDate accepts IMF-fixdate, RFC 850 and asctime" $ do
+        let expected = Just (read "1994-11-06 08:49:37 UTC" :: UTCTime)
+        parseHttpDate "Sun, 06 Nov 1994 08:49:37 GMT" @?= expected
+        parseHttpDate "Sunday, 06-Nov-94 08:49:37 GMT" @?= expected
+        parseHttpDate "Sun Nov  6 08:49:37 1994" @?= expected,
+      testCase "parseHttpDate rejects text that is not a date" $
+        parseHttpDate "tomorrow" @?= Nothing
     ]
+
+-- | Thirty seconds before the @Retry-After@ date the cases above use, so
+-- the expected answer is a number a reader can check by eye.
+referenceInstant :: UTCTime
+referenceInstant = read "2026-10-21 07:27:30 UTC"
 
 bodyClassifyTests :: TestTree
 bodyClassifyTests =
@@ -68,7 +95,13 @@ bodyClassifyTests =
         classifyHttpStatusWithBody 429 Nothing "context length whatever"
           @?= RateLimited,
       testCase "500 defers to status -> TransientError" $
-        classifyHttpStatusWithBody 500 Nothing "context length" @?= TransientError
+        classifyHttpStatusWithBody 500 Nothing "context length" @?= TransientError,
+      -- 413 is the size-limit status, so the body's wording changes
+      -- nothing: the caller's remedy is to shrink the input either way.
+      testCase "413 + ordinary body -> ContextOverflow" $
+        classifyHttpStatusWithBody 413 Nothing "payload too large" @?= ContextOverflow,
+      testCase "413 + request_too_large body -> ContextOverflow" $
+        classifyHttpStatusWithBody 413 Nothing "request_too_large" @?= ContextOverflow
     ]
 
 classifyTests :: TestTree
@@ -85,6 +118,7 @@ classifyTests =
       testCase "500 -> TransientError" $ classifyHttpStatus 500 Nothing @?= TransientError,
       testCase "502 -> TransientError" $ classifyHttpStatus 502 Nothing @?= TransientError,
       testCase "503 -> TransientError" $ classifyHttpStatus 503 Nothing @?= TransientError,
+      testCase "413 -> ContextOverflow" $ classifyHttpStatus 413 Nothing @?= ContextOverflow,
       testCase "418 -> OtherError" $ classifyHttpStatus 418 Nothing @?= OtherError
     ]
 

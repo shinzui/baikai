@@ -87,10 +87,10 @@ Milestone 2 — in-band `{"error": …}` frames on 2xx streams classified:
 
 Milestone 3 — 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge semantics:
 
-- [ ] `classifyHttpStatus` maps 413 to `ContextOverflow`; `parseHttpDate` and `retryAfterSecondsAt` added to `baikai/src/Baikai/Error.hs`; `ErrorSpec` pin "HTTP-date Retry-After is ignored" rewritten.
-- [ ] Both `sseFromResponse` non-2xx branches compute `retryAfterSeconds` from either form using the response `Date` header.
-- [ ] `runWithTimeout` in both `Transport.hs` refuses a non-positive bound as `InvalidRequest` without running the action; the misleading `EP-8` comment in both `Sse.hs` replaced.
-- [ ] Stalled-socket and zero-timeout tests in both `MidStreamSpec.hs` green; `Options.timeoutMs` Haddock states the contract.
+- [x] `classifyHttpStatus` maps 413 to `ContextOverflow`; `parseHttpDate` and `retryAfterSecondsAt` added to `baikai/src/Baikai/Error.hs`; `ErrorSpec` pin "HTTP-date Retry-After is ignored" rewritten as "parseRetryAfterSeconds is integer-only" plus six cases on the new helpers. (2026-08-27)
+- [x] Both `sseFromResponse` non-2xx branches compute `retryAfterSeconds` from either form using the response `Date` header; `classifyHttpExceptionContent`'s `StatusCodeException` arm upgraded to match. (2026-08-27)
+- [x] `runWithTimeout` in both `Transport.hs` refuses a non-positive bound as `InvalidRequest` without running the action. The misleading `EP-8` comment in both `Sse.hs` was already replaced by EP-2/EP-4; both now read "No per-response bound here: Options.timeoutMs is enforced around the whole call by Transport.runWithTimeout", which is what this plan asked for. (2026-08-27)
+- [x] Stalled-socket and zero-timeout tests in both `MidStreamSpec.hs` green; `Options.timeoutMs` Haddock states the contract. (2026-08-27)
 
 Milestone 4 — unreachable-shape tests retired; classifier module docs match the transport:
 
@@ -220,6 +220,18 @@ of the plan. Implementation-time discoveries go below them.
   `errorMessage`. A consumer switching on the terminal saw a completed call. That makes
   REV-2 A.3 more severe than the review recorded, and it is the reason the fix keys on the
   `error` key rather than on `finish_reason`. (2026-08-27, M2)
+- __`classifyHttpExceptionContent` is pure, so it cannot fall back to the local clock.__
+  The transports call `getCurrentTime` when a 429 carries a `Retry-After` date and no
+  `Date` header. The shared classifier has no `IO`, and inventing a reference (the epoch,
+  say) would turn every date into `Just 0` — a worse answer than none. Its
+  `StatusCodeException` arm therefore converts the date form only when a parseable `Date`
+  is present and falls back to the integer form otherwise. That arm is unreachable from
+  baikai's own transports anyway; the difference is documented in the code where a
+  third-party provider will meet it. (2026-08-27, M3)
+- __The `EP-8` comment in both `Sse.hs` was already gone.__ This plan's M3 scheduled
+  replacing `-- EP-8 wires Options.timeoutMs through this local transport.` on the
+  `responseTimeoutNone` line; EP-2 or EP-4 had already replaced it with the correct
+  sentence. No edit was needed. (2026-08-27, M3)
 - __EP-4's block closing already carries the partial text.__ The plan flagged the OpenAI
   "carrying the partial text" assertion as needing a fallback to `TextDelta` events if EP-4
   had not landed. EP-4 has landed, and both providers' terminals carry `"Hel"` in the

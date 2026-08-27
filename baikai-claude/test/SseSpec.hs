@@ -49,6 +49,37 @@ tests =
             retryAfterSeconds e @?= Just 7
             httpStatus e @?= Just 429
           other -> assertFailure ("expected one classified error, got: " <> show other),
+      -- CDN-fronted hosts send a date rather than a count on a 429.
+      -- The response's own Date is the reference instant, so the hint
+      -- does not inherit this machine's clock skew.
+      testCase "HTTP-date Retry-After is converted using the response Date header" $ do
+        eventsRef <- newIORef []
+        metaRef <- newIORef []
+        resp <-
+          mkResponse
+            429
+            [ ("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"),
+              ("Date", "Wed, 21 Oct 2026 07:27:15 GMT")
+            ]
+            ["{\"error\":{\"message\":\"slow down\"}}"]
+        sseFromResponse resp (\md -> modifyIORef' metaRef (<> [md])) (\ev -> modifyIORef' eventsRef (<> [ev]))
+        events <- readIORef eventsRef
+        case events of
+          [Left e] -> do
+            category e @?= RateLimited
+            retryAfterSeconds e @?= Just 45
+          other -> assertFailure ("expected one classified error, got: " <> show other),
+      testCase "HTTP-date Retry-After without a Date header uses the current time" $ do
+        eventsRef <- newIORef []
+        metaRef <- newIORef []
+        resp <- mkResponse 429 [("Retry-After", "Wed, 21 Oct 2099 07:28:00 GMT")] [""]
+        sseFromResponse resp (\md -> modifyIORef' metaRef (<> [md])) (\ev -> modifyIORef' eventsRef (<> [ev]))
+        events <- readIORef eventsRef
+        case events of
+          [Left e] -> case retryAfterSeconds e of
+            Just n -> assertBool ("a date in 2099 is far in the future, got " <> show n) (n > 0)
+            Nothing -> assertFailure "expected a converted Retry-After hint"
+          other -> assertFailure ("expected one classified error, got: " <> show other),
       testCase "200 response decodes split SSE data frames in order" $ do
         eventsRef <- newIORef []
         metaRef <- newIORef []

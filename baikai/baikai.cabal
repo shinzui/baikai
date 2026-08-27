@@ -206,6 +206,7 @@ test-suite baikai-test
     , baikai
     , base
     , bytestring
+    , case-insensitive
     , containers
     , directory
     , filepath

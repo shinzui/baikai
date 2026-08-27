@@ -12,7 +12,7 @@ module Baikai.Provider.OpenAI.Sse
   )
 where
 
-import Baikai.Error (BaikaiError, decodeError, httpError, parseRetryAfterSeconds)
+import Baikai.Error (BaikaiError, decodeError, httpError, parseHttpDate, retryAfterSecondsAt)
 import Control.Monad (foldM, when)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as SBS
@@ -21,10 +21,12 @@ import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
 import Data.Char (isSpace)
 import Data.IORef qualified as IORef
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.Encoding.Error qualified as Text
+import Data.Time.Clock (getCurrentTime)
 import GHC.Generics (Generic)
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Header (RequestHeaders)
@@ -179,10 +181,15 @@ sseFromResponse response onMetadata onEvent = do
   if not (Status.statusIsSuccessful st)
     then do
       bodyChunks <- HTTP.brConsume (HTTP.responseBody response)
+      now <- getCurrentTime
       let bodyText = decodeLenient (SBS.concat bodyChunks)
-          retryAfter =
-            parseRetryAfterSeconds . decodeLenient
-              =<< lookup (CI.mk "Retry-After") (HTTP.responseHeaders response)
+          headerText name = decodeLenient <$> lookup (CI.mk name) (HTTP.responseHeaders response)
+          -- The server's own Date is the reference instant for an
+          -- HTTP-date Retry-After, which CDN-fronted hosts send on a
+          -- 429; the local clock is the fallback. Using the response's
+          -- clock keeps this machine's skew out of the hint.
+          reference = fromMaybe now (parseHttpDate =<< headerText "Date")
+          retryAfter = retryAfterSecondsAt reference =<< headerText "Retry-After"
       onEvent (Left (httpError (Status.statusCode st) retryAfter bodyText))
     else do
       lineBufRef <- IORef.newIORef SBS.empty

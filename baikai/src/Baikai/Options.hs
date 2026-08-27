@@ -19,6 +19,9 @@
 -- in the OpenAI and Claude providers: connection setup, response
 -- headers, and full stream drain. On expiry the stream terminates
 -- in-band with a retryable transient 'Baikai.Error.BaikaiError'.
+-- @Just n@ with @n <= 0@ is refused as
+-- 'Baikai.Error.InvalidRequest' before any connection is opened;
+-- 'Nothing' is the only spelling of \"no bound\".
 --
 -- 'headers' are per-call HTTP header overrides for API providers.
 -- Provider defaults are built first, then 'Baikai.Model.headers',
