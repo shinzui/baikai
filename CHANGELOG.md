@@ -140,6 +140,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `baikai-claude`: every failing stream now begins with `EventStart`. The
+  producer pre-seeds the start event before the first wire read, exactly as the
+  OpenAI producer already did, and `message_start` updates the assembler without
+  emitting a second one. Previously a 401, a rate limit, an in-band `error`
+  frame or an EOF arriving before `message_start` produced a lone `EventError`,
+  breaking the protocol `Baikai.Stream.Event` documents. `StartPayload.responseId`
+  is consequently `Nothing` on both HTTP providers; the provider's message id
+  rides `TerminalPayload.responseId`, which `reassembleResponse` already prefers.
+  (REV-2 A.4, REV-1 Theme 1.1.)
+
 - `baikai-claude`, `baikai-openai`: an asynchronous exception delivered to the
   stream worker can no longer strand its consumer. End-of-frames is a flag set
   by the worker fork's own `finally` rather than a sentinel value pushed onto

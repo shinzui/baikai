@@ -87,6 +87,7 @@ test-suite baikai-openai-test
   main-is:        Main.hs
   other-modules:
     CliEvidenceSpec
+    Contract
     ErrorClassSpec
     EvidenceSpec
     LifecycleSpec

@@ -67,10 +67,10 @@ it.
 - [x] M1: `LifecycleSpec.hs` in both provider suites (four tests each) green
 - [x] M1: ADR `docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`
       written and listed in `docs/adr/README.md`
-- [ ] M2: Claude pre-seeds `EventStart`; `message_start` updates the skeleton only
-- [ ] M2: `Event.hs` "temporary gap" note retired; `StartPayload.responseId` Haddock corrected
-- [ ] M2: `assertErrorContract` strengthened in both suites and applied to every error stream
-- [ ] M2: pre-`message_start` failure shapes pinned in `baikai-claude/test/SseSpec.hs`
+- [x] M2: Claude pre-seeds `EventStart`; `message_start` updates the skeleton only
+- [x] M2: `Event.hs` "temporary gap" note retired; `StartPayload.responseId` Haddock corrected
+- [x] M2: `assertErrorContract` strengthened in both suites and applied to every error stream
+- [x] M2: pre-`message_start` failure shapes pinned in `baikai-claude/test/SseSpec.hs`
 - [ ] M3: `toolArgumentsFromText` and `isCutOffToolCall` in `Baikai.Content`; both assemblers
       and `danglingBlocks` use them; `runToolLoop`/`appendToolResult` never dispatch a cut-off call
 - [ ] M3: Claude `closeOpenBlocks` on every failure path; OpenAI mid-stream `Left` closes blocks

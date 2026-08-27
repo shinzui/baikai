@@ -11,10 +11,11 @@
 -- (any failure that bubbled out of the producer). This EventStart-first
 -- invariant includes error-only streams produced by core dispatch and
 -- request-preparation failures; they emit a synthetic skeleton before
--- the terminal error. One temporary provider-side gap remains: a Claude
--- mid-call failure before @message_start@ can still terminate without a
--- start event until the EP-7 Claude streaming rewrite pre-seeds its
--- skeleton. The terminal event carries the fully assembled
+-- the terminal error. It holds without exception: both HTTP providers
+-- pre-seed their skeleton before the first wire read, so a failure that
+-- arrives before the provider has said anything about the response
+-- still begins its stream with 'EventStart'.
+-- The terminal event carries the fully assembled
 -- 'AssistantMessage' so a consumer that only pattern-matches on the
 -- terminal event still gets a correct response without folding deltas.
 --
@@ -117,8 +118,17 @@ data AssistantMessageEvent
   deriving anyclass (ToJSON)
 
 -- | Payload of 'EventStart': the message skeleton observed up front,
--- plus the provider's message id when the provider learns it this
--- early (Anthropic's @message_start.id@). 'Nothing' otherwise.
+-- plus the provider's message id when the provider knows it before its
+-- first event.
+--
+-- Neither HTTP provider does: both pre-seed this event before the first
+-- wire read, so that a failure arriving before the provider has said
+-- anything still begins the stream the way the protocol says every
+-- stream begins. The id, when it arrives, rides
+-- 'TerminalPayload.responseId', which
+-- 'Baikai.Stream.reassembleResponse' prefers over this one anyway. A
+-- lifted or replaying provider that knows the id up front may still set
+-- it here.
 data StartPayload = StartPayload
   { partial :: !Message,
     responseId :: !(Maybe Text)

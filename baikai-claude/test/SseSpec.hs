@@ -1,10 +1,9 @@
 module SseSpec (tests) where
 
-import Baikai.Error (ErrorCategory (..), category, httpStatus, retryAfterSeconds)
-import Baikai.Evidence (Observed (..))
+import Baikai
 import Baikai.Http qualified as Http
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
-import Baikai.Provider.Claude.Api (Assembler, emptyAssembler, translate)
+import Baikai.Provider.Claude.Api (Assembler, SseDriver, claudeMessagesStreamWith, emptyAssembler, translate)
 import Baikai.Provider.Claude.Sse
   ( ResponseMetadata,
     buildRequest,
@@ -12,7 +11,8 @@ import Baikai.Provider.Claude.Sse
     sseFromResponse,
   )
 import Claude.V1.Messages qualified as Messages
-import Control.Lens ((^.))
+import Contract (assertErrorContract)
+import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
@@ -27,6 +27,7 @@ import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
 import Servant.Client qualified as Client
+import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -119,8 +120,100 @@ observationTests =
           -- Recorded in the order the response listed them; the
           -- adapter's preference order lives in capturedHeaderNames.
           [md] -> md ^. #headers @?= [("cf-ray", "ray-9"), ("x-request-id", "gw-1")]
-          other -> assertFailure ("expected exactly one metadata value, got: " <> show other)
+          other -> assertFailure ("expected exactly one metadata value, got: " <> show other),
+      failureStreamTests
     ]
+
+-- | Every way a Claude stream can fail before Anthropic has said
+-- anything about the response.
+--
+-- The point of the group is one invariant: the protocol's
+-- "'EventStart' first, exactly one terminal" holds even when the
+-- failure precedes @message_start@, which is the frame that used to
+-- carry the start event. Each case drains the whole provider stream
+-- through the real transport, so what is asserted is what a consumer
+-- would actually see.
+failureStreamTests :: TestTree
+failureStreamTests =
+  testGroup
+    "failure streams are protocol-conformant"
+    [ testCase "an HTTP 401 before message_start is EventStart then one EventError" $ do
+        events <-
+          replayStream
+            401
+            []
+            ["{\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"bad key\"}}"]
+        assertErrorContract events
+        terminalError events >>= \be -> category be @?= AuthError,
+      testCase "an HTTP 429 before message_start keeps EventStart first and Retry-After on the terminal" $ do
+        events <-
+          replayStream
+            429
+            [("Retry-After", "7")]
+            ["{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow\"}}"]
+        assertErrorContract events
+        be <- terminalError events
+        category be @?= RateLimited
+        retryAfterSeconds be @?= Just 7,
+      testCase "an in-band error event before message_start is EventStart then one EventError" $ do
+        events <-
+          replayStream
+            200
+            []
+            ["data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}\n\n"]
+        assertErrorContract events
+        terminalError events >>= \be -> category be @?= TransientError,
+      testCase "EOF before message_start is EventStart then one EventError" $ do
+        events <- replayStream 200 [] []
+        assertErrorContract events
+        be <- terminalError events
+        be ^. #message @?= "claude stream ended without message_stop",
+      testCase "message_start updates the skeleton and emits no second EventStart" $ do
+        events <- replayStream 200 [] successBody
+        length [() | EventStart {} <- events] @?= 1
+        case events of
+          -- The pre-seeded start carries no id: Anthropic has not sent
+          -- one yet when it is emitted.
+          (EventStart StartPayload {responseId = rid} : _) -> rid @?= Nothing
+          other -> assertFailure ("expected EventStart first, got: " <> show (take 1 other))
+        case reverse events of
+          (EventDone TerminalPayload {responseId = rid} : _) -> rid @?= Just "msg_observed"
+          other -> assertFailure ("expected a terminal EventDone, got: " <> show (take 1 other))
+        resp <- Stream.fold (reassembleResponse testModel) (Stream.fromList events)
+        resp ^. #responseId @?= Just "msg_observed"
+    ]
+
+-- | Drain a recorded response as the provider stream a consumer sees.
+replayStream :: Int -> [(ByteString, ByteString)] -> [ByteString] -> IO [AssistantMessageEvent]
+replayStream status headers chunks =
+  Stream.toList
+    (claudeMessagesStreamWith (replayDriver status headers chunks) testModel emptyContext testOptions)
+
+-- | A transport driver that serves a recorded response instead of
+-- opening a socket. The same eleven lines as
+-- @EvidenceSpec.replayDriver@; the two suites keep their own so neither
+-- can silently change the other's fixtures.
+replayDriver :: Int -> [(ByteString, ByteString)] -> [ByteString] -> SseDriver
+replayDriver status headers chunks _call onMetadata onEvent = do
+  resp <- mkResponse status headers chunks
+  sseFromResponse resp onMetadata onEvent
+
+-- | The typed error on a stream's terminal. 'errorInfo' is a 'Maybe';
+-- whether a failed stream carries a typed error at all is part of what
+-- these cases assert.
+terminalError :: [AssistantMessageEvent] -> IO BaikaiError
+terminalError events = case reverse events of
+  (EventError TerminalPayload {errorInfo = Just be} : _) -> pure be
+  other -> assertFailure ("expected a terminal EventError carrying errorInfo, got: " <> show (take 1 other))
+
+testModel :: Model
+testModel =
+  anthropic_claude_haiku_4_5
+    & #api .~ AnthropicMessages
+    & #baseUrl .~ "https://api.anthropic.com"
+
+testOptions :: Options
+testOptions = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "test-key")
 
 -- | A complete successful stream whose reported model is not any model
 -- in the catalog, so it cannot be confused with a configured one.

@@ -91,6 +91,7 @@ test-suite baikai-claude-test
   main-is:        Main.hs
   other-modules:
     CliEvidenceSpec
+    Contract
     ErrorClassSpec
     EvidenceSpec
     LifecycleSpec

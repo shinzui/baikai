@@ -1,17 +1,25 @@
 module SseSpec (tests) where
 
-import Baikai.Error (BaikaiError, ErrorCategory (..), category, httpStatus, providerError, retryAfterSeconds)
-import Baikai.Evidence (Observed (..))
+import Baikai
 import Baikai.Http qualified as Http
 import Baikai.Models.Generated (openai_gpt_4o_mini)
-import Baikai.Provider.OpenAI.Api (Assembler, RawChunk, emptyAssembler, parseChunk, translate)
+import Baikai.Provider.OpenAI.Api
+  ( Assembler,
+    RawChunk,
+    SseDriver,
+    emptyAssembler,
+    openaiChatStreamWith,
+    parseChunk,
+    translate,
+  )
 import Baikai.Provider.OpenAI.Sse
   ( ResponseMetadata,
     buildRequest,
     openaiSseStreamValueWithHeaders,
     sseFromResponse,
   )
-import Control.Lens ((^.))
+import Contract (assertErrorContract)
+import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
@@ -26,6 +34,7 @@ import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
 import Servant.Client qualified as Client
+import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -54,10 +63,45 @@ tests =
         case events of
           [Right (Aeson.Object _)] -> pure ()
           other -> assertFailure ("expected one JSON event before [DONE], got: " <> show other),
+      testCase "an HTTP 401 stream is EventStart then one EventError" $ do
+        -- The whole provider stream, not just the transport: what a
+        -- consumer sees when the call fails before the first chunk.
+        events <- replayStream 401 [] ["{\"error\":{\"message\":\"bad key\",\"type\":\"invalid_request_error\"}}"]
+        assertErrorContract events
+        case reverse events of
+          (EventError TerminalPayload {errorInfo = Just be} : _) -> category be @?= AuthError
+          other -> assertFailure ("expected a terminal EventError carrying errorInfo, got: " <> show (take 1 other)),
       observationTests,
       requestShapeTests,
       redirectTests
     ]
+
+-- | Drain a recorded response as the provider stream a consumer sees.
+replayStream :: Int -> [(ByteString, ByteString)] -> [ByteString] -> IO [AssistantMessageEvent]
+replayStream status headers chunks = do
+  bodyRef <- newIORef Aeson.Null
+  Stream.toList
+    (openaiChatStreamWith (replayDriver bodyRef status headers chunks) streamTestModel emptyContext streamTestOptions)
+
+-- | A transport driver that serves a recorded response instead of
+-- opening a socket. The same shape as @EvidenceSpec.replayDriver@; the
+-- two suites keep their own so neither can silently change the other's
+-- fixtures.
+replayDriver ::
+  IORef Aeson.Value -> Int -> [(ByteString, ByteString)] -> [ByteString] -> SseDriver
+replayDriver bodyRef status headers chunks _env _headers body onMetadata onEvent = do
+  writeIORef bodyRef body
+  resp <- mkResponse status headers chunks
+  sseFromResponse resp onMetadata onEvent
+
+streamTestModel :: Model
+streamTestModel =
+  openai_gpt_4o_mini
+    & #api .~ OpenAIChatCompletions
+    & #baseUrl .~ "https://api.openai.com"
+
+streamTestOptions :: Options
+streamTestOptions = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "test-key")
 
 -- | What the transport and the assembler between them can say about
 -- what the host reported, as opposed to what was configured.

@@ -21,6 +21,7 @@ import Baikai.Provider.Claude.Sse (sseFromResponse)
 import Baikai.Trace (withTraceStreamWith)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
+import Contract (assertErrorContract)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (Value (..))
@@ -146,6 +147,15 @@ rateLimitEvidenceTest =
     field "usage" ev @?= Just (String "unobserved")
     field "strength" ev @?= Just (String "correlated")
 
+    -- The same replay as a stream: an HTTP failure that arrives before
+    -- @message_start@ still begins with 'EventStart'.
+    assertErrorContract
+      =<< replayStreamEvents
+        429
+        [("request-id", "req_rate_limited"), ("Retry-After", "7")]
+        ["{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow\"}}"]
+        baseOptions
+
 thinkingEvidenceTest :: TestTree
 thinkingEvidenceTest =
   testCase "the evidence carries the thinking translation the request actually used" $ do
@@ -207,6 +217,19 @@ replayWith model status headers chunks opts = do
       Fold.drain
       (withTraceStreamWith reg sink model emptyContext opts)
   reverse <$> readTVarIO ref
+
+-- | The same recorded response, drained as the provider stream itself
+-- rather than through the trace path.
+--
+-- The evidence cases assert what the record says; this asserts that the
+-- stream carrying it was protocol-conformant. One replay cannot do both,
+-- because 'withTraceStreamWith' hands back trace events, not stream
+-- events.
+replayStreamEvents ::
+  Int -> [(ByteString, ByteString)] -> [ByteString] -> Options -> IO [AssistantMessageEvent]
+replayStreamEvents status headers chunks opts =
+  Stream.toList
+    (claudeMessagesStreamWith (replayDriver status headers chunks) testModel emptyContext opts)
 
 -- | A transport driver that serves a recorded response instead of
 -- opening a socket.

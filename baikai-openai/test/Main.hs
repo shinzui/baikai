@@ -29,6 +29,7 @@ import Baikai.Provider.OpenAI.Interactive
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import CliEvidenceSpec qualified
+import Contract (assertErrorContract, assertOneErrorTerminal)
 import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -51,7 +52,7 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import TransportSpec qualified
 
 main :: IO ()
@@ -942,7 +943,7 @@ finishReasonTests =
                 (read "2026-06-05 00:00:02 UTC")
             (events3, _) = closeOpenStream (read "2026-06-05 00:00:03 UTC") Nothing ass2
         let terminalEvents = events2 <> events3
-        assertErrorContract terminalEvents
+        assertOneErrorTerminal terminalEvents
         case last terminalEvents of
           EventError TerminalPayload {errorInfo = Just be} -> do
             be ^. #category @?= OtherError
@@ -976,15 +977,6 @@ withUnsetEnv name action =
     (const (unsetEnv name >> action))
   where
     restore = maybe (unsetEnv name) (setEnv name)
-
-assertErrorContract :: [AssistantMessageEvent] -> Assertion
-assertErrorContract events = do
-  let terminals = filter isTerminal events
-  length terminals @?= 1
-  case terminals of
-    [EventError TerminalPayload {errorInfo = Nothing}] ->
-      assertFailure "terminal EventError omitted errorInfo"
-    _ -> pure ()
 
 assistantText :: Response -> Text.Text
 assistantText resp =

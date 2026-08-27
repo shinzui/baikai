@@ -94,7 +94,8 @@ streamRequest :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
 streamRequest = streamRequestWith globalProviderRegistry
 
 -- | Dispatch a streaming call through the selected provider registry.
--- Returns a one-event error stream when no handler is registered for that tag.
+-- Returns an 'EventStart' then 'EventError' stream when no handler is
+-- registered for that tag.
 streamRequestWith ::
   ProviderRegistry ->
   Model ->
@@ -575,8 +576,8 @@ errorEvents m opts startTs e = do
 -- omits it is worse than one that records the failure. There is no wire
 -- request body to digest here because nothing was ever sent, so the
 -- digests are over 'Build.dispatchEnvelope'.
--- | The one-event error stream a strict call refused before dispatch
--- returns.
+-- | The 'EventStart' then 'EventError' stream a strict call refused
+-- before dispatch returns.
 --
 -- Shaped exactly like 'noProviderEvents', because from a consumer's
 -- point of view both are the same thing: a call that produced a terminal

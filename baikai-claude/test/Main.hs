@@ -19,6 +19,7 @@ import Baikai.Provider.Claude.Interactive
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Claude.V1.Messages qualified as Messages
 import CliEvidenceSpec qualified
+import Contract (assertErrorContract)
 import Control.Exception (bracket)
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
@@ -37,7 +38,7 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import ThinkingSpec qualified
 import TransportSpec qualified
 
@@ -757,15 +758,6 @@ withUnsetEnv name action =
     (const (unsetEnv name >> action))
   where
     restore = maybe (unsetEnv name) (setEnv name)
-
-assertErrorContract :: [AssistantMessageEvent] -> Assertion
-assertErrorContract events = do
-  let terminals = filter isTerminal events
-  length terminals @?= 1
-  case terminals of
-    [EventError TerminalPayload {errorInfo = Nothing}] ->
-      assertFailure "terminal EventError omitted errorInfo"
-    _ -> pure ()
 
 assistantText :: Response -> Text.Text
 assistantText resp =

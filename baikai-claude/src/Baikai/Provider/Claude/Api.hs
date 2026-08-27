@@ -220,7 +220,21 @@ claudeMessagesStreamWith driver m ctx opts =
         let initialState =
               ProducerState
                 { chan = q,
-                  pending = [],
+                  -- Pre-seeded, exactly as the OpenAI producer does it,
+                  -- so the first event reaches the consumer immediately
+                  -- and carries the request-start timestamp, and so
+                  -- every failure path is 'EventStart'-first without
+                  -- per-path bookkeeping. Anthropic's message id is not
+                  -- known yet; it rides the terminal's @responseId@,
+                  -- which 'Baikai.Stream.reassembleResponse' prefers
+                  -- anyway.
+                  pending =
+                    [ EventStart
+                        StartPayload
+                          { partial = skeletonMessage (emptyAssembler m startTime) startTime,
+                            responseId = Nothing
+                          }
+                    ],
                   assembler = emptyAssembler m startTime,
                   finished = False,
                   terminalRef = tref,
@@ -632,6 +646,11 @@ translateEvent ::
   ([AssistantMessageEvent], Assembler)
 translateEvent raw ass now = case raw of
   Messages.Ping -> ([], ass)
+  -- Updates the assembler and emits nothing: the stream's one
+  -- 'EventStart' was pre-seeded before the first wire read, so that a
+  -- failure arriving before this frame — a 401, a rate limit, an
+  -- in-band error event, an EOF — still begins the stream the way the
+  -- protocol says every stream begins.
   Messages.Message_Start {Messages.message = mr} ->
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
         ass' =
@@ -644,8 +663,7 @@ translateEvent raw ass now = case raw of
             & #observedModel .~ Ev.Observed (mr ^. #model)
             & #usage .~ usage0
             & #usageReported .~ True
-        skeleton = skeletonMessage ass' now
-     in ([EventStart StartPayload {partial = skeleton, responseId = Just (mr ^. #id)}], ass')
+     in ([], ass')
   Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
     handleBlockStart (fromIntegral idx) block ass
   Messages.Content_Block_Delta {Messages.index = idx, Messages.delta = d} ->
