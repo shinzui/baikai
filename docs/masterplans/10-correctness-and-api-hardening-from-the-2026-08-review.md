@@ -150,7 +150,7 @@ states the version (EP-10).
 | 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Complete |
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Complete |
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Complete |
-| 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | In Progress |
+| 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Complete |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Not Started |
 | 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Not Started |
 | 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | Not Started |
@@ -398,10 +398,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-7 M2: library code returns typed errors; only the CLI exits
 - [x] EP-7 M3: install fidelity (every listed file, phase-two rollback, unique temp names, manifest version gate, dirty-update refusal)
 - [x] EP-7 M4: `docs/user/kit.md` and the kit capability record match
-- [ ] EP-8 M1: the caller's thinking request recorded on every evidence path
-- [ ] EP-8 M2: strict mode fails a call whose terminal carries no record
-- [ ] EP-8 M3: observed model only in the OTel span; endpoint default host; commitment digest without cost
-- [ ] EP-8 M4: one strength derivation; `ApiProvider` declares its ceiling; ADRs 0002–0004 revised
+- [x] EP-8 M1: the caller's thinking request recorded on every evidence path
+- [x] EP-8 M2: strict mode fails a call whose terminal carries no record
+- [x] EP-8 M3: observed model only in the OTel span; endpoint default host; commitment digest without cost
+- [x] EP-8 M4: one strength derivation; `ApiProvider` declares its ceiling; ADRs 0002–0004 revised
 - [ ] EP-9 M1: terminal and evidence exactly once under asynchronous exceptions
 - [ ] EP-9 M2: a blocking or throwing sink cannot hang the call or starve sibling sinks
 - [ ] EP-9 M3: OTel parent-context option; strength rendering shared
@@ -597,6 +597,28 @@ plans named (each plan's implementer reads this section before its first commit)
   as EP-2's `ClientEnv` count race: a case that writes shared process state must either
   not write it or be folded into the case that reads it. (2026-08-27, EP-6)
 
+- EP-8's `ApiProvider.strengthCeiling` is the fifth field on that record, and EP-10
+  (`docs/plans/67-freeze-the-public-surface.md`) now carries a Decision Log line saying
+  so: the base value that plan defines for every evolvable record must cover it. EP-8
+  deliberately added none, because a base value added there and renamed at the freeze
+  would break third parties twice. (2026-08-27, EP-8)
+- EP-8 bumped `evidenceSchemaVersion` to `baikai.model-call-evidence/2.0`, and both
+  golden digests in `baikai/test/EvidenceSpec.hs` were recomputed. Any later plan that
+  edits `configurationProjection`, `usageEnvelope` or `canonicalEncode` changes what a
+  verifier must hash and owes another major bump; the constant's Haddock now states the
+  rule per digest so the obligation is visible at the definition. (2026-08-27, EP-8)
+- EP-8 found that a test fixture can hide the very defect the suite appears to cover.
+  Every stub `describeThinking` answered `noThinkingRequested` whatever the caller set,
+  which made the thinking-collapse defect invisible on four well-covered paths, and the
+  evidence fixture planted no marker in a structured-output schema, which made the
+  redaction test blind to two keys it was supposed to guard. EP-9, EP-10 and EP-11 should
+  treat "the fixture cannot distinguish the two outcomes" as a finding in its own right.
+  (2026-08-27, EP-8)
+- EP-8's ADR 0014 is numbered 0014, not the `0006` its plan named, and was written in its
+  Milestone 2 rather than Milestone 4: the milestone's own capability-record and changelog
+  edits had to cite it, and a document linking a file that does not yet exist is a broken
+  link at that commit. Later plans naming a prospective ADR number should expect the same.
+  (2026-08-27, EP-8)
 - EP-7's ADR, `docs/adr/0013-library-code-never-calls-exitfailure.md`, binds every
   package, not only `baikai-kit`: no exposed module may call `exitFailure`,
   `exitWith` or `error` on a failure path, and an adapter documented to *be* a
@@ -617,6 +639,16 @@ plans named (each plan's implementer reads this section before its first commit)
 
 ## Decision Log
 
+- Decision: EP-8's ADR is
+  `docs/adr/0014-strict-evidence-means-a-record-exists.md`, so the next plan to promote a
+  record takes `0015`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-8's
+  distillation pass promoted the record-exists rule to 0014 and folded its other three
+  durable decisions into revisions of the records that already owned them — the
+  `not_translated` mode into 0002, the adapter-obtained description and the
+  provider-declared ceiling into 0003, and the two digest changes into 0004 — rather than
+  creating records that would have restated them.
+  Date: 2026-08-27
 - Decision: EP-7's ADR is
   `docs/adr/0013-library-code-never-calls-exitfailure.md`, so the next plan to promote
   a record takes `0014`.

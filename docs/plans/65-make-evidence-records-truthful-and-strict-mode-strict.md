@@ -293,10 +293,52 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation. Before marking the plan complete, confirm the three
-ADR revisions and ADR 0006 are in place and listed in `docs/adr/README.md`, and that the durable
-entries above — the `not_translated` mode, the record-exists rule, the two-digest revision, the
-single strength rule and the provider-declared ceiling — have been promoted rather than left here.)
+All four milestones landed in four commits. The keyless `cabal test all` gate is green across
+every package with no suite skipping; `okf validate docs/capabilities --profile-enforce
+--log-enforce`, `okf graph docs/capabilities` and `mori validate` all exit 0.
+
+Against the purpose, each claim checked by a named test. A caller who set `ThinkingMax` and then
+abandoned the stream, named an unregistered provider, had a handler throw, or hit a missing key
+before any request was built now gets `"requested":"max"` on every one of those paths, and the
+abort path reports whatever the registered adapter's own describer says. A strict call whose
+provider attaches no record fails with a message naming the missing record, at both dispatch
+points, with the provider's content kept. A span carries `gen_ai.response.model` only when a
+provider reported one, and then the reported one. A call with an empty `baseUrl` records the host
+it went to. `response_commitment` covers token counts and never cost; `request_configuration`
+summarises both structured-output schemas. One `deriveStrength` replaces three, an observed
+response id counts as correlation, and a custom provider declares its own ceiling.
+
+The ADR work: 0002, 0003 and 0004 each carry a dated `## Revisions` section, and
+`docs/adr/0014-strict-evidence-means-a-record-exists.md` is written and indexed —
+numbered 0014 rather than 0006, and created in Milestone 2 rather than Milestone 4, because
+Milestone 2's own capability and changelog edits had to cite it. `docs/adr/README.md` lists
+fourteen records.
+
+Three things worth keeping.
+
+The fixtures were the defect's accomplice, twice over. Every stub provider's `describeThinking`
+answered `noThinkingRequested` whatever the caller set, so a path that kept the caller's level and
+a path that lost it produced identical records — the D.2 finding was invisible to a suite that
+otherwise covered those paths well. The evidence fixture likewise planted no marker in a
+structured-output schema, so the redaction test could not see D.7. A test whose fixture cannot
+distinguish the two outcomes is not testing the rule, and both fixes here were fixture changes
+before they were code changes.
+
+Landing one rule can invalidate another rule's test. `strictSinkFailureTest` used a record-less
+provider, so the moment strict mode learned to fail a record-less call, that case asserted the
+sink rule against the missing-record error. Its assertion was right and stayed; the fixture had to
+build a record so the sink was the only reason the call could fail. ADR 0014 records the general
+form.
+
+`ApiProvider` gained its fifth field the way the fourth did: as a compile error at every
+construction site, thirty of them. That is the right direction for a change that alters what a
+provider promises — the alternative, a default that silently means `requested_only`, is how the
+tag-keyed table became wrong in the first place.
+
+Not done here, by design: the base value for `ApiProvider`, owned by
+`docs/plans/67-freeze-the-public-surface.md`, which now carries a Decision Log line saying the
+record has five fields; and the `TraceSpec` pin on evidence ordering, owned by
+`docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md` M4.
 
 
 ## Context and Orientation
