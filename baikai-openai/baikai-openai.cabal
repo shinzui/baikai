@@ -1,17 +1,21 @@
-cabal-version: 3.4
-name:          baikai-openai
-version:       0.6.0.0
-synopsis:      OpenAI providers for the baikai abstraction
+cabal-version:   3.4
+name:            baikai-openai
+version:         0.6.0.0
+synopsis:        OpenAI providers for the baikai abstraction
 description:
-  Wraps the openai Haskell package as a Baikai Provider for OpenAI's Chat Completions API.
+  OpenAI-compatible backends for baikai: Chat Completions over SSE against OpenAI and
+  any host that emulates it, the codex exec batch provider, a launcher for interactive
+  Codex sessions, and the renderer for unattended codex runs driven by baikai-agent.
 
-category:      AI
-license:       BSD-3-Clause
-license-file:  LICENSE
-author:        Nadeem Bitar
-maintainer:    nadeem@gmail.com
-copyright:     (c) 2026 Nadeem Bitar
-build-type:    Simple
+category:        AI
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Nadeem Bitar
+maintainer:      nadeem@gmail.com
+copyright:       (c) 2026 Nadeem Bitar
+build-type:      Simple
+tested-with:     GHC ==9.12.4
+extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
@@ -94,6 +98,7 @@ test-suite baikai-openai-test
     EvidenceSpec
     LifecycleSpec
     MidStreamSpec
+    PublicSurfaceSpec
     ReasoningSpec
     ShapeSpec
     SseSpec

@@ -1,18 +1,20 @@
-cabal-version: 3.4
-name:          baikai-smoke
-version:       0.1.0.0
-synopsis:      Live smoke tests across baikai providers
+cabal-version:   3.4
+name:            baikai-smoke
+version:         0.1.0.0
+synopsis:        Live smoke tests across baikai providers
 description:
   Runs minimal real-network requests against every shipped baikai provider when the
   corresponding API key environment variable is set. Skips, never fails, when keys
   are absent.
 
-license:       BSD-3-Clause
-license-file:  LICENSE
-author:        Nadeem Bitar
-maintainer:    nadeem@gmail.com
-copyright:     (c) 2026 Nadeem Bitar
-build-type:    Simple
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Nadeem Bitar
+maintainer:      nadeem@gmail.com
+copyright:       (c) 2026 Nadeem Bitar
+build-type:      Simple
+tested-with:     GHC ==9.12.4
+extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:

@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- | Internal request mapping for the OpenAI Chat Completions provider.
 --
@@ -18,7 +19,7 @@ import Baikai.Context (Context (..))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
-import Baikai.ResponseFormat (ResponseFormat (..))
+import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Baikai.Tool qualified as Tool
 import Control.Lens ((^.))
@@ -103,14 +104,14 @@ nonEmptyStops xs = Just (Vector.fromList xs)
 -- schema 'Value' is forwarded verbatim.
 mkOpenAIResponseFormat :: OpenAICompletionsCompat -> ResponseFormat -> RF.ResponseFormat
 mkOpenAIResponseFormat _ JsonObject = RF.JSON_Object
-mkOpenAIResponseFormat compat JsonSchema {name = n, schema = s, strict = st} =
+mkOpenAIResponseFormat compat (JsonSchema f) =
   RF.JSON_Schema
     { RF.json_schema =
         RF.JSONSchema
           { RF.description = Nothing,
-            RF.name = n,
-            RF.schema = Just s,
-            RF.strict = if supportsStrictMode compat then Just st else Nothing
+            RF.name = f.name,
+            RF.schema = Just f.schema,
+            RF.strict = if supportsStrictMode compat then Just f.strict else Nothing
           }
     }
 

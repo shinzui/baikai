@@ -31,7 +31,7 @@ where
 
 import Baikai.Content (AssistantContent (..), ToolCall (..), isCutOffToolCall)
 import Baikai.Message (Message (..), ToolResult, toolResultErrorText, toolResultFromCallNow, toolResultText, user)
-import Baikai.Response (Response (..), responseMessage)
+import Baikai.Response (Response (..), responseError, responseMessage)
 import Baikai.Tool (Tool)
 import Control.Applicative ((<|>))
 import Control.Lens ((&), (.~), (^.))
@@ -101,10 +101,20 @@ addResponse resp = addMessage (responseMessage resp)
 -- returned 'Context' is ready to drive the follow-up request that
 -- gives the model the tool results.
 --
--- The dispatcher receives one 'ToolCall' at a time and returns a rich
--- 'ToolResult' carrying text blocks, image blocks, and an error flag.
--- Any error handling (timeouts, sandboxing, multi-call concurrency)
--- lives in the dispatcher.
+-- The dispatcher is invoked once per call, sequentially, and returns a
+-- rich 'ToolResult' carrying text blocks, image blocks, and an error
+-- flag. Error handling — timeouts, sandboxing — lives in the
+-- dispatcher; running several calls concurrently does not, because this
+-- function traverses them in order.
+--
+-- An __error-shaped response__ (one whose 'Baikai.Response.responseError'
+-- is 'Just') appends nothing and dispatches nothing: the context comes
+-- back unchanged. A failed call has no assistant turn worth replaying
+-- and no tool calls to answer, and appending its empty message would put
+-- a turn into the transcript that the model never took.
+-- 'Baikai.Provider.Registry.runToolLoop' has always stopped on such a
+-- response; the documented direct round trip in @docs\/user\/tools.md@
+-- reaches here instead, and now behaves the same way.
 --
 -- A tool call cut off by the output cap
 -- ('Baikai.Content.isCutOffToolCall') is __never dispatched__: its
@@ -120,6 +130,8 @@ appendToolResult ::
   Response ->
   (ToolCall -> IO ToolResult) ->
   IO Context
+appendToolResult ctx resp _dispatcher
+  | Just _ <- responseError resp = pure ctx
 appendToolResult ctx resp dispatcher = do
   let respPayload = resp ^. #message
       respMsg = responseMessage resp

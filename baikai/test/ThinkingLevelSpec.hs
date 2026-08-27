@@ -10,6 +10,7 @@ tests =
   testGroup
     "ThinkingLevel"
     [ testGroup "canonical rendering" renderTests,
+      testGroup "canonical parsing" parseTests,
       testGroup "token budgets" budgetTests
     ]
 
@@ -28,6 +29,18 @@ renderTests =
   [ testCase name $ renderThinkingLevel level @?= expected
   | (name, level, expected, _) <- levels
   ]
+
+-- | 'parseThinkingLevel' is the inverse of 'renderThinkingLevel' on
+-- every level, which is what lets @baikai-agent@'s KDL decoder and the
+-- evidence schema read the table instead of copying it.
+parseTests :: [TestTree]
+parseTests =
+  [ testCase name $ do
+      parseThinkingLevel expected @?= Just level
+      parseThinkingLevel (renderThinkingLevel level) @?= Just level
+  | (name, level, expected, _) <- levels
+  ]
+    <> [testCase "an unknown name is Nothing" $ parseThinkingLevel "enormous" @?= Nothing]
 
 budgetTests :: [TestTree]
 budgetTests =

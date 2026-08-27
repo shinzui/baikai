@@ -1,18 +1,21 @@
-cabal-version: 3.4
-name:          baikai-claude
-version:       0.6.0.0
-synopsis:      Anthropic Claude providers for the baikai abstraction
+cabal-version:   3.4
+name:            baikai-claude
+version:         0.6.0.0
+synopsis:        Anthropic Claude providers for the baikai abstraction
 description:
-  Wraps the claude Haskell package as a Baikai Provider for both the Anthropic API and the
-  claude -p CLI.
+  Anthropic backends for baikai: the Messages API over SSE, the claude -p batch
+  provider, a launcher for interactive Claude Code sessions, and the renderer for
+  unattended claude runs driven by baikai-agent.
 
-category:      AI
-license:       BSD-3-Clause
-license-file:  LICENSE
-author:        Nadeem Bitar
-maintainer:    nadeem@gmail.com
-copyright:     (c) 2026 Nadeem Bitar
-build-type:    Simple
+category:        AI
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Nadeem Bitar
+maintainer:      nadeem@gmail.com
+copyright:       (c) 2026 Nadeem Bitar
+build-type:      Simple
+tested-with:     GHC ==9.12.4
+extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
@@ -97,6 +100,7 @@ test-suite baikai-claude-test
     EvidenceSpec
     LifecycleSpec
     MidStreamSpec
+    PublicSurfaceSpec
     ShapeSpec
     SseSpec
     ThinkingSpec

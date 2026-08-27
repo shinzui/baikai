@@ -92,12 +92,12 @@ decisions recorded and applied:
 
 Milestone 4 — accessors, parsers and deriving gaps closed; release metadata complete:
 
-- [ ] Export the `AgentRunResult` selectors; derive `Generic` (and `Eq`/`Show` where the fields allow) on `OtelSinkOptions` and `Eq`/`Generic` on `EmbeddingModel`.
-- [ ] Export `parseThinkingLevel` and `parseEvidenceStrength`; delete the copies in `Evidence.hs`, `Agent/Config.hs` and `Agent/Cli.hs`.
-- [ ] Replace `ResponseFormat`'s partial fields with `JsonSchema !JsonSchemaFormat`, drop `-Wno-partial-fields`, pin the unchanged JSON shape.
-- [ ] Guard `appendToolResult` against error-shaped responses and correct its Haddock.
-- [ ] Release metadata: `tested-with`, changelog symlinks, corrected descriptions, aligned `streamly-core` bounds, `streamly` dropped from baikai-effectful, retroactive 0.5.0.0 changelog entries.
-- [ ] Add the `PublicSurface*` compile modules; `cabal check` per package; `cabal haddock baikai`; capability log entry; update the master plan's EP-10 boxes and registry row.
+- [x] Export the `AgentRunResult` selectors; derive `Generic` (and `Eq`/`Show` where the fields allow) on `OtelSinkOptions` and `Eq`/`Generic` on `EmbeddingModel`.
+- [x] Export `parseThinkingLevel` and `parseEvidenceStrength`; delete the copies in `Evidence.hs`, `Agent/Config.hs` and `Agent/Cli.hs`.
+- [x] Replace `ResponseFormat`'s partial fields with `JsonSchema !JsonSchemaFormat`, drop `-Wno-partial-fields`, pin the unchanged JSON shape.
+- [x] Guard `appendToolResult` against error-shaped responses and correct its Haddock.
+- [x] Release metadata: `tested-with`, changelog symlinks, corrected descriptions, aligned `streamly-core` bounds, `streamly` dropped from baikai-effectful, retroactive 0.5.0.0 changelog entries.
+- [x] Add the `PublicSurface*` compile modules; `cabal check` per package; `cabal haddock baikai`; capability log entry; update the master plan's EP-10 boxes and registry row.
 
 
 ## Surprises & Discoveries
@@ -161,6 +161,25 @@ implementation. Provide concise evidence.
   predates this plan.) What the criterion was after does hold: no code compares
   or folds header names case-insensitively any more — the key type does it —
   and the remaining calls are type conversions at the http-types boundary.
+
+- Milestone 4: the surface probes found a real downstream sharp edge that hiding
+  constructors neither caused nor fixes. Under `DuplicateRecordFields`, a record
+  update whose fields do not determine the datatype is ambiguous, so
+  `emptyEmbeddingModel { modelId = … }` does not compile when `Baikai` is also
+  imported — `Model`, `EmbeddingModel` and `InteractiveLaunchRequest` all have a
+  `modelId`. A consumer either qualifies the field
+  (`Embedding.emptyEmbeddingModel { Embedding.modelId = … }`, which
+  `baikai/test/PublicSurfaceSpec.hs` does and documents) or reaches for
+  generic-lens. Reading is not affected: `OverloadedRecordDot` resolves
+  `r.modelId` from the type. Worth a sentence in EP-11's guide sweep.
+
+- Milestone 4: `HasField` — and therefore `OverloadedRecordDot` — is only solved
+  when the field selector is in scope, so a module reading `f.schema` must
+  import `JsonSchemaFormat (..)` (or the selectors) even though it never names
+  the constructor. Both provider `Internal/Request.hs` modules and the surface
+  probes had to widen their import lists for that reason. Selector-only export
+  therefore keeps record-dot reads working, but only for a module that imports
+  the selectors.
 
 
 ## Decision Log
@@ -403,6 +422,33 @@ Record every decision made while working on the plan.
   one; `"."` is the relative spelling of the same root and keeps the base pure.
   `defaultAgentConfigPaths` remains the discovering, `IO` path.
   Date: 2026-08-27
+- Decision (Milestone 4): `OtelSinkOptions` derives `Generic` only. EP-9's
+  `parentContext :: Maybe OpenTelemetry.Context.Context` has neither `Eq` nor
+  `Show`, and an instance that compared or printed the other two fields while
+  ignoring this one would be a lie about the value. The plan's "and `Eq`/`Show`
+  if every field admits them" condition is not met, and the reason is recorded
+  on the `deriving` clause. `EmbeddingModel` already derived `Eq`, `Show` and
+  `Generic` — EP-2 added them.
+  Date: 2026-08-27
+- Decision (Milestone 4): `Baikai.Evidence.parseThinkingLevelText` stays, as the
+  `MonadFail` wrapper that turns a miss into a decode failure naming the input;
+  what it no longer holds is a copy of the table, which now lives once in
+  `Baikai.ThinkingLevel.parseThinkingLevel`. The plan says "delete the copies";
+  the copy is the six-way case, not the wrapper.
+  Date: 2026-08-27
+- Decision (Milestone 4): `agentJob`'s `output` starts at `InheritOutput` and
+  `outputLimit` at `Just defaultOutputLimit`, matching what
+  `agentJobConfig`'s `withDefault` rules supply for an absent KDL setting, so a
+  job built in Haskell and a job resolved from an empty configuration file are
+  the same job.
+  Date: 2026-08-27
+- Decision (Milestone 4): the five `PublicSurface*` modules are ordinary test
+  modules exporting a `TestTree`, not compile-only modules with no exports. The
+  compilation is still the test the plan wanted; giving each a handful of cheap
+  assertions costs nothing and keeps them from being mistaken for dead code by a
+  later reader.
+  Date: 2026-08-27
+
 - Decision (Milestone 3): `Aborted` is retired — the default branch. EP-4's
   Decision Log (`docs/plans/61-…`, the single `Aborted` hit) records that
   "nothing here produces an `Aborted` terminal, so EP-10's retirement of
@@ -488,7 +534,57 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+All four milestones landed as four commits, and all six of the things the Purpose
+promised a downstream user hold.
+
+*The surface is freezable.* Eleven records that could still grow a field —
+`ApiProvider`, `ModelCallEvidence`, `EvidenceRequest`, `Tool`, `EmbeddingModel`,
+`CallLogConfig`, `OtelSinkOptions`, `AgentCliOptions`, `AgentCliRun`, `AgentJob`,
+`AgentConfigPaths` — are built from an exported base value and export no
+constructor. `git grep "ApiProvider$\|ApiProvider {" -- '*.hs'` is empty; the next
+field addition to any of them is a minor release rather than the break
+`describeThinking` was in 0.5.0.0 and `strengthCeiling` would have been in 0.6.0.0.
+
+*Every deprecated name is gone*, twenty-six of them rather than the twenty-five
+this plan counted (EP-3 added a twenty-sixth mid-cycle), and
+`docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md` says when the
+next one dies and makes the release procedure check.
+
+*The assembler seams are internal.* Both providers' streaming machinery lives in
+`Baikai.Provider.<P>.Internal.Stream`; `Api.hs` is a three-name façade. Changing
+the assembler is no longer a documented break.
+
+*Dispatch is honest.* A handler registered under either spelling of a built-in
+API answers the other; a blank `emptyModel` says so in words; a filtered response
+is `ContentFiltered` rather than indistinguishable text; `Aborted`, which nothing
+produced and three functions treated as success, is gone.
+
+*The remaining type defects are fixed.* `headers` cannot hold two spellings of one
+name, `stopSequences` and `seed` use the types the rest of `Options` uses,
+`ResponseFormat` has no partial selectors, and `appendToolResult` cannot replay an
+empty assistant turn.
+
+*Release metadata is complete.* Seven packages carry `tested-with`, a changelog
+and corrected descriptions; `cabal check` is clean in each; `cabal haddock baikai`
+builds.
+
+Two deviations from the plan as written, both recorded in the Decision Log with
+their reasons: `describeApi` is exported from `Baikai.Provider.Registry` (an
+unexported function cannot serve two modules) and the removals are recorded in
+`CHANGELOG.md`'s existing `[Unreleased]` section, which names the seven versions,
+rather than in seven newly opened headings the release procedure would have to
+merge. One acceptance criterion was unachievable as stated — the `CI.mk` grep,
+because converting a `HeaderName` to `http-types`' wire type necessarily calls it
+— and Surprises & Discoveries records what the criterion was actually after.
+
+Three things a later plan should carry. `DuplicateRecordFields` makes a
+single-field record update ambiguous when several imported records share the
+field name; the surface probe documents the qualification a consumer needs, and
+EP-11's guide sweep should say it in prose. `OverloadedRecordDot` needs the
+selector in scope, so selector-only export keeps record-dot reads working only
+for a module that imports the selectors. And twelve registered downstream
+projects have the migration sites listed in Context and Orientation; nothing here
+migrated them, by design.
 
 
 ## Context and Orientation
@@ -1284,3 +1380,21 @@ Value -> JsonSchemaFormat`; `appendToolResult` returns its input context unchang
 an error-shaped response; every publishable `.cabal` has `tested-with: GHC == 9.12.4`
 and `extra-doc-files: CHANGELOG.md`; `baikai-trace-otel` bounds `streamly-core >=0.3 &&
 <0.5`; `baikai-effectful`'s library does not depend on `streamly`.
+
+---
+
+Revision note (2026-08-27, after implementation): the plan was carried out as
+written, in four commits, with three recorded deviations and one unachievable
+acceptance criterion, each explained in the Decision Log or Surprises &
+Discoveries. `describeApi` is exported from `Baikai.Provider.Registry` because an
+unexported function cannot serve its two call sites; the removals are recorded in
+`CHANGELOG.md`'s existing `[Unreleased]` section, which names the seven versions
+this cycle ships as, rather than in seven newly opened per-package headings the
+release procedure would then have to merge; `ApiProvider` gained a `Generic`
+instance the plan did not anticipate needing; and the `CI.mk` grep cannot be
+empty, because converting a `HeaderName` to `http-types`' wire type calls it. The
+ADR is `0016`, not `0006`: the corpus grew to fifteen records while EP-1..EP-9
+landed, and the MasterPlan fixes the slug rather than the number. Twenty-six
+deprecated names were removed rather than twenty-five, EP-3 having added one
+mid-cycle. Progress is fully ticked and Outcomes & Retrospective compares the
+result against the Purpose.

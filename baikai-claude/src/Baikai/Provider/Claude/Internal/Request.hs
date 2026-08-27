@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- | Internal request mapping for the Anthropic Messages provider.
 --
@@ -30,7 +31,7 @@ import Baikai.Evidence
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
-import Baikai.ResponseFormat (ResponseFormat (..))
+import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Claude.V1.Messages qualified as Messages
@@ -256,7 +257,7 @@ mergeEffort (Just e) (Just cfg) = Just cfg {Messages.effort = Just e}
 -- schema, which still forces the model to emit a JSON object.
 mkAnthropicOutputConfig :: ResponseFormat -> Messages.OutputConfig
 mkAnthropicOutputConfig = \case
-  JsonSchema {schema = s} -> Messages.jsonSchemaConfig s
+  JsonSchema f -> Messages.jsonSchemaConfig f.schema
   JsonObject ->
     Messages.jsonSchemaConfig
       (Aeson.object ["type" .= ("object" :: Text)])

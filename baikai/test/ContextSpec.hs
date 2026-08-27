@@ -15,7 +15,29 @@ tests =
     [ monoidTests,
       constructorTests,
       timestampTests,
-      flattenTextTests
+      flattenTextTests,
+      toolResultTests
+    ]
+
+-- | A failed call has no assistant turn worth replaying and no tool
+-- calls to answer, so 'appendToolResult' appends nothing and runs
+-- nothing. 'runToolLoop' has always stopped on such a response; the
+-- documented direct round trip reaches here instead.
+toolResultTests :: TestTree
+toolResultTests =
+  testGroup
+    "appendToolResult"
+    [ testCase "an error-shaped response leaves the context unchanged and never dispatches" $ do
+        let ctx = contextOf [user "go"]
+            failed =
+              errorResponse
+                emptyModel
+                (read "2026-06-05 01:02:03 UTC" :: UTCTime)
+                12
+                (providerError "upstream died")
+            explode _ = error "the dispatcher must not run for an error-shaped response"
+        after <- appendToolResult ctx failed explode
+        after @?= ctx
     ]
 
 monoidTests :: TestTree

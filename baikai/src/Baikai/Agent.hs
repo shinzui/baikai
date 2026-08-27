@@ -81,7 +81,7 @@ module Baikai.Agent
     AgentCommand (..),
 
     -- * The run result
-    AgentRunResult,
+    AgentRunResult (provider, exitCode, stdout, stderr, duration),
     agentRunResult,
     AgentRunOutcome (..),
     agentRunOutcome,
@@ -691,6 +691,8 @@ data AgentCommand = AgentCommand
 -- A non-zero exit code is a normal result and lives here rather than
 -- in a failure type: a coding agent that fails its task and exits 1
 -- has still run.
+-- Construction: the constructor is deliberately not exported. Start
+-- from 'agentRunResult' and override fields by record update.
 data AgentRunResult = AgentRunResult
   { -- | Which coding-agent tool ran.
     provider :: !AgentProvider,

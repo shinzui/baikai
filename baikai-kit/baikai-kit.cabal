@@ -1,19 +1,21 @@
-cabal-version: 3.4
-name:          baikai-kit
-version:       0.2.0.0
-synopsis:      Shared kit installer for AI-agent skills and subagents
+cabal-version:   3.4
+name:            baikai-kit
+version:         0.2.0.0
+synopsis:        Shared kit installer for AI-agent skills and subagents
 description:
   Shared implementation of kit listing, installation, update, uninstall,
   status, and discovery helpers for command-line tools that install local
   AI-agent skills and subagents.
 
-category:      AI
-license:       BSD-3-Clause
-license-file:  LICENSE
-author:        Nadeem Bitar
-maintainer:    nadeem@gmail.com
-copyright:     (c) 2026 Nadeem Bitar
-build-type:    Simple
+category:        AI
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Nadeem Bitar
+maintainer:      nadeem@gmail.com
+copyright:       (c) 2026 Nadeem Bitar
+build-type:      Simple
+tested-with:     GHC ==9.12.4
+extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:

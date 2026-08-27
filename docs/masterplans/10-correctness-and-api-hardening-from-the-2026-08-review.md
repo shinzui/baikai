@@ -152,7 +152,7 @@ states the version (EP-10).
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Complete |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Complete |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Complete |
-| 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | In Progress |
+| 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Complete |
 | 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -406,10 +406,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-9 M2: a blocking or throwing sink cannot hang the call or starve sibling sinks
 - [x] EP-9 M3: OTel parent-context option; strength rendering shared
 - [x] EP-9 M4: abort-terminal delivery semantics documented; evidence-order pinned in `TraceSpec`
-- [ ] EP-10 M1: constructor policy applied to every evolvable record; assembler seams behind `.Internal`
-- [ ] EP-10 M2: deprecated shims removed; versions bumped; changelog states removals
-- [ ] EP-10 M3: `Api` key normalisation, `Aborted` decision, naming and type consistency decisions recorded and applied
-- [ ] EP-10 M4: accessors, parsers and deriving gaps closed; release metadata complete
+- [x] EP-10 M1: constructor policy applied to every evolvable record; assembler seams behind `.Internal`
+- [x] EP-10 M2: deprecated shims removed; versions bumped; changelog states removals
+- [x] EP-10 M3: `Api` key normalisation, `Aborted` decision, naming and type consistency decisions recorded and applied
+- [x] EP-10 M4: accessors, parsers and deriving gaps closed; release metadata complete
 - [ ] EP-11 M1: every capability `Shape` compiles under a test
 - [ ] EP-11 M2: README and guides teach the supported registration path and the helpers that exist
 - [ ] EP-11 M3: stale claims and Haddock swept
@@ -666,6 +666,33 @@ plans named (each plan's implementer reads this section before its first commit)
   treat a message that is accurate for one cause and not another as a defect, not a
   wording preference. (2026-08-27, EP-9)
 
+
+- EP-10 found that `ApiProvider` had no `Generic` instance, which every plan in
+  this initiative assumed when it wrote `apiProvider tag stream & #field .~ …`.
+  The record now derives it. Any later plan that hides a constructor and expects
+  label-based record update must check for the instance, not assume it.
+
+- EP-10's two cross-plan reconciliations, for a later reader:
+  `AgentConfigPaths` grew a third field in EP-6 that is a plain `FilePath`, not a
+  `Maybe`, so its base value sets `"."` rather than the "both `Nothing`" EP-10
+  was drafted against; and EP-3's `defaultAnthropicThinkingStyle` is a
+  twenty-sixth deprecated name, deprecated and removed inside one cycle, which
+  ADR 0016 permits because the name was never released deprecated.
+
+- EP-10 discovered two `DuplicateRecordFields` facts that bind EP-11's guide
+  sweep. A single-field record update is ambiguous when several imported records
+  share the field name (`emptyEmbeddingModel { modelId = … }` does not compile
+  beside `Baikai`), so a consumer qualifies the field or uses generic-lens; and
+  `OverloadedRecordDot` is solved only when the selector is in scope, so
+  selector-only export keeps `r.field` working only for a module that imports the
+  selectors. Neither is caused by hiding constructors, and both are what a
+  downstream meets first.
+
+- EP-10 removed five unused imports left behind by EP-7, EP-8 and EP-9. They
+  were invisible while their modules stayed cached and surfaced the moment a
+  version bump forced a full rebuild — a warning a per-plan `cabal build` will
+  not show, and worth a full rebuild before any plan in this initiative claims a
+  clean build.
 
 ## Decision Log
 

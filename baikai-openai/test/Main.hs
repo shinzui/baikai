@@ -45,6 +45,7 @@ import LifecycleSpec qualified
 import MidStreamSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
+import PublicSurfaceSpec qualified
 import ReasoningSpec qualified
 import ShapeSpec qualified
 import SseSpec qualified
@@ -96,6 +97,7 @@ main =
         EvidenceSpec.tests,
         LifecycleSpec.tests,
         MidStreamSpec.tests,
+        PublicSurfaceSpec.tests,
         ReasoningSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,
@@ -129,7 +131,7 @@ responseFormatMappingTest =
         opts =
           emptyOptions
             & #responseFormat
-              .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
+              .~ Just (JsonSchema (jsonSchemaFormat "person" personSchema) {strict = True})
     case mapRequest model ctx opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right req -> case Chat.response_format req of

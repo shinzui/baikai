@@ -26,6 +26,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import EvidenceTests (evidenceTests)
+import PublicSurfaceSpec qualified
 import System.Directory
   ( doesFileExist,
     findExecutable,
@@ -47,7 +48,8 @@ main =
       [ runTests,
         configTests,
         cliTests,
-        binaryTests
+        binaryTests,
+        PublicSurfaceSpec.tests
       ]
 
 runTests :: TestTree

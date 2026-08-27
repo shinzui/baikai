@@ -17,6 +17,22 @@ that takes the name away, per
 
 ### Added
 
+- `baikai`: `Baikai.ThinkingLevel.parseThinkingLevel :: Text -> Maybe
+  ThinkingLevel` and `Baikai.Evidence.parseEvidenceStrength :: Text -> Maybe
+  EvidenceStrength`, each beside its renderer. Three hand-copied tables — the
+  evidence schema's level parser, `baikai-agent`'s KDL `effort` decoder, and its
+  `--require-evidence` parser — now read them instead, so a level or strength
+  added later cannot be added in one place and missed in three. (REV-2 G.6.)
+
+- `baikai`: `Baikai.Agent.AgentRunResult` exports its selectors (`provider`,
+  `exitCode`, `stdout`, `stderr`, `duration`). It exported neither them nor its
+  constructor, so a consumer without generic-lens could not read a run's exit
+  code at all. (REV-2 G.6.)
+
+- `baikai-trace-otel`: `OtelSinkOptions` derives `Generic`, so `#spanName`
+  resolves on it. No `Eq` or `Show`: `OpenTelemetry.Context.Context` has neither,
+  and an instance that ignored `parentContext` would be a lie. (REV-2 G.6.)
+
 - `baikai`: `Baikai.Api.normaliseApi :: Api -> Api`, which collapses a `Custom`
   tag that spells a built-in API onto that constructor. The registry applies it
   to the key it stores and to the tag it is asked for, so a handler registered
@@ -243,6 +259,36 @@ that takes the name away, per
   `EvidenceStrength`. (REV-2 D.10.)
 
 ### Changed
+
+- `baikai` (breaking): `ResponseFormat`'s `JsonSchema` carries a
+  `JsonSchemaFormat` record — `name`, `schema`, `strict`, exported
+  selector-only with the base `jsonSchemaFormat name schema` — instead of
+  holding the three fields directly. As fields of a sum they were partial
+  selectors: `name f` on a `JsonObject` crashed at runtime rather than failing to
+  typecheck, which contradicted the module's own documentation.
+  `-Wno-partial-fields` is dropped from the module. The JSON encoding is
+  deliberately unchanged (`{"tag":"JsonSchema","name":…,"schema":…,"strict":…}`)
+  and is now pinned by a test, because `Options` derives `ToJSON` through it and
+  at least one consumer keys a cache on the result. (REV-2 G.2.)
+
+- `baikai`: `Baikai.Context.appendToolResult` returns its input context
+  unchanged, and runs no dispatcher, when the response is error-shaped. A failed
+  call has no assistant turn worth replaying and no tool calls to answer;
+  appending its empty message put a turn into the transcript the model never
+  took. `runToolLoop` has always stopped on such a response — the documented
+  direct round trip in `docs/user/tools.md` reaches `appendToolResult` instead,
+  and now behaves the same way. Its Haddock also stops claiming multi-call
+  concurrency lives in the dispatcher: the calls are traversed in order.
+  (REV-2 G.7.)
+
+- Release metadata (REV-2 G.8): every publishable package now declares
+  `tested-with: GHC ==9.12.4` and ships its `CHANGELOG.md` (a symlink to the
+  root one, as `baikai` already did) via `extra-doc-files`, so Hackage shows a
+  changelog and a tested compiler for all seven. `baikai-claude` and
+  `baikai-openai` describe what they actually contain — four surfaces each, not
+  "wraps package X" — and `baikai-trace-otel`'s `streamly-core` bound is
+  `>=0.3 && <0.5`, matching every other package in the workspace rather than
+  excluding the 0.4 series the others accept.
 
 - `baikai` (breaking): `Options.headers` and `Model.headers` are keyed on
   `Baikai.Header.HeaderName` — a newtype over a case-insensitive `CI Text` that
@@ -1087,6 +1133,35 @@ that takes the name away, per
   strictly they need evidence. A call whose `evidence` is `Nothing`, which is
   every call that does not opt in, behaves exactly as it did before: no digest
   is computed and no evidence is emitted.
+
+- (Entry added 2026-08-27; the behaviour shipped in 0.5.0.0.) `baikai`: **strict
+  evidence mode**. `EvidenceStrictness` is `EvidenceBestEffort` or
+  `EvidenceRequired !EvidenceStrength`, and a caller who asks for the second
+  gets a call that **refuses to start** — before any request is built or any
+  connection opened — when the configuration cannot reach the strength asked
+  for: `Baikai.Evidence.Build.checkEvidenceRequirements` compares the
+  requirement against what the provider can deliver and against the thinking
+  translation, and `completeRequest` / `streamRequest` return an error-shaped
+  response or a terminal `EventError` instead of dispatching. The gate is
+  pre-dispatch by design; that is the only point at which refusing is still
+  free.
+
+- (Entry added 2026-08-27; the behaviour shipped in 0.5.0.0.) `baikai`:
+  **sink-failure semantics under strict mode**. `Baikai.Evidence.Build`
+  exports `onSinkFailure`, `sinkFailureIsFatal` and `sinkFailureError`: a trace
+  sink that throws fails an `EvidenceRequired` caller's call, because a record
+  the sink did not confirm written is not a record, while a best-effort caller's
+  call succeeds with the failure reported on stderr.
+
+- (Entry added 2026-08-27; the behaviour shipped in 0.5.0.0.) **Breaking.**
+  `baikai`: `Baikai.Provider.Registry.ApiProvider` gained a fourth field,
+  `describeThinking :: Model -> Options -> ThinkingTranslation`, which the
+  pre-dispatch strictness gate calls to learn what a provider would do with the
+  caller's reasoning-effort request without sending anything. Every third-party
+  provider constructed with the `ApiProvider` constructor stopped compiling.
+  This was not recorded at the time; it is the defect that made 0.6.0.0 hide the
+  constructor behind `apiProvider` so that the next field addition is a minor
+  release.
 
 - `baikai`: model-call evidence is now **produced and emitted**. A caller who
   sets `Options.evidence` gets exactly one `call_evidence` line per call from

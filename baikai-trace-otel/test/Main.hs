@@ -47,6 +47,7 @@ import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Context qualified as Context
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
 import OpenTelemetry.Trace.Core qualified as Otel
+import PublicSurfaceSpec qualified
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
 import System.Mem (performMajorGC)
@@ -65,7 +66,8 @@ main =
         evidenceSpanTest,
         liveEvidenceSpanTest,
         multiSinkSiblingSpanTest,
-        parentContextTest
+        parentContextTest,
+        PublicSurfaceSpec.tests
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses

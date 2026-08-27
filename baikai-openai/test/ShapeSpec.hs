@@ -362,7 +362,7 @@ strictModeGateTest =
         opts =
           emptyOptions
             & #responseFormat
-              .~ Just (JsonSchema {name = "shape", schema = schema, strict = True})
+              .~ Just (JsonSchema (jsonSchemaFormat "shape" schema) {strict = True})
     value <- shapedBody Models.deepseek_deepseek_chat opts emptyContext
     lookupPath ["response_format", "json_schema", "strict"] value
       @?= Nothing

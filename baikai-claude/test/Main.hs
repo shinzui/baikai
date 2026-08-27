@@ -32,6 +32,7 @@ import ErrorClassSpec qualified
 import EvidenceSpec qualified
 import LifecycleSpec qualified
 import MidStreamSpec qualified
+import PublicSurfaceSpec qualified
 import ShapeSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
@@ -78,6 +79,7 @@ main =
         EvidenceSpec.tests,
         LifecycleSpec.tests,
         MidStreamSpec.tests,
+        PublicSurfaceSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,
         ThinkingSpec.tests,
@@ -111,7 +113,7 @@ responseFormatMappingTest =
         opts =
           emptyOptions
             & #responseFormat
-              .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
+              .~ Just (JsonSchema (jsonSchemaFormat "person" personSchema) {strict = True})
     case mapRequest model ctx opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right (req, _) ->

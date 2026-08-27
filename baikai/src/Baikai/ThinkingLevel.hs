@@ -10,6 +10,7 @@
 module Baikai.ThinkingLevel
   ( ThinkingLevel (..),
     renderThinkingLevel,
+    parseThinkingLevel,
     thinkingTokenBudget,
   )
 where
@@ -42,6 +43,21 @@ renderThinkingLevel = \case
   ThinkingHigh -> "high"
   ThinkingXHigh -> "xhigh"
   ThinkingMax -> "max"
+
+-- | The inverse of 'renderThinkingLevel': parse a canonical level name.
+--
+-- Beside its renderer so the two cannot drift, which three hand-copied
+-- tables — in 'Baikai.Evidence', @Baikai.Agent.Config@ and
+-- @Baikai.Agent.Cli@ — did the first time a level was added.
+parseThinkingLevel :: Text -> Maybe ThinkingLevel
+parseThinkingLevel = \case
+  "minimal" -> Just ThinkingMinimal
+  "low" -> Just ThinkingLow
+  "medium" -> Just ThinkingMedium
+  "high" -> Just ThinkingHigh
+  "xhigh" -> Just ThinkingXHigh
+  "max" -> Just ThinkingMax
+  _ -> Nothing
 
 -- | Recommended token budget for providers that take an explicit
 -- count (Anthropic's @thinking.budget_tokens@).

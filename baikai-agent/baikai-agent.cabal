@@ -1,7 +1,7 @@
-cabal-version: 3.4
-name:          baikai-agent
-version:       0.2.0.0
-synopsis:      Unattended coding-agent runs for the Baikai abstraction
+cabal-version:   3.4
+name:            baikai-agent
+version:         0.2.0.0
+synopsis:        Unattended coding-agent runs for the Baikai abstraction
 description:
   Runs a local coding-agent command-line tool with no terminal and no
   human present: delivers the prompt on standard input, drains both
@@ -10,13 +10,15 @@ description:
   vocabulary lives in @Baikai.Agent@ in the core package, and vendor
   packages own the translation into each tool's argument vector.
 
-category:      AI
-license:       BSD-3-Clause
-license-file:  LICENSE
-author:        Nadeem Bitar
-maintainer:    nadeem@gmail.com
-copyright:     (c) 2026 Nadeem Bitar
-build-type:    Simple
+category:        AI
+license:         BSD-3-Clause
+license-file:    LICENSE
+author:          Nadeem Bitar
+maintainer:      nadeem@gmail.com
+copyright:       (c) 2026 Nadeem Bitar
+build-type:      Simple
+tested-with:     GHC ==9.12.4
+extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
@@ -120,6 +122,7 @@ test-suite baikai-agent-test
     CliTests
     ConfigTests
     EvidenceTests
+    PublicSurfaceSpec
 
   -- -threaded is not optional here: the runner forks threads to drain
   -- pipes and relies on System.Timeout interrupting a blocking wait.

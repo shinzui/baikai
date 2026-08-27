@@ -102,6 +102,7 @@ import Baikai.Evidence
     ModelCallEvidence,
     ThinkingTranslation,
     evidenceRequest,
+    parseEvidenceStrength,
   )
 import Baikai.Provider.Claude.Agent
   ( ClaudeAgentConfig,
@@ -178,6 +179,7 @@ data PromptSource
   deriving stock (Eq, Show, Generic)
 
 -- | The parsed command line, before any file is opened.
+--
 -- Construction: the constructor is deliberately not exported. Start
 -- from 'agentCliOptions' and override fields by record update.
 data AgentCliOptions = AgentCliOptions
@@ -214,6 +216,7 @@ data AgentCliOptions = AgentCliOptions
 -- the @inherit@ and @tee@ output modes the agent's own output goes
 -- straight to the real process streams and bypasses this record
 -- entirely, which is correct and is what the motivating consumer wants.
+--
 -- Construction: the constructor is deliberately not exported. Start
 -- from 'agentCliRun' and override fields by record update.
 data AgentCliRun = AgentCliRun
@@ -518,17 +521,19 @@ requireEvidenceOption =
           \strength: requested_only, correlated, model_observed, or fully_observed"
     )
   where
-    parse = \case
-      "requested_only" -> Right EvidenceRequestedOnly
-      "correlated" -> Right EvidenceCorrelated
-      "model_observed" -> Right EvidenceModelObserved
-      "fully_observed" -> Right EvidenceFullyObserved
-      other ->
-        Left
-          ( "unknown evidence strength: "
-              <> other
-              <> " (expected requested_only, correlated, model_observed, or fully_observed)"
-          )
+    -- The strength table lives beside its renderer, in
+    -- 'Baikai.Evidence.parseEvidenceStrength', so this parser cannot
+    -- fall behind the names an evidence record spells.
+    parse other =
+      maybe
+        ( Left
+            ( "unknown evidence strength: "
+                <> other
+                <> " (expected requested_only, correlated, model_observed, or fully_observed)"
+            )
+        )
+        Right
+        (parseEvidenceStrength (Text.pack other))
 
 -- --------------------------------------------------------------------
 -- Provider dispatch

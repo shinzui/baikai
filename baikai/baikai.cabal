@@ -16,6 +16,7 @@ author:          Nadeem Bitar
 maintainer:      nadeem@gmail.com
 copyright:       (c) 2026 Nadeem Bitar
 build-type:      Simple
+tested-with:     GHC ==9.12.4
 extra-doc-files: CHANGELOG.md
 
 common common-options
@@ -192,6 +193,7 @@ test-suite baikai-test
     GenModelsSpec
     HelpersSpec
     InteractiveSpec
+    PublicSurfaceSpec
     StreamSpec
     StreamWorkerSpec
     StrictEvidenceSpec

@@ -295,7 +295,7 @@ mergedOutputConfigTest =
           emptyOptions
             & #thinking .~ Just ThinkingMedium
             & #responseFormat
-              .~ Just (JsonSchema {name = "answer", schema = schema, strict = True})
+              .~ Just (JsonSchema (jsonSchemaFormat "answer" schema) {strict = True})
         expected = (Messages.jsonSchemaConfig schema) {Messages.effort = Just "medium"}
     req <- requestFor anthropic_claude_opus_4_6 opts
     requestThinking req @?= Just Messages.ThinkingAdaptive

@@ -52,7 +52,7 @@ dispatch](unified-provider-calls.md).
 
 ```haskell
 let opts = emptyOptions
-      & #responseFormat .~ Just (JsonSchema "person" personSchema)
+      & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "person" personSchema))
 ```
 
 ## Limits
@@ -69,6 +69,12 @@ let opts = emptyOptions
   are always schema-enforcing, baikai's `strict` flag has no wire analog and is
   dropped. Both are documented in `mkAnthropicOutputConfig`, but a caller
   comparing request bytes across vendors will see the difference.
+- Since baikai 0.6.0.0 the schema, its name and the `strict` flag live on a
+  `JsonSchemaFormat` record inside the `JsonSchema` constructor rather than
+  directly on it. As fields of a sum they were partial selectors: `name f` on a
+  `JsonObject` crashed instead of failing to typecheck. Build one with
+  `jsonSchemaFormat name schema` (which sets `strict = False`) and set `strict`
+  by record update; the JSON encoding is unchanged.
 - Schema support varies by host. Every OpenAI-compatible host reachable through
   [CAP-14](openai-chat-completions-backend.md) accepts the field syntactically;
   whether it *enforces* the schema is the host's business and is not something

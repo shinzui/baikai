@@ -2,6 +2,12 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-5 (structured output) records that `ResponseFormat`'s schema
+  fields moved onto a `JsonSchemaFormat` record inside the `JsonSchema`
+  constructor, built with `jsonSchemaFormat`. As fields of a sum they were
+  partial selectors that crashed on `JsonObject`; the JSON encoding is unchanged
+  and pinned by a test.
+
 * **Update**: CAP-8 (categorised error model) gains a tenth category,
   `ContentFiltered`. OpenAI's `finish_reason: "content_filter"` and Anthropic's
   `refusal` stop both landed in `OtherError`, so a caller wanting to branch on a

@@ -85,7 +85,7 @@ runStructuredCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
               & #maxTokens .~ Just 256
               & #temperature .~ Just 0.0
               & #responseFormat
-                .~ Just (JsonSchema {name = "person", schema = personSchema, strict = True})
+                .~ Just (JsonSchema (jsonSchemaFormat "person" personSchema) {strict = True})
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
       resp <- completeRequest caseModel ctx opts
       let flat = flattenAssistantText (flattenAssistantBlocks resp)

@@ -76,6 +76,7 @@ module Baikai.Evidence
     CallStatus (..),
     EvidenceStrength (..),
     renderEvidenceStrength,
+    parseEvidenceStrength,
     declaredStrength,
     deriveStrength,
 
@@ -98,7 +99,7 @@ where
 
 import Baikai.Api (Api (..))
 import Baikai.Error (BaikaiError)
-import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
+import Baikai.ThinkingLevel (ThinkingLevel (..), parseThinkingLevel, renderThinkingLevel)
 import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
 import Control.Exception (SomeException, try)
@@ -390,15 +391,13 @@ instance FromJSON ThinkingAdjustment where
 -- names that 'ThinkingLevel'\'s own derived instance uses, because a
 -- reader of an evidence record should see the same vocabulary the
 -- provider documentation uses.
+--
+-- The table itself lives beside its renderer, in
+-- 'Baikai.ThinkingLevel.parseThinkingLevel'; this is the parser-monad
+-- wrapper that turns a miss into a decode failure naming the input.
 parseThinkingLevelText :: (MonadFail m) => Text -> m ThinkingLevel
-parseThinkingLevelText = \case
-  "minimal" -> pure ThinkingMinimal
-  "low" -> pure ThinkingLow
-  "medium" -> pure ThinkingMedium
-  "high" -> pure ThinkingHigh
-  "xhigh" -> pure ThinkingXHigh
-  "max" -> pure ThinkingMax
-  other -> fail ("unknown thinking level: " <> show other)
+parseThinkingLevelText t =
+  maybe (fail ("unknown thinking level: " <> show t)) pure (parseThinkingLevel t)
 
 -- | What a canonical 'ThinkingLevel' actually became on the wire for
 -- one specific provider.
@@ -664,16 +663,23 @@ renderEvidenceStrength = \case
   EvidenceModelObserved -> "model_observed"
   EvidenceFullyObserved -> "fully_observed"
 
+-- | The inverse of 'renderEvidenceStrength'. Beside its renderer, so
+-- the two cannot drift when a level is added; the 'FromJSON' instance
+-- and @baikai-agent@'s @--require-evidence@ parser both go through it.
+parseEvidenceStrength :: Text -> Maybe EvidenceStrength
+parseEvidenceStrength = \case
+  "requested_only" -> Just EvidenceRequestedOnly
+  "correlated" -> Just EvidenceCorrelated
+  "model_observed" -> Just EvidenceModelObserved
+  "fully_observed" -> Just EvidenceFullyObserved
+  _ -> Nothing
+
 instance ToJSON EvidenceStrength where
   toJSON = String . renderEvidenceStrength
 
 instance FromJSON EvidenceStrength where
-  parseJSON = withText "EvidenceStrength" $ \case
-    "requested_only" -> pure EvidenceRequestedOnly
-    "correlated" -> pure EvidenceCorrelated
-    "model_observed" -> pure EvidenceModelObserved
-    "fully_observed" -> pure EvidenceFullyObserved
-    other -> fail ("unknown evidence strength: " <> show other)
+  parseJSON = withText "EvidenceStrength" $ \t ->
+    maybe (fail ("unknown evidence strength: " <> show t)) pure (parseEvidenceStrength t)
 
 -- | The highest strength a transport can reach when everything goes
 -- well.

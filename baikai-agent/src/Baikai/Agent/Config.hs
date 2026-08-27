@@ -101,7 +101,7 @@ import Baikai.Agent
     renderAgentOutputMode,
     renderAgentProvider,
   )
-import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
+import Baikai.ThinkingLevel (ThinkingLevel, parseThinkingLevel, renderThinkingLevel)
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
 import Data.List (isPrefixOf)
@@ -150,7 +150,6 @@ import Settei.Value
     boundedIntegralDecoder,
     decodeFailure,
     decoder,
-    enumDecoder,
     parsedDecoder,
     runDecoder,
     textDecoder,
@@ -426,19 +425,14 @@ outputFormatDecoder =
     "one of: text, json"
     (maybe (Left "unknown output format") Right . parseAgentOutputFormat)
 
--- | The six canonical reasoning-effort names. The list lives in
--- @baikai\/src\/Baikai\/ThinkingLevel.hs@, which has a renderer but no
--- parser, so a future level must be added in both places.
+-- | The canonical reasoning-effort names, read through
+-- 'Baikai.ThinkingLevel.parseThinkingLevel' so this file cannot fall
+-- behind the level set it names.
 effortDecoder :: Decoder ThinkingLevel
 effortDecoder =
-  enumDecoder
-    [ ("minimal", ThinkingMinimal),
-      ("low", ThinkingLow),
-      ("medium", ThinkingMedium),
-      ("high", ThinkingHigh),
-      ("xhigh", ThinkingXHigh),
-      ("max", ThinkingMax)
-    ]
+  parsedDecoder
+    "one of: minimal, low, medium, high, xhigh, max"
+    (maybe (Left "unknown effort") Right . parseThinkingLevel)
 
 pathDecoder :: Decoder FilePath
 pathDecoder = fmap Text.unpack textDecoder

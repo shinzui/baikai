@@ -42,6 +42,7 @@ import Data.Text (Text)
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Word (Word64)
+import GHC.Generics (Generic)
 import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Attributes.Map qualified as AttrMap
 import OpenTelemetry.Common (Timestamp, mkTimestamp)
@@ -76,6 +77,10 @@ data OtelSinkOptions = OtelSinkOptions
     -- that request.
     parentContext :: !(Maybe Context.Context)
   }
+  -- No 'Eq' or 'Show': 'OpenTelemetry.Context.Context' has neither, and
+  -- a hand-written instance ignoring the field would be a lie. 'Generic'
+  -- is here so @#spanName@ resolves without the constructor.
+  deriving stock (Generic)
 
 -- | Defaults: span name @baikai.call@, prompt summary off.
 defaultOtelSinkOptions :: OtelSinkOptions

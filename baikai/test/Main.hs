@@ -31,6 +31,7 @@ import GHC.Generics (C1, D1, Rep, S1, Selector (selName), (:*:))
 import GenModelsSpec qualified
 import HelpersSpec qualified
 import InteractiveSpec qualified
+import PublicSurfaceSpec qualified
 import StreamSpec qualified
 import StreamWorkerSpec qualified
 import Streamly.Data.Stream qualified as Stream
@@ -117,6 +118,7 @@ main = do
         GenModelsSpec.tests,
         HelpersSpec.tests,
         InteractiveSpec.tests,
+        PublicSurfaceSpec.tests,
         StreamSpec.tests,
         StreamWorkerSpec.tests,
         StrictEvidenceSpec.tests,
@@ -147,9 +149,25 @@ tests =
               Aeson.object
                 [ "type" Aeson..= ("object" :: Text)
                 ]
-            schemaFmt = JsonSchema {name = "person", schema = person, strict = True}
+            schemaFmt = JsonSchema (jsonSchemaFormat "person" person) {strict = True}
         responseFormat (emptyOptions & #responseFormat .~ Just schemaFmt)
           @?= Just schemaFmt,
+      -- The wire shape is pinned, not merely round-tripped: 'Options'
+      -- derives 'ToJSON' through it and at least one consumer keys a
+      -- cache on the result, so moving the three fields onto
+      -- 'JsonSchemaFormat' must not move them in JSON.
+      testCase "ResponseFormat keeps its flat JSON encoding" $ do
+        Aeson.toJSON (JsonSchema (jsonSchemaFormat "o" Aeson.Null))
+          @?= Aeson.object
+            [ "tag" Aeson..= ("JsonSchema" :: Text),
+              "name" Aeson..= ("o" :: Text),
+              "schema" Aeson..= Aeson.Null,
+              "strict" Aeson..= False
+            ]
+        Aeson.toJSON JsonObject @?= Aeson.object ["tag" Aeson..= ("JsonObject" :: Text)]
+        let strictFmt = JsonSchema (jsonSchemaFormat "o" Aeson.Null) {strict = True}
+        Aeson.decode (Aeson.encode strictFmt) @?= Just strictFmt
+        Aeson.decode (Aeson.encode JsonObject) @?= Just JsonObject,
       testCase "Options Show redacts literal API keys" $ do
         let secret = "sk-baikai-secret-never-print"
             opts = emptyOptions & #apiKey .~ Just (ApiKeyLiteral secret)
