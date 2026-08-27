@@ -74,8 +74,8 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M1 (2026-08-27): `baikai/src/Baikai/Http.hs` created: `canonicalBaseUrl`, `getClientEnvCached`, `cachedClientEnvCount`; both provider `Transport.hs` delegate to it; core `build-depends` gains `servant-client`, `http-client`, `http-client-tls`.
 - [x] M1 (2026-08-27): `baikai/test/UrlSpec.hs` written and registered; the negative cases added to `baikai/test/Main.hs` including a QuickCheck property over four `@`-bearing suffixes; the cache-key normalisation assertions folded into the existing cache case in both `TransportSpec.hs`.
 - [x] M1 (2026-08-27): `docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md` created and listed in `docs/adr/README.md`; `CHANGELOG.md` `[Unreleased]` entries written.
-- [ ] M2: `isCredentialHeader`, `redactHeaderValues`, `redactedMarker` added to `Baikai.Auth`; hand-written `Show`/`ToJSON` on `Options` and `Model`; field-coverage guard test and redaction tests in `baikai/test/Main.hs`.
-- [ ] M2: `resolveApiKey` treats an empty (whitespace-only) variable as unset; `HelpersSpec` cases added; Haddock and `docs/user/getting-started.md` updated.
+- [x] M2 (2026-08-27): `isCredentialHeader`, `redactHeaderValues`, `redactedMarker` added to `Baikai.Auth`; hand-written `Show`/`ToJSON` on `Options` and `Model`; field-coverage guard test and four redaction cases in `baikai/test/Main.hs`.
+- [x] M2 (2026-08-27): `resolveApiKey` treats an empty (whitespace-only) variable as unset; five `HelpersSpec` cases added; Haddock and `docs/user/getting-started.md` updated.
 - [ ] M3: `EmbeddingModel` derives `Eq`/`Generic`; `apiKey :: Maybe ApiKeySource`; `resolveEmbeddingKey` and `embeddingClientEnv` added; `embed` routes through `Baikai.Http`; `EmbeddingSpec` cases added; `docs/capabilities/text-embeddings.md` updated.
 - [ ] M4: `buildRequest` extracted in both `Sse.hs` with `redirectCount = 0`; `canonicalBaseUrl` strips a trailing `/v1`; `baseUrlProblem` checked in both `prepareCall`s and in `embed`.
 - [ ] M4: fake-manager redirect test and path-composition tests in both provider suites; base-URL refusal tests; `docs/user/models-and-providers.md` "Base URLs" section; Limits bullets in both backend capability records; `docs/capabilities/log.md` entry.
@@ -147,6 +147,29 @@ Recorded during implementation.
   it genuinely cannot build a `BaseUrl` from: no host, no scheme, or a scheme other
   than `http`/`https`. Likewise `stripApiVersion` is defined in M1 and applied in M4,
   as the plan's own note says. (2026-08-27, M1)
+- The hand-written `Show` instances match the derived output exactly, checked by
+  printing them rather than by reasoning about GHC's rules:
+
+  ```text
+  Options {maxTokens = Nothing, temperature = Nothing, apiKey = Nothing, timeoutMs = Nothing, headers = fromList [], metadata = fromList [], toolChoice = Nothing, …}
+  Model {modelId = "", name = "", api = Custom "", provider = "", baseUrl = "", reasoning = False, input = [InputText], cost = ModelCost {…}, contextWindow = 0, maxOutputTokens = 0, headers = fromList [], compat = CompatNone}
+  ```
+
+  With credential headers present, the same rendering carries the marker and the
+  ordinary header survives, while the field itself is untouched:
+
+  ```text
+  headers = fromList [("Authorization","<redacted>"),("Ocp-Apim-Subscription-Key","<redacted>"),("X-Title","my app")]
+  Just "Bearer sk-live-secret"
+  ```
+
+  The `ToJSON` side is corroborated by the golden trace fixture and the evidence
+  digest cases, which encode these records and compare bytes; all of them pass
+  unchanged. (2026-08-27, M2)
+- The field-coverage guard needs an explicit kind on its class
+  (`class GFieldNames (f :: Type -> Type)`). Without it GHC infers a
+  kind-polymorphic parameter and `selName (undefined :: S1 m f ())` fails with
+  "Expected kind 'k', but '()' has kind '*'". (2026-08-27, M2)
 
 
 ## Decision Log

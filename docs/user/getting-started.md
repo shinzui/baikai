@@ -138,8 +138,24 @@ unset, so the OpenAI handler reads `OPENAI_API_KEY` and the Anthropic
 handler reads `ANTHROPIC_API_KEY`. Pass
 `#apiKey .~ Just (ApiKeyLiteral key)` explicitly to override with a
 literal credential, or use `ApiKeyEnvChain ["OPENAI_API_KEY", "FALLBACK_KEY"]`
-to try several environment variables in order; `Show` and JSON instances
-redact literal keys.
+to try several environment variables in order.
+
+An environment variable set to the empty string, or to nothing but
+whitespace, counts as **unset**: an empty key cannot authenticate, so
+baikai reports an `AuthError` naming the variable rather than sending an
+empty bearer token and handing you a provider's 401. A chain skips such a
+variable and moves to the next. A key with real content is passed through
+exactly as it was set, whitespace and all.
+
+Printing is safe. The `Show` and JSON instances of `Options`, `Model` and
+`Response` redact literal keys, and they also redact the *value* of any
+header whose name looks credential-carrying — `Authorization`,
+`x-api-key`, `api-key`, `cookie`, anything ending in `-key`, and similar
+— replacing it with `<redacted>`. That matters because `#headers` is the
+documented place to put a gateway's own credential, and because this
+guide tells you to `print resp`. Only the rendering changes: the field
+still holds what you put there, and the header is still sent exactly as
+written.
 
 The result is a `Response`. `resp ^. #message` is the assistant
 payload. Use `responseMessage resp` when you need it wrapped as a

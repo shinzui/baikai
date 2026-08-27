@@ -24,7 +24,11 @@
 -- Provider defaults are built first, then 'Baikai.Model.headers',
 -- then this field; later values replace earlier ones by
 -- case-insensitive header name, including auth headers for callers
--- intentionally fronting a gateway.
+-- intentionally fronting a gateway. Because that is an invitation to
+-- put a credential here, the 'Show' and 'ToJSON' instances below print
+-- 'Baikai.Auth.redactedMarker' in place of the value of any header
+-- whose name looks credential-carrying. The field itself is untouched
+-- and the header is still sent exactly as written.
 --
 -- EP-4 added @toolChoice@. EP-5 adds @cacheRetention@ and @thinking@
 -- (provider-agnostic preferences that each provider maps to its own
@@ -64,12 +68,19 @@ module Baikai.Options
 where
 
 import Baikai.Auth (ApiKeySource)
+import Baikai.Auth qualified as Auth
 import Baikai.CacheRetention (CacheRetention)
 import Baikai.Evidence (EvidenceRequest)
 import Baikai.ResponseFormat (ResponseFormat)
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
-import Data.Aeson (ToJSON, Value)
+import Data.Aeson
+  ( ToJSON (toEncoding, toJSON),
+    Value,
+    defaultOptions,
+    genericToEncoding,
+    genericToJSON,
+  )
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -95,8 +106,55 @@ data Options = Options
     frequencyPenalty :: !(Maybe Double),
     presencePenalty :: !(Maybe Double)
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (ToJSON)
+  deriving stock (Eq, Generic)
+
+-- | Rendered field by field rather than derived, so that the value of a
+-- credential-carrying header prints as 'Auth.redactedMarker'.
+--
+-- The format is exactly what @deriving stock Show@ produces — the same
+-- record syntax, the same field order, the same @showsPrec@ precedence
+-- — because the point is to redact one value, not to invent a new
+-- rendering. A test in @baikai\/test\/Main.hs@ walks the 'Generic'
+-- representation and asserts that every field name appears here, so a
+-- field added later cannot silently vanish from 'show'.
+--
+-- 'Eq' is untouched: two 'Options' whose credential headers differ are
+-- still unequal.
+instance Show Options where
+  showsPrec d o =
+    showParen (d >= 11) $
+      showString "Options {"
+        . field "maxTokens" (maxTokens o)
+        . next "temperature" (temperature o)
+        . next "apiKey" (apiKey o)
+        . next "timeoutMs" (timeoutMs o)
+        . next "headers" (Auth.redactHeaderValues (headers o))
+        . next "metadata" (metadata o)
+        . next "toolChoice" (toolChoice o)
+        . next "cacheRetention" (cacheRetention o)
+        . next "thinking" (thinking o)
+        . next "responseFormat" (responseFormat o)
+        . next "evidence" (evidence o)
+        . next "topP" (topP o)
+        . next "stopSequences" (stopSequences o)
+        . next "seed" (seed o)
+        . next "frequencyPenalty" (frequencyPenalty o)
+        . next "presencePenalty" (presencePenalty o)
+        . showChar '}'
+    where
+      field name v = showString name . showString " = " . showsPrec 0 v
+      next name v = showString ", " . field name v
+
+-- | Encoded through the 'Generic' representation of a copy whose
+-- credential headers have been replaced, so the output is byte-identical
+-- to the derived instance's for every record that carries none, and
+-- there is no recursion back into this instance.
+instance ToJSON Options where
+  toJSON = genericToJSON defaultOptions . redactOptions
+  toEncoding = genericToEncoding defaultOptions . redactOptions
+
+redactOptions :: Options -> Options
+redactOptions o = o {headers = Auth.redactHeaderValues (headers o)}
 
 emptyOptions :: Options
 emptyOptions =

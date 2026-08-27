@@ -1,3 +1,6 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module Main (main) where
 
 import AgentAssetsSpec qualified
@@ -8,10 +11,15 @@ import Baikai.Prelude
 import CatalogSpec qualified
 import CliInternalSpec qualified
 import ContextSpec qualified
+import Control.Monad (forM_)
 import CostSpec qualified
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Char8 qualified as BS8
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Kind (Type)
+import Data.List (isInfixOf)
+import Data.Map.Strict qualified as Map
+import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Vector qualified as V
 import EmbeddingSpec qualified
@@ -19,6 +27,7 @@ import ErrorInfoSpec qualified
 import ErrorSpec qualified
 import EvidenceSpec qualified
 import FetchModelsSpec qualified
+import GHC.Generics (C1, D1, Rep, S1, Selector (selName), (:*:))
 import GenModelsSpec qualified
 import HelpersSpec qualified
 import InteractiveSpec qualified
@@ -27,7 +36,7 @@ import Streamly.Data.Stream qualified as Stream
 import StrictEvidenceSpec qualified
 import SurfaceSpec qualified
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 import Test.Tasty.QuickCheck (Gen)
 import Test.Tasty.QuickCheck qualified as QC
 import ThinkingLevelSpec qualified
@@ -150,6 +159,63 @@ tests =
         assertBool
           "Aeson.encode opts must not contain the raw API key"
           (not (secret `Text.isInfixOf` Text.pack (LBS8.unpack (Aeson.encode opts)))),
+      testCase "Options Show and JSON redact credential headers" $ do
+        -- Options.headers is documented as the place to put a gateway's
+        -- own Authorization header, and the guides tell people to print
+        -- a response. Both of those are fine; printing the credential
+        -- is not.
+        let opts = emptyOptions & #headers .~ credentialHeaders
+            shown = Text.pack (show opts)
+            encoded = Text.pack (LBS8.unpack (Aeson.encode opts))
+        forM_ [shown, encoded] $ \rendered -> do
+          assertBool
+            ("the bearer token must not appear: " <> Text.unpack rendered)
+            (not ("sk-live-secret" `Text.isInfixOf` rendered))
+          assertBool
+            ("the subscription key must not appear: " <> Text.unpack rendered)
+            (not ("azure-secret" `Text.isInfixOf` rendered))
+          assertBool
+            ("an ordinary header still appears: " <> Text.unpack rendered)
+            ("my app" `Text.isInfixOf` rendered)
+          Text.count redactedMarker rendered @?= 2
+        -- Redaction is about rendering, never about the value.
+        Map.lookup "Authorization" (opts ^. #headers)
+          @?= Just "Bearer sk-live-secret",
+      testCase "Model and Response Show redact credential headers" $ do
+        -- A Model is embedded in every Response, so `print resp` is the
+        -- likeliest way a credential reaches a log.
+        let m = emptyModel & #headers .~ credentialHeaders
+            resp = emptyResponse & #model .~ m
+        forM_ [Text.pack (show m), Text.pack (show resp)] $ \rendered -> do
+          assertBool
+            ("the bearer token must not appear: " <> Text.unpack rendered)
+            (not ("sk-live-secret" `Text.isInfixOf` rendered))
+          assertBool
+            ("the redaction marker appears: " <> Text.unpack rendered)
+            (redactedMarker `Text.isInfixOf` rendered),
+      testCase "a Model round-tripped through JSON carries the marker, not the key" $ do
+        -- Deliberately lossy: a serialised Model is exactly the thing
+        -- that should not carry a key.
+        let m = emptyModel & #headers .~ credentialHeaders
+        case Aeson.decode (Aeson.encode m) :: Maybe Model of
+          Nothing -> assertFailure "a redacted Model must still parse"
+          Just decoded -> do
+            Map.lookup "Authorization" (decoded ^. #headers) @?= Just redactedMarker
+            Map.lookup "X-Title" (decoded ^. #headers) @?= Just "my app",
+      testCase "Options and Model Show list every field" $ do
+        -- The drift guard for the two hand-written Show instances: a
+        -- field added later must fail here rather than quietly vanish
+        -- from `show`.
+        let shownOptions = show emptyOptions
+            shownModel = show emptyModel
+        forM_ (fieldNames @Options) $ \name ->
+          assertBool
+            ("Options Show omits the field " <> name)
+            ((name <> " = ") `isInfixOf` shownOptions)
+        forM_ (fieldNames @Model) $ \name ->
+          assertBool
+            ("Model Show omits the field " <> name)
+            ((name <> " = ") `isInfixOf` shownModel),
       testCase "completeRequest dispatches through the registered handler" $ do
         let ctx = emptyContext & #messages .~ V.fromList [user "ping"]
         resp <- completeRequest testModel ctx emptyOptions
@@ -393,6 +459,42 @@ unknownHostGen :: Gen String
 unknownHostGen = do
   label <- QC.listOf1 (QC.elements (['a' .. 'z'] <> ['0' .. '9']))
   pure (label <> ".example.invalid")
+
+-- | A header map with two credential-carrying names, spelled the way a
+-- gateway would, and one ordinary header that must survive redaction.
+credentialHeaders :: Map.Map Text Text
+credentialHeaders =
+  Map.fromList
+    [ ("Authorization", "Bearer sk-live-secret"),
+      ("X-Title", "my app"),
+      ("Ocp-Apim-Subscription-Key", "azure-secret")
+    ]
+
+-- | The record field names of a type, read off its 'Generic'
+-- representation.
+--
+-- This exists to guard the two hand-written 'Show' instances on
+-- 'Options' and 'Model': they list their fields by hand, so a field
+-- added later would silently stop being printed. Asking the compiler
+-- what the fields actually are turns that into a test failure that names
+-- the missing one.
+class GFieldNames (f :: Type -> Type) where
+  gFieldNames :: Proxy f -> [String]
+
+instance (GFieldNames f) => GFieldNames (D1 m f) where
+  gFieldNames _ = gFieldNames (Proxy @f)
+
+instance (GFieldNames f) => GFieldNames (C1 m f) where
+  gFieldNames _ = gFieldNames (Proxy @f)
+
+instance (GFieldNames f, GFieldNames g) => GFieldNames (f :*: g) where
+  gFieldNames _ = gFieldNames (Proxy @f) <> gFieldNames (Proxy @g)
+
+instance (Selector m) => GFieldNames (S1 m f) where
+  gFieldNames _ = [selName (undefined :: S1 m f ())]
+
+fieldNames :: forall a. (GFieldNames (Rep a)) => [String]
+fieldNames = gFieldNames (Proxy @(Rep a))
 
 -- | Ways of writing another provider's host after the authority ends.
 -- None of them may change which host a URL names, because which host a

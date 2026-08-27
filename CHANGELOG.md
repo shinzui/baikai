@@ -41,6 +41,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `baikai`: **a credential in a header is no longer printed.** `Options.headers`
+  and `Model.headers` went through derived `Show` and `ToJSON` instances that
+  rendered every value verbatim — while `Baikai.Options`' own documentation
+  invites callers to put a gateway's `Authorization` header there and the
+  getting-started guide tells them to `print resp`, which renders the embedded
+  `Model`. Both types now have hand-written instances that render exactly what
+  the derived ones did, except that the value of a header whose name looks
+  credential-carrying (`authorization`, `api-key`, `apikey`, `token`, `secret`,
+  `cookie`, `password`, or any name ending in `-key`, case-insensitively) prints
+  as `<redacted>`. `Baikai.Auth` exports the three pieces — `redactedMarker`,
+  `isCredentialHeader`, `redactHeaderValues` — so a caller can apply the same
+  rule to its own logging. Only the rendering changes: the field is untouched,
+  `Eq` is untouched, and the header is still sent as written. A JSON round trip
+  of a `Model` is deliberately lossy, since a serialised `Model` is exactly the
+  thing that should not carry a key. (REV-2 E.2.)
+
+- `baikai`: an API-key environment variable set to the empty string, or to
+  nothing but whitespace, now counts as **unset**. `ApiKeyEnv` fails with an
+  `AuthError` naming the variable and saying it is not set or is empty;
+  `ApiKeyEnvChain` skips it and continues, and reports every name when none
+  yields a key. Previously an empty variable resolved to an empty key, which
+  short-circuited a chain and produced `Authorization: Bearer ` and a provider
+  401 that said nothing about the cause. A key with real content is still passed
+  through untrimmed. (REV-2 E.6.)
+
 - `baikai`: **the host parse no longer lets a base URL choose which key baikai
   sends.** `urlHost` took the text after the *last* `@` anywhere in a URL, so
   `https://proxy.example.com/v1?u=@api.openai.com` named the host

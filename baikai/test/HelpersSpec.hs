@@ -139,6 +139,71 @@ tests =
                 assertBool "message should include first name" (Text.pack first `Text.isInfixOf` (err ^. #message))
                 assertBool "message should include second name" (Text.pack second `Text.isInfixOf` (err ^. #message))
               Right key -> assertFailure ("expected auth error, got key: " <> Text.unpack key),
+      testCase "ApiKeyEnv rejects a variable set to the empty string" $ do
+        -- An empty key can never authenticate. Reporting it here, by
+        -- name, beats sending "Authorization: Bearer " and reading a
+        -- provider's 401 back.
+        let name = "BAIKAI_HELPERS_EMPTY_KEY"
+        withUnsetEnv name $ do
+          Environment.setEnv name ""
+          thrown <- Exception.try (resolveApiKey (ApiKeyEnv name)) :: IO (Either BaikaiError Text)
+          case thrown of
+            Left err -> do
+              err ^. #category @?= AuthError
+              assertBool
+                ("message should name the variable: " <> Text.unpack (err ^. #message))
+                (Text.pack name `Text.isInfixOf` (err ^. #message))
+              assertBool
+                ("message should say it is empty: " <> Text.unpack (err ^. #message))
+                ("empty" `Text.isInfixOf` (err ^. #message))
+            Right key -> assertFailure ("expected auth error, got key: " <> Text.unpack key),
+      testCase "ApiKeyEnv rejects a whitespace-only variable" $ do
+        let name = "BAIKAI_HELPERS_BLANK_KEY"
+        withUnsetEnv name $ do
+          Environment.setEnv name "   "
+          thrown <- Exception.try (resolveApiKey (ApiKeyEnv name)) :: IO (Either BaikaiError Text)
+          case thrown of
+            Left err -> err ^. #category @?= AuthError
+            Right key -> assertFailure ("expected auth error, got key: " <> Text.unpack key),
+      testCase "ApiKeyEnv passes a real value through untrimmed" $ do
+        -- Only a blank value counts as unset. Trimming a real key would
+        -- be a second, unrelated behaviour change, and one that could
+        -- break a key whose edge character matters.
+        let name = "BAIKAI_HELPERS_PADDED_KEY"
+        withUnsetEnv name $ do
+          Environment.setEnv name " sk-padded "
+          resolved <- resolveApiKey (ApiKeyEnv name)
+          resolved @?= " sk-padded ",
+      testCase "ApiKeyEnvChain skips a variable set to the empty string" $ do
+        let first = "BAIKAI_HELPERS_CHAIN_EMPTY_A"
+            second = "BAIKAI_HELPERS_CHAIN_EMPTY_B"
+        withUnsetEnv first $
+          withUnsetEnv second $ do
+            Environment.setEnv first ""
+            Environment.setEnv second "second-key"
+            resolved <- resolveApiKey (ApiKeyEnvChain [first, second])
+            resolved @?= "second-key",
+      testCase "ApiKeyEnvChain reports every name when all are empty" $ do
+        let first = "BAIKAI_HELPERS_CHAIN_ALL_EMPTY_A"
+            second = "BAIKAI_HELPERS_CHAIN_ALL_EMPTY_B"
+        withUnsetEnv first $
+          withUnsetEnv second $ do
+            Environment.setEnv first ""
+            Environment.setEnv second ""
+            thrown <- Exception.try (resolveApiKey (ApiKeyEnvChain [first, second])) :: IO (Either BaikaiError Text)
+            case thrown of
+              Left err -> do
+                err ^. #category @?= AuthError
+                assertBool
+                  "message should include first name"
+                  (Text.pack first `Text.isInfixOf` (err ^. #message))
+                assertBool
+                  "message should include second name"
+                  (Text.pack second `Text.isInfixOf` (err ^. #message))
+                assertBool
+                  ("message should explain that empty counts as unset: " <> Text.unpack (err ^. #message))
+                  ("empty" `Text.isInfixOf` (err ^. #message))
+              Right key -> assertFailure ("expected auth error, got key: " <> Text.unpack key),
       testCase "mkModel fills dispatch discriminators and defaults" $ do
         let model = mkModel OpenAIChatCompletions "gpt-test" "https://example.test"
         model ^. #api @?= OpenAIChatCompletions

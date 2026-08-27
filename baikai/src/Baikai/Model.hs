@@ -44,6 +44,7 @@ module Baikai.Model
 where
 
 import Baikai.Api (Api (..), renderApi)
+import Baikai.Auth qualified as Auth
 import Baikai.Compat
   ( AnthropicMessagesCompat (..),
     OpenAICompletionsCompat,
@@ -51,7 +52,13 @@ import Baikai.Compat
     autoDetectOpenAICompletions,
     defaultAnthropicThinkingStyle,
   )
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson
+  ( FromJSON,
+    ToJSON (toEncoding, toJSON),
+    defaultOptions,
+    genericToEncoding,
+    genericToJSON,
+  )
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -125,8 +132,59 @@ data Model = Model
     headers :: !(Map Text Text),
     compat :: !Compat
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving stock (Eq, Generic)
+  deriving anyclass (FromJSON)
+
+-- | Rendered field by field rather than derived, so that the value of a
+-- credential-carrying header prints as 'Auth.redactedMarker'. A 'Model'
+-- is the record most likely to reach a log: it is embedded in every
+-- 'Baikai.Response.Response', and the guides tell people to @print@
+-- one.
+--
+-- The format is exactly what @deriving stock Show@ produces — the same
+-- record syntax, field order and precedence — because the point is to
+-- redact one value, not to invent a rendering. A test in
+-- @baikai\/test\/Main.hs@ walks the 'Generic' representation and asserts
+-- that every field name appears here, so a field added later cannot
+-- silently vanish from 'show'.
+--
+-- 'Eq' is untouched, and so is 'FromJSON': the field itself still holds
+-- what the caller put there and the header is still sent. The one lossy
+-- path is a JSON round trip — 'toJSON' writes the marker, so decoding
+-- the result gives a 'Model' whose credential header /is/ the marker.
+-- That is deliberate; a serialised 'Model' is exactly the thing that
+-- should not carry a key.
+instance Show Model where
+  showsPrec d m =
+    showParen (d >= 11) $
+      showString "Model {"
+        . field "modelId" (modelId m)
+        . next "name" (name m)
+        . next "api" (api m)
+        . next "provider" (provider m)
+        . next "baseUrl" (baseUrl m)
+        . next "reasoning" (reasoning m)
+        . next "input" (input m)
+        . next "cost" (cost m)
+        . next "contextWindow" (contextWindow m)
+        . next "maxOutputTokens" (maxOutputTokens m)
+        . next "headers" (Auth.redactHeaderValues (headers m))
+        . next "compat" (compat m)
+        . showChar '}'
+    where
+      field label v = showString label . showString " = " . showsPrec 0 v
+      next label v = showString ", " . field label v
+
+-- | Encoded through the 'Generic' representation of a copy whose
+-- credential headers have been replaced, so the output is byte-identical
+-- to the derived instance's for every model that carries none, and there
+-- is no recursion back into this instance.
+instance ToJSON Model where
+  toJSON = genericToJSON defaultOptions . redactModel
+  toEncoding = genericToEncoding defaultOptions . redactModel
+
+redactModel :: Model -> Model
+redactModel m = m {headers = Auth.redactHeaderValues (headers m)}
 
 -- | A zero 'ModelCost' across all rates. Useful as a default for
 -- models without published pricing (CLI providers, custom hosts).
