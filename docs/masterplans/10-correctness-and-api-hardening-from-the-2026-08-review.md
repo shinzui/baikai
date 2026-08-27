@@ -146,7 +146,7 @@ states the version (EP-10).
 | 1 | Ship baikai-agent on the threaded RTS and fix the coding-agent surfaces | docs/plans/58-ship-baikai-agent-on-the-threaded-rts-and-fix-the-coding-agent-surfaces.md | None | None | Complete |
 | 2 | Unify host parsing and stop credential misdirection | docs/plans/59-unify-host-parsing-and-stop-credential-misdirection.md | None | None | Complete |
 | 3 | Make Anthropic thinking style and sampling support catalog-driven | docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md | None | EP-2 | Complete |
-| 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | In Progress |
+| 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Complete |
 | 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Not Started |
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Not Started |
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Not Started |
@@ -382,10 +382,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-3 M2: request shaping honours the record (sonnet-5 adaptive, sampling dropped and recorded, zero-cap, replay sanitation, tool-id normalisation)
 - [x] EP-3 M3: OpenAI-compatible reasoning controls gated on `Model.reasoning` with a recorded adjustment
 - [x] EP-3 M4: every catalog entry pinned in `ThinkingSpec`/`CatalogSpec`; keyed smoke cases written
-- [ ] EP-4 M1: stream workers cancelled when the consumer stops, connection released
-- [ ] EP-4 M2: `EventStart` first on every Claude failure path; `assertErrorContract` on every error stream
-- [ ] EP-4 M3: block-closing fidelity (cut-off tool calls, mid-stream `Left`, interleaved reasoning, unknown frames, `[DONE]` variants)
-- [ ] EP-4 M4: core reassembly fallbacks and the missing `StreamSpec` cases
+- [x] EP-4 M1: stream workers cancelled when the consumer stops, connection released
+- [x] EP-4 M2: `EventStart` first on every Claude failure path; `assertErrorContract` on every error stream
+- [x] EP-4 M3: block-closing fidelity (cut-off tool calls, mid-stream `Left`, interleaved reasoning, unknown frames, `[DONE]` variants)
+- [x] EP-4 M4: core reassembly fallbacks and the missing `StreamSpec` cases
 - [ ] EP-5 M1: mid-stream transport failures classified from the shapes http-client actually raises
 - [ ] EP-5 M2: in-band `{"error": …}` frames on 2xx streams classified
 - [ ] EP-5 M3: 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge semantics
@@ -515,6 +515,30 @@ plans named (each plan's implementer reads this section before its first commit)
   hit this, and the generic-lens label is the repository's answer anyway. (2026-08-27,
   EP-3)
 
+- __A shared test assertion cannot live in `Main.hs`.__ EP-4 strengthened
+  `assertErrorContract` to the whole stream protocol and then needed it from
+  `SseSpec` and `EvidenceSpec` as well, which cannot import `Main`. It now lives
+  in a `test/Contract.hs` in each provider package. EP-5 and EP-8 both write
+  cases over stream errors and should import it rather than growing a third
+  copy. (2026-08-27, EP-4)
+- __`docs/capabilities/log.md`'s 2026-08-27 entry mislabels two capability
+  ids__ — "CAP-2 (OpenAI Chat Completions backend) and CAP-3 (Anthropic Messages
+  backend)" are really CAP-14 and CAP-13; CAP-2 is typed streaming and CAP-3 the
+  generated catalog. EP-4 appended its own entry rather than rewriting an earlier
+  one, following the changelog-correction rule in Integration Points. __EP-11
+  owns the correction__, as a dated addition inside that entry. (2026-08-27,
+  EP-4)
+- __`Baikai.Error` has no `timeoutError`.__ EP-4's plan named one for its
+  mid-stream-failure cases; the module exports `providerError`,
+  `invalidRequest`, `decodeError`, `processError`, `rateLimited`, `authError`,
+  `providerUnavailable` and `httpError`. EP-5 rewrites this module and is the
+  plan that would add such a constructor if one is wanted. (2026-08-27, EP-4)
+- __A cross-cutting guard on a `\case`-shaped fold costs a re-indentation.__
+  `Baikai.Stream.step` needed a named event argument for its first-terminal-wins
+  guard, and GHC rejects two equations of different arity, so the whole body
+  moved into one `step s event | … | otherwise = case event of`. (2026-08-27,
+  EP-4)
+
 ## Decision Log
 
 - Decision: Eleven child plans in four waves, exceeding the preferred seven.
@@ -575,6 +599,16 @@ plans named (each plan's implementer reads this section before its first commit)
   Rationale: widening a closed sum is a surface decision that belongs with the other
   freeze-time type changes and the major bump that carries them.
   Date: 2026-08-27
+- Decision: EP-4's ADR is
+  `docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`,
+  so the next plan to promote a record takes `0011`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-4's
+  distillation pass found nothing durable beyond that record: the cut-off
+  tool-call contract is documented on `ToolCall` and in `docs/user/tools.md`
+  where a caller meets it, and the `EventStart`-first invariant was already the
+  documented protocol in `Baikai.Stream.Event` — EP-4 removed the exception, it
+  did not make a new decision.
+  Date: 2026-08-27
 - Decision: EP-3's ADR is
   `docs/adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md`,
   so the next plan to promote a record takes `0010`.
@@ -603,6 +637,29 @@ plans named (each plan's implementer reads this section before its first commit)
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
+
+EP-4 complete (2026-08-27), four milestones in four commits `20bd305`, `85731d5`,
+`9276cb3` and the completion commit. A consumer that stops reading now stops the
+provider: both HTTP providers hand frames through a bounded 64-slot queue and run
+their worker under a bracket, so cancellation releases the connection
+immediately, abandonment stops the socket read within 64 further frames and
+releases at the next major GC, and a worker that dies asynchronously can no
+longer strand its consumer. Every stream from either provider begins with
+`EventStart` — the Claude producer pre-seeds it, so a 401, a rate limit, an
+in-band error frame and an EOF before `message_start` are all
+`[EventStart, EventError]` with structured `errorInfo`. A tool call cut off by
+the output cap keeps its raw argument text through one shared rule and is
+dispatched by neither `runToolLoop` nor `appendToolResult`; a mid-stream failure
+closes the blocks that were open; reasoning after text closes the text block
+first; unknown SSE frames, empty heartbeats and whitespace-trailing `[DONE]` no
+longer end a healthy stream; and core reassembly is total under duplicated, late
+and timestamp-less input. The keyless `cabal test all` gate is green across all
+eight suites, `nix fmt` leaves the tree unchanged, and `okf validate
+docs/capabilities` reports `OK: 22 concepts`. ADR `0010` records the cancellation
+decision. Names EP-10 must cover: `Baikai.Provider.Internal.StreamWorker` and its
+seven exports, `Baikai.Content.toolArgumentsFromText` and `isCutOffToolCall`, and
+`Baikai.Provider.Claude.Sse.decodeFrame`. Nothing produces an `Aborted` terminal,
+so EP-10's retirement of it stands. No versions were bumped.
 
 EP-3 complete (2026-08-27), four milestones in four commits `29daac0`, `1b5ed8a`,
 `54b992b`, `5fc558b`. The thinking style and sampling support of an Anthropic model
@@ -653,6 +710,23 @@ carries `AgentTimedOut` — is recorded under `[Unreleased]` for EP-10 to versio
 
 
 ---
+
+Revision note (2026-08-27, EP-4 complete): EP-4's registry row is Complete and its
+four Progress lines are ticked. Four discoveries were added that bind later plans
+— a shared test assertion cannot live in `Main.hs` (EP-5 and EP-8 both write
+cases over stream errors and should import each provider suite's new
+`test/Contract.hs`), `docs/capabilities/log.md`'s 2026-08-27 entry mislabels
+CAP-2 and CAP-3 and EP-11 owns the dated correction, `Baikai.Error` has no
+`timeoutError` (EP-5 owns that module), and a cross-cutting guard on a
+`\case`-shaped fold costs a re-indentation — and the Decision Log records that
+EP-4 took ADR number `0010`, so the next plan to promote a record takes `0011`.
+Three Integration Points commitments were met as written: the cut-off tool-call
+contract landed as `toolArgumentsFromText` / `isCutOffToolCall` with
+`runToolLoopWith` stopping and `appendToolResult` appending an `isError` result,
+`Baikai.Provider.Internal.StreamWorker` landed under that exact name outside the
+PVP promise, and nothing produces an `Aborted` terminal, so EP-10's retirement of
+it needs no alternative branch. One name is added to EP-10's coverage list beyond
+those already recorded: `Baikai.Provider.Claude.Sse.decodeFrame`.
 
 Revision note (2026-08-27, EP-3 complete): EP-3's registry row is Complete and its four
 Progress lines are ticked. Three discoveries were added that bind later plans — a

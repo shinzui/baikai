@@ -200,7 +200,7 @@ dropping the image content.
 data ToolCall = ToolCall
   { id_ :: !Text         -- provider-assigned call id; pair with toolCallId in the result
   , name :: !Text
-  , arguments :: !Value  -- parsed JSON
+  , arguments :: !Value  -- parsed JSON, or raw text when the call was cut off
   }
 ```
 
@@ -211,6 +211,30 @@ let blocks = flattenAssistantBlocks resp
     toolCalls =
       [ tc | AssistantToolCall tc <- V.toList blocks ]
 ```
+
+### Cut-off tool calls
+
+A model can run out of output budget in the middle of a tool call's
+arguments. baikai keeps what it got rather than inventing something
+well-formed: `arguments` is then a bare JSON **string** holding the raw
+text, `isCutOffToolCall` is `True`, and the response's `stopReason` is
+`Length`.
+
+```haskell
+case [tc | AssistantToolCall tc <- V.toList (flattenAssistantBlocks resp)
+         , isCutOffToolCall tc] of
+  []  -> dispatchNormally resp
+  cut -> putStrLn ("truncated: " <> show (map name cut) <> " — raise maxTokens")
+```
+
+Such a call is **never dispatched**. `runToolLoop` stops and hands back
+the response with its tool calls intact, so you can raise `maxTokens` and
+retry; `appendToolResult`, the by-hand round trip, appends a
+`ToolResultMessage` with `isError = True` explaining why instead of
+calling your dispatcher. The same representation appears at every layer —
+both provider assemblers and the stream reassembler produce it through
+one function, `toolArgumentsFromText` — so the check means the same thing
+wherever you make it.
 
 ## Streaming tool calls
 

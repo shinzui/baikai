@@ -183,7 +183,11 @@ data ReassemblyState = ReassemblyState
   { model :: !Model,
     -- | 'Just' once 'EventStart' has been observed.
     skeleton :: !(Maybe Message),
-    -- | Captured by the reassembler when the fold starts driving the stream.
+    -- | Captured by the reassembler when the fold starts driving the
+    -- stream, and used to measure 'latencyMs' when the provider stamped
+    -- no timestamps on its skeleton or its terminal. Provider
+    -- timestamps stay primary: a lifted or replaying provider stamps
+    -- the true provider window, which this clock cannot see.
     wallStart :: !UTCTime,
     -- | Provider message id, preferring the terminal payload over the start payload.
     responseId :: !(Maybe Text),
@@ -224,61 +228,76 @@ initialState m start =
       terminal = Nothing
     }
 
+-- | Fold one event into the assembly.
+--
+-- Two totality rules hold over the whole fold and are stated here
+-- because they are invisible at the individual branches. __The first
+-- terminal wins__: once 'terminal' is 'Just', every further event is
+-- ignored, so a producer that keeps talking after its terminal cannot
+-- rewrite the answer. __The first start wins__: a duplicated
+-- 'EventStart' keeps the first skeleton, and @responseId@ merges with
+-- '<|>' on every event that carries one, so a later 'Nothing' never
+-- erases an id an earlier event supplied. Both match the OpenAI
+-- assembler's @firstObserved@ discipline.
 step :: ReassemblyState -> AssistantMessageEvent -> ReassemblyState
-step s = \case
-  EventStart StartPayload {partial = sk, responseId = rid} ->
-    s & #skeleton .~ Just sk & #responseId .~ rid
-  TextStart IndexPayload {contentIndex = i} ->
-    s & #textBuf %~ IntMap.insert i Text.empty
-  TextDelta DeltaPayload {contentIndex = i, delta = d} ->
-    s & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  TextEnd BlockEndPayload {contentIndex = i, content = body} ->
-    s
-      & #blocks %~ IntMap.insert i (AssistantText (TextContent body))
-      & #textBuf %~ IntMap.delete i
-  ThinkingStart IndexPayload {contentIndex = i} ->
-    s & #thinkBuf %~ IntMap.insert i Text.empty
-  ThinkingDelta DeltaPayload {contentIndex = i, delta = d} ->
-    s & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  ThinkingEnd ThinkingEndPayload {contentIndex = i, content = tc} ->
-    s
-      & #blocks
-        %~ IntMap.insert
-          i
-          (AssistantThinking tc)
-      & #thinkBuf %~ IntMap.delete i
-  ToolCallStart IndexPayload {contentIndex = i} ->
-    s & #toolArgsBuf %~ IntMap.insert i Text.empty
-  ToolCallDelta DeltaPayload {contentIndex = i, delta = d} ->
-    s & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i d
-  ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc} ->
-    s
-      & #blocks %~ IntMap.insert i (AssistantToolCall tc)
-      & #toolArgsBuf %~ IntMap.delete i
-  EventDone TerminalPayload {reason = r, message = msg, responseId = rid, evidence = ev} ->
-    s
-      & #terminal
-        .~ Just
-          TerminalSeen
-            { reason = r,
-              message = msg,
-              errorInfo = Nothing,
-              evidence = ev,
-              failed = False
-            }
-      & #responseId %~ (\old -> rid <|> old)
-  EventError TerminalPayload {reason = r, message = msg, responseId = rid, errorInfo = ei, evidence = ev} ->
-    s
-      & #terminal
-        .~ Just
-          TerminalSeen
-            { reason = r,
-              message = msg,
-              errorInfo = ei,
-              evidence = ev,
-              failed = True
-            }
-      & #responseId %~ (\old -> rid <|> old)
+step s event
+  | Just _ <- s ^. #terminal = s
+  | otherwise = case event of
+      EventStart StartPayload {partial = sk, responseId = rid} ->
+        s
+          & #skeleton %~ (\old -> old <|> Just sk)
+          & #responseId %~ (\old -> rid <|> old)
+      TextStart IndexPayload {contentIndex = i} ->
+        s & #textBuf %~ IntMap.insert i Text.empty
+      TextDelta DeltaPayload {contentIndex = i, delta = d} ->
+        s & #textBuf %~ IntMap.insertWith (\new old -> old <> new) i d
+      TextEnd BlockEndPayload {contentIndex = i, content = body} ->
+        s
+          & #blocks %~ IntMap.insert i (AssistantText (TextContent body))
+          & #textBuf %~ IntMap.delete i
+      ThinkingStart IndexPayload {contentIndex = i} ->
+        s & #thinkBuf %~ IntMap.insert i Text.empty
+      ThinkingDelta DeltaPayload {contentIndex = i, delta = d} ->
+        s & #thinkBuf %~ IntMap.insertWith (\new old -> old <> new) i d
+      ThinkingEnd ThinkingEndPayload {contentIndex = i, content = tc} ->
+        s
+          & #blocks
+            %~ IntMap.insert
+              i
+              (AssistantThinking tc)
+          & #thinkBuf %~ IntMap.delete i
+      ToolCallStart IndexPayload {contentIndex = i} ->
+        s & #toolArgsBuf %~ IntMap.insert i Text.empty
+      ToolCallDelta DeltaPayload {contentIndex = i, delta = d} ->
+        s & #toolArgsBuf %~ IntMap.insertWith (\new old -> old <> new) i d
+      ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = tc} ->
+        s
+          & #blocks %~ IntMap.insert i (AssistantToolCall tc)
+          & #toolArgsBuf %~ IntMap.delete i
+      EventDone TerminalPayload {reason = r, message = msg, responseId = rid, evidence = ev} ->
+        s
+          & #terminal
+            .~ Just
+              TerminalSeen
+                { reason = r,
+                  message = msg,
+                  errorInfo = Nothing,
+                  evidence = ev,
+                  failed = False
+                }
+          & #responseId %~ (\old -> rid <|> old)
+      EventError TerminalPayload {reason = r, message = msg, responseId = rid, errorInfo = ei, evidence = ev} ->
+        s
+          & #terminal
+            .~ Just
+              TerminalSeen
+                { reason = r,
+                  message = msg,
+                  errorInfo = ei,
+                  evidence = ev,
+                  failed = True
+                }
+          & #responseId %~ (\old -> rid <|> old)
 
 finalizeState :: ReassemblyState -> IO Response
 finalizeState s = do
@@ -304,7 +323,9 @@ finalizeState s = do
       message' = overrideBlocksAndReason terminalReason terminalMsg finalContent now
       latency = case (s ^. #skeleton >>= messageTimestamp, assistantPayloadTimestamp message') of
         (Just startTs, Just endTs) -> millisBetween startTs endTs
-        _ -> 0
+        -- No provider timestamps: measure the window this fold actually
+        -- saw rather than reporting zero, which reads as "instant".
+        _ -> millisBetween (s ^. #wallStart) now
   pure
     Response
       { message = message',

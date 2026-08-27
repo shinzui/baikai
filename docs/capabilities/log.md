@@ -2,6 +2,27 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-2 (typed incremental streaming) records what stopping early
+  does to the connection, which was previously stated as one guarantee and is
+  really three. Abandoning a stream stops the socket read within a bounded
+  number of further frames — the hand-off between the provider's worker and the
+  consumer is now a bounded queue rather than an unbounded channel — and
+  releases the connection at the next major garbage collection; cancelling the
+  draining thread, or draining to the terminal, releases it immediately.
+  `baikai-claude/test/LifecycleSpec.hs` is added as evidence: it proves each
+  strength separately, including the no-GC case.
+  `docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`
+  records why they differ and why a liveness flag or a stall deadline cannot
+  replace them.
+
+* **Update**: CAP-4 (typed tool calling) records that a tool call cut off by the
+  output cap is never dispatched. `ToolCall.arguments` keeps the raw text as a
+  JSON string rather than being replaced by an empty object, `isCutOffToolCall`
+  names that state, `runToolLoop` stops with the response intact, and
+  `appendToolResult` appends an `isError` result. The three layers that close a
+  tool call — both provider assemblers and the stream reassembler — now share one
+  rule, `Baikai.Content.toolArgumentsFromText`.
+
 * **Update**: CAP-17 (unattended coding-agent runs) and CAP-18 (the `baikai
   agent` command) now describe the timeout as an escalation — interrupt, then
   terminate, then kill, each stage bounded by a grace period and ended early

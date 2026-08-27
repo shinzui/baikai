@@ -154,6 +154,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `baikai`: `reassembleResponse` is total under duplicated, late and
+  timestamp-less input. The first `EventStart` wins the skeleton and
+  `responseId` merges with `<|>`, so a later `Nothing` cannot erase an id an
+  earlier event supplied; events after the first terminal are ignored, so a
+  producer that keeps talking cannot rewrite the answer; and `latencyMs` falls
+  back to the reassembler's own wall clock when neither the skeleton nor the
+  terminal carries a provider timestamp, instead of reporting a zero that reads
+  as "instant". (REV-2 B.7.)
+
 - `baikai-claude`, `baikai-openai`: a transport failure mid-stream now closes
   the blocks that were open when it arrived, on both providers, so a consumer
   reading raw events and a consumer reassembling them see the same partial

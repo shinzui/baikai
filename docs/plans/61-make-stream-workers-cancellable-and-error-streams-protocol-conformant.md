@@ -78,11 +78,11 @@ it.
 - [x] M3: Claude `decodeFrame` skips unknown event and delta types; both transports ignore
       empty `data:` and trim `[DONE]`
 - [x] M3: SseSpec cases added in both packages
-- [ ] M4: reassembly fallbacks (wall-clock latency, duplicate `EventStart`, post-terminal
+- [x] M4: reassembly fallbacks (wall-clock latency, duplicate `EventStart`, post-terminal
       events) with the six new `StreamSpec` cases
-- [ ] M4: Haddock, `docs/user/streaming.md`, `docs/user/tools.md`,
+- [x] M4: Haddock, `docs/user/streaming.md`, `docs/user/tools.md`,
       `docs/capabilities/typed-streaming.md`, `CHANGELOG.md` updated
-- [ ] M4: keyless `cabal test all` gate green; masterplan Progress rows EP-4 M1–M4 ticked;
+- [x] M4: keyless `cabal test all` gate green; masterplan Progress rows EP-4 M1–M4 ticked;
       living sections finalized
 
 
@@ -116,6 +116,43 @@ Planning-time findings, recorded on 2026-08-27 while drafting against `5411947`:
   same defect: `translate (Left be)` and `unexpectedEoS` build their terminal from
   `blocksInOrder` (closed blocks only) and never close `textBuf`, `thinkBuf`,
   `redactedBuf` or `toolArgsBuf`. Fixed for both providers in M3.
+
+Implementation-time findings:
+
+- __The plan named a `timeoutError` helper that does not exist.__ `Baikai.Error`
+  exports `providerError`, `invalidRequest`, `decodeError`, `processError`,
+  `rateLimited`, `authError`, `providerUnavailable` and `httpError`, and nothing
+  called `timeoutError`. The two mid-stream-failure cases inject
+  `providerUnavailable "connection reset mid-stream"` instead; what they assert —
+  that open blocks close before the terminal — does not depend on the category.
+  (2026-08-27, M3)
+
+- __`docs/capabilities/log.md`'s 2026-08-27 entry mislabels two capability
+  ids.__ It reads "CAP-2 (OpenAI Chat Completions backend) and CAP-3 (Anthropic
+  Messages backend)"; those are CAP-14 and CAP-13, and CAP-2 is typed streaming,
+  CAP-3 the generated catalog. The log is a dated append-only record, so this
+  plan added its own entry rather than rewriting an earlier one — the same rule
+  the MasterPlan sets for a released `CHANGELOG.md` section. __EP-11 owns the
+  correction__, as a dated addition inside that entry. (2026-08-27, M4)
+
+- __`baikai-openai/test/EvidenceSpec.hs` already had a `replayEvents`__ — its
+  trace-event replay. The stream-draining sibling this plan adds is therefore
+  `replayStreamEvents` in both provider suites, not `replayEvents` as the plan
+  drafted it. A single replay cannot serve both, because `withTraceStreamWith`
+  hands back trace events rather than stream events. (2026-08-27, M2)
+
+- __`reassembleResponse`'s `step` could not take a guard as written.__ It was a
+  `\case` lambda, so the first-terminal-wins guard needed a named second
+  argument, and GHC rejects two equations of different arity. The whole body was
+  re-indented into one `step s event | … | otherwise = case event of` equation.
+  Any later plan adding a cross-cutting guard to a `\case`-shaped fold pays the
+  same re-indentation. (2026-08-27, M4)
+
+- __The `[DONE]`-with-trailing-whitespace case needed three events, not two.__
+  `baikai-openai/test/SseSpec.hs`'s `successBody` carries a content chunk, a
+  `finish_reason` chunk and a usage chunk before its `[DONE]` line. A count
+  asserted from the plan's prose rather than from the fixture is a count worth
+  re-deriving. (2026-08-27, M3)
 
 
 ## Decision Log
@@ -218,9 +255,27 @@ Planning-time findings, recorded on 2026-08-27 while drafting against `5411947`:
   primary because lifted streams stamp the true provider window. First-wins matches
   the OpenAI assembler's `firstObserved` discipline.
   Date: 2026-08-27
-- Decision: ADR. This plan creates
-  `docs/adr/000N-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`, with
-  `N` the next free number at implementation time (currently `0006`), slug
+- Decision: `assertErrorContract` and `assertOneErrorTerminal` live in a new
+  shared test module, `test/Contract.hs`, in each provider package, rather than
+  in that package's `test/Main.hs` as the plan drafted.
+  Rationale: three modules need the assertion — `Main` for the end-to-end cases,
+  `SseSpec` for the failure-stream cases, and `EvidenceSpec` for the rate-limit
+  case — and a test module cannot import `Main`. Left in `Main`, the other two
+  would each have grown their own copy, and a protocol asserted three slightly
+  different ways is not asserted at all.
+  Date: 2026-08-27
+- Decision: each provider suite keeps its own `replayDriver` (the plan offered a
+  shared `test/Replay.hs` as an alternative).
+  Rationale: `SseSpec` and `EvidenceSpec` fix different bodies, headers and
+  models, and the driver is eleven lines. One copy per suite means neither can
+  silently change the other's fixtures — which is the failure mode a shared
+  harness has and a duplicated eleven lines does not. Recorded because the plan
+  asked which was chosen.
+  Date: 2026-08-27
+- Decision: ADR. This plan created
+  `docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md`
+  — `0006` through `0009` were taken by EP-1, EP-2 and EP-3 in landing order,
+  so the next plan to promote a record takes `0011`. Slug
   `a-stream-consumer-that-stops-owns-cancelling-the-producer`, and adds its row to
   `docs/adr/README.md`. The local corpus is the plain-file convention of
   `docs/adr/0001-architecture-decision-record-convention.md`; no OKF handle applies.
@@ -229,7 +284,66 @@ Planning-time findings, recorded on 2026-08-27 while drafting against `5411947`:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Complete (2026-08-27), four milestones in four commits `20bd305`, `85731d5`,
+`9276cb3` and this one.
+
+A consumer that stops reading now stops the provider. Both HTTP providers hand
+frames through a bounded 64-slot queue and run their worker under
+`Stream.bracketIO`, so a consumer that cancels releases the connection
+immediately, one that abandons the stream stops the socket read within 64 further
+frames and releases at the next major garbage collection, and a worker that dies
+by asynchronous exception can no longer strand its consumer — end-of-frames is a
+flag set by the fork's own `finally`, never a sentinel that could block on the
+full queue it is meant to escape. The three strengths are stated separately in
+ADR `0010` and pinned separately by four `LifecycleSpec` cases in each provider
+suite; the bounded-read case settles at 68 reads against an endless body, where
+before it did not settle at all.
+
+Every stream from either provider now begins with `EventStart`. The Claude
+producer pre-seeds it before the first wire read, so a 401, a rate limit, an
+in-band `error` frame and an EOF before `message_start` each produce
+`[EventStart, EventError]` with structured `errorInfo`; `message_start` updates
+the assembler and emits nothing. `assertErrorContract` was strengthened to the
+whole protocol and moved into a shared `Contract` module per suite so the
+end-to-end, transport and evidence cases assert one contract.
+
+A tool call cut off by the output cap keeps its raw argument text and is never
+executed: one rule, `Baikai.Content.toolArgumentsFromText`, is used by both
+assemblers and by core's recovery path, `isCutOffToolCall` names the state,
+`runToolLoop` stops with the response intact and `appendToolResult` appends an
+`isError` result. A transport failure mid-stream closes the blocks that were open
+when it arrived, on both providers. Reasoning after visible text closes the text
+block first, so at most one of the two is open at a time and no index is
+revisited. An SSE frame whose event or delta type the Claude SDK has no
+constructor for is skipped rather than ending a healthy stream — both tag lists
+were checked against `Claude.V1.Messages`'s `constructorTagModifier` tables in
+`claude-1.4.0` and match exactly. Empty `data:` heartbeats are ignored on both
+transports and `[DONE]` is compared after trailing whitespace is trimmed.
+
+Core reassembly is total under duplicated, late and timestamp-less input: the
+first start wins, `responseId` merges with `<|>`, events after the first terminal
+are ignored, and `latencyMs` falls back to the reassembler's own clock rather
+than reporting a zero that reads as "instant".
+
+The keyless `cabal test all` gate is green across all eight suites (`baikai` 584,
+`baikai-claude` 274, `baikai-openai` 180, `baikai-agent` 87, `baikai-kit` 29,
+`baikai-trace-otel` 5, `baikai-effectful` 4, and `baikai-smoke` skipping without
+credentials as designed), `nix fmt` leaves the tree unchanged, and
+`okf validate docs/capabilities --profile-enforce --log-enforce` reports
+`OK: 22 concepts`.
+
+Names EP-10 must cover, all added with Haddock and left where they are:
+`Baikai.Provider.Internal.StreamWorker` (exposed, outside PVP, as the MasterPlan
+agreed), its seven exports, `Baikai.Content.toolArgumentsFromText` and
+`isCutOffToolCall`, and `Baikai.Provider.Claude.Sse.decodeFrame`. No behaviour
+here produces an `Aborted` terminal, so EP-10's retirement of `Aborted` stands as
+the MasterPlan recorded it. No version was bumped; the changes are recorded under
+`[Unreleased]`.
+
+Nothing here needed a live key. The one thing offline tests cannot show is the
+*billing* consequence of the bounded read — `Stream.take 2` on a real call should
+be billed for a few hundred output tokens rather than the whole answer — and a
+keyed run is the only way to see it.
 
 
 ## Context and Orientation

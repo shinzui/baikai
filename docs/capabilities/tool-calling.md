@@ -24,6 +24,9 @@ evidence:
     resource: baikai/test/HelpersSpec.hs
     proves: "runToolLoop's full contract: it resolves repeated tool turns, leaves the final response separate from the context, returns a replay-valid context when the turn budget is exhausted, converts a synchronous dispatcher exception into an error tool result, and terminates a ToolUse response that carries no tool calls."
   - kind: test
+    resource: baikai/test/StreamSpec.hs
+    proves: "A tool call cut off by the output cap keeps its raw argument text, is marked by isCutOffToolCall, and is dispatched by neither runToolLoop nor appendToolResult."
+  - kind: test
     resource: baikai-claude/test/ShapeSpec.hs
     proves: "A tool's input_schema reaches Anthropic as the caller's verbatim JSON Schema, and ToolChoiceNone keeps the tool definitions while sending tool_choice none."
   - kind: test
@@ -75,7 +78,12 @@ let opts = emptyOptions
   caller's. See [CAP-15 — subscription-backed batch CLI
   backends](subscription-cli-backends.md).
 - baikai does not validate tool arguments against the declared schema. What the
-  model produced is handed to the dispatcher as-is.
+  model produced is handed to the dispatcher as-is — with one exception: a call
+  whose arguments were **cut off** by the output cap is never dispatched.
+  `ToolCall.arguments` then holds the raw text as a JSON string,
+  `isCutOffToolCall` is `True`, the response's `stopReason` is `Length`,
+  `runToolLoop` stops with the response intact, and `appendToolResult` appends an
+  `isError` result rather than calling the dispatcher.
 - Image blocks inside a tool result are **rejected**, on both API providers,
   rather than silently dropped — a deliberate refusal, but it means a
   multimodal tool result is not expressible today.

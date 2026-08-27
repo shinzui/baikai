@@ -21,9 +21,12 @@ evidence:
   - kind: test
     resource: baikai/test/StreamSpec.hs
     proves: "The event algebra's load-bearing invariants: an error-only stream still begins with EventStart, terminal message content is authoritative over accumulated deltas, thinking signatures and redaction survive lift and reassembly, dangling buffers keep contentIndex order, responseId flows from events into the Response, and async exceptions pass through liftCompleteToStream rather than being swallowed."
+  - kind: test
+    resource: baikai-claude/test/LifecycleSpec.hs
+    proves: "The three cleanup strengths of a stopped consumer: a consumer that stops after three events stops the body reader within the queue bound, an abandoned stream releases its connection after a major GC, cancelling the consumer releases it without one, and a worker that dies by asynchronous exception still ends the stream in an EventError."
   - kind: guide
     resource: docs/user/streaming.md
-    proves: "The event algebra, the event-stability policy, the standard fold patterns, and how to recover partial output from a failed stream."
+    proves: "The event algebra, the event-stability policy, the standard fold patterns, how to recover partial output from a failed stream, and what stopping early does to the connection."
   - kind: module
     resource: baikai/src/Baikai/Stream/Event.hs
     proves: "The AssistantMessageEvent constructors and the doneTerminal / errorTerminal smart constructors every provider terminates through."
@@ -69,7 +72,12 @@ callers who would rather not depend on `streamly` directly.
   before it are not, and depend on how the host chunks its SSE frames.
 - `latencyMs` is clamped at zero rather than reported negative if a clock moves
   backwards.
-- Consuming the stream is the consumer's responsibility. Abandoning it mid-flight
-  is legal and is reported honestly downstream (evidence records it as `aborted`,
-  not `failed`), but the underlying HTTP connection is released only when the
-  stream is drained or the bracket exits.
+- Consuming the stream is the consumer's responsibility, and stopping early has
+  three different strengths. Abandoning the stream mid-flight is legal: the
+  worker stops reading the socket within a bounded number of further frames, and
+  the connection is released at the next major garbage collection. Cancelling the
+  draining thread — `Ctrl-C`, `timeout`, `cancel` — releases it immediately, as
+  does draining the stream to its terminal. Callers who need the connection back
+  at a known moment take one of the latter two.
+  [ADR 0010](../adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md)
+  says why they differ.

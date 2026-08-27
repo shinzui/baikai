@@ -156,6 +156,11 @@ tests =
             handler _ _ _ = pure oldResponse
         resp <- streamingComplete (liftCompleteToStream handler) streamModel streamContext streamOptions
         assertBool "latencyMs should be non-negative" (resp ^. #latencyMs >= 0),
+      duplicateStartTest,
+      eventsAfterTerminalTest,
+      failedTerminalAppendsDanglingTest,
+      emptySuccessfulTerminalFallsBackTest,
+      wallClockLatencyTest,
       testCase "async exceptions pass through liftCompleteToStream" $ do
         done <- newEmptyMVar
         let blocked _ _ _ = threadDelay (10 * 1000 * 1000) *> pure (responseWith Nothing [])
@@ -256,3 +261,131 @@ cutOffModel =
     .~ cutOffApi
     & #provider
     .~ "stream-spec"
+
+-- | A duplicated start does not rewrite the assembly.
+--
+-- First skeleton wins, so the latency window is measured from the first
+-- event the provider actually sent; @responseId@ merges, so a later
+-- 'Nothing' cannot erase an id an earlier event supplied.
+duplicateStartTest :: TestTree
+duplicateStartTest =
+  testCase "a duplicate EventStart keeps the first skeleton and merges responseId" $ do
+    let firstSkeleton = AssistantMessage (assistantPayload Vector.empty Stop Nothing later)
+        staleSkeleton = AssistantMessage (assistantPayload Vector.empty Stop Nothing epoch)
+    resp <-
+      runEvents
+        [ EventStart StartPayload {partial = firstSkeleton, responseId = Just "msg_1"},
+          EventStart StartPayload {partial = staleSkeleton, responseId = Nothing},
+          EventDone
+            ( doneTerminal
+                Nothing
+                Nothing
+                Stop
+                (AssistantMessage (assistantPayload (Vector.singleton (AssistantText (TextContent "hi"))) Stop Nothing muchLater))
+            )
+        ]
+    resp ^. #responseId @?= Just "msg_1"
+    -- Measured from the first skeleton's timestamp, not the stale one:
+    -- the stale skeleton is at the epoch, which would give a latency of
+    -- decades.
+    resp ^. #latencyMs @?= 2000
+
+-- | The first terminal wins. A producer that keeps talking afterwards
+-- cannot rewrite the answer a consumer has already been handed.
+eventsAfterTerminalTest :: TestTree
+eventsAfterTerminalTest =
+  testCase "events after the terminal are ignored" $ do
+    resp <-
+      runEvents
+        [ startEvent Nothing,
+          doneEvent Nothing [AssistantText (TextContent "final")],
+          TextStart IndexPayload {contentIndex = 5},
+          TextDelta DeltaPayload {contentIndex = 5, delta = "late"},
+          EventError
+            ( errorTerminal
+                Nothing
+                Nothing
+                ErrorReason
+                (AssistantMessage (assistantPayload Vector.empty ErrorReason (Just "too late") epoch))
+                (providerError "too late")
+            )
+        ]
+    resp ^. #message ^. #content @?= Vector.singleton (AssistantText (TextContent "final"))
+    resp ^. #message ^. #stopReason @?= Stop
+    resp ^. #errorInfo @?= Nothing
+
+-- | A failed terminal's own content comes first and the blocks that were
+-- still open are appended after it. Safe because an open index is always
+-- greater than every closed one.
+failedTerminalAppendsDanglingTest :: TestTree
+failedTerminalAppendsDanglingTest =
+  testCase "a failed terminal appends dangling blocks after its content" $ do
+    resp <-
+      runEvents
+        [ startEvent Nothing,
+          TextStart IndexPayload {contentIndex = 0},
+          TextDelta DeltaPayload {contentIndex = 0, delta = "closed"},
+          TextEnd BlockEndPayload {contentIndex = 0, content = "closed"},
+          ThinkingStart IndexPayload {contentIndex = 1},
+          ThinkingDelta DeltaPayload {contentIndex = 1, delta = "half a thought"},
+          EventError
+            ( errorTerminal
+                Nothing
+                Nothing
+                ErrorReason
+                (AssistantMessage (assistantPayload (Vector.singleton (AssistantText (TextContent "closed"))) ErrorReason (Just "boom") epoch))
+                (providerError "boom")
+            )
+        ]
+    resp ^. #message ^. #content
+      @?= Vector.fromList
+        [ AssistantText (TextContent "closed"),
+          AssistantThinking ThinkingContent {thinking = "half a thought", signature = Nothing, redacted = False}
+        ]
+
+-- | A terminal that carries no content is not authoritative about
+-- content: the blocks the stream assembled are.
+emptySuccessfulTerminalFallsBackTest :: TestTree
+emptySuccessfulTerminalFallsBackTest =
+  testCase "a successful terminal with empty content falls back to the assembled blocks" $ do
+    resp <-
+      runEvents
+        [ startEvent Nothing,
+          TextStart IndexPayload {contentIndex = 0},
+          TextDelta DeltaPayload {contentIndex = 0, delta = "assembled"},
+          TextEnd BlockEndPayload {contentIndex = 0, content = "assembled"},
+          doneEvent Nothing []
+        ]
+    resp ^. #message ^. #content @?= Vector.singleton (AssistantText (TextContent "assembled"))
+
+-- | With no provider timestamps, latency is the window this fold saw
+-- rather than a zero that reads as "instant".
+wallClockLatencyTest :: TestTree
+wallClockLatencyTest =
+  testCase "latencyMs falls back to the wall clock when timestamps are absent" $ do
+    let untimed sr err blocks =
+          AssistantMessage
+            AssistantPayload
+              { content = Vector.fromList blocks,
+                usage = zeroUsage,
+                stopReason = sr,
+                errorMessage = err,
+                timestamp = Nothing
+              }
+        events =
+          [ EventStart StartPayload {partial = untimed Stop Nothing [], responseId = Nothing},
+            EventDone (doneTerminal Nothing Nothing Stop (untimed Stop Nothing [AssistantText (TextContent "slow")]))
+          ]
+    resp <-
+      Stream.fold
+        (reassembleResponse streamModel)
+        (Stream.mapM (\e -> threadDelay 20000 >> pure e) (Stream.fromList events))
+    assertBool
+      ("expected a wall-clock latency of at least 20ms, got: " <> show (resp ^. #latencyMs))
+      (resp ^. #latencyMs >= 20)
+
+later :: UTCTime
+later = read "2000-01-01 00:00:01 UTC"
+
+muchLater :: UTCTime
+muchLater = read "2000-01-01 00:00:03 UTC"

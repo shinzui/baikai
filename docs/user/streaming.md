@@ -44,10 +44,10 @@ constructor carries a payload record:
 | `TextEnd`        | `BlockEndPayload`    | `contentIndex`, `content`                | The text block closes. `content` is the concatenation of every delta.         |
 | `ThinkingStart`  | `IndexPayload`       | `contentIndex`                           | A reasoning block opens (reasoning models only).                              |
 | `ThinkingDelta`  | `DeltaPayload`       | `contentIndex`, `delta`                  | Reasoning chunk.                                                              |
-| `ThinkingEnd`    | `BlockEndPayload`    | `contentIndex`, `content`                | Reasoning block closes.                                                       |
+| `ThinkingEnd`    | `ThinkingEndPayload` | `contentIndex`, `content :: ThinkingContent` | Reasoning block closes. `content` carries the signature and the redacted flag. |
 | `ToolCallStart`  | `IndexPayload`       | `contentIndex`                           | A tool-call block opens.                                                      |
 | `ToolCallDelta`  | `DeltaPayload`       | `contentIndex`, `delta`                  | A chunk of the tool call's argument JSON.                                     |
-| `ToolCallEnd`    | `ToolCallEndPayload` | `contentIndex`, `toolCall :: ToolCall`   | Tool-call block closes; arguments are parsed.                                 |
+| `ToolCallEnd`    | `ToolCallEndPayload` | `contentIndex`, `toolCall :: ToolCall`   | Tool-call block closes; arguments are parsed, or kept as raw text if cut off (see [tools.md](tools.md)). |
 | `EventDone`      | `TerminalPayload`    | `reason :: StopReason`, `message :: Message`, `evidence :: Maybe ModelCallEvidence` | Terminal success. `message` is the fully assembled `AssistantMessage`.    |
 | `EventError`     | `TerminalPayload`    | `reason :: StopReason`, `message :: Message`, `errorInfo :: Maybe BaikaiError`, `evidence :: Maybe ModelCallEvidence` | Terminal failure. `message` carries whatever content closed before the failure plus a populated `errorMessage`. |
 
@@ -129,6 +129,37 @@ This is the inverse of how most SDKs handle streaming errors
 wraps the same flow into a single `Response` whose `stopReason` is
 `ErrorReason` or `Aborted` on failure; the partial content is on
 the response's message.
+
+### Stopping early
+
+Nothing forces you to drain a stream. What differs is *when* the HTTP
+connection goes back to the pool.
+
+```haskell
+-- The first three events, then walk away.
+events <- Stream.toList (Stream.take 3 (streamRequest model ctx opts))
+```
+
+The provider's worker stops reading the socket within 64 frames of the
+last one you pulled — the queue between the worker and you is bounded, so
+the model stops being generated and billed almost at once. The connection
+itself is released at the next major garbage collection.
+
+If you need the connection back at a known moment, **cancel the thread
+doing the draining**, or wrap the drain in a timeout:
+
+```haskell
+-- Releases the connection immediately when the deadline passes.
+result <- timeout 5_000_000 (Stream.toList (streamRequest model ctx opts))
+```
+
+An exception reaching the draining thread — `Ctrl-C`, `timeout`,
+`cancel` — lands inside the stream's own step, and the provider kills its
+worker and closes the response synchronously before the exception
+reaches you.
+
+The reasoning behind the three different strengths is in
+[ADR 0010](../adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md).
 
 ## Event stability policy
 
