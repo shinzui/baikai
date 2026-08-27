@@ -75,6 +75,7 @@ import Baikai.Stream.Event
     doneTerminal,
     errorTerminal,
   )
+import Baikai.Url qualified as Url
 import Baikai.Usage qualified as Usage
 import Claude.V1.Messages qualified as Messages
 import Control.Concurrent (forkIO)
@@ -236,20 +237,29 @@ prepareCall m ctx opts = do
             u -> u
           compat = anthropicMessagesCompatFor m
           version = Just "2023-06-01"
-      key <- Transport.resolveKey url opts
-      env <- Transport.getClientEnvCached url
-      let body = streamRequestBody compat ctx opts req
-          headers = Transport.requestHeaders key version compat ctx m opts
-      pure
-        ( Right
-            ClaudeCall
-              { clientEnv = env,
-                requestHeaders = headers,
-                timeoutMs = opts ^. #timeoutMs,
-                requestBody = body,
-                thinking = translation
-              }
-        )
+      -- Checked before the key is resolved, so a base URL baikai will
+      -- not send to never causes a credential to be read out of the
+      -- environment. The message names the problem and what to write
+      -- instead; it renders the URL without its userinfo or query, so an
+      -- error reaching a log cannot carry a key someone put in either.
+      case Url.baseUrlProblem url of
+        Just problem ->
+          pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
+        Nothing -> do
+          key <- Transport.resolveKey url opts
+          env <- Transport.getClientEnvCached url
+          let body = streamRequestBody compat ctx opts req
+              headers = Transport.requestHeaders key version compat ctx m opts
+          pure
+            ( Right
+                ClaudeCall
+                  { clientEnv = env,
+                    requestHeaders = headers,
+                    timeoutMs = opts ^. #timeoutMs,
+                    requestBody = body,
+                    thinking = translation
+                  }
+            )
 
 -- | Worker body: drive the SDK's typed callback, forwarding events
 -- onto the channel. Any exception is converted into a synthetic

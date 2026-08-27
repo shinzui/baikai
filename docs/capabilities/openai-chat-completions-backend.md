@@ -24,10 +24,10 @@ requires:
 evidence:
   - kind: test
     resource: baikai-openai/test/TransportSpec.hs
-    proves: "The HTTP transport beneath the provider and its failure paths."
+    proves: "The HTTP transport beneath the provider and its failure paths, including that the connection cache allocates once per normalised base URL and that an unusable base URL — a query string, credentials in the URL, no scheme, or a full endpoint path — is refused as an InvalidRequest before any key is read from the environment."
   - kind: test
     resource: baikai-openai/test/SseSpec.hs
-    proves: "Chunk decoding and reassembly, including that id-bearing index-less tool deltas stay separate calls and that the response-metadata callback fires once before the first chunk on both the 2xx and non-2xx paths."
+    proves: "Chunk decoding and reassembly, including that id-bearing index-less tool deltas stay separate calls and that the response-metadata callback fires once before the first chunk on both the 2xx and non-2xx paths. The request-shape cases assert the composed path for five base-URL spellings and that redirectCount is zero; the redirect case drives a fake manager that answers 302 and asserts that only the configured host was ever contacted."
   - kind: test
     resource: baikai-openai/test/ShapeSpec.hs
     proves: "Request shaping across the compatible-host matrix, including which shapes carry an effort word and which are excluded from the compatibleEffort clamp."
@@ -91,6 +91,18 @@ let m = emptyModel & #api .~ OpenAIChatCompletions
   Anthropic side.
 - `fully_observed` evidence is unreachable: no host in this ecosystem echoes the
   reasoning configuration it applied.
+- **The base URL is the API root**, without the version segment: baikai appends
+  `/v1/chat/completions` itself, and a trailing `/v1` is removed rather than
+  doubled. A base URL with no scheme, a scheme other than `http`/`https`,
+  credentials, a query string, a fragment, or a path that is already an endpoint
+  is refused as an `InvalidRequest` before a key is read. Query strings stay
+  unsupported: a host needing `?api-version=` has to be fronted by a gateway.
+- **A redirect is never followed.** A 3xx is delivered as the terminal error
+  carrying its status, because following one would re-send the bearer token to
+  whatever host the `Location` names.
+- The `ClientEnv` cache is process-global, unbounded, shared with the Anthropic
+  backend and the embeddings client, and keyed per normalised base URL. A fleet
+  of per-tenant base URLs is not a supported use of `Model.baseUrl`.
 - `RawChunk` gained `model` and `responseId` fields and the four `Sse` entry
   points gained a metadata callback in 0.5.0.0; code that *constructs* these
   needs updating, code that pattern-matches does not.

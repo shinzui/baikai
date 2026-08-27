@@ -77,8 +77,8 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M2 (2026-08-27): `isCredentialHeader`, `redactHeaderValues`, `redactedMarker` added to `Baikai.Auth`; hand-written `Show`/`ToJSON` on `Options` and `Model`; field-coverage guard test and four redaction cases in `baikai/test/Main.hs`.
 - [x] M2 (2026-08-27): `resolveApiKey` treats an empty (whitespace-only) variable as unset; five `HelpersSpec` cases added; Haddock and `docs/user/getting-started.md` updated.
 - [x] M3 (2026-08-27): `EmbeddingModel` derives `Eq`/`Generic`; `apiKey :: Maybe ApiKeySource`; `resolveEmbeddingKey` and `embeddingClientEnv` added; `embed` routes through `Baikai.Http`; six `EmbeddingSpec` cases added; `docs/capabilities/text-embeddings.md` and `docs/capabilities/log.md` updated. The `baseUrlProblem` check in `embed` belongs to M4, which owns it for both providers as well.
-- [ ] M4: `buildRequest` extracted in both `Sse.hs` with `redirectCount = 0`; `canonicalBaseUrl` strips a trailing `/v1`; `baseUrlProblem` checked in both `prepareCall`s and in `embed`.
-- [ ] M4: fake-manager redirect test and path-composition tests in both provider suites; base-URL refusal tests; `docs/user/models-and-providers.md` "Base URLs" section; Limits bullets in both backend capability records; `docs/capabilities/log.md` entry.
+- [x] M4 (2026-08-27): `buildRequest` extracted in both `Sse.hs` with `redirectCount = 0`; `canonicalBaseUrl` strips a trailing `/v1`; `baseUrlProblem` checked in both `prepareCall`s and in `embed`, before the key is resolved.
+- [x] M4 (2026-08-27): fake-manager redirect test and path-composition tests in both provider `SseSpec.hs`; base-URL refusal tests in both `TransportSpec.hs`; `canonicalBaseUrl` cases in `UrlSpec`; `docs/user/models-and-providers.md` "Base URLs" section; evidence and Limits bullets in both backend capability records; `docs/capabilities/log.md` entry.
 - [ ] Final: keyless `cabal test all` gate green; `nix fmt` clean; master plan Progress lines for EP-2 ticked; Outcomes & Retrospective written; ADR distillation pass done.
 
 
@@ -170,6 +170,32 @@ Recorded during implementation.
   (`class GFieldNames (f :: Type -> Type)`). Without it GHC infers a
   kind-polymorphic parameter and `selName (undefined :: S1 m f ())` fails with
   "Expected kind 'k', but '()' has kind '*'". (2026-08-27, M2)
+- Both M4 defects were reproduced before they were fixed, by temporarily putting
+  `redirectCount` back to the http-client default and `canonicalBaseUrl`'s path back to
+  a plain trailing-slash trim:
+
+  ```text
+    the request this transport sends
+      one version segment, whatever spelling the base URL used:  FAIL
+        expected: ("https://api.deepseek.com/v1","/v1/chat/completions")
+         but got: ("https://api.deepseek.com/v1","/v1/v1/chat/completions")
+      the request never follows a redirect:                      FAIL
+        expected: 0
+         but got: 10
+    redirects
+      a 302 is the terminal error and no second host is contacted: FAIL
+        Exception: HttpExceptionRequest Request { host = "proxy.test" … }
+  ```
+
+  The third is the redirect being followed: the fake manager answers 302 for every
+  connection, so the client chased `Location` and eventually gave up with an
+  exception instead of delivering one classified 302. With the fix it records exactly
+  `[("proxy.test", 80)]`. (2026-08-27, M4)
+- `EventError`'s `errorInfo` is a `Maybe BaikaiError`, not a `BaikaiError`, so the
+  base-URL refusal cases match on it rather than reaching through `^. #errorInfo .
+  #category`. A test written the other way does not compile, which is the right
+  outcome: whether a stream error carries a typed error at all is a fact worth
+  asserting. (2026-08-27, M4)
 
 
 ## Decision Log

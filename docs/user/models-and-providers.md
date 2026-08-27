@@ -111,6 +111,58 @@ The OpenAI provider auto-detects the compat record from the
 explicitly if you need something the auto-detection doesn't
 cover.
 
+## Base URLs
+
+`baseUrl` is the **API root**: the host, or the prefix under which a host
+mounts the API. baikai appends the endpoint path itself —
+`/v1/chat/completions`, `/v1/messages`, `/v1/embeddings` — so you never
+write it.
+
+The catalog's own values show the shape: `https://api.openai.com`,
+`https://api.anthropic.com`, `https://openrouter.ai/api`. A base URL that
+already ends in `/v1` is accepted and that one segment is removed before
+composing, so `https://api.deepseek.com/v1` — the spelling every OpenAI
+SDK teaches — requests `/v1/chat/completions` rather than
+`/v1/v1/chat/completions`. Only a trailing `/v1` is treated this way;
+`/v10` and `/v1beta` are ordinary path segments.
+
+The host name in this field decides two things beyond where the request
+goes: which environment variable supplies the API key when you set none,
+and which per-host compatibility record applies. Everything after the
+first `/`, `?` or `#` is path, query or fragment and cannot change the
+host — a base URL such as `https://proxy.example.com/v1?u=@api.openai.com`
+names `proxy.example.com`, resolves no key and gets no vendor compat
+record.
+
+Some shapes are refused before anything is sent, each with a message
+saying what to write instead:
+
+- **No scheme, or a scheme other than `http`/`https`.** A scheme-less URL
+  would otherwise be sent over plaintext HTTP with your key attached.
+- **Credentials in the URL** (`https://user:pw@host/`). They are never
+  sent. Use `Options.apiKey` for the API key, or `Options.headers` for a
+  gateway's own header.
+- **A query string.** baikai composes the request path itself and does
+  not support per-host query parameters such as `?api-version=`. If a
+  host needs one, front it with a gateway that adds it.
+- **A fragment**, which is not part of a request at all.
+- **A full endpoint URL as the base** (`https://h/v1/chat/completions`),
+  which is the API root plus the path baikai is about to append.
+
+The refusal arrives as a normal in-band error — an `EventStart` followed
+by an `EventError` whose category is `InvalidRequest` — and it happens
+*before* a key is read from the environment, so a refused base URL never
+causes a credential to be looked up. The message renders the URL without
+its userinfo or query, so it is safe to log.
+
+Two more things a request will not do. It **never follows a redirect**: a
+chat or messages POST has no legitimate 3xx, and following one would
+re-send your bearer token to whatever host the `Location` header names, so
+a 3xx is delivered as the terminal error carrying its status. And
+`print`ing an `Options`, a `Model` or a `Response` **redacts** the value
+of any header whose name looks credential-carrying, so a gateway key you
+put in `headers` does not reach your logs.
+
 ## Compatibility policy
 
 `Compat`, `OpenAICompletionsCompat`, and `AnthropicMessagesCompat`

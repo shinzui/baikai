@@ -36,6 +36,18 @@
   `baikai/test/EmbeddingSpec.hs` are added to the record's evidence, which
   narrows — though does not close — the gap the 2026-08-10 entry recorded.
 
+* **Update**: CAP-2 (OpenAI Chat Completions backend) and CAP-3 (Anthropic
+  Messages backend) record three transport changes. The base URL is the API
+  root, without the version segment: baikai appends the endpoint path itself and
+  removes one trailing `/v1` rather than doubling it, and the shapes it will not
+  send to — no scheme, a foreign scheme, credentials in the URL, a query string,
+  a fragment, or a full endpoint path — are refused as an `InvalidRequest`
+  before any key is read from the environment. A redirect is never followed: a
+  3xx is the terminal error, because following one would re-send the credential
+  to whatever host the `Location` names. And the `ClientEnv` cache is now one
+  process-global cache in `Baikai.Http`, shared by both backends and the
+  embeddings client and keyed per normalised base URL.
+
 ## 2026-08-10
 
 * **Add**: Adopt the shared OKF capability profile (okf-profiles

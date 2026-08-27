@@ -40,8 +40,18 @@ import System.IO.Unsafe (unsafePerformIO)
 -- | Parse a base URL into the @servant-client@ 'Client.BaseUrl' baikai
 -- will send to, normalised so that every spelling of one target is one
 -- value: the host lower-cased by 'Url.parseUrl', the port made explicit
--- from the scheme's default when none was given, and trailing slashes
--- removed from the path.
+-- from the scheme's default when none was given, trailing slashes
+-- removed from the path, and one trailing @\/v1@ segment removed.
+--
+-- That last rule is the base-URL convention: @Model.baseUrl@ is the API
+-- __root__ — the host, or the prefix a host mounts the API under —
+-- without the version segment, because baikai appends
+-- @\/v1\/chat\/completions@, @\/v1\/messages@ or @\/v1\/embeddings@
+-- itself. A @\/v1@ suffix is nevertheless accepted and removed rather
+-- than refused, because @https:\/\/api.deepseek.com\/v1@ is what every
+-- OpenAI SDK teaches and refusing it would break a working configuration
+-- for no security gain. Without the rule that base URL composed to
+-- @\/v1\/v1\/chat\/completions@.
 --
 -- Built from 'Url.parseUrl' directly rather than by handing the raw text
 -- to @servant-client@'s own @parseBaseUrl@, so that the host baikai
@@ -79,7 +89,7 @@ canonicalBaseUrl raw = case Url.parseUrl raw of
                     Client.baseUrlPort =
                       maybe (if secure then 443 else 80) id (Url.port parts),
                     Client.baseUrlPath =
-                      Text.unpack (Text.dropWhileEnd (== '/') (Url.path parts))
+                      Text.unpack (Url.stripApiVersion (Url.path parts))
                   }
 
 -- | The cached 'Client.ClientEnv' for a base URL, building one on first

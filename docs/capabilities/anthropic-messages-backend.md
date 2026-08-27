@@ -22,10 +22,10 @@ requires:
 evidence:
   - kind: test
     resource: baikai-claude/test/TransportSpec.hs
-    proves: "The HTTP transport layer beneath the provider, including request construction and the failure paths that never reach a live host."
+    proves: "The HTTP transport layer beneath the provider, including request construction, the failure paths that never reach a live host, that the connection cache allocates once per normalised base URL, and that an unusable base URL — a query string, credentials in the URL, no scheme, or a full endpoint path — is refused as an InvalidRequest before any key is read from the environment."
   - kind: test
     resource: baikai-claude/test/SseSpec.hs
-    proves: "Anthropic's SSE frame handling: event decoding, the response-metadata callback that fires exactly once before the first event on both the 2xx and non-2xx paths, and reassembly into baikai's event algebra."
+    proves: "Anthropic's SSE frame handling: event decoding, the response-metadata callback that fires exactly once before the first event on both the 2xx and non-2xx paths, and reassembly into baikai's event algebra. The request-shape cases assert the composed path for four base-URL spellings and that redirectCount is zero; the redirect case drives a fake manager that answers 302 and asserts that only the configured host was ever contacted."
   - kind: test
     resource: baikai-claude/test/ShapeSpec.hs
     proves: "Request shaping: verbatim tool input_schema, tool_choice mapping, and cache-control marker placement gated on host capability."
@@ -76,6 +76,19 @@ ClaudeApi.register   -- or registerWith config, or registerWithRegistry
 - `fully_observed` evidence is unreachable on this transport, because Anthropic
   does not echo the thinking configuration it applied. A 2xx status never raises
   evidence strength either — acceptance is not execution.
+- **The base URL is the API root**, without the version segment: baikai appends
+  `/v1/messages` itself, and a trailing `/v1` is removed rather than doubled. A
+  base URL with no scheme, a scheme other than `http`/`https`, credentials, a
+  query string, a fragment, or a path that is already an endpoint is refused as
+  an `InvalidRequest` before a key is read. Query strings stay unsupported: a
+  host needing one has to be fronted by a gateway.
+- **A redirect is never followed.** A 3xx is delivered as the terminal error
+  carrying its status, because following one would re-send the `x-api-key`
+  header to whatever host the `Location` names.
+- The `ClientEnv` cache is process-global, unbounded, shared with the
+  OpenAI-compatible backend and the embeddings client, and keyed per normalised
+  base URL. A fleet of per-tenant base URLs is not a supported use of
+  `Model.baseUrl`.
 - `Baikai.Provider.Claude.Internal.*` is exposed for provider tests and debugging
   and is documented as outside the PVP contract. `mapRequest` in particular
   changed shape in 0.5.0.0.

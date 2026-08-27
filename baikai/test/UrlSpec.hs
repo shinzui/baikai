@@ -16,6 +16,7 @@ import Baikai
     defaultOpenAICompletionsCompat,
   )
 import Baikai.Evidence.Build (sanitizeEndpoint)
+import Baikai.Http qualified as Http
 import Baikai.Url
   ( UrlParts (..),
     baseUrlProblem,
@@ -27,6 +28,7 @@ import Baikai.Url
 import Control.Monad (forM_)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Servant.Client qualified as Client
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -38,7 +40,8 @@ urlTests =
       hostAndPortTests,
       renderingTests,
       stripApiVersionTests,
-      baseUrlProblemTests
+      baseUrlProblemTests,
+      canonicalBaseUrlTests
     ]
 
 -- --------------------------------------------------------------------
@@ -235,3 +238,38 @@ expectProblem :: Text -> IO Text
 expectProblem url = case baseUrlProblem url of
   Nothing -> assertFailure ("expected " <> Text.unpack url <> " to be refused")
   Just problem -> pure problem
+
+-- --------------------------------------------------------------------
+-- What the transports actually connect to
+-- --------------------------------------------------------------------
+
+-- | The normalisation the connection cache keys on, and the composition
+-- rule the transports rely on.
+canonicalBaseUrlTests :: TestTree
+canonicalBaseUrlTests =
+  testGroup
+    "canonicalBaseUrl"
+    [ testCase "a trailing /v1 and its absence are the same target" $ do
+        withVersion <- expectCanonical "https://api.deepseek.com/v1"
+        without <- expectCanonical "https://api.deepseek.com"
+        Client.showBaseUrl withVersion @?= Client.showBaseUrl without,
+      testCase "the host is lower-cased and a default port is implied" $ do
+        base <- expectCanonical "https://Api.OpenAI.com:443/"
+        Client.showBaseUrl base @?= "https://api.openai.com",
+      testCase "a mounted API keeps its prefix without its version" $ do
+        base <- expectCanonical "https://openrouter.ai/api/v1/"
+        Client.baseUrlPath base @?= "/api",
+      testCase "an unusable base URL is a reason, not an exception" $
+        case Http.canonicalBaseUrl "h.test" of
+          Right base ->
+            assertFailure ("expected a refusal, got " <> Client.showBaseUrl base)
+          Left problem ->
+            assertBool
+              ("names the fix: " <> Text.unpack problem)
+              ("https://" `Text.isInfixOf` problem)
+    ]
+
+expectCanonical :: Text -> IO Client.BaseUrl
+expectCanonical url = case Http.canonicalBaseUrl url of
+  Left problem -> assertFailure (Text.unpack (url <> " was refused: " <> problem))
+  Right base -> pure base

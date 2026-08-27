@@ -91,6 +91,7 @@ import Baikai.Stream.Event
     doneTerminal,
     errorTerminal,
   )
+import Baikai.Url qualified as Url
 import Baikai.Usage qualified as Usage
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
@@ -261,21 +262,30 @@ prepareCall m ctx opts = case mapRequest m ctx opts of
     let url = case m ^. #baseUrl of
           "" -> "https://api.openai.com"
           u -> u
-    key <- Transport.resolveKey url opts
-    env <- Transport.getClientEnvCached url
-    let compat = openaiCompletionsCompatFor m
-        (body, translation) = streamRequestBody compat opts req
-        headers = Transport.requestHeaders key m opts
-    pure
-      ( Right
-          OpenAICall
-            { clientEnv = env,
-              requestHeaders = headers,
-              timeoutMs = opts ^. #timeoutMs,
-              requestBody = body,
-              thinking = translation
-            }
-      )
+    -- Checked before the key is resolved, so a base URL baikai will not
+    -- send to never causes a credential to be read out of the
+    -- environment. The message names the problem and what to write
+    -- instead; it renders the URL without its userinfo or query, so an
+    -- error reaching a log cannot carry a key someone put in either.
+    case Url.baseUrlProblem url of
+      Just problem ->
+        pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
+      Nothing -> do
+        key <- Transport.resolveKey url opts
+        env <- Transport.getClientEnvCached url
+        let compat = openaiCompletionsCompatFor m
+            (body, translation) = streamRequestBody compat opts req
+            headers = Transport.requestHeaders key m opts
+        pure
+          ( Right
+              OpenAICall
+                { clientEnv = env,
+                  requestHeaders = headers,
+                  timeoutMs = opts ^. #timeoutMs,
+                  requestBody = body,
+                  thinking = translation
+                }
+          )
 
 -- | A loose summary of one streamed chunk. The raw 'Aeson.Value' is
 -- pre-parsed into the fields we care about; unknown fields are

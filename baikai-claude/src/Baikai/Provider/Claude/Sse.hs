@@ -11,6 +11,7 @@ module Baikai.Provider.Claude.Sse
     claudeSseStreamValue,
     claudeSseStreamValueWithHeaders,
     sseFromResponse,
+    buildRequest,
     ResponseMetadata (..),
     capturedHeaderNames,
   )
@@ -123,24 +124,44 @@ claudeSseStreamValueWithHeaders ::
   (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
   IO ()
 claudeSseStreamValueWithHeaders env requestHeaders requestBody onMetadata onEvent = do
-  let base = Client.baseUrl env
-      secure = case Client.baseUrlScheme base of
-        Client.Http -> False
-        Client.Https -> True
-      request =
-        HTTP.defaultRequest
-          { HTTP.secure = secure,
-            HTTP.host = S8.pack (Client.baseUrlHost base),
-            HTTP.port = Client.baseUrlPort base,
-            HTTP.method = "POST",
-            HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> "/v1/messages"),
-            HTTP.requestHeaders = requestHeaders,
-            HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
-            -- EP-8 wires Options.timeoutMs through this local transport.
-            HTTP.responseTimeout = HTTP.responseTimeoutNone
-          }
-  HTTP.withResponse request (Client.manager env) $ \response ->
+  HTTP.withResponse (buildRequest (Client.baseUrl env) requestHeaders requestBody) (Client.manager env) $ \response ->
     sseFromResponse response onMetadata onEvent
+
+-- | The exact request this transport sends.
+--
+-- Pure and exported so that what goes on the wire — the method, the
+-- composed path, and the redirect policy — is assertable without opening
+-- a connection.
+--
+-- The path is the base URL's path plus @/v1/messages@. The base URL
+-- reaching here has already been through
+-- 'Baikai.Http.canonicalBaseUrl', which strips a trailing @\/v1@
+-- segment, so a caller who writes the base URL the way every OpenAI SDK
+-- teaches it — @https:\/\/api.deepseek.com\/v1@ — gets one @\/v1@ here
+-- rather than two.
+buildRequest :: Client.BaseUrl -> RequestHeaders -> Aeson.Value -> HTTP.Request
+buildRequest base requestHeaders requestBody =
+  HTTP.defaultRequest
+    { HTTP.secure = case Client.baseUrlScheme base of
+        Client.Http -> False
+        Client.Https -> True,
+      HTTP.host = S8.pack (Client.baseUrlHost base),
+      HTTP.port = Client.baseUrlPort base,
+      HTTP.method = "POST",
+      HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> "/v1/messages"),
+      HTTP.requestHeaders = requestHeaders,
+      HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
+      -- This POST has no legitimate redirect, and http-client's default
+      -- is to follow up to ten of them with every header intact — which
+      -- would re-send the credential to whatever host a Location names.
+      -- At zero the 3xx comes back untouched and 'sseFromResponse'
+      -- delivers it as the one in-band terminal error, carrying its
+      -- status.
+      HTTP.redirectCount = 0,
+      -- No per-response bound here: Options.timeoutMs is enforced around
+      -- the whole call by Transport.runWithTimeout.
+      HTTP.responseTimeout = HTTP.responseTimeoutNone
+    }
 
 -- | Consume an @http-client@ response as an Anthropic SSE stream.
 --

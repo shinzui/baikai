@@ -34,8 +34,9 @@ where
 
 import Baikai.Auth (ApiKeySource (..), resolveApiKey)
 import Baikai.Auth qualified as Auth
-import Baikai.Error (BaikaiError, authError, decodeError)
+import Baikai.Error (BaikaiError, authError, decodeError, invalidRequest)
 import Baikai.Http qualified as Http
+import Baikai.Url qualified as Url
 import Control.Exception (throwIO)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -152,6 +153,15 @@ embeddingClientEnv = Http.getClientEnvCached . urlOf
 embed :: EmbeddingModel -> [Text] -> IO (Vector (Vector Double))
 embed _ [] = pure V.empty
 embed m texts = do
+  -- Checked before the key is resolved, so a base URL baikai will not
+  -- send to never causes a credential to be read out of the
+  -- environment. The base URL is the API root — baikai appends
+  -- @\/v1\/embeddings@ itself, and a trailing @\/v1@ is removed rather
+  -- than doubled.
+  case Url.baseUrlProblem (urlOf m) of
+    Just problem ->
+      throwIO (invalidRequest ("EmbeddingModel.baseUrl is not usable: " <> problem))
+    Nothing -> pure ()
   key <- resolveEmbeddingKey m
   env <- embeddingClientEnv m
   let create = OpenAI.createEmbeddings (OpenAI.makeMethods env key Nothing Nothing)

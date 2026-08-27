@@ -2,20 +2,30 @@ module SseSpec (tests) where
 
 import Baikai.Error (BaikaiError, ErrorCategory (..), category, httpStatus, providerError, retryAfterSeconds)
 import Baikai.Evidence (Observed (..))
+import Baikai.Http qualified as Http
 import Baikai.Models.Generated (openai_gpt_4o_mini)
 import Baikai.Provider.OpenAI.Api (Assembler, RawChunk, emptyAssembler, parseChunk, translate)
-import Baikai.Provider.OpenAI.Sse (ResponseMetadata, sseFromResponse)
+import Baikai.Provider.OpenAI.Sse
+  ( ResponseMetadata,
+    buildRequest,
+    openaiSseStreamValueWithHeaders,
+    sseFromResponse,
+  )
 import Control.Lens ((^.))
+import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as SBS
+import Data.ByteString.Char8 qualified as S8
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
-import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
+import Servant.Client qualified as Client
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -44,7 +54,9 @@ tests =
         case events of
           [Right (Aeson.Object _)] -> pure ()
           other -> assertFailure ("expected one JSON event before [DONE], got: " <> show other),
-      observationTests
+      observationTests,
+      requestShapeTests,
+      redirectTests
     ]
 
 -- | What the transport and the assembler between them can say about
@@ -184,3 +196,105 @@ mkResponse status headers chunks = do
         HTTP.responseOriginalRequest = HTTP.defaultRequest,
         HTTP.responseEarlyHints = []
       }
+
+-- --------------------------------------------------------------------
+-- What goes on the wire
+-- --------------------------------------------------------------------
+
+-- | The composed path and the redirect policy, asserted on the pure
+-- request rather than by opening a connection.
+--
+-- The path cases are the base-URL convention: `Model.baseUrl` is the API
+-- root, baikai appends `/v1/chat/completions` itself, and a trailing
+-- `/v1` is removed rather than doubled — which is why
+-- `https://api.deepseek.com/v1`, the spelling every OpenAI SDK teaches,
+-- does not request `/v1/v1/...`.
+requestShapeTests :: TestTree
+requestShapeTests =
+  testGroup
+    "the request this transport sends"
+    [ testCase "one version segment, whatever spelling the base URL used"
+        $ forM_
+          [ ("https://api.deepseek.com/v1", "/v1/chat/completions"),
+            ("https://api.deepseek.com", "/v1/chat/completions"),
+            ("https://openrouter.ai/api", "/api/v1/chat/completions"),
+            ("https://openrouter.ai/api/v1/", "/api/v1/chat/completions"),
+            ( "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+              "/compatible-mode/v1/chat/completions"
+            )
+          ]
+        $ \(url, expected) -> case Http.canonicalBaseUrl url of
+          Left problem -> assertFailure (Text.unpack (url <> " was refused: " <> problem))
+          Right base -> do
+            let request = buildRequest base [] (Aeson.object [])
+            (url, HTTP.path request) @?= (url, S8.pack expected),
+      testCase "the request never follows a redirect" $
+        case Http.canonicalBaseUrl "https://h.test" of
+          Left problem -> assertFailure (Text.unpack problem)
+          Right base -> do
+            let request = buildRequest base [] (Aeson.object [])
+            HTTP.redirectCount request @?= 0
+            HTTP.method request @?= "POST"
+    ]
+
+-- --------------------------------------------------------------------
+-- A 3xx is an error, not a hop
+-- --------------------------------------------------------------------
+
+-- | A 302 is delivered as the terminal error and no second connection is
+-- ever opened.
+--
+-- @http-client@'s default is to follow up to ten redirects with every
+-- header intact, so before `redirectCount = 0` this test recorded a
+-- second connection — to whatever host the `Location` header named —
+-- carrying the caller's bearer token.
+--
+-- The "server" is an in-process fake built from `managerRawConnection`,
+-- which is what lets the case observe /which hosts a connection was
+-- opened to/ directly, with no socket and no port.
+redirectTests :: TestTree
+redirectTests =
+  testGroup
+    "redirects"
+    [ testCase "a 302 is the terminal error and no second host is contacted" $ do
+        attemptsRef <- newIORef []
+        manager <- fakeRedirectingManager attemptsRef
+        case Http.canonicalBaseUrl "http://proxy.test" of
+          Left problem -> assertFailure (Text.unpack problem)
+          Right base -> do
+            let env = Client.mkClientEnv manager base
+            eventsRef <- newIORef []
+            metaRef <- newIORef []
+            openaiSseStreamValueWithHeaders
+              env
+              [("Authorization", "Bearer sk-test")]
+              (Aeson.object [])
+              (\md -> modifyIORef' metaRef (<> [md]))
+              (\ev -> modifyIORef' eventsRef (<> [ev]))
+            attempts <- readIORef attemptsRef
+            attempts @?= [("proxy.test", 80)]
+            events <- readIORef eventsRef
+            case events of
+              [Left e] -> httpStatus e @?= Just 302
+              other -> assertFailure ("expected one 302 error, got: " <> show other)
+    ]
+
+-- | A manager whose every connection answers one 302 pointing at another
+-- host, and records the host and port it was opened to.
+fakeRedirectingManager :: IORef [(String, Int)] -> IO HTTP.Manager
+fakeRedirectingManager attemptsRef =
+  HTTP.newManager
+    HTTP.defaultManagerSettings
+      { HTTP.managerRawConnection = pure open
+      }
+  where
+    open _ host portNumber = do
+      modifyIORef' attemptsRef (<> [(host, portNumber)])
+      remaining <- newIORef [redirectResponse]
+      HTTP.makeConnection
+        (atomicModifyIORef' remaining (\chunks -> case chunks of [] -> ([], SBS.empty); (c : cs) -> (cs, c)))
+        (\_ -> pure ())
+        (pure ())
+    redirectResponse =
+      S8.pack
+        "HTTP/1.1 302 Found\r\nLocation: http://evil.test/steal\r\nContent-Length: 0\r\n\r\n"

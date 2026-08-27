@@ -89,6 +89,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   401 that said nothing about the cause. A key with real content is still passed
   through untrimmed. (REV-2 E.6.)
 
+- `baikai-openai`, `baikai-claude`: **a provider POST no longer follows
+  redirects.** `http-client`'s default is to follow up to ten with every header
+  intact, so a 3xx would have re-sent the bearer token (or `x-api-key`) to
+  whatever host the `Location` header named. `redirectCount` is now zero and the
+  3xx is delivered as the one in-band terminal error carrying its status. Each
+  transport's request builder is exported as `buildRequest`, so the method, the
+  composed path and the redirect policy are assertable without a connection.
+  (REV-2 A.5 / E.4.)
+
+- `baikai-openai`, `baikai-claude`, `baikai`: **the base-URL convention is
+  stated and enforced.** `Model.baseUrl` and `EmbeddingModel.baseUrl` are the
+  API *root* — the host, or the prefix a host mounts the API under — because
+  baikai appends `/v1/chat/completions`, `/v1/messages` or `/v1/embeddings`
+  itself. A trailing `/v1` is accepted and removed rather than doubled, so
+  `https://api.deepseek.com/v1` now requests `/v1/chat/completions` instead of
+  `/v1/v1/chat/completions`. A base URL with no scheme, a scheme other than
+  `http`/`https`, credentials, a query string, a fragment, or a path that is
+  already an endpoint is refused as an `InvalidRequest` naming the problem —
+  and refused *before* a key is read, so an unusable base URL never causes a
+  credential to be looked up. The message renders the URL without its userinfo
+  or query, so it is safe to log. `docs/user/models-and-providers.md` gains a
+  **Base URLs** section stating all of it. (REV-2 A.6.)
+
 - `baikai`: **the host parse no longer lets a base URL choose which key baikai
   sends.** `urlHost` took the text after the *last* `@` anywhere in a URL, so
   `https://proxy.example.com/v1?u=@api.openai.com` named the host
