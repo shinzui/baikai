@@ -221,8 +221,15 @@ timesOutAHungAgentTest =
       let workspace = dir </> "workspace"
           stub = dir </> "hang.sh"
           pidFile = dir </> "pids"
+          -- The operator file must lie outside the directory the command
+          -- runs in, which is the repository as far as baikai is
+          -- concerned: a ceiling file a checkout could have written is
+          -- refused, and `--user-config` naming a path under the checkout
+          -- is exactly that shape.
+          repositoryRoot = dir </> "repo"
           configPath = dir </> "agents.kdl"
       createDirectoryIfMissing True workspace
+      createDirectoryIfMissing True repositoryRoot
       writeExecutable stub hangingStub
       writeFile configPath (captureJob "hang" stub workspace "3s")
       started <- getCurrentTime
@@ -242,7 +249,7 @@ timesOutAHungAgentTest =
               configPath
             ]
             [("BAIKAI_TEST_PIDFILE", pidFile)]
-            dir
+            repositoryRoot
       finished <- getCurrentTime
       let elapsed = diffUTCTime finished started
       case outcome of
@@ -362,8 +369,12 @@ writesUtf8UnderCLocaleTest =
       exe <- builtBaikai
       let workspace = dir </> "workspace"
           stub = dir </> "say.sh"
+          -- Outside the directory the command runs in; see the timeout
+          -- case above for why.
+          repositoryRoot = dir </> "repo"
           configPath = dir </> "agents.kdl"
       createDirectoryIfMissing True workspace
+      createDirectoryIfMissing True repositoryRoot
       writeExecutable
         stub
         (Text.pack "#!/bin/sh\nprintf '" <> utf8Answer <> Text.pack "\\n'\n")
@@ -373,7 +384,7 @@ writesUtf8UnderCLocaleTest =
           exe
           ["agent", "run", "say", "--prompt", "go", "--user-config", configPath]
           [("LANG", "C"), ("LC_ALL", "C")]
-          dir
+          repositoryRoot
       assertBool
         ("expected a successful run; stderr was:\n" <> BS8.unpack err)
         (code == ExitSuccess)

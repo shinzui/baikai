@@ -102,13 +102,14 @@ import Settei.Env
     environmentSource,
     renderEnvErrorsText,
   )
+import Settei.Error (ConfigWarning (..), UnknownKeyProblem (..))
 import Settei.Kdl
   ( kdlSourceOptions,
     readKdlSource,
     renderKdlErrorsText,
     withKdlSourcePath,
   )
-import Settei.Key (Key, keySegments, parseKey)
+import Settei.Key (Key, keySegments, parseKey, renderKey)
 import Settei.Optparse (CliOverride, cliSources)
 import Settei.Report (ResolutionReport, reportNodes)
 import Settei.Resolve (ResolveResult, defaultResolveOptions, resolve)
@@ -249,6 +250,25 @@ data AgentConfigError
     ConfigFileUnreadable !FilePath !Text
   | -- | The job name, and why it cannot address a configuration key.
     InvalidJobName !Text !Text
+  | -- | The operator configuration file, then the repository root it
+    -- lies inside.
+    --
+    -- The ceiling is the operator's limit on what an untrusted checkout
+    -- may ask for, so a ceiling file the checkout could have written is
+    -- not a ceiling. This is the one shape of that hole that can be
+    -- closed from inside the process: @--user-config .baikai\/policy.kdl@
+    -- and @XDG_CONFIG_HOME=$PWD\/.baikai@ both name a path under the
+    -- checkout, and both are now refused.
+    CeilingFileInsideRepository !FilePath !FilePath
+  | -- | The operator configuration file, then every key under its
+    -- @policy@ node that the ceiling schema does not declare.
+    --
+    -- Everywhere else an unrecognised key is a warning, because a
+    -- forward-compatible file should not stop an older binary. Under
+    -- @policy@ it is an error: this is the one node whose purpose is to
+    -- limit authority, and a misspelling that silently left the default
+    -- in force would give an operator a ceiling they did not write.
+    UnknownPolicySetting !FilePath ![Text]
   deriving stock (Eq, Show, Generic)
 
 renderAgentConfigError :: AgentConfigError -> Text
@@ -256,6 +276,19 @@ renderAgentConfigError (ConfigFileUnreadable path message) =
   "could not read the configuration file " <> Text.pack path <> ": " <> message
 renderAgentConfigError (InvalidJobName jobName why) =
   "invalid job name " <> jobName <> ": " <> why
+renderAgentConfigError (CeilingFileInsideRepository path root) =
+  "the operator configuration file "
+    <> Text.pack path
+    <> " lies inside the repository "
+    <> Text.pack root
+    <> ", so the repository could have written the policy ceiling; move it \
+       \outside the checkout or pass --user-config with a path outside it"
+renderAgentConfigError (UnknownPolicySetting path keys) =
+  "the operator configuration file "
+    <> Text.pack path
+    <> " sets a policy key that does not exist: "
+    <> Text.intercalate ", " keys
+    <> "; a misspelled ceiling key would silently leave the default in force"
 
 -- | Bytes per stream captured when no layer states a limit.
 --
@@ -807,27 +840,71 @@ agentCeilingConfig =
 -- would add. Someone \"fixing an inconsistency\" by adding the
 -- repository source here would silently remove the security property
 -- while every test that does not specifically check it kept passing.
+-- Refusing a file inside the repository root, below, is the other half of
+-- the same property: a file the repository could have written is not the
+-- operator's, whichever flag or variable named it.
 --
 -- With no user file the ceiling is 'defaultAgentCeiling': read-only and
--- edit-workspace are permitted, full access is refused, and raw provider
--- arguments are refused.
+-- edit-workspace are permitted, full access is refused, raw provider
+-- arguments are refused, no tool grant beyond the capability is
+-- permitted, a run may be untimed, and a capture is bounded at
+-- 'Baikai.Agent.defaultMaxOutputLimit'.
 loadAgentCeiling :: AgentConfigPaths -> IO (Either AgentConfigError AgentCeiling)
 loadAgentCeiling paths = do
-  userLoaded <- loadScope UserScope (paths ^. #userConfig)
-  pure $ do
-    userSources <- userLoaded
-    let resolved = resolve defaultResolveOptions userSources agentCeilingConfig
-    case resolved ^. #answer of
-      Left problems ->
-        Left
-          ( ConfigFileUnreadable
-              (maybe "<no user configuration>" id (paths ^. #userConfig))
-              (renderCeilingProblems problems)
-          )
-      Right ceiling' -> Right ceiling'
+  located <- ceilingFileLocation paths
+  case located of
+    Just problem -> pure (Left problem)
+    Nothing -> do
+      userLoaded <- loadScope UserScope (paths ^. #userConfig)
+      pure $ do
+        userSources <- userLoaded
+        let resolved = resolve defaultResolveOptions userSources agentCeilingConfig
+        case unknownPolicyKeys (resolved ^. #warnings) of
+          keys@(_ : _) -> Left (UnknownPolicySetting ceilingFileLabel keys)
+          [] -> case resolved ^. #answer of
+            Left problems ->
+              Left (ConfigFileUnreadable ceilingFileLabel (renderCeilingProblems problems))
+            Right ceiling' -> Right ceiling'
   where
+    ceilingFileLabel = maybe "<no user configuration>" id (paths ^. #userConfig)
     renderCeilingProblems problems =
       Text.intercalate "; " (map (Text.pack . show) (NonEmpty.toList problems))
+
+-- | Refuse an operator configuration file that lies inside the
+-- repository, naming both paths.
+--
+-- Only a file that exists is checked, so the normal case — no operator
+-- file at all — costs nothing, and a path that names nothing is reported
+-- by the read instead. Both sides are canonicalised, so a symbolic link
+-- into the checkout is caught too.
+ceilingFileLocation :: AgentConfigPaths -> IO (Maybe AgentConfigError)
+ceilingFileLocation paths = case paths ^. #userConfig of
+  Nothing -> pure Nothing
+  Just path -> do
+    present <- doesFileExist path
+    if not present
+      then pure Nothing
+      else do
+        canonicalFile <- canonicalizePath path
+        canonicalRoot <- canonicalizePath (paths ^. #repositoryRoot)
+        pure
+          ( if isInside canonicalRoot canonicalFile
+              then Just (CeilingFileInsideRepository canonicalFile canonicalRoot)
+              else Nothing
+          )
+
+-- | Every unrecognised key under the @policy@ node, rendered.
+--
+-- Warnings about anything else are dropped rather than reported: the
+-- operator file also holds job defaults, and the ceiling schema declares
+-- none of them, so every @jobs@ key in it warns here and none of them is
+-- a mistake.
+unknownPolicyKeys :: [ConfigWarning] -> [Text]
+unknownPolicyKeys warnings =
+  [ renderKey key
+  | UnknownKeyWarning UnknownKeyProblem {key} <- warnings,
+    NonEmpty.head (keySegments key) == "policy"
+  ]
 
 -- | Refuse a request that exceeds the operator's ceiling.
 --
@@ -919,11 +996,14 @@ confineWorkingDir root workingDir = do
   resolved <- canonicalizePath (root </> workingDir)
   pure
     [ WorkingDirOutsideRepository resolved canonicalRoot
-    | not (inside canonicalRoot resolved)
+    | not (isInside canonicalRoot resolved)
     ]
-  where
-    inside base path =
-      path == base || (base <> [pathSeparator]) `isPrefixOf` path
+
+-- | Whether a canonical path is the given canonical directory or lies
+-- under it. Both arguments must already be canonical; comparing
+-- uncanonicalised paths would let a symbolic link through.
+isInside :: FilePath -> FilePath -> Bool
+isInside base path = path == base || (base <> [pathSeparator]) `isPrefixOf` path
 
 -- | Every configured job name, sorted, each attributed to the
 -- highest-precedence scope defining it.

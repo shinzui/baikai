@@ -16,7 +16,8 @@ import Baikai.Agent
     renderAgentRenderError,
   )
 import Baikai.Agent.Config
-  ( AgentConfigPaths (..),
+  ( AgentConfigError (..),
+    AgentConfigPaths (..),
     AgentConfigScope (..),
     AgentJob,
     agentEnvBindings,
@@ -80,7 +81,10 @@ configTests =
           defaultCeilingPermitsEditWorkspaceTest,
           userFileRaisesCeilingTest,
           repositoryFileCannotRaiseTheCeilingTest,
-          commandLineCannotRaiseTheCeilingTest
+          commandLineCannotRaiseTheCeilingTest,
+          ceilingFileInsideRepositoryIsRefusedTest,
+          ceilingFileOutsideTheRepositoryLoadsTest,
+          unknownPolicyKeyIsAnErrorTest
         ],
       testGroup
         "repository scope"
@@ -716,6 +720,81 @@ workingDirJobDoc workingDir =
       "  }",
       "}"
     ]
+
+ceilingFileInsideRepositoryIsRefusedTest :: TestTree
+ceilingFileInsideRepositoryIsRefusedTest =
+  testCase "A CEILING FILE INSIDE THE REPOSITORY IS REFUSED" $
+    -- The other half of "no repository file can raise the ceiling". The
+    -- source list already refuses the repository *document*; this closes
+    -- the shape where the repository supplies the *operator* document,
+    -- which `--user-config .baikai/policy.kdl` and
+    -- `XDG_CONFIG_HOME=$PWD/.baikai` both produce.
+    withSystemTempDirectory "baikai-agent-ceiling-inside" $ \dir -> do
+      let repositoryRoot = dir </> "repo"
+          insidePath = repositoryRoot </> ".baikai" </> "policy.kdl"
+      createDirectoryIfMissing True (takeDirectory insidePath)
+      TextIO.writeFile insidePath raisingPolicyDoc
+      loaded <-
+        loadAgentCeiling
+          AgentConfigPaths
+            { userConfig = Just insidePath,
+              repoConfig = Nothing,
+              repositoryRoot
+            }
+      case loaded of
+        Right ceiling' ->
+          assertFailure ("the checkout supplied its own ceiling: " <> show ceiling')
+        Left problem -> do
+          case problem of
+            CeilingFileInsideRepository _ _ -> pure ()
+            other -> assertFailure ("expected a location refusal, got: " <> show other)
+          let message = renderAgentConfigError problem
+          assertBool
+            ("both paths are named: " <> Text.unpack message)
+            ( Text.isInfixOf "policy.kdl" message
+                && Text.isInfixOf "repo" message
+            )
+
+ceilingFileOutsideTheRepositoryLoadsTest :: TestTree
+ceilingFileOutsideTheRepositoryLoadsTest =
+  testCase "the same file one directory above the repository loads" $
+    -- The companion to the case above: the refusal is about where the
+    -- file is, not about what it says.
+    withSystemTempDirectory "baikai-agent-ceiling-outside" $ \dir -> do
+      let repositoryRoot = dir </> "repo"
+          outsidePath = dir </> "policy.kdl"
+      createDirectoryIfMissing True repositoryRoot
+      TextIO.writeFile outsidePath raisingPolicyDoc
+      loaded <-
+        loadAgentCeiling
+          AgentConfigPaths
+            { userConfig = Just outsidePath,
+              repoConfig = Nothing,
+              repositoryRoot
+            }
+      case loaded of
+        Left problem ->
+          assertFailure
+            ("expected the ceiling to load: " <> Text.unpack (renderAgentConfigError problem))
+        Right ceiling' -> ceiling' ^. #maxCapability @?= AgentFullAccess
+
+unknownPolicyKeyIsAnErrorTest :: TestTree
+unknownPolicyKeyIsAnErrorTest =
+  testCase "a misspelled policy key is an error, not a warning"
+    $
+    -- Everywhere else an unrecognised key is a warning. Under `policy` a
+    -- typo would silently leave the default in force, which for the one
+    -- node whose purpose is limiting authority is indefensible.
+    withConfigs
+      (Just (Text.unlines ["policy {", "  max-capabilty \"read-only\"", "}"]))
+      (Just (jobDoc "read-only"))
+    $ \paths -> do
+      loaded <- loadAgentCeiling paths
+      case loaded of
+        Right ceiling' ->
+          assertFailure ("the typo was ignored: " <> show ceiling')
+        Left (UnknownPolicySetting _ keys) -> keys @?= ["policy.max-capabilty"]
+        Left other -> assertFailure ("expected an unknown-key refusal, got: " <> show other)
 
 listJobsTest :: TestTree
 listJobsTest =

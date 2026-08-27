@@ -87,7 +87,8 @@ cliTests =
       testGroup
         "repository scope through the command"
         [ repositoryExecutableIsRefusedThroughTheCommandTest,
-          showListsTheCeilingFieldsTest
+          showListsTheCeilingFieldsTest,
+          ceilingInsideTheRepoExitsSeventyEightTest
         ],
       testGroup
         "agent run"
@@ -567,8 +568,11 @@ bashGrantIsRefusedUnderTheDefaultCeilingTest =
     -- an unattended run must not get it because a checkout asked.
     withWorkspace $ \dir -> do
       let argvRecord = dir </> "argv"
-      setEnv "BAIKAI_TEST_CLAUDE_ARGV" argvRecord
-      setEnv "BAIKAI_TEST_CLAUDE_STDIN" (dir </> "stdin")
+      -- Deliberately no setEnv: the two variables the fixture document
+      -- declares under `env-requires` are checked by the runner, and the
+      -- ceiling refuses before the runner is reached. Setting them here
+      -- would race the fixture case above, which runs in parallel and
+      -- reads the same two process-global variables from its own fake.
       executable <-
         writeFakeAgent
           dir
@@ -630,6 +634,27 @@ repositoryExecutableIsRefusedThroughTheCommandTest =
         ("executable" `Text.isInfixOf` (finished ^. #standardError))
       started <- doesFileExist argvRecord
       assertBool "the executable was never invoked" (not started)
+
+ceilingInsideTheRepoExitsSeventyEightTest :: TestTree
+ceilingInsideTheRepoExitsSeventyEightTest =
+  testCase "an operator file inside the repository is a configuration error" $
+    -- `--user-config .baikai/policy.kdl` is a one-line way to make the
+    -- checkout supply its own ceiling. No ceiling could be established,
+    -- so this is a configuration error rather than a policy refusal.
+    withWorkspace $ \dir -> do
+      let insidePath = repositoryRootIn dir </> ".baikai" </> "policy.kdl"
+      _ <- repositoryOnly dir (minimalJob "claude" "")
+      createDirectoryIfMissing True (takeDirectory insidePath)
+      TextIO.writeFile
+        insidePath
+        (Text.unlines ["policy {", "  max-capability \"full-access\"", "}"])
+      paths <- repositoryOnly dir (minimalJob "claude" "")
+      finished <-
+        run (paths {userConfig = Just insidePath}) (options (AgentShow "demo"))
+      finished ^. #exitCode @?= configExitCode
+      assertBool
+        ("the file is named: " <> Text.unpack (finished ^. #standardError))
+        ("policy.kdl" `Text.isInfixOf` (finished ^. #standardError))
 
 showListsTheCeilingFieldsTest :: TestTree
 showListsTheCeilingFieldsTest =

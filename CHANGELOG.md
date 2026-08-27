@@ -151,6 +151,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   that layer's own default supplies a finite limit, and only an explicit
   `output-limit "unlimited"` reaches the ceiling as `Nothing`.
 
+- `baikai-agent` (breaking): an operator configuration file that lies inside the
+  repository root is refused with exit 78, naming the file and the root, and no
+  ceiling is established. The source list already refused the repository
+  *document*; this closes the shape where the repository supplies the *operator*
+  document, which both `--user-config .baikai/policy.kdl` and
+  `XDG_CONFIG_HOME=$PWD/.baikai` produce. `--user-config`, `XDG_CONFIG_HOME` and
+  `HOME` remain the operator's own inputs: the ceiling is exactly as trustworthy
+  as the process environment that selects it, and the guide now says so.
+  (REV-2 F.4.)
+
+- `baikai-agent` (breaking): an unrecognised key under the operator file's
+  `policy` node is an error rather than a warning, naming the file and every
+  such key. Everywhere else a forward-compatible file should not stop an older
+  binary; under `policy` a misspelling would silently leave the default ceiling
+  in force, which for the one node whose purpose is limiting authority is
+  indefensible. Two `AgentConfigError` constructors are added,
+  `CeilingFileInsideRepository` and `UnknownPolicySetting`.
+
 - `baikai-agent` (breaking): `AgentConfigPaths` gains `repositoryRoot`, the
   directory the process runs in. `--config PATH` chooses which file supplies
   repository-scope settings and does not move the root, because the root is what

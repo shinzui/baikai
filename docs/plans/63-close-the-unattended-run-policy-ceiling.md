@@ -69,7 +69,9 @@ grants it.
       grant. (2026-08-27) Core types, `applyAgentCeiling`, the three `policy` keys,
       `repositoryScopeViolations`, the reworked test harnesses and the twelve new cases all
       landed; the keyless `cabal test all` is green across all eight suites.
-- [ ] Milestone 2: ceiling-file provenance decided and documented.
+- [x] Milestone 2: ceiling-file provenance decided and documented. (2026-08-27) The
+      refusal, the unknown-policy-key error and their four tests landed; the guide text
+      the milestone decided is written in Milestone 4, with the rest of the documentation.
 - [ ] Milestone 3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint,
       `errorInfo` bound, staging path).
 - [ ] Milestone 4: 0.2 config-surface adjustments (`env-requires`, structured output,
@@ -108,6 +110,16 @@ grants it.
   which is the point — the check exists to defeat a committed link, so it reports where
   the link led. The assertion is now a suffix plus "not under the root".
   (2026-08-27, Milestone 1)
+
+- __A test that sets a process-global environment variable races the fixture that
+  reads it.__ The new `A REPOSITORY TOOL GRANT NEEDS AN OPERATOR GRANT` case began by
+  setting `BAIKAI_TEST_CLAUDE_ARGV`, as the fixture it is a variant of does, and under
+  tasty's parallel execution the two cases overwrote each other's value — one run in
+  four failed somewhere in `baikai-agent-test`. The new case never reaches the runner
+  (the ceiling refuses first), so it needs neither variable and now sets neither. This
+  is the same shape EP-2 recorded for the process-global `ClientEnv` cache: a case that
+  writes shared process state must either not do so or be folded into the case that
+  reads it. (2026-08-27, Milestone 2)
 
 - __`codex-cli` is at 0.150.1, not the 0.149.1 the plan expected.__ The four flags the
   plan's model rests on are unchanged: `claude` 2.1.247 still documents
