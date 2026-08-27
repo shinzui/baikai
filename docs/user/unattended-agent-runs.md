@@ -275,7 +275,7 @@ agent decided the task failed" from "the tool could not be started".
 | `64` | the command line could not be parsed, or the prompt was empty or ambiguous |
 | `69` | the coding-agent executable could not be started |
 | `70` | the agent produced malformed output |
-| `75` | the run exceeded its timeout and its process group was terminated |
+| `75` | the run exceeded its timeout; its process group was interrupted, then terminated, then killed, and the output drained before the kill is reported |
 | `77` | policy refused the run: the ceiling was exceeded, or the provider cannot express it |
 | `78` | configuration was missing, unreadable, or invalid |
 
@@ -308,9 +308,28 @@ wants:
 Output truncated at `output-limit` is announced on standard error. A silently
 truncated response that a script then parses is a bug waiting to happen.
 
+A run that hits its timeout still reports what it drained, under exactly the
+same rules. Under `capture`, `response=$(baikai agent run job)` receives the
+partial answer and `$?` is 75, so a script that checks the status can decide
+whether a partial answer is worth having; under `tee` the bytes were already
+echoed as they arrived and are not printed twice; under `inherit` they went to
+your terminal and Baikai has nothing to add. The timeout message itself is on
+standard error, as every Baikai message is.
+
+The command's own output is UTF-8 whatever the environment's locale says. That
+matters where an unattended run actually happens — a cron entry, a systemd
+unit, a container — because those give a process `LANG=C`, and encoding through
+that locale would make a single accented character in the agent's answer fail
+the write *after* the run had finished.
+
 With `--json`, standard output carries exactly one JSON object per command
 instead. For `agent run` that object is the outcome envelope, including the
-captured streams when the job captures.
+captured streams when the job captures. A timed-out run's envelope carries
+`outcome`, `exitCode` and `message` as every failure does, followed by the same
+`stdout`, `stdoutTruncated`, `stderr` and `stderrTruncated` fields a finished
+run would have — present only for a stream that was actually captured, so a
+reader can still tell "the agent printed nothing" from "the bytes went to the
+terminal".
 
 ## The two files
 

@@ -82,18 +82,24 @@ later plan rebases. Exports and version bumps are owned by
 - [x] M1 (2026-08-27): wrote
       `docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md` and
       its row in `docs/adr/README.md`; `CHANGELOG.md` entry; commit.
-- [ ] M2: add `AgentTimedOut` to `baikai/src/Baikai/Agent.hs`; `RunTimedOut` carries it;
-      `renderAgentRunFailure`; `baikai/test/AgentSpec.hs` line 210.
-- [ ] M2: rewrite `terminateGroup` (INT, TERM, KILL, each stage bounded, group polled);
-      `drain` keeps its bytes on any exception; `forkDrain` returns the `ThreadId`;
-      `consume`'s timeout branch collects both drains; `capturedBytes` reads them.
-- [ ] M2: `interpret` in `baikai-agent/src/Baikai/Agent/Cli.hs` prints kept output on a
-      timeout (`streamFields` lifted); `emit` in `baikai-agent/app/Main.hs` writes UTF-8
-      bytes, `bytestring` added to the executable's `build-depends`.
-- [ ] M2: in-process tests in `baikai-agent/test/Main.hs` (kept output, KILL escalation,
-      perl-gated escaped pipe holder); UTF-8-under-`LANG=C` test in `BinaryTests.hs`.
-- [ ] M2: `docs/user/unattended-agent-runs.md`, CAP-17, CAP-18, `docs/capabilities/log.md`,
-      `CHANGELOG.md`; commit.
+- [x] M2 (2026-08-27): added `AgentTimedOut` to `baikai/src/Baikai/Agent.hs`;
+      `RunTimedOut` carries it; `renderAgentRunFailure` reads `#limit`;
+      `baikai/test/AgentSpec.hs` updated.
+- [x] M2 (2026-08-27): rewrote `terminateGroup` (INT, TERM, KILL, each earlier stage
+      bounded, group polled with the null signal through `groupAlive`, last resort
+      `killGroupOrLeader`); `drain` keeps its bytes on a failed read; `forkDrain` returns
+      the `ThreadId`; `consume`'s timeout branch collects both drains; `capturedBytes`
+      reads the timed-out standard output.
+- [x] M2 (2026-08-27): `interpret` in `baikai-agent/src/Baikai/Agent/Cli.hs` prints kept
+      output on a timeout (`streamFields` lifted to top level); `emit` in
+      `baikai-agent/app/Main.hs` writes UTF-8 bytes, `bytestring` added to the
+      executable's `build-depends`.
+- [x] M2 (2026-08-27): in-process tests in `baikai-agent/test/Main.hs`
+      (`keepsDrainedOutputOnTimeoutTest`, `escalatesToKillTest`,
+      `escapedPipeHolderTest`); the trap and the partial-output assertion in
+      `BinaryTests.hs`, plus `writesUtf8UnderCLocaleTest`.
+- [x] M2 (2026-08-27): `docs/user/unattended-agent-runs.md`, CAP-17, CAP-18,
+      `docs/capabilities/log.md`, `CHANGELOG.md`; commit.
 - [ ] M3: refuse `CodexApprovalUntrusted` and `CodexApprovalOnFailure` in `safetyArgs` of
       `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`; Haddock in
       `baikai/src/Baikai/Interactive.hs`; tests in `baikai-openai/test/Main.hs`.
@@ -195,6 +201,44 @@ Recorded during implementation.
   parallel under `-with-rtsopts=-N`. The job now uses `timeout "3s"`, still forty times
   shorter than the stub's own sleep, so what the case proves is unchanged. Three
   consecutive full-suite runs pass at 3.05–3.09 s. (2026-08-27, M1)
+- The escalation is proved by removing it. With `killGroupOrLeader` temporarily
+  reduced to the old last resort — `P.terminateProcess` on the leader followed by an
+  unbounded wait — `escalatesToKillTest` waits out the stub in full:
+
+  ```text
+    a child that ignores INT and TERM is killed within the grace periods: FAIL (30.27s)
+      killed rather than waited out; the run took 30.266253s
+  ```
+
+  With `SIGKILL` restored the same case finishes in about seven seconds: the deadline
+  plus two grace periods. (2026-08-27, M2)
+- __The locale defect (F.9) cannot be reproduced on macOS.__ GHC 9.12.4 on Darwin
+  reports `Just UTF-8` for the standard handles under every locale tried — `C`,
+  `POSIX`, `en_US.ISO8859-1`, `C.UTF-8` — so `Data.Text.IO.hPutStr` of
+  `réconcilier — 文法` succeeds there and `writesUtf8UnderCLocaleTest` passes both
+  before and after the fix on this machine. It was checked directly with a five-line
+  probe rather than assumed. The fix is still right — it is what makes the claim
+  platform-independent, and it mirrors the read side — and the case is still worth
+  having, because it pins the exact bytes the command writes; it is simply a guard for
+  the platforms where the locale encoding does follow `LANG`, which is where an
+  unattended run under cron actually lives. The plan's predicted pre-fix transcript
+  (`hPutChar: invalid argument`) is therefore not reproducible here and is not
+  recorded. (2026-08-27, M2)
+- Importing `AgentTimedOut (..)` into `baikai-agent/src/Baikai/Agent/Run.hs` brings its
+  `stdout` and `stderr` field selectors into scope, which collide with
+  `System.IO.stdout` and `System.IO.stderr` that the tee path uses. The handles are now
+  reached through a qualified `SystemIO` import; the alternative — importing the
+  constructor without its fields — would have meant giving up record syntax at the one
+  place the record is built. (2026-08-27, M2)
+- The in-process cases that assert on work the child actually did needed the same
+  deadline treatment as the spawned-binary case: `keepsDrainedOutputOnTimeoutTest` and
+  `escalatesToKillTest` run at three seconds, and `escapedPipeHolderTest` at five,
+  because it has to start a second interpreter and let it leave the process group
+  before the deadline. At one and three seconds respectively they failed in a
+  full-suite run and passed in isolation. The pre-existing `timeoutTest` and
+  `processGroupTest` keep their one-second deadlines: neither asserts anything about
+  what the child printed, so neither is sensitive to how quickly it starts.
+  (2026-08-27, M2)
 
 
 ## Decision Log
@@ -295,6 +339,24 @@ Recorded during implementation.
   Rationale: GHC 9.12.4 prints `("RTS way", "rts_thr")` with a space, and the spacing of
   that list is GHC's to change; the way name is the fact under test and is already
   unambiguous against the non-threaded `"rts_v"`.
+  Date: 2026-08-27
+- Decision: The last escalation stage is one function, `killGroupOrLeader`, rather than
+  the plan's `killProcessGroup` plus a separate platform fallback.
+  Rationale: the plan's shape left a non-POSIX build with no stage that reaches the
+  leader at all, because both group calls are no-ops there and the old
+  `P.terminateProcess` fallback lived in the branch the rewrite replaced. One
+  CPP-guarded definition — `SIGKILL` to the group where POSIX signals exist,
+  `P.terminateProcess` on the leader where they do not — keeps the platform difference
+  at the definition instead of inside `terminateGroup`. `groupAlive` is as the plan
+  specified.
+  Date: 2026-08-27
+- Decision: `writesUtf8UnderCLocaleTest` ships even though it cannot fail on this
+  platform.
+  Rationale: GHC on Darwin uses UTF-8 as the locale encoding whatever `LANG` says
+  (Surprises & Discoveries), so the defect it guards is unobservable here; it is
+  observable on Linux, which is where cron entries and containers run. A case that
+  pins the exact bytes the command writes is worth keeping on a platform where it is
+  currently free, and deleting it would leave the fix unpinned everywhere.
   Date: 2026-08-27
 
 
@@ -1006,7 +1068,10 @@ Behavioural acceptance, each observable:
   shape: `env -i PATH="$PATH" HOME="$tmp" LANG=C LC_ALL=C cabal run
   baikai-agent:exe:baikai -- agent run say --prompt go --user-config "$tmp/agents.kdl" |
   od -c | head -2` shows the UTF-8 bytes (`303 251` for `é`) and the exit code is 0.
-  Before M2: exit 1 and `hPutChar: invalid argument (cannot encode character '\233')`.
+  On Linux before M2 this was exit 1 and `hPutChar: invalid argument (cannot encode
+  character '\233')`. On macOS it was already 0, because GHC on Darwin uses UTF-8 as
+  the locale encoding whatever `LANG` says (Surprises & Discoveries); the acceptance
+  here is therefore the bytes, not a change in them.
 - **Codex approval refusal.** `cabal test baikai-openai` runs
   `refusesRejectedApprovalPoliciesTest` green; the message names the rejected spelling
   and `CodexApprovalOnRequest`.

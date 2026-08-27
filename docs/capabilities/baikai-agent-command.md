@@ -27,6 +27,9 @@ evidence:
   - kind: test
     resource: baikai-agent/test/CliTests.hs
     proves: "The end-to-end command behaviour: the motivating launch runs with no provider flags in the invocation, changing only the provider line moves the run to codex, a refused job never reaches process creation, the agent's own exit code passes through unchanged, a missing binary exits 69, an empty prompt is a usage error rather than an expensive run, two prompt sources is a usage error, and show names each value's file and line while never printing a raw provider argument."
+  - kind: test
+    resource: baikai-agent/test/BinaryTests.hs
+    proves: "The built executable rather than the test binary: it reports the threaded runtime, and `baikai agent run` against a stub agent that ignores INT and TERM exits 75 within the grace periods, leaves no process of the group alive, reports the output drained before the kill, and writes its result as UTF-8 under LANG=C."
   - kind: guide
     resource: docs/user/unattended-agent-runs.md
     proves: "The three commands with their flags, exit codes, and stream discipline; the KDL job format and layer precedence; the operator ceiling and redaction; and a before-and-after migration of a script that embeds provider flags today."

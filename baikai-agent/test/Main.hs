@@ -28,6 +28,7 @@ import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import EvidenceTests (evidenceTests)
 import System.Directory
   ( doesFileExist,
+    findExecutable,
     getPermissions,
     setOwnerExecutable,
     setPermissions,
@@ -62,6 +63,9 @@ runTests =
       missingEnvironmentTest,
       timeoutTest,
       processGroupTest,
+      keepsDrainedOutputOnTimeoutTest,
+      escalatesToKillTest,
+      escapedPipeHolderTest,
       outputLimitTest,
       inheritOutputTest,
       promptAsArgumentTest,
@@ -222,7 +226,7 @@ timeoutTest =
       outcome <- runPlain req (stdinCommand exe [] "ignored")
       end <- getCurrentTime
       case outcome of
-        Left (RunTimedOut limit) -> limit @?= 1
+        Left (RunTimedOut timedOut) -> timedOut ^. #limit @?= 1
         other -> assertFailure ("expected RunTimedOut, got: " <> show other)
       -- Without this assertion the test would pass just as well by
       -- waiting for the script to finish, which proves nothing about
@@ -252,6 +256,100 @@ processGroupTest =
       waitSeconds 4
       survived <- doesFileExist marker
       assertBool "the grandchild was terminated with its group" (not survived)
+
+-- | A timed-out run reports what it drained before the kill.
+--
+-- The bytes were always there — the runner drains both pipes from the
+-- moment it spawns — and were simply dropped on the timeout path. For a
+-- coding agent the partial answer is often the whole point of the run.
+--
+-- Three seconds rather than one, here and in the two cases below. Each
+-- of them asserts something about work the child actually did, so the
+-- child has to have run; starting @\/bin\/sh@ while the rest of this
+-- suite runs in parallel takes longer than a second on a loaded machine,
+-- and a one-second deadline made these cases kill a shell that had not
+-- yet reached its first line. Three seconds is still far below the
+-- thirty each stub sleeps for, so the deadline is still what ends them.
+keepsDrainedOutputOnTimeoutTest :: TestTree
+keepsDrainedOutputOnTimeoutTest =
+  testCase "a timed-out run reports the output it drained before the kill"
+    $ withFakeExecutable
+      "chatty-sleeper"
+      "#!/bin/sh\nprintf 'partial\\n'\nsleep 30\n"
+    $ \dir exe -> do
+      let req = capturingRequest dir "ignored" & #timeout .~ Just 3
+      outcome <- runPlain req (stdinCommand exe [] "ignored")
+      case outcome of
+        Left (RunTimedOut timedOut) -> do
+          capturedBytes (timedOut ^. #stdout) @?= Just "partial\n"
+          capturedBytes (timedOut ^. #stderr) @?= Just ""
+        other -> assertFailure ("expected RunTimedOut, got: " <> show other)
+
+-- | A child that ignores both polite signals still dies.
+--
+-- @trap '' INT TERM@ is a shell asking to be left alone, which is
+-- exactly the coding agent a deadline exists for. Only SIGKILL ends it,
+-- and before this escalation existed the runner waited on such a child
+-- for as long as it chose to live.
+escalatesToKillTest :: TestTree
+escalatesToKillTest =
+  testCase "a child that ignores INT and TERM is killed within the grace periods"
+    $ withFakeExecutable
+      "stubborn"
+      "#!/bin/sh\ntrap '' INT TERM\nsleep 30\n"
+    $ \dir exe -> do
+      let req = capturingRequest dir "ignored" & #timeout .~ Just 3
+      start <- getCurrentTime
+      outcome <- runPlain req (stdinCommand exe [] "ignored")
+      end <- getCurrentTime
+      case outcome of
+        Left (RunTimedOut _) -> pure ()
+        other -> assertFailure ("expected RunTimedOut, got: " <> show other)
+      -- Three seconds of deadline plus two grace periods of two
+      -- seconds each, with room to spare; the pre-escalation runner
+      -- would have waited the script's full thirty.
+      assertBool
+        ("killed rather than waited out; the run took " <> show (diffUTCTime end start))
+        (diffUTCTime end start < 12)
+
+-- | A pipe held open from outside the process group does not hang the
+-- run.
+--
+-- The group is dead, so nothing more will be written, but the drain is
+-- still blocked on a read that will never reach end of file because
+-- another process holds the write end. The runner interrupts the drain
+-- and reports what it has. @perl@ is used only because macOS ships no
+-- @setsid@ binary; where it is absent the case explains itself and
+-- passes, because a missing tool is not a defect in this package.
+escapedPipeHolderTest :: TestTree
+escapedPipeHolderTest =
+  testCase "a pipe held open outside the group does not hang the run" $ do
+    perl <- findExecutable "perl"
+    case perl of
+      Nothing -> putStrLn "skipped: perl not found, so no pipe holder can leave the group"
+      Just _ ->
+        withFakeExecutable
+          "escapes-the-group"
+          "#!/bin/sh\nperl -MPOSIX -e 'setsid(); sleep 30' &\nprintf 'held\\n'\nsleep 30\n"
+          $ \dir exe -> do
+            -- Five seconds rather than three: this stub has to start a
+            -- second interpreter and let it leave the process group
+            -- before the deadline, and under a loaded parallel suite
+            -- three seconds is not always enough for that. When it is
+            -- not, nothing holds the pipe and the case proves nothing.
+            let req = capturingRequest dir "ignored" & #timeout .~ Just 5
+            start <- getCurrentTime
+            outcome <- runPlain req (stdinCommand exe [] "ignored")
+            end <- getCurrentTime
+            case outcome of
+              Left (RunTimedOut timedOut) ->
+                capturedBytes (timedOut ^. #stdout) @?= Just "held\n"
+              other -> assertFailure ("expected RunTimedOut, got: " <> show other)
+            assertBool
+              ( "the blocked drain was interrupted rather than waited on; the run took "
+                  <> show (diffUTCTime end start)
+              )
+              (diffUTCTime end start < 14)
 
 outputLimitTest :: TestTree
 outputLimitTest =

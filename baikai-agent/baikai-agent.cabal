@@ -103,6 +103,7 @@ executable baikai
   build-depends:
     , baikai-agent
     , base                  >=4.20  && <5
+    , bytestring            ^>=0.12
     , generic-lens          ^>=2.3
     , lens                  ^>=5.3
     , optparse-applicative  ^>=0.19

@@ -20,6 +20,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import System.Directory
   ( createDirectoryIfMissing,
@@ -37,14 +40,15 @@ import System.IO.Temp (withSystemTempDirectory)
 import System.Process qualified as P
 import System.Timeout qualified as Timeout
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase)
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 binaryTests :: TestTree
 binaryTests =
   testGroup
     "the built baikai binary"
     [ reportsTheThreadedRuntimeTest,
-      timesOutAHungAgentTest
+      timesOutAHungAgentTest,
+      writesUtf8UnderCLocaleTest
     ]
 
 -- --------------------------------------------------------------------
@@ -161,16 +165,23 @@ reportsTheThreadedRuntimeTest =
 -- @sleep@ so the case can prove the whole process group was reached,
 -- prints one line so the case can prove drained output survives, and
 -- then waits for a child that will not return for two minutes.
-hangingStub :: String
+hangingStub :: Text
 hangingStub =
-  unlines
-    [ "#!/bin/sh",
-      "echo \"$$\" > \"$BAIKAI_TEST_PIDFILE\"",
-      "printf 'partial output before the hang\\n'",
-      "sleep 120 &",
-      "echo \"$!\" >> \"$BAIKAI_TEST_PIDFILE\"",
-      "wait"
-    ]
+  Text.pack
+    ( unlines
+        [ "#!/bin/sh",
+          -- Ignoring both polite signals is what makes this case prove
+          -- the escalation rather than the first signal: SIGKILL is the
+          -- only thing left that can end this shell, and the ignored
+          -- disposition is inherited by the background sleep too.
+          "trap '' INT TERM",
+          "echo \"$$\" > \"$BAIKAI_TEST_PIDFILE\"",
+          "printf 'partial output before the hang\\n'",
+          "sleep 120 &",
+          "echo \"$!\" >> \"$BAIKAI_TEST_PIDFILE\"",
+          "wait"
+        ]
+    )
 
 -- | An operator-scope job that runs the stub under a short deadline.
 --
@@ -187,16 +198,16 @@ hangingStub =
 -- group was killed. Three seconds is still forty times shorter than the
 -- stub's own sleep, so what the case proves — that the deadline stopped
 -- the child rather than the child finishing — is unchanged.
-hangJob :: FilePath -> FilePath -> String
-hangJob executable workspace =
+captureJob :: String -> FilePath -> FilePath -> String -> String
+captureJob jobName executable workspace deadline =
   unlines
     [ "jobs {",
-      "  hang {",
+      "  " <> jobName <> " {",
       "    provider \"claude\"",
       "    executable \"" <> executable <> "\"",
       "    working-dir \"" <> workspace <> "\"",
       "    output \"capture\"",
-      "    timeout \"3s\"",
+      "    timeout \"" <> deadline <> "\"",
       "    safety { capability \"read-only\" }",
       "  }",
       "}"
@@ -213,7 +224,7 @@ timesOutAHungAgentTest =
           configPath = dir </> "agents.kdl"
       createDirectoryIfMissing True workspace
       writeExecutable stub hangingStub
-      writeFile configPath (hangJob stub workspace)
+      writeFile configPath (captureJob "hang" stub workspace "3s")
       started <- getCurrentTime
       -- Bounded so that the pre-fix behaviour — a timeout that can never
       -- fire — fails in thirty seconds instead of waiting out the
@@ -253,7 +264,13 @@ timesOutAHungAgentTest =
               \own two minutes; the run took "
                 <> show elapsed
             )
-            (elapsed < 15)
+            (elapsed < 20)
+          -- The bytes the stub printed before the kill are reported
+          -- rather than discarded, which for a real coding agent is the
+          -- partial answer an operator most wants from a timed-out run.
+          assertBool
+            ("expected the drained line on standard output, got: " <> show out)
+            (out == BS8.pack "partial output before the hang\n")
           pids <- recordedPids pidFile
           assertBool
             ( "the stub never recorded a process id, so the case proved \
@@ -307,9 +324,57 @@ processAlive pid = do
 -- Small helpers
 -- --------------------------------------------------------------------
 
--- | Write a shell script and make it executable.
-writeExecutable :: FilePath -> String -> IO ()
+-- | Write a shell script as UTF-8 bytes and make it executable.
+--
+-- Encoded explicitly rather than written with 'writeFile', which encodes
+-- through this process's locale: a stub whose whole purpose is to print
+-- non-ASCII text could not otherwise be written at all under @LANG=C@.
+writeExecutable :: FilePath -> Text -> IO ()
 writeExecutable path body = do
-  writeFile path body
+  BS.writeFile path (Text.encodeUtf8 body)
   perms <- getPermissions path
   setPermissions path (setOwnerExecutable True perms)
+
+-- --------------------------------------------------------------------
+-- Output encoding, on the shipped binary
+-- --------------------------------------------------------------------
+
+-- | What the stub prints, and therefore what the command must print
+-- back: a Latin-1-representable letter, a character outside Latin-1, and
+-- one outside the Basic Multilingual Plane's Latin range.
+utf8Answer :: Text
+utf8Answer = Text.pack "réconcilier — 文法"
+
+-- | The command writes UTF-8 whatever the locale says.
+--
+-- @LANG=C@ is what cron, systemd units, and minimal containers give a
+-- process. Before this was fixed the command encoded its output through
+-- that locale, so a single non-ASCII character in the agent's answer
+-- made the write throw @invalid argument@ /after/ the run had finished:
+-- exit 1, and the answer lost.
+--
+-- The environment is set explicitly and contains no other @LC_@
+-- variable, so nothing else can quietly restore a UTF-8 locale.
+writesUtf8UnderCLocaleTest :: TestTree
+writesUtf8UnderCLocaleTest =
+  testCase "the command writes UTF-8 under LANG=C" $
+    withSystemTempDirectory "baikai-agent-binary" $ \dir -> do
+      exe <- builtBaikai
+      let workspace = dir </> "workspace"
+          stub = dir </> "say.sh"
+          configPath = dir </> "agents.kdl"
+      createDirectoryIfMissing True workspace
+      writeExecutable
+        stub
+        (Text.pack "#!/bin/sh\nprintf '" <> utf8Answer <> Text.pack "\\n'\n")
+      writeFile configPath (captureJob "say" stub workspace "30s")
+      (code, out, err) <-
+        runBaikai
+          exe
+          ["agent", "run", "say", "--prompt", "go", "--user-config", configPath]
+          [("LANG", "C"), ("LC_ALL", "C")]
+          dir
+      assertBool
+        ("expected a successful run; stderr was:\n" <> BS8.unpack err)
+        (code == ExitSuccess)
+      out @?= Text.encodeUtf8 (utf8Answer <> Text.pack "\n")

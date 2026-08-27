@@ -38,11 +38,13 @@ import Baikai.Agent
     AgentRunOutcome (..),
     AgentRunRequest,
     AgentRunResult,
+    AgentTimedOut (..),
     agentRunOutcome,
     agentRunResult,
     renderAgentProvider,
     renderAgentRunFailure,
   )
+import Baikai.Agent qualified as Agent
 import Baikai.Api (Api (..))
 import Baikai.Error (BaikaiError, processError, providerError)
 import Baikai.Evidence
@@ -72,7 +74,7 @@ import Baikai.Provider.Cli.Internal
     subprocessStrength,
   )
 import Baikai.Usage (Usage)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception
   ( SomeAsyncException (..),
@@ -83,12 +85,12 @@ import Control.Exception
     try,
   )
 import Control.Lens ((&), (.~), (^.))
-import Control.Monad (void)
+import Control.Monad (unless, void)
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.Generics.Labels ()
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -97,7 +99,8 @@ import Streamly.Data.Stream qualified as Stream
 import System.Directory (doesDirectoryExist)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.IO (Handle, hClose, hFlush, stderr, stdout)
+import System.IO (Handle, hClose, hFlush)
+import System.IO qualified as SystemIO
 import System.Process qualified as P
 import System.Timeout qualified as Timeout
 #if defined(BAIKAI_POSIX_SIGNALS)
@@ -120,8 +123,9 @@ import System.Posix.Signals qualified as Signals
 -- * working directory absent — @Left WorkingDirMissing@, nothing spawned
 -- * a declared variable unset or empty — @Left MissingEnvironment@
 -- * executable not startable — @Left SpawnFailed@
--- * still running at the deadline — @Left RunTimedOut@, whole process
---   group terminated
+-- * still running at the deadline — @Left RunTimedOut@, whose whole
+--   process group was interrupted, then terminated, then killed, and
+--   which carries the output drained before the kill
 --
 -- __Evidence.__ The first argument is the caller's request for a
 -- verifiable record of the run. 'Nothing' means they want none, which is
@@ -468,12 +472,19 @@ responseCommitmentOf CallSucceeded (Right ran) tokens = case ran ^. #stdout of
 responseCommitmentOf _ _ _ = Unobserved
 
 -- | The standard output bytes a run captured, complete or truncated.
+--
+-- A timed-out run has bytes too: the group was killed, but whatever it
+-- printed before that was drained and kept. Reading them here is what
+-- lets a codex run cut off mid-stream still yield the thread identifier
+-- from the complete lines it managed to print, which is what
+-- 'observeToolOutput' promises.
 capturedBytes :: Either AgentRunFailure AgentRunResult -> Maybe BS.ByteString
 capturedBytes = \case
   Right ran -> case ran ^. #stdout of
     OutputCaptured bytes -> Just bytes
     OutputTruncated bytes -> Just bytes
     OutputNotCaptured -> Nothing
+  Left (RunTimedOut timedOut) -> Agent.capturedBytes (timedOut ^. #stdout)
   Left _ -> Nothing
 
 -- | Captured bytes as text, for an error message. Absent capture yields
@@ -549,20 +560,33 @@ consume req cmd start mIn mOut mErr ph = do
   -- that the timeout below can fire while a stream is still open. A
   -- drain on this thread would block until the child exits, which would
   -- make the timeout unreachable in the two capturing modes.
-  outVar <- forkDrain limit teeOut mOut
-  errVar <- forkDrain limit teeErr mErr
+  outDrain <- forkDrain limit teeOut mOut
+  errDrain <- forkDrain limit teeErr mErr
   waited <- waitWithTimeout (timeoutMicros (req ^. #timeout)) ph
   case waited of
     Nothing -> do
       terminateGroup ph
+      capturedOut <- collect outDrain
+      capturedErr <- collect errDrain
       -- Report the configured limit rather than the measured elapsed
       -- time: the caller asked for a limit and wants to be told which
       -- one was hit, and the elapsed time is slightly larger because of
-      -- the grace period.
-      pure (Left (RunTimedOut (maybe 0 id (req ^. #timeout))))
+      -- the grace period. The drained bytes travel with it: the runner
+      -- already holds them, and a timed-out run is the one an operator
+      -- most wants an account of.
+      pure
+        ( Left
+            ( RunTimedOut
+                AgentTimedOut
+                  { limit = fromMaybe 0 (req ^. #timeout),
+                    stdout = capturedOut,
+                    stderr = capturedErr
+                  }
+            )
+        )
     Just code -> do
-      capturedOut <- takeMVar outVar
-      capturedErr <- takeMVar errVar
+      capturedOut <- takeMVar (snd outDrain)
+      capturedErr <- takeMVar (snd errDrain)
       end <- getCurrentTime
       pure
         ( Right
@@ -574,9 +598,26 @@ consume req cmd start mIn mOut mErr ph = do
   where
     limit = req ^. #outputLimit
     (teeOut, teeErr) = case req ^. #output of
-      TeeOutput -> (Just stdout, Just stderr)
+      -- Qualified: 'AgentTimedOut' has fields of the same two names,
+      -- and this module constructs one.
+      TeeOutput -> (Just SystemIO.stdout, Just SystemIO.stderr)
       InheritOutput -> (Nothing, Nothing)
       CaptureOutput -> (Nothing, Nothing)
+    -- Take what a drain has after the group has been killed.
+    --
+    -- Killing the group closes the write end of each pipe, so the drain
+    -- reaches end of file and answers on its own — unless a process
+    -- outside the group inherited the pipe and still holds it open, in
+    -- which case the drain is blocked on a read that will never return.
+    -- One grace period is allowed for the ordinary case, then the drain
+    -- is interrupted and answers with what it has.
+    --
+    -- Interrupted rather than closed: a thread blocked in 'BS.hGetSome'
+    -- holds the handle's own lock for the whole read, so an 'hClose'
+    -- from here would block on that lock instead of ending the read.
+    collect (tid, var) =
+      Timeout.timeout gracePeriodMicros (takeMVar var)
+        >>= maybe (killThread tid >> takeMVar var) pure
 
 -- | Write the prompt and close the handle, on its own thread.
 --
@@ -602,23 +643,38 @@ writePromptAsync h promptBody =
 -- | Drain one stream on its own thread, delivering the result through
 -- an 'MVar'. A stream that was inherited rather than piped has no
 -- handle and yields 'OutputNotCaptured' immediately.
+--
+-- The thread identifier comes back with the 'MVar' because the timeout
+-- path may have to interrupt a drain that is blocked on a pipe a
+-- survivor outside the process group still holds open; 'consume' does
+-- that in its @collect@. For an inherited stream there is no drain
+-- thread, so the caller's own identifier is returned beside an
+-- already-full 'MVar' — @collect@ never reaches the interrupt for a
+-- variable it can take immediately, so that identifier is never used.
 forkDrain ::
-  Maybe Int -> Maybe Handle -> Maybe Handle -> IO (MVar AgentCapturedOutput)
+  Maybe Int ->
+  Maybe Handle ->
+  Maybe Handle ->
+  IO (ThreadId, MVar AgentCapturedOutput)
 forkDrain limit tee source = do
   var <- newEmptyMVar
   case source of
-    Nothing -> putMVar var OutputNotCaptured
-    Just h ->
-      void . forkIO $ do
-        -- A plain 'try' rather than 'trySync' here on purpose: nothing
-        -- delivers an asynchronous exception to this thread, and
-        -- re-throwing one would leave the MVar empty and hang whoever
-        -- takes it. A drain that fails yields no capture rather than
-        -- propagating; the handles are closed under us on timeout, and
-        -- that is a normal end rather than an error.
+    Nothing -> do
+      putMVar var OutputNotCaptured
+      here <- myThreadId
+      pure (here, var)
+    Just h -> do
+      -- A plain 'try' rather than 'trySync' here on purpose: an
+      -- asynchronous exception re-thrown from this thread would leave
+      -- the MVar empty and hang whoever takes it. A drain that fails
+      -- yields no capture rather than propagating; the handles are
+      -- closed under us on timeout, and that is a normal end rather
+      -- than an error. An interrupt aimed at the read itself is caught
+      -- inside 'drain', which answers with the bytes it already has.
+      tid <- forkIO $ do
         result <- try (drain limit tee h) :: IO (Either SomeException AgentCapturedOutput)
         putMVar var (either (const OutputNotCaptured) id result)
-  pure var
+      pure (tid, var)
 
 -- | Read a stream to the end, retaining at most the byte limit.
 --
@@ -635,23 +691,32 @@ drain :: Maybe Int -> Maybe Handle -> Handle -> IO AgentCapturedOutput
 drain limit tee h = go [] 0 False
   where
     go chunks retained dropped = do
-      chunk <- BS.hGetSome h chunkSize
-      if BS.null chunk
-        then
-          let bytes = BS.concat (reverse chunks)
-           in pure (if dropped then OutputTruncated bytes else OutputCaptured bytes)
-        else do
-          echo chunk
-          case limit of
-            Nothing -> go (chunk : chunks) (retained + BS.length chunk) dropped
-            Just cap
-              | retained >= cap -> go chunks retained True
-              | otherwise -> do
-                  let kept = BS.take (cap - retained) chunk
-                  go
-                    (kept : chunks)
-                    (retained + BS.length kept)
-                    (dropped || BS.length kept < BS.length chunk)
+      -- A read that fails ends the drain with what it already has
+      -- rather than with nothing. Two things end a read this way and
+      -- neither is an error: the handle goes away when the child's side
+      -- of the pipe is closed under us, and the timeout path interrupts
+      -- a drain still blocked on a pipe a survivor holds open. Either
+      -- way more output may have existed, so the answer is truncated.
+      attempt <- try (BS.hGetSome h chunkSize) :: IO (Either SomeException BS.ByteString)
+      case attempt of
+        Left _ -> pure (OutputTruncated (BS.concat (reverse chunks)))
+        Right chunk ->
+          if BS.null chunk
+            then
+              let bytes = BS.concat (reverse chunks)
+               in pure (if dropped then OutputTruncated bytes else OutputCaptured bytes)
+            else do
+              echo chunk
+              case limit of
+                Nothing -> go (chunk : chunks) (retained + BS.length chunk) dropped
+                Just cap
+                  | retained >= cap -> go chunks retained True
+                  | otherwise -> do
+                      let kept = BS.take (cap - retained) chunk
+                      go
+                        (kept : chunks)
+                        (retained + BS.length kept)
+                        (dropped || BS.length kept < BS.length chunk)
     -- Flush per chunk: an unattended run can take many minutes, and an
     -- operator watching a log wants progress rather than a silent block
     -- that appears all at once at the end.
@@ -715,11 +780,29 @@ gracePeriodMicros = 2000000
 -- agent outright can leave the very children this is meant to reach
 -- still running. Only a group-wide terminate collects them.
 --
+-- Escalation is @SIGINT@, then @SIGTERM@, then @SIGKILL@, each to the
+-- whole group. The first two can be caught, ignored, or handled slowly,
+-- and a coding agent that ignores both is exactly the run an operator
+-- needs a deadline for; @SIGKILL@ cannot be caught, ignored, or delayed,
+-- so it is the last word and the only stage whose wait is unbounded.
+--
+-- Each earlier stage is bounded by 'gracePeriodMicros' and ends as soon
+-- as the leader has been reaped /and/ no member of the group is left.
+-- Polling the group rather than only waiting on the leader is what gives
+-- a grandchild the same grace the agent gets: waiting on the leader
+-- alone would send all three signals in a burst whenever the agent
+-- itself stopped promptly and its children did not.
+--
 -- Every signal is wrapped because a process that has already exited
 -- makes these throw, and a race between the timeout firing and the
 -- process exiting on its own is normal rather than exceptional. The
 -- final wait always runs so the child is reaped instead of lingering as
 -- a zombie.
+--
+-- Without POSIX signals the two group calls do nothing and only the
+-- leader can be reached, which 'killGroupOrLeader' does with
+-- 'P.terminateProcess'; survivors that ignored the interrupt are missed,
+-- as they always were on such a platform.
 terminateGroup :: P.ProcessHandle -> IO ()
 terminateGroup ph = do
   -- Read the identifier before any wait: 'P.getPid' yields 'Nothing'
@@ -727,14 +810,68 @@ terminateGroup ph = do
   -- leader.
   leader <- P.getPid ph
   _ <- trySync (P.interruptProcessGroupOf ph)
-  stopped <- Timeout.timeout gracePeriodMicros (P.waitForProcess ph)
-  _ <- trySync (terminateProcessGroup leader)
-  case stopped of
-    Just _ -> pure ()
-    Nothing -> do
-      _ <- trySync (P.terminateProcess ph)
-      _ <- trySync (P.waitForProcess ph)
-      pure ()
+  settled <- awaitGroup leader
+  unless settled $ do
+    _ <- trySync (terminateProcessGroup leader)
+    settledAfterTerm <- awaitGroup leader
+    unless settledAfterTerm $ do
+      _ <- trySync (killGroupOrLeader ph leader)
+      -- Unbounded on purpose: SIGKILL cannot be ignored, so this
+      -- returns as soon as the operating system has torn the leader
+      -- down, and waiting is how it is reaped rather than left a zombie.
+      void (trySync (P.waitForProcess ph))
+  where
+    -- True once the leader has been reaped and no member of its group
+    -- remains. Polled rather than waited on, because there is no call
+    -- that blocks until a whole group is empty.
+    --
+    -- The order within a poll matters: 'P.getProcessExitCode' reaps an
+    -- exited leader, and an unreaped leader is itself still a member of
+    -- the group, so asking about the group first would always say it is
+    -- alive.
+    awaitGroup leader = go (max 1 (gracePeriodMicros `div` pollIntervalMicros))
+      where
+        go :: Int -> IO Bool
+        go 0 = pure False
+        go n = do
+          exited <- P.getProcessExitCode ph
+          alive <- groupAlive leader
+          if isJust exited && not alive
+            then pure True
+            else threadDelay pollIntervalMicros >> go (n - 1)
+
+-- | How often 'terminateGroup' asks whether a signalled group has gone.
+pollIntervalMicros :: Int
+pollIntervalMicros = 50000
+
+-- | Whether any process remains in the group named by this leader.
+--
+-- Asked with the null signal, which delivers nothing and exists for
+-- exactly this question: it fails with @ESRCH@ once the group has no
+-- members left. On a platform without POSIX signals there is no way to
+-- ask, and 'False' keeps 'terminateGroup' resting on the leader's own
+-- exit code, which is all such a platform ever knew.
+groupAlive :: Maybe P.Pid -> IO Bool
+#if defined(BAIKAI_POSIX_SIGNALS)
+groupAlive Nothing = pure False
+groupAlive (Just leader) =
+  either (const False) (const True)
+    <$> trySync (Signals.signalProcessGroup Signals.nullSignal leader)
+#else
+groupAlive _ = pure False
+#endif
+
+-- | The last resort: @SIGKILL@ to the whole group where POSIX signals
+-- exist, and otherwise a terminate of the leader alone, which is all the
+-- platform can reach.
+killGroupOrLeader :: P.ProcessHandle -> Maybe P.Pid -> IO ()
+#if defined(BAIKAI_POSIX_SIGNALS)
+killGroupOrLeader _ Nothing = pure ()
+killGroupOrLeader _ (Just leader) =
+  Signals.signalProcessGroup Signals.sigKILL leader
+#else
+killGroupOrLeader ph _ = P.terminateProcess ph
+#endif
 
 -- | Send @SIGTERM@ to a whole process group, named by its leader.
 --

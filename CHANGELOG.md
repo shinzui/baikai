@@ -7,7 +7,46 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- `baikai`: **breaking.** `AgentRunFailure`'s `RunTimedOut` constructor now
+  carries a new record `AgentTimedOut` — the configured `limit` plus the
+  `stdout` and `stderr` a timed-out run drained before its process group was
+  killed — instead of a bare `NominalDiffTime`. A caller matching
+  `RunTimedOut limit` becomes `RunTimedOut timedOut` and reads `timedOut ^.
+  #limit`; `renderAgentRunFailure` is unchanged in what it says. The bytes were
+  always there, drained from the moment the child was spawned, and were simply
+  dropped on the timeout path — which is the run an operator most wants an
+  account of, because the tool started, may have consumed tokens, and may
+  already have changed the working tree.
+
 ### Fixed
+
+- `baikai-agent`: a timed-out run now **escalates to `SIGKILL`**. The runner
+  interrupts the child's whole process group, then terminates it, then kills it,
+  each of the first two stages bounded by the grace period and ended early once
+  the leader has been reaped and no member of the group is left. Previously the
+  last resort was `terminateProcess` followed by an *unbounded* wait, so a
+  coding agent that ignored `SIGTERM` — or a grandchild holding the output pipe
+  — hung the run for as long as it chose to live, with the deadline already
+  past. Polling the group rather than waiting on the leader alone is also what
+  gives a grandchild the same grace the agent gets.
+
+- `baikai-agent`: a timed-out run **reports the output it drained**. `baikai
+  agent run` prints it under the same stream discipline a finished run gets, so
+  `response=$(baikai agent run job)` under `capture` receives the partial answer
+  with `$?` set to 75, and `--json`'s failure envelope carries the same
+  `stdout`, `stdoutTruncated`, `stderr` and `stderrTruncated` fields. A drain
+  interrupted because something outside the process group still held the pipe
+  open keeps its bytes too, reported as truncated.
+
+- `baikai-agent`: the `baikai` command writes its output as **UTF-8 bytes**
+  rather than through the locale encoding. Where an unattended run actually
+  happens — cron, a systemd unit, a container — the environment says `LANG=C`,
+  and on a platform whose locale encoding follows it a single accented character
+  in the agent's answer made the write throw after the run had already finished:
+  exit 1, answer lost. This mirrors what the prompt read and the prompt write
+  have always done.
 
 - `baikai-agent`: the `baikai` executable now links the **threaded runtime**
   (`ghc-options: -threaded` on the `executable baikai` stanza). Without it a

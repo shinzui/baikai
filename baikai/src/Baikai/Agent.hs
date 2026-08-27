@@ -76,6 +76,7 @@ module Baikai.Agent
     AgentRenderError (..),
     renderAgentRenderError,
     AgentRunFailure (..),
+    AgentTimedOut (..),
     renderAgentRunFailure,
   )
 where
@@ -563,6 +564,28 @@ renderAgentRenderError (CeilingRejected violations) =
   "the request exceeds the permitted policy ceiling: "
     <> Text.intercalate "; " (map renderCeilingViolation violations)
 
+-- | What a run that hit its deadline left behind.
+--
+-- The limit is the one that was configured, not the slightly larger
+-- elapsed time, because the caller asked for a limit and wants to be
+-- told which one was hit.
+--
+-- The two streams are whatever was drained before the process group was
+-- killed. A timed-out run is precisely the run an operator most wants to
+-- read: the tool started, may have consumed tokens, and may already have
+-- changed the working tree, and the bytes it printed on the way are the
+-- only account of that. Under 'InheritOutput' those bytes went to the
+-- parent's terminal and both fields are 'OutputNotCaptured'.
+data AgentTimedOut = AgentTimedOut
+  { -- | The configured limit the run exceeded.
+    limit :: !NominalDiffTime,
+    -- | Standard output drained before the group was killed.
+    stdout :: !AgentCapturedOutput,
+    -- | Standard error drained before the group was killed.
+    stderr :: !AgentCapturedOutput
+  }
+  deriving stock (Eq, Show, Generic)
+
 -- | A failure raised while spawning the child process or waiting for
 -- it.
 --
@@ -575,8 +598,10 @@ data AgentRunFailure
     -- not installed\" from \"the tool is installed but the working
     -- directory does not exist\".
     SpawnFailed !FilePath !Text
-  | -- | The run exceeded this limit and was terminated.
-    RunTimedOut !NominalDiffTime
+  | -- | The run exceeded its limit. Its whole process group was
+    -- interrupted, then terminated, then killed; what each stream
+    -- drained before the kill is carried along.
+    RunTimedOut !AgentTimedOut
   | -- | Every variable named in the request's 'envPassthrough' that is
     -- unset or empty, checked as a group so an operator sees all of
     -- them at once.
@@ -601,8 +626,8 @@ data AgentRunFailure
 renderAgentRunFailure :: AgentRunFailure -> Text
 renderAgentRunFailure (SpawnFailed path message) =
   "could not start " <> Text.pack path <> ": " <> message
-renderAgentRunFailure (RunTimedOut limit) =
-  "the run exceeded its timeout of " <> Text.pack (show limit)
+renderAgentRunFailure (RunTimedOut timedOut) =
+  "the run exceeded its timeout of " <> Text.pack (show (timedOut ^. #limit))
 renderAgentRunFailure (MissingEnvironment names) =
   "required environment variables are unset or empty: "
     <> Text.intercalate ", " names

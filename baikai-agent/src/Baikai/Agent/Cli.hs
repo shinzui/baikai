@@ -985,6 +985,40 @@ interpret ::
   Text ->
   AgentCliRun
 interpret options staged request result evidenceNote = case result of
+  -- A timed-out run is still a run: the tool started, printed, and may
+  -- have changed the working tree. Its drained output is reported with
+  -- exactly the stream discipline a finished run gets, so
+  -- `response=$(baikai agent run job)` under `capture` receives the
+  -- partial answer with $? set to the timeout code. Under `tee` the
+  -- bytes were echoed while draining and are not repeated; under
+  -- `inherit` there is nothing to report.
+  Left failure@(RunTimedOut timedOut)
+    | options ^. #jsonOutput ->
+        AgentCliRun
+          { exitCode = failureExitCode failure,
+            standardOutput =
+              jsonObject
+                ( [ ("outcome", jsonString "failed"),
+                    ("exitCode", Text.pack (show (failureExitCode failure))),
+                    ("message", jsonString (renderAgentRunFailure failure))
+                  ]
+                    <> streamFields "stdout" (timedOut ^. #stdout)
+                    <> streamFields "stderr" (timedOut ^. #stderr)
+                )
+                <> "\n",
+            standardError = staged ^. #warnings <> evidenceNote
+          }
+    | otherwise ->
+        AgentCliRun
+          { exitCode = failureExitCode failure,
+            standardOutput = if capturing then decoded (timedOut ^. #stdout) else "",
+            standardError =
+              staged ^. #warnings
+                <> evidenceNote
+                <> (if capturing then decoded (timedOut ^. #stderr) else "")
+                <> renderAgentRunFailure failure
+                <> "\n"
+          }
   Left failure
     | options ^. #jsonOutput ->
         AgentCliRun
@@ -1134,16 +1168,26 @@ resultJson result =
         <> streamFields "stdout" (result ^. #stdout)
         <> streamFields "stderr" (result ^. #stderr)
     )
-  where
-    streamFields _ OutputNotCaptured = []
-    streamFields label captured =
-      [ (label, jsonString (decoded captured)),
-        ( label <> "Truncated",
-          case captured of
-            OutputTruncated _ -> "true"
-            _ -> "false"
-        )
-      ]
+
+-- | One captured stream as JSON fields: its text and whether it was cut
+-- off at the configured output limit.
+--
+-- A stream that was never captured contributes nothing rather than an
+-- empty string, so a reader can tell \"the agent printed nothing\" from
+-- \"the bytes went to the terminal and were never Baikai's to report\".
+--
+-- Shared by a finished run and by a timed-out one, which carries the
+-- same two streams.
+streamFields :: Text -> AgentCapturedOutput -> [(Text, Text)]
+streamFields _ OutputNotCaptured = []
+streamFields label captured =
+  [ (label, jsonString (decoded captured)),
+    ( label <> "Truncated",
+      case captured of
+        OutputTruncated _ -> "true"
+        _ -> "false"
+    )
+  ]
 
 -- --------------------------------------------------------------------
 -- Prompts

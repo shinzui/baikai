@@ -1,5 +1,18 @@
 # Bundle Update Log
 
+## 2026-08-27
+
+* **Update**: CAP-17 (unattended coding-agent runs) and CAP-18 (the `baikai
+  agent` command) now describe the timeout as an escalation — interrupt, then
+  terminate, then kill, each stage bounded by a grace period and ended early
+  once the leader is reaped and no group member remains — and record that the
+  output drained before the kill travels back with the failure rather than being
+  discarded. Both gain `baikai-agent/test/BinaryTests.hs` as evidence: the first
+  cases in this repository that spawn the __built__ executable, which is the
+  only way to prove what runtime it ships with. Behind them,
+  `docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md`
+  records why a suite's own `ghc-options` are never evidence about a binary.
+
 ## 2026-08-10
 
 * **Add**: Adopt the shared OKF capability profile (okf-profiles
