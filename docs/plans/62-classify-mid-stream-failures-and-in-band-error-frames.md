@@ -80,10 +80,10 @@ Milestone 1 — mid-stream transport failures classified from the shapes http-cl
 
 Milestone 2 — in-band `{"error": …}` frames on 2xx streams classified:
 
-- [ ] `classifyErrorFrame :: Value -> Maybe BaikaiError` added to `baikai-openai/src/Baikai/Provider/OpenAI/Internal/ErrorClass.hs`; `classifyErrorText` and `classifySdkHttpText` deleted.
-- [ ] `parseFrame` added beside `parseChunk` in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`; the worker's `Right val ->` arm calls it; `parseFrame` exported.
-- [ ] `classifyErrorText` deleted from `baikai-claude/src/Baikai/Provider/Claude/Internal/ErrorClass.hs`.
-- [ ] Error-frame tests in `ErrorClassSpec.hs`, `SseSpec.hs` and `MidStreamSpec.hs` (OpenAI) green.
+- [x] `classifyErrorFrame :: Value -> Maybe BaikaiError` added to `baikai-openai/src/Baikai/Provider/OpenAI/Internal/ErrorClass.hs`; `classifyErrorText` and `classifySdkHttpText` deleted; `scientific` added to the package's `build-depends`. (2026-08-27)
+- [x] `parseFrame` added beside `parseChunk` in `baikai-openai/src/Baikai/Provider/OpenAI/Api.hs`; the worker's `Right val ->` arm calls it; `parseFrame` exported. (2026-08-27)
+- [x] `classifyErrorText` deleted from `baikai-claude/src/Baikai/Provider/Claude/Internal/ErrorClass.hs`, along with the `sdkTextTests` group that was its only caller. (2026-08-27)
+- [x] Error-frame tests in `ErrorClassSpec.hs` (13 cases), `SseSpec.hs` and `MidStreamSpec.hs` (OpenAI) green; `cabal test baikai baikai-claude baikai-openai` green (615 / 269 / 189). (2026-08-27)
 
 Milestone 3 — 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge semantics:
 
@@ -208,6 +208,18 @@ of the plan. Implementation-time discoveries go below them.
   re-homing of "429 without Retry-After", and the `fallbackTests` rename all landed in M1
   instead. `sdkTextTests` still compiles (both `classifyErrorText` functions survive until
   M2) and stays where the plan put it. (2026-08-27, M1)
+- __An OpenRouter-shaped error frame did not fail the call at all — it /succeeded/.__ The
+  plan predicted that such a frame would end as
+  `OtherError "openai stream ended without finish_reason"`. Disabling `classifyErrorFrame`
+  and re-running the two end-to-end cases shows that prediction holds only for a frame
+  with no `choices` beside the error (the `insufficient_quota` case does end as
+  `OtherError`). OpenRouter's frame carries `choices[0].finish_reason = "error"`, and
+  `mapFinishReason` sends an unrecognised reason to `(Stop, Just "unrecognized
+  finish_reason: …")` — so the observed pre-fix terminal was
+  `EventDone {reason = Stop, errorInfo = Nothing}` carrying the partial text and a note in
+  `errorMessage`. A consumer switching on the terminal saw a completed call. That makes
+  REV-2 A.3 more severe than the review recorded, and it is the reason the fix keys on the
+  `error` key rather than on `finish_reason`. (2026-08-27, M2)
 - __EP-4's block closing already carries the partial text.__ The plan flagged the OpenAI
   "carrying the partial text" assertion as needing a fallback to `TextDelta` events if EP-4
   had not landed. EP-4 has landed, and both providers' terminals carry `"Hel"` in the
@@ -296,6 +308,19 @@ of the plan. Implementation-time discoveries go below them.
   Returning the classified error through the existing `Either BaikaiError RawChunk`
   channel element means the assembler's `Left` path (and EP-4's block-closing fix for
   it) applies unchanged.
+  Date: 2026-08-27
+- Decision (implementation): `classifyErrorFrame` treats a blank `message` as absent and
+  substitutes the placeholder, rather than letting the empty string through.
+  Rationale: the plan's `fromMaybe` only fired when the key was missing, but a host that
+  sends `"message": ""` produces an error whose text says nothing at all; the frame's
+  existence is the fact worth reporting. `ErrorClassSpec` "a frame whose message is blank
+  still classifies" pins it.
+  Date: 2026-08-27
+- Decision (implementation): the header lookups use `http-types`' folded header constants
+  (`hRetryAfter`, `hDate`) rather than `Data.CaseInsensitive.mk`.
+  Rationale: the plan's sketch would have added `case-insensitive` as a fourth direct
+  dependency of core for a value `http-types` — already needed for `statusCode` — exports
+  as a constant.
   Date: 2026-08-27
 - Decision: HTTP 413 classifies as `ContextOverflow` from the status alone, in
   `classifyHttpStatus`, whether or not the body carries an overflow marker.

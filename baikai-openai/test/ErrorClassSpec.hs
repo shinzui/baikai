@@ -2,10 +2,13 @@ module ErrorClassSpec (tests) where
 
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), isRetryable)
 import Baikai.Provider.OpenAI.Internal.ErrorClass
-  ( classifyErrorText,
+  ( classifyErrorFrame,
     classifyException,
   )
 import Control.Exception (toException)
+import Data.Aeson (Value)
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
 import Foreign.C.Error (Errno (..), eCONNRESET)
 import GHC.IO.Exception qualified as IOE
@@ -17,26 +20,41 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Provider.OpenAI.Internal.ErrorClass"
-    [ sdkTextTests,
+    [ errorFrameTests,
       streamedErrorTests,
       fallbackTests
     ]
 
+-- | The phrase table, pinned through the entry point the runtime uses.
+--
+-- These four phrases used to be fed to a bare-'Text' classifier that no
+-- production path called. They still classify the same way, but now as
+-- the @message@ of a frame the transport can actually deliver.
 streamedErrorTests :: TestTree
 streamedErrorTests =
   testGroup
-    "classifyErrorText (mid-stream error text)"
+    "classifyErrorFrame (message phrase fallback)"
     [ testCase "rate limit text -> RateLimited" $
-        fmap category (classifyErrorText "Rate limit reached for requests") @?= Just RateLimited,
+        fmap category (classifyErrorFrame (frameWithMessage "Rate limit reached for requests"))
+          @?= Just RateLimited,
       testCase "context length text -> ContextOverflow" $
-        fmap category (classifyErrorText "This model's maximum context length is 4096 tokens")
+        fmap
+          category
+          (classifyErrorFrame (frameWithMessage "This model's maximum context length is 4096 tokens"))
           @?= Just ContextOverflow,
       testCase "invalid api key text -> AuthError" $
-        fmap category (classifyErrorText "Incorrect API key provided") @?= Just AuthError,
+        fmap category (classifyErrorFrame (frameWithMessage "Incorrect API key provided"))
+          @?= Just AuthError,
       testCase "unknown text -> OtherError" $
-        fmap category (classifyErrorText "something odd happened") @?= Just OtherError,
-      testCase "blank text -> Nothing" $
-        classifyErrorText "   " @?= Nothing
+        fmap category (classifyErrorFrame (frameWithMessage "something odd happened"))
+          @?= Just OtherError,
+      -- A blank message is still a frame: the error key is what makes it
+      -- one, and dropping it would put the call back on the "stream
+      -- ended without finish_reason" path this milestone exists to fix.
+      testCase "a frame whose message is blank still classifies" $ do
+        let parsed = classifyErrorFrame (frameWithMessage "   ")
+        fmap category parsed @?= Just OtherError
+        fmap message parsed @?= Just "provider sent an error frame without a message"
     ]
 
 fallbackTests :: TestTree
@@ -84,17 +102,68 @@ fallbackTests =
           "weird failure" `Text.isInfixOf` message e
     ]
 
-sdkTextTests :: TestTree
-sdkTextTests =
+-- | The frames a compatible host actually sends on a 2xx stream.
+errorFrameTests :: TestTree
+errorFrameTests =
   testGroup
-    "classifyErrorText (SDK HTTP text)"
-    [ testCase "429 SDK text -> RateLimited with status" $ do
+    "classifyErrorFrame (in-band error frames)"
+    [ -- OpenRouter forwards the upstream HTTP status as a *number* in
+      -- `code`, and sends a `choices` array beside the error, so
+      -- detection cannot key on the absence of `choices`.
+      testCase "an OpenRouter upstream 502 frame is TransientError with httpStatus 502" $ do
         let parsed =
-              classifyErrorText
-                "HTTP error 429 Too Many Requests: {\"error\":{\"message\":\"Rate limit reached...\",\"type\":\"tokens\"}}"
+              classifyErrorFrame . decode $
+                "{\"error\":{\"message\":\"Provider returned error\",\"code\":502,\
+                \\"metadata\":{\"provider_name\":\"x\"}},\
+                \\"choices\":[{\"index\":0,\"finish_reason\":\"error\",\"delta\":{}}]}"
+        fmap category parsed @?= Just TransientError
+        fmap httpStatus parsed @?= Just (Just 502)
+        fmap message parsed @?= Just "Provider returned error"
+        fmap isRetryable parsed @?= Just True,
+      testCase "an OpenAI insufficient_quota frame is AuthError and not retryable" $ do
+        let parsed =
+              classifyErrorFrame . decode $
+                "{\"error\":{\"message\":\"You exceeded your current quota\",\
+                \\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+        fmap category parsed @?= Just AuthError
+        fmap isRetryable parsed @?= Just False,
+      testCase "a rate_limit_exceeded code is RateLimited" $
+        fmap
+          category
+          ( classifyErrorFrame . decode $
+              "{\"error\":{\"message\":\"slow down\",\"code\":\"rate_limit_exceeded\"}}"
+          )
+          @?= Just RateLimited,
+      testCase "a context_length_exceeded code is ContextOverflow" $
+        fmap
+          category
+          ( classifyErrorFrame . decode $
+              "{\"error\":{\"message\":\"too big\",\"code\":\"context_length_exceeded\"}}"
+          )
+          @?= Just ContextOverflow,
+      testCase "an upstream 429 status wins over the message text" $ do
+        let parsed =
+              classifyErrorFrame . decode $
+                "{\"error\":{\"message\":\"something odd\",\"status\":429}}"
         fmap category parsed @?= Just RateLimited
         fmap httpStatus parsed @?= Just (Just 429),
-      testCase "401 SDK text -> AuthError" $
-        fmap category (classifyErrorText "HTTP error 401 Unauthorized: {\"error\":{\"message\":\"bad key\"}}")
-          @?= Just AuthError
+      testCase "a string-valued error is a frame" $ do
+        let parsed = classifyErrorFrame (decode "{\"error\":\"Rate limit reached\"}")
+        fmap category parsed @?= Just RateLimited
+        fmap message parsed @?= Just "Rate limit reached",
+      testCase "a chunk without an error key is not a frame" $
+        classifyErrorFrame (decode "{\"choices\":[]}") @?= Nothing,
+      testCase "a non-object payload is not a frame" $
+        classifyErrorFrame (decode "[1,2,3]") @?= Nothing
     ]
+
+-- | The minimal frame: an error object carrying only a message.
+frameWithMessage :: Text.Text -> Value
+frameWithMessage msg = Aeson.object ["error" Aeson..= Aeson.object ["message" Aeson..= msg]]
+
+-- | Fixtures are written as the JSON the host sends, so what is under
+-- test is the shape on the wire rather than a hand-built 'Value'.
+decode :: LBS.ByteString -> Value
+decode raw = case Aeson.eitherDecode raw of
+  Right v -> v
+  Left err -> error ("fixture is not valid JSON: " <> err)

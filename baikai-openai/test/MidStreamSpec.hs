@@ -31,7 +31,7 @@ import Baikai.Provider.OpenAI.Api (SseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Contract (assertErrorContract)
 import Control.Exception (SomeException, throwIO, toException)
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.ByteString (ByteString)
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
@@ -85,7 +85,37 @@ tests =
         assertErrorContract events
         be <- terminalError events
         category be @?= OtherError
-        assertBool "a callback bug is not retryable" (not (isRetryable be))
+        assertBool "a callback bug is not retryable" (not (isRetryable be)),
+      -- An upstream failure the host only learned about after committing
+      -- to a 200. It arrives on a healthy stream and must end the call
+      -- with its own classification, not as
+      -- OtherError "openai stream ended without finish_reason".
+      testCase "an in-band error frame on a 2xx stream terminates with the frame's classification" $ do
+        events <-
+          drainReplay
+            ( take 1 contentChunks
+                <> [ "data: {\"error\":{\"message\":\"Provider returned error\",\"code\":502},\
+                     \\"choices\":[{\"index\":0,\"finish_reason\":\"error\",\"delta\":{}}]}\n\n",
+                     "data: [DONE]\n\n"
+                   ]
+            )
+        assertErrorContract events
+        be <- terminalError events
+        category be @?= TransientError
+        httpStatus be @?= Just 502
+        be ^. #message @?= "Provider returned error"
+        assertBool "an upstream 502 is retryable" (isRetryable be),
+      testCase "an in-band insufficient_quota frame is AuthError and not retryable" $ do
+        events <-
+          drainReplay
+            [ "data: {\"error\":{\"message\":\"You exceeded your current quota\",\
+              \\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}\n\n",
+              "data: [DONE]\n\n"
+            ]
+        assertErrorContract events
+        be <- terminalError events
+        category be @?= AuthError
+        assertBool "an exhausted quota is not retryable" (not (isRetryable be))
     ]
 
 -- ============================================================
@@ -119,6 +149,17 @@ drainFailing :: [ByteString] -> SomeException -> IO [AssistantMessageEvent]
 drainFailing chunks ex =
   Stream.toList (openaiChatStreamWith (failingDriver chunks ex) testModel emptyContext testOptions)
 
+-- | Drain the provider stream over a body reader that ends normally,
+-- for the frames that are themselves the failure.
+drainReplay :: [ByteString] -> IO [AssistantMessageEvent]
+drainReplay chunks =
+  Stream.toList (openaiChatStreamWith (replayDriver chunks) testModel emptyContext testOptions)
+
+replayDriver :: [ByteString] -> SseDriver
+replayDriver chunks _env _headers _body onMetadata onEvent = do
+  resp <- mkReplayResponse chunks
+  sseFromResponse resp onMetadata onEvent
+
 failingDriver :: [ByteString] -> SomeException -> SseDriver
 failingDriver chunks ex _env _headers _body onMetadata onEvent = do
   resp <- mkFailingResponse chunks ex
@@ -128,12 +169,19 @@ failingDriver chunks ex _env _headers _body onMetadata onEvent = do
 -- of the body reader raises instead of returning the empty string that
 -- means end-of-body.
 mkFailingResponse :: [ByteString] -> SomeException -> IO (HTTP.Response HTTP.BodyReader)
-mkFailingResponse chunks ex = do
+mkFailingResponse chunks ex = mkResponseWith chunks (throwIO ex)
+
+-- | The ordinary recorded response: an empty read means end-of-body.
+mkReplayResponse :: [ByteString] -> IO (HTTP.Response HTTP.BodyReader)
+mkReplayResponse chunks = mkResponseWith chunks (pure "")
+
+mkResponseWith :: [ByteString] -> IO ByteString -> IO (HTTP.Response HTTP.BodyReader)
+mkResponseWith chunks onExhausted = do
   ref <- newIORef chunks
   let bodyReader = do
         remaining <- readIORef ref
         case remaining of
-          [] -> throwIO ex
+          [] -> onExhausted
           (x : xs) -> writeIORef ref xs >> pure x
   pure
     HTTPI.Response

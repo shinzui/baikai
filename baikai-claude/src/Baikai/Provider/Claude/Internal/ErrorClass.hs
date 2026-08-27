@@ -12,7 +12,6 @@
 -- that arrives mid-stream as a JSON 'Value'.
 module Baikai.Provider.Claude.Internal.ErrorClass
   ( classifyException,
-    classifyErrorText,
     classifyErrorValue,
   )
 where
@@ -21,7 +20,6 @@ import Baikai.Error
   ( BaikaiError (..),
     ErrorCategory (..),
     bodyIndicatesOverflow,
-    httpError,
     providerError,
   )
 import Baikai.Provider.Transport.Classify (classifyTransportException)
@@ -31,7 +29,6 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Text.Read (readMaybe)
 
 -- | Convert any exception caught while driving the Anthropic transport
 -- into a categorised 'BaikaiError'.
@@ -67,20 +64,6 @@ classifyErrorValue v = do
     stringField k o = case KeyMap.lookup k o of
       Just (String t) -> Just t
       _ -> Nothing
-
--- | Recover HTTP classification from the text shape emitted by the
--- upstream SDK's non-2xx path. The local SSE transport preserves
--- headers and should be preferred; this is a defense-in-depth parser.
-classifyErrorText :: Text -> Maybe BaikaiError
-classifyErrorText raw = do
-  rest <- Text.stripPrefix "HTTP error " raw
-  let (codeText, afterCode) = Text.breakOn " " rest
-  code <- readMaybe (Text.unpack codeText)
-  let body = case Text.breakOn ": " afterCode of
-        (_, sepBody)
-          | not (Text.null sepBody) -> Text.drop 2 sepBody
-        _ -> ""
-  pure (httpError code Nothing body)
 
 -- | Map an Anthropic error @type@ string (plus its message, for the
 -- overflow special case) to a category.

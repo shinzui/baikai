@@ -38,6 +38,7 @@ module Baikai.Provider.OpenAI.Api
     RawChunk (..),
     RawToolDelta (..),
     parseChunk,
+    parseFrame,
     TagScanState (..),
     _TagScanState,
     scanThinkTags,
@@ -74,7 +75,7 @@ import Baikai.Provider.Internal.StreamWorker
     pushFrame,
     withFrameWorker,
   )
-import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyException)
+import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyErrorFrame, classifyException)
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape, streamRequestBody)
 import Baikai.Provider.OpenAI.Sse (ResponseMetadata, capturedHeaderNames, openaiSseStreamValueWithHeaders)
@@ -369,13 +370,32 @@ worker driver call metaRef q = do
         (writeIORef metaRef . Just)
       $ \case
         Left be -> pushFrame q (Left be)
-        Right val -> case parseChunk val of
+        Right val -> case parseFrame val of
           Left err -> pushFrame q (Left (providerError (Text.pack err)))
-          Right chunk -> pushFrame q (Right chunk)
+          Right frame -> pushFrame q frame
   case r of
     Right Nothing -> pure ()
     Right (Just be) -> pushFrame q (Left be)
     Left e -> pushFrame q (Left (exceptionToError e))
+
+-- | Sort one decoded SSE frame into what it is: a classified in-band
+-- error, or a completion chunk.
+--
+-- Compatible hosts report an upstream failure on a @2xx@ stream as a
+-- frame carrying an @error@ object, with or without a @choices@ array
+-- beside it. Such a frame ends the call with the failure's own
+-- classification and message instead of being parsed as an empty chunk,
+-- dropped, and reported at stream end as
+-- @openai stream ended without finish_reason@.
+--
+-- The classified error travels back through the same
+-- @Either BaikaiError RawChunk@ channel element a non-2xx uses, so the
+-- assembler's 'Left' path — including its block closing — applies
+-- unchanged.
+parseFrame :: Value -> Either String (Either BaikaiError RawChunk)
+parseFrame v = case classifyErrorFrame v of
+  Just be -> Right (Left be)
+  Nothing -> Right <$> parseChunk v
 
 -- | Aeson parser tolerant of partial tool-call fields.
 parseChunk :: Value -> Either String RawChunk

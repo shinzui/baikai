@@ -9,7 +9,7 @@ import Baikai.Provider.OpenAI.Api
     SseDriver,
     emptyAssembler,
     openaiChatStreamWith,
-    parseChunk,
+    parseFrame,
     translate,
   )
 import Baikai.Provider.OpenAI.Sse
@@ -115,6 +115,26 @@ blockClosingTests =
         case reverse events of
           (EventDone TerminalPayload {reason = r} : _) -> r @?= Length
           other -> assertFailure ("expected a terminal EventDone, got: " <> show (take 1 other)),
+      -- An upstream failure the host only learned about after
+      -- committing to a 200. Before 'parseFrame' this frame parsed as an
+      -- empty chunk, was dropped, and the call ended as
+      -- OtherError "openai stream ended without finish_reason".
+      testCase "an in-band error frame on a 2xx stream reaches the assembler as a classified Left" $ do
+        events <-
+          replayStream
+            200
+            []
+            [ "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n",
+              openRouterErrorFrame,
+              "data: [DONE]\n\n"
+            ]
+        assertErrorContract events
+        case reverse events of
+          (EventError TerminalPayload {errorInfo = Just be} : _) -> do
+            category be @?= TransientError
+            httpStatus be @?= Just 502
+            be ^. #message @?= "Provider returned error"
+          other -> assertFailure ("expected a classified terminal EventError, got: " <> show (take 1 other)),
       testCase "a mid-stream transport error closes open blocks before the terminal" $ do
         -- Injected through 'translate' rather than the transport,
         -- because what is under test is the assembler's Left path: a
@@ -329,14 +349,23 @@ replay status headers chunks = do
           events
   pure (metas, ass)
 
--- | Chunks reach the assembler through 'parseChunk', exactly as the
--- worker sends them.
+-- | OpenRouter's mid-stream failure frame: the upstream status as a
+-- number in @code@, and a @choices@ array beside the error, so detection
+-- cannot key on the absence of @choices@.
+openRouterErrorFrame :: ByteString
+openRouterErrorFrame =
+  "data: {\"error\":{\"message\":\"Provider returned error\",\"code\":502},\
+  \\"choices\":[{\"index\":0,\"finish_reason\":\"error\",\"delta\":{}}]}\n\n"
+
+-- | Frames reach the assembler through 'parseFrame', exactly as the
+-- worker sends them — so an in-band error frame is sorted out here, not
+-- parsed as an empty chunk.
 parsed :: Either BaikaiError Aeson.Value -> Either BaikaiError RawChunk
 parsed = \case
   Left e -> Left e
-  Right v -> case parseChunk v of
+  Right v -> case parseFrame v of
     Left err -> Left (providerError (Text.pack err))
-    Right chunk -> Right chunk
+    Right frame -> frame
 
 testTime :: UTCTime
 testTime = read "2026-07-03 12:00:00 UTC"

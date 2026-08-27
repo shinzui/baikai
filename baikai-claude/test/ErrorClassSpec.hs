@@ -2,8 +2,7 @@ module ErrorClassSpec (tests) where
 
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), isRetryable)
 import Baikai.Provider.Claude.Internal.ErrorClass
-  ( classifyErrorText,
-    classifyErrorValue,
+  ( classifyErrorValue,
     classifyException,
   )
 import Control.Exception (toException)
@@ -19,8 +18,7 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Provider.Claude.Internal.ErrorClass"
-    [ sdkTextTests,
-      streamedErrorTests,
+    [ streamedErrorTests,
       fallbackTests
     ]
 
@@ -90,23 +88,6 @@ fallbackTests =
         category e @?= OtherError
         assertBool "message keeps the original text" $
           "weird failure" `Text.isInfixOf` message e
-    ]
-
-sdkTextTests :: TestTree
-sdkTextTests =
-  testGroup
-    "classifyErrorText (SDK HTTP text)"
-    [ testCase "429 text -> RateLimited" $ do
-        let parsed =
-              classifyErrorText
-                "HTTP error 429 Too Many Requests: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow\"}}"
-        fmap category parsed @?= Just RateLimited
-        fmap httpStatus parsed @?= Just (Just 429),
-      testCase "529 text -> TransientError" $
-        fmap category (classifyErrorText "HTTP error 529 ")
-          @?= Just TransientError,
-      testCase "non-matching text -> Nothing" $
-        classifyErrorText "ordinary stream error" @?= Nothing
     ]
 
 -- | The inner error object Anthropic streams as the @error@ field.
