@@ -59,8 +59,8 @@ rebase in both Decision Logs.
 
 ## Progress
 
-- [ ] M1: `commitTerminal` helper; the three terminal-path writes run under `uninterruptibleMask_` with `terminalSent` set first, on both terminal branches and the abort path.
-- [ ] M1: `terminalPathAtomicityTest` and `throwToAroundTerminalTest` in `baikai/test/TraceSpec.hs`; widened-window demonstration recorded in Surprises & Discoveries.
+- [x] M1: `commitTerminal` helper; the three terminal-path writes run under `uninterruptibleMask_` with `terminalSent` set first, on both terminal branches and the abort path.
+- [x] M1: `terminalPathAtomicityTest` and `throwToAroundTerminalTest` in `baikai/test/TraceSpec.hs`; widened-window demonstration recorded in Surprises & Discoveries.
 - [ ] M2: `sinkDrainBoundMicros`, `awaitWorker`, `TraceSinkStalled`; `finalizeTrace` waits at most one second, abandons the worker, records the stall, releases the `StablePtr` root; `reportSinkError` prints the stall line.
 - [ ] M2: `multiSink` rebuilt as one drain thread per member with an aggregate `TraceSinkFailure`.
 - [ ] M2: `closeCallLog` idempotent; `appendEntry` after close is a no-op.
@@ -101,7 +101,28 @@ located with `mori registry search streamly-core` and
   blocking `MVar` operations are green-thread operations and work on the non-threaded
   runtime, so the new tests need no cabal change. (2026-08-27)
 
-(Implementation-time discoveries go here as they occur.)
+Implementation-time:
+
+- __The widened-window demonstration, run.__ With `commitTerminal`'s body written in
+  the pre-fix order and unmasked — `pushEvidence`, `writeChan` the terminal,
+  `threadDelay 100000`, `writeIORef terminalSent True` —
+  `throwToAroundTerminalTest` fails on its first iteration:
+
+  ```text
+  baikai
+    Baikai.Trace
+      fifty exceptions aimed at the terminal push never duplicate terminal or evidence: FAIL (0.21s)
+        test/TraceSpec.hs:302:
+        expected: 1
+         but got: 2
+  ```
+
+  Line 302 is the `CallEvidence` count: the finaliser saw `terminalSent = False` and
+  pushed a second record and an `aborted` `CallFailed` after the real `CallFinished`.
+  The same `threadDelay 100000` moved *inside* the fixed `uninterruptibleMask_` block
+  is harmless — the fifty iterations pass in 15.52s against 10.18s without it — which
+  is the point of the mask: the delay is now a window the exception cannot land in.
+  (2026-08-27)
 
 
 ## Decision Log

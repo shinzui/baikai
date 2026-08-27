@@ -77,7 +77,7 @@ import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, try, uninterruptibleMask_)
 import Control.Monad (forM_, unless, void)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -291,8 +291,7 @@ finalizeTrace reg s eid start m opts = do
             -- because nothing about the provider went wrong: the consumer
             -- stopped reading. The message says exactly that.
             (Just (providerError abortText))
-        pushEvidence s eid now m mev
-        writeChan (s ^. #chan) (Just aborted)
+        commitTerminal s eid now m mev aborted
       writeChan (s ^. #chan) Nothing
       takeMVar (s ^. #done)
       fatal <- reportSinkError s opts
@@ -327,6 +326,35 @@ pushEvidence s eid now m mev =
             model = m ^. #modelId,
             evidence = ev
           }
+
+-- | Commit a call's terminal to the sink: mark the terminal as sent,
+-- push the evidence record (when there is one), then push the terminal
+-- event.
+--
+-- One unit with respect to asynchronous exceptions. An exception
+-- delivered between the terminal push and the flag write made
+-- 'finalizeTrace' read the flag as unset and push a second evidence
+-- record and an @aborted@ 'CallFailed' after the real terminal, so a
+-- sink saw two records and two contradictory terminals for one call.
+-- Plain 'Control.Exception.mask_' closes the window everywhere except
+-- inside 'writeChan', whose internal 'takeMVar' on the channel's write
+-- lock is interruptible; it never blocks in practice, because the
+-- worker only reads, but "never in practice" is what this exists to
+-- remove. Every write here is a non-blocking push to an unbounded
+-- 'Chan' or one 'IORef' write, so the uninterruptible block holds for
+-- microseconds and cannot become an un-cancellable hang.
+--
+-- The flag goes /first/ so a synchronous failure inside the block
+-- yields a missing terminal — which the abort machinery tolerates —
+-- rather than a duplicated one. The wait for the worker is outside the
+-- block, in 'finalizeTrace'.
+commitTerminal ::
+  TraceState -> Text -> UTCTime -> Model -> Maybe ModelCallEvidence -> TraceEvent -> IO ()
+commitTerminal s eid now m mev terminal =
+  uninterruptibleMask_ $ do
+    writeIORef (s ^. #terminalSent) True
+    pushEvidence s eid now m mev
+    writeChan (s ^. #chan) (Just terminal)
 
 releaseStableRoot :: TraceState -> IO ()
 releaseStableRoot s = do
@@ -401,9 +429,7 @@ traceEvent reg state eid start m opts ev = do
       -- call's state open when it arrives. The OpenTelemetry sink ends
       -- and removes its span on the terminal, so the other order left
       -- its evidence branch unreachable from a live stream.
-      pushEvidence state eid now m mev
-      writeChan (state ^. #chan) (Just finished)
-      writeIORef (state ^. #terminalSent) True
+      commitTerminal state eid now m mev finished
       fatal <- finalizeTrace reg state eid start m opts
       -- A strict caller whose record did not survive gets a failed call
       -- rather than an answer they cannot account for. This is the only
@@ -425,9 +451,7 @@ traceEvent reg state eid start m opts ev = do
                 latencyMs = latency,
                 errorMessage = errMsg
               }
-      pushEvidence state eid now m mev
-      writeChan (state ^. #chan) (Just failed)
-      writeIORef (state ^. #terminalSent) True
+      commitTerminal state eid now m mev failed
       -- Already an error: a sink failure on top changes nothing the
       -- caller can act on, and overwriting the provider's own error with
       -- baikai's would lose the more useful of the two.

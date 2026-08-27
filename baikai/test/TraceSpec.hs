@@ -32,15 +32,17 @@ import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), silent)
 import Baikai.Usage (Usage, zeroUsage)
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (forkIO, threadDelay, throwTo)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
-import Control.Exception (throwIO)
-import Control.Monad (replicateM)
+import Control.Exception (AsyncException (ThreadKilled), SomeException, throwIO, try)
+import Control.Monad (forM_, replicateM)
 import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy.Char8 qualified as BL8
+import Data.Either (isLeft)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TextEncoding
@@ -62,6 +64,8 @@ tests =
       memoryFinishTest,
       memoryFailTest,
       throwingSinkTest,
+      terminalPathAtomicityTest,
+      throwToAroundTerminalTest,
       eventIdUniquenessTest,
       earlyAbortTest,
       fidelityTest,
@@ -218,6 +222,85 @@ throwingSinkTest =
       Just resp -> do
         let AssistantPayload {stopReason = sr} = resp ^. #message
         sr @?= Stop
+
+-- | A memory sink that parks on the terminal event until released.
+--
+-- The park is what makes the atomicity test deterministic: when
+-- @parked@ is filled the consumer has already run 'commitTerminal' to
+-- completion and is waiting for the worker, which is exactly the moment
+-- an asynchronous exception used to leave a half-committed terminal
+-- behind.
+gatedSink :: IO (TVar [TraceEvent], MVar (), MVar (), TraceSink)
+gatedSink = do
+  ref <- newTVarIO []
+  parked <- newEmptyMVar
+  release <- newEmptyMVar
+  let step () e = do
+        atomically (modifyTVar' ref (e :))
+        case e of
+          CallFinished {} -> putMVar parked () >> readMVar release
+          _ -> pure ()
+      sink = TraceSink (Fold.foldlM' step (pure ()))
+  pure (ref, parked, release, sink)
+
+-- | Kill the consumer while it waits for a sink that has already taken
+-- the terminal. The stream's exception path runs the trace finaliser a
+-- second time, and it must find nothing left to do: one evidence
+-- record, one terminal, and no synthetic @aborted@ 'CallFailed' on top
+-- of the real 'CallFinished'.
+terminalPathAtomicityTest :: TestTree
+terminalPathAtomicityTest =
+  testCase "an async exception on the terminal path leaves one terminal and one evidence" $ do
+    let a = Custom "baikai-trace-terminal-atomicity"
+    registerOkWithEvidence a
+    (ref, parked, release, sink) <- gatedSink
+    outcome <- newEmptyMVar
+    consumer <- forkIO $ do
+      r <- try (withTrace sink (stubModel a) stubContext evidenceOptions)
+      putMVar outcome (r :: Either SomeException Response)
+    takeMVar parked
+    throwTo consumer ThreadKilled
+    r <- takeMVar outcome
+    assertBool "the consumer was killed" (isLeft r)
+    putMVar release ()
+    events <- awaitEvents ref 3
+    length [e | e@CallEvidence {} <- events] @?= 1
+    length [e | e@CallFinished {} <- events] @?= 1
+    length [e | e@CallFailed {} <- events] @?= 0
+
+-- | Aim an asynchronous exception at the consumer the instant the
+-- evidence event reaches the sink — while the consumer is pushing the
+-- terminal and setting the flag. Fifty times, because the window is a
+-- few instructions wide and no scheduling hook can hit it
+-- deterministically; the plan's widened-window demonstration shows the
+-- test detects the defect.
+throwToAroundTerminalTest :: TestTree
+throwToAroundTerminalTest =
+  testCase "fifty exceptions aimed at the terminal push never duplicate terminal or evidence" $
+    forM_ [1 .. 50 :: Int] $ \i -> do
+      let a = Custom ("baikai-trace-throwto-" <> Text.pack (show i))
+      registerOkWithEvidence a
+      ref <- newTVarIO []
+      consumerVar <- newEmptyMVar
+      let step () e = do
+            atomically (modifyTVar' ref (e :))
+            case e of
+              CallEvidence {} -> readMVar consumerVar >>= \tid -> throwTo tid ThreadKilled
+              _ -> pure ()
+          sink = TraceSink (Fold.foldlM' step (pure ()))
+      outcome <- newEmptyMVar
+      tid <- forkIO $ do
+        r <- try (withTrace sink (stubModel a) stubContext evidenceOptions)
+        putMVar outcome (r :: Either SomeException Response)
+      putMVar consumerVar tid
+      _ <- takeMVar outcome
+      _ <- awaitEvents ref 3
+      -- Let anything the finaliser might still push arrive before counting.
+      threadDelay 200000
+      performMajorGC
+      settled <- reverse <$> readTVarIO ref
+      length [e | e@CallEvidence {} <- settled] @?= 1
+      length [e | e@CallFinished {} <- settled] + length [e | e@CallFailed {} <- settled] @?= 1
 
 -- | The length assertion here used to read
 -- @assertBool "every id is 16 chars" (all ((== 16) . Text.length) ids)@.
