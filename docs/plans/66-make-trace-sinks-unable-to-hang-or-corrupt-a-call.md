@@ -61,10 +61,10 @@ rebase in both Decision Logs.
 
 - [x] M1: `commitTerminal` helper; the three terminal-path writes run under `uninterruptibleMask_` with `terminalSent` set first, on both terminal branches and the abort path.
 - [x] M1: `terminalPathAtomicityTest` and `throwToAroundTerminalTest` in `baikai/test/TraceSpec.hs`; widened-window demonstration recorded in Surprises & Discoveries.
-- [ ] M2: `sinkDrainBoundMicros`, `awaitWorker`, `TraceSinkStalled`; `finalizeTrace` waits at most one second, abandons the worker, records the stall, releases the `StablePtr` root; `reportSinkError` prints the stall line.
-- [ ] M2: `multiSink` rebuilt as one drain thread per member with an aggregate `TraceSinkFailure`.
-- [ ] M2: `closeCallLog` idempotent; `appendEntry` after close is a no-op.
-- [ ] M2: blocking-sink (best-effort and strict), throwing/blocking `multiSink` member, strict member-naming, and `closeCallLog`-twice tests in `TraceSpec.hs`, `CostSpec.hs`, `baikai-trace-otel/test/Main.hs`.
+- [x] M2: `sinkDrainBoundMicros`, `awaitWorker`, `TraceSinkStalled`; `finalizeTrace` waits at most one second, abandons the worker, records the stall, releases the `StablePtr` root; `reportSinkError` prints the stall line.
+- [x] M2: `multiSink` rebuilt as one drain thread per member with an aggregate `TraceSinkFailure`.
+- [x] M2: `closeCallLog` idempotent; `appendEntry` after close is a no-op.
+- [x] M2: blocking-sink (best-effort and strict), throwing/blocking `multiSink` member, strict member-naming, and `closeCallLog`-twice tests in `TraceSpec.hs`, `CostSpec.hs`, `baikai-trace-otel/test/Main.hs`.
 - [ ] M3: `OtelSinkOptions.parentContext`; `strengthText` replaced by `renderEvidenceStrength`; `parentContextTest` and the strength-spelling assertion.
 - [ ] M3: `baikai-effectful.cabal` no longer depends on `streamly`.
 - [ ] M4: `exactlyOneEvidence` asserts `CallEvidence` precedes the terminal.
@@ -122,6 +122,27 @@ Implementation-time:
   The same `threadDelay 100000` moved *inside* the fixed `uninterruptibleMask_` block
   is harmless — the fifty iterations pass in 15.52s against 10.18s without it — which
   is the point of the mask: the delay is now a window the exception cannot land in.
+  (2026-08-27)
+- __EP-8 did not adopt the "not confirmed written" wording, so this plan made the
+  edit__, as its Decision Log said it would. `Build.sinkFailureError` now reads "so its
+  record was not confirmed written". No test asserted the old phrase; the two strict
+  sink cases match on `trace sink failed`, which is unchanged. Recorded in both
+  Decision Logs. (2026-08-27)
+- __The pre-fix demonstrations for M2, run.__ With `awaitWorker` reduced to an
+  unbounded `readMVar`, `blockingSinkTest` reports `withTrace hung on a blocking sink`
+  after its two-second guard. With `multiSink` restored to the `Fold.tee` fold,
+  `multiSinkThrowingMemberTest` and `multiSinkBlockingMemberTest` both fail with
+  `the sibling missed events: []` — the sibling received /nothing/, not merely a
+  truncated sequence — `multiSinkStrictNamesMemberTest` gets an error naming no member,
+  and the OpenTelemetry sibling test fails with `exactly one span recorded expected: 1
+  but got: 0`: under `tee` the span was opened and never ended, so the in-memory
+  exporter never saw it at all. The review said the span "is never ended"; the visible
+  consequence is that it is never exported either. (2026-08-27)
+- __A `TraceSinkStalled` needs its own stderr line, not `Build.onSinkFailure`'s.__
+  That line says the call's trace events "were dropped", which is the one thing an
+  abandoned worker's events were not — they are still queued behind the blocked sink
+  and may yet be delivered. `reportSinkError` now branches on `fromException` and
+  prints the stall's own text; the fatality decision below it is identical for both.
   (2026-08-27)
 
 

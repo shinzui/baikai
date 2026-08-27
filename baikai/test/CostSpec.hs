@@ -8,6 +8,8 @@ import Baikai.Cost.Log
   ( CallLogConfig (..),
     CallLogEntry (..),
     appendEntry,
+    closeCallLog,
+    openCallLog,
     runRequestWithLog,
     withCallLog,
   )
@@ -29,7 +31,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
 import Data.Maybe (fromJust, isJust)
-import Data.Time (getCurrentTime)
+import Data.Time (UTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import System.Directory (getTemporaryDirectory, removeFile)
 import System.FilePath ((</>))
@@ -237,19 +239,40 @@ callLogTests =
         let missing = tmp </> "baikai-costspec-no-such-dir" </> "entries.jsonl"
             cfg = CallLogConfig {path = missing, enabled = True}
         now <- getCurrentTime
-        let entry =
-              CallLogEntry
-                { timestamp = now,
-                  provider = "test",
-                  model = "m",
-                  inputTokens = Nothing,
-                  outputTokens = Nothing,
-                  cachedInputTokens = Nothing,
-                  reasoningTokens = Nothing,
-                  usd = Nothing,
-                  latencyMs = 0,
-                  promptSummary = ""
-                }
-        result <- timeout 5000000 (withCallLog cfg (\h -> appendEntry h entry))
+        result <- timeout 5000000 (withCallLog cfg (\h -> appendEntry h (sampleEntry now)))
+        result @?= Just (),
+      -- 'withCallLog' brackets a close around a body that may also close
+      -- the handle, so the second close is a shape a caller reaches by
+      -- accident. Before the claim it blocked forever on an 'MVar' the
+      -- worker had already emptied.
+      testCase "closeCallLog twice returns and appendEntry after close is a no-op" $ do
+        tmp <- getTemporaryDirectory
+        let path' = tmp </> "baikai-costspec-double-close.jsonl"
+        writeFile path' ""
+        let cfg = CallLogConfig {path = path', enabled = True}
+        h <- openCallLog cfg
+        result <- timeout 5000000 (closeCallLog h >> closeCallLog h)
         result @?= Just ()
+        now <- getCurrentTime
+        appendEntry h (sampleEntry now)
+        raw <- BSL.readFile path'
+        BSL.length raw @?= 0
+        removeFile path'
     ]
+
+-- | A minimal entry, shared by the call-log cases that need one to
+-- enqueue rather than one to inspect.
+sampleEntry :: UTCTime -> CallLogEntry
+sampleEntry now =
+  CallLogEntry
+    { timestamp = now,
+      provider = "test",
+      model = "m",
+      inputTokens = Nothing,
+      outputTokens = Nothing,
+      cachedInputTokens = Nothing,
+      reasoningTokens = Nothing,
+      usd = Nothing,
+      latencyMs = 0,
+      promptSummary = ""
+    }

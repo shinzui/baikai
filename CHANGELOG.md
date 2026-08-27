@@ -176,6 +176,30 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `baikai`: `withTrace` and `withTraceStream` wait at most one second for the
+  trace sink after writing the shutdown sentinel. On expiry the worker is
+  abandoned — not killed, which would abort the sink's fold mid-step and lose
+  its end-of-stream action — the call proceeds, and one stderr line reports
+  `the trace sink did not confirm delivery within 1000 ms; its worker was
+  abandoned, and events already queued may still be delivered later`. A sink
+  that blocked forever used to hold the call forever and swallow the first
+  attempt to cancel it. A caller under `EvidenceRequired` whose sink did not
+  confirm delivery gets a failed call, through the same path a throwing sink
+  takes; `Baikai.Evidence.Build.sinkFailureError` now says "its record was not
+  confirmed written" rather than "not written", which is the honest claim for
+  an abandoned worker whose events are still queued. (REV-2 D.5.)
+
+- `baikai`: `Baikai.Trace.Sink.multiSink` runs each member on its own drain
+  thread behind its own unbounded channel, instead of folding `Fold.tee` across
+  the list. `Fold.tee` runs one member then the other and lets either's
+  exception escape, so a single throwing member stopped delivery to every
+  sibling for the rest of the call and skipped their end-of-stream actions — an
+  OpenTelemetry span paired with an unwritable file sink was opened and never
+  ended, and nothing was exported. The step never blocks; the final action sends
+  every member the sentinel, waits for every member, and reports one aggregate
+  failure naming each failed member by zero-based index
+  (`1 of 2 member sinks failed: member 0: …`). (REV-2 D.6.)
+
 - `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
   On Claude Code it renders `--allowedTools`, whose help reads "list of tool
   names to allow": it pre-approves tools the permission mode would otherwise
@@ -521,6 +545,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   by `Baikai.Evidence.deriveStrength`.
 
 ### Fixed
+
+- `baikai`: the terminal event and its evidence record are pushed to the trace
+  sink exactly once under asynchronous exceptions. The terminal path pushed the
+  evidence record, pushed the terminal event and only then set the
+  already-sent flag; an exception delivered between the last two made the
+  stream finaliser read the flag as unset and push a second `CallEvidence` and
+  an `aborted` `CallFailed` after the real `CallFinished`, so a sink saw two
+  records and two contradictory terminals for one call. All three writes now
+  run inside one `uninterruptibleMask_` with the flag first. (REV-2 D.4.)
+
+- `baikai`: `Baikai.Cost.Log.closeCallLog` is idempotent. The first caller
+  claims the handle and waits for the worker; a second returns at once instead
+  of blocking forever on an `MVar` the worker had already emptied — a shape
+  `withCallLog` makes easy to reach, since its bracket closes a handle the body
+  may also have closed. An `appendEntry` after the close enqueues nothing.
 
 - `baikai-claude`, `baikai-openai`: a failure that lands while the response body
   is streaming is classified as the transient failure it is. A connection reset,

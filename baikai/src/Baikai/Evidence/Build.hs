@@ -530,10 +530,18 @@ sinkFailureIsFatal = \case
 -- did its job. It is baikai's own machinery that failed the caller, so
 -- it is a plain provider-side error naming the sink and carrying the
 -- sink's own message.
+--
+-- "Not confirmed written" rather than "not written": this covers a
+-- sink that threw, whose record certainly was not written, and a sink
+-- that stalled past "Baikai.Trace"'s drain bound, whose worker was
+-- abandoned with the events still queued and may yet deliver them. What
+-- the strict caller is told in both cases is the same and is the honest
+-- claim — the call returned without the record's delivery being
+-- confirmed.
 sinkFailureError :: SomeException -> BaikaiError
 sinkFailureError e =
   providerError
     ( "the trace sink failed and this call required evidence, so its record was \
-      \not written: "
+      \not confirmed written: "
         <> Text.pack (displayException e)
     )

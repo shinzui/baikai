@@ -76,16 +76,18 @@ import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, try, uninterruptibleMask_)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
+import Control.Exception (Exception (..), SomeException, mask, onException, try, uninterruptibleMask_)
 import Control.Monad (forM_, unless, void)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
+import System.IO (hPutStrLn, stderr)
+import System.Timeout (timeout)
 
 -- ============================================================
 -- Stream-shaped trace bridge
@@ -235,7 +237,7 @@ newTraceState = do
 -- stream is over.
 finalizeTrace ::
   ProviderRegistry -> TraceState -> Text -> UTCTime -> Model -> Options -> IO (Maybe BaikaiError)
-finalizeTrace reg s eid start m opts = do
+finalizeTrace reg s eid start m opts = mask $ \restore -> do
   alreadyClosed <-
     atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
   if alreadyClosed
@@ -293,10 +295,68 @@ finalizeTrace reg s eid start m opts = do
             (Just (providerError abortText))
         commitTerminal s eid now m mev aborted
       writeChan (s ^. #chan) Nothing
-      takeMVar (s ^. #done)
+      -- The claim-through-sentinel region above cannot be interrupted;
+      -- the wait below can, which is the whole point of the 'mask' /
+      -- 'restore' pair. The GC-hook path enters here already under
+      -- 'Control.Exception.mask_', and 'restore' puts back /that/ state,
+      -- in which a blocking 'readMVar' is still interruptible — so
+      -- 'timeout' can deliver its exception on either path. The
+      -- 'onException' releases the root if the wait is interrupted: the
+      -- sentinel is already queued, so the worker cannot block on the
+      -- channel again and no longer needs rooting.
+      drained <- restore (awaitWorker s) `onException` releaseStableRoot s
+      unless drained $
+        atomicModifyIORef' (s ^. #sinkError) $ \old ->
+          (Just (fromMaybe (toException (TraceSinkStalled sinkDrainBoundMicros)) old), ())
       fatal <- reportSinkError s opts
       releaseStableRoot s
       pure fatal
+
+-- | How long 'finalizeTrace' waits for the trace worker after writing
+-- the shutdown sentinel.
+--
+-- On expiry the worker is abandoned, not killed, and the call proceeds.
+-- One second is chosen because a call produces at most four events, the
+-- wait covers only their delivery and the sink's end-of-stream action,
+-- and a sink whose per-call latency approaches a second is
+-- mis-configured for per-call tracing — an OpenTelemetry exporter
+-- belongs behind the non-blocking batch processor. Not a public option:
+-- if the bound ever proves tight the answer is an 'Options' field.
+sinkDrainBoundMicros :: Int
+sinkDrainBoundMicros = 1_000_000
+
+-- | The trace sink did not confirm delivery within
+-- 'sinkDrainBoundMicros', carried here as the microsecond bound.
+--
+-- Stored in the trace state's @sinkError@ as a plain exception, so the
+-- strict-mode decision in "Baikai.Evidence.Build" applies to it exactly
+-- as it does to a sink that threw: best-effort callers get the stderr
+-- line and their answer, a caller who required evidence gets a failed
+-- call. Not exported — it renders as text through both paths, and an
+-- exported type is a name the surface freeze would have to keep.
+newtype TraceSinkStalled = TraceSinkStalled Int
+  deriving stock (Show)
+
+instance Exception TraceSinkStalled where
+  displayException (TraceSinkStalled us) =
+    "the trace sink did not confirm delivery within "
+      <> show (us `div` 1000)
+      <> " ms; its worker was abandoned, and events already queued may still be \
+         \delivered later"
+
+-- | Wait for the worker to signal completion, for at most
+-- 'sinkDrainBoundMicros'. 'True' when it did.
+--
+-- On 'False' the worker is left running: killing it would abort the
+-- sink's fold mid-step and lose its end-of-stream action. An abandoned
+-- worker finishes when the sink unblocks, or is reaped with
+-- 'Control.Exception.BlockedIndefinitelyOnMVar' — which its 'try'
+-- catches — when whatever it blocks on becomes unreachable.
+--
+-- 'readMVar', not 'takeMVar', so the worker's eventual 'putMVar' can
+-- never block on a slot this thread emptied.
+awaitWorker :: TraceState -> IO Bool
+awaitWorker s = isJust <$> timeout sinkDrainBoundMicros (readMVar (s ^. #done))
 
 -- | Push the 'CallEvidence' event for a call, when there is one.
 --
@@ -374,7 +434,14 @@ reportSinkError s opts = do
   case merr of
     Nothing -> pure Nothing
     Just e -> do
-      Build.onSinkFailure strictness e
+      -- A stall is not a throw, and 'Build.onSinkFailure's line says
+      -- the events "were dropped", which is the one thing an abandoned
+      -- worker's events were not: they are still queued and may yet be
+      -- delivered. The fatality decision below is identical for both.
+      case fromException e of
+        Just stalled@TraceSinkStalled {} ->
+          hPutStrLn stderr ("baikai: " <> displayException stalled)
+        Nothing -> Build.onSinkFailure strictness e
       pure
         ( if Build.sinkFailureIsFatal strictness
             then Just (Build.sinkFailureError e)

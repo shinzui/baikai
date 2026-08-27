@@ -15,6 +15,16 @@
 -- If the worker cannot open or write the log file, the close path
 -- reports one warning on stderr and returns. Logging failures do not
 -- mask the request body or hang release actions.
+--
+-- 'closeCallLog' is idempotent: the first caller claims the handle,
+-- writes the sentinel and waits for the worker; a second caller returns
+-- at once rather than blocking forever on a worker that has already
+-- finished. An 'appendEntry' after the close is a no-op, because the
+-- worker that would have drained it is gone. The close wait itself is
+-- unbounded, unlike the trace bridge's: the call log's purpose is
+-- durability, its close runs once per process rather than once per
+-- call, and its writer is a local file the operator chose rather than a
+-- third-party fold.
 module Baikai.Cost.Log
   ( CallLogConfig (..),
     CallLogEntry (..),
@@ -48,10 +58,10 @@ import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Exception (SomeException, bracket, displayException, try)
 import Control.Lens ((^.))
-import Control.Monad (forM_)
+import Control.Monad (forM_, unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Aeson (FromJSON, ToJSON)
@@ -60,7 +70,7 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Generics.Labels ()
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -102,7 +112,10 @@ data CallLogHandle = CallLogHandle
   { chan :: !(Chan (Maybe CallLogEntry)),
     done :: !(MVar ()),
     cfg :: !CallLogConfig,
-    workerError :: !(IORef (Maybe SomeException))
+    workerError :: !(IORef (Maybe SomeException)),
+    -- | Claimed by the first 'closeCallLog'. A second close returns
+    -- immediately and an 'appendEntry' after it enqueues nothing.
+    closed :: !(IORef Bool)
   }
 
 -- | Open a handle. When @enabled = True@, fork the worker thread
@@ -112,26 +125,36 @@ openCallLog c = liftIO $ do
   ch <- newChan
   d <- newEmptyMVar
   e <- newIORef Nothing
+  cl <- newIORef False
   case enabled c of
     False -> putMVar d ()
     True -> do
       _ <- forkIO (worker (path c) ch d e)
       pure ()
-  pure CallLogHandle {chan = ch, done = d, cfg = c, workerError = e}
+  pure CallLogHandle {chan = ch, done = d, cfg = c, workerError = e, closed = cl}
 
 -- | Signal shutdown and block until the worker has drained every
 -- pending entry to disk.
+--
+-- Idempotent. The first caller claims the handle and does the work; a
+-- second returns at once. Before the claim existed, a second close
+-- blocked forever on an 'MVar' the worker had already emptied — which
+-- 'withCallLog' made easy to hit, since its bracket closes a handle a
+-- body may also have closed. 'readMVar' rather than 'takeMVar' for the
+-- same reason: the slot stays filled.
 closeCallLog :: (MonadIO m) => CallLogHandle -> m ()
 closeCallLog h = liftIO $ do
-  case enabled (cfg h) of
-    True -> writeChan (chan h) Nothing
-    False -> pure ()
-  takeMVar (done h)
-  merr <- readIORef (workerError h)
-  forM_ merr $ \e ->
-    hPutStrLn
-      stderr
-      ("baikai: call log worker failed; pending entries were dropped: " <> displayException e)
+  alreadyClosed <- atomicModifyIORef' (closed h) (\b -> (True, b))
+  unless alreadyClosed $ do
+    case enabled (cfg h) of
+      True -> writeChan (chan h) Nothing
+      False -> pure ()
+    readMVar (done h)
+    merr <- readIORef (workerError h)
+    forM_ merr $ \e ->
+      hPutStrLn
+        stderr
+        ("baikai: call log worker failed; pending entries were dropped: " <> displayException e)
 
 -- | Bracketed lifetime: open the handle, run the body, close
 -- exactly once on every path (including exceptions).
@@ -140,12 +163,16 @@ withCallLog c body =
   withRunInIO $ \run ->
     bracket (openCallLog c) closeCallLog (run . body)
 
--- | Non-blocking enqueue. When the handle is disabled, returns
--- immediately without touching the channel.
+-- | Non-blocking enqueue. When the handle is disabled, or has already
+-- been closed, returns immediately without touching the channel — the
+-- worker that would have drained the entry is gone, so enqueuing it
+-- would only grow a channel nobody reads.
 appendEntry :: (MonadIO m) => CallLogHandle -> CallLogEntry -> m ()
 appendEntry h entry
   | not (enabled (cfg h)) = pure ()
-  | otherwise = liftIO (writeChan (chan h) (Just entry))
+  | otherwise = liftIO $ do
+      isClosed <- readIORef (closed h)
+      unless isClosed (writeChan (chan h) (Just entry))
 
 -- | Dispatch through the registry, then (if logging is enabled)
 -- enqueue a single JSONL record summarizing the call.

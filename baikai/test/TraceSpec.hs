@@ -30,7 +30,7 @@ import Baikai.Stream.Event (AssistantMessageEvent (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Baikai.Trace (newEventId, withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
-import Baikai.Trace.Sink (TraceSink (..), silent)
+import Baikai.Trace.Sink (TraceSink (..), multiSink, silent)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (forkIO, threadDelay, throwTo)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar)
@@ -64,6 +64,11 @@ tests =
       memoryFinishTest,
       memoryFailTest,
       throwingSinkTest,
+      blockingSinkTest,
+      blockingSinkStrictTest,
+      multiSinkThrowingMemberTest,
+      multiSinkBlockingMemberTest,
+      multiSinkStrictNamesMemberTest,
       terminalPathAtomicityTest,
       throwToAroundTerminalTest,
       eventIdUniquenessTest,
@@ -222,6 +227,127 @@ throwingSinkTest =
       Just resp -> do
         let AssistantPayload {stopReason = sr} = resp ^. #message
         sr @?= Stop
+
+-- | A sink that never returns from its first step until released.
+blockingSink :: IO (MVar (), TraceSink)
+blockingSink = do
+  release <- newEmptyMVar
+  pure (release, TraceSink (Fold.drainMapM (\_ -> readMVar release)))
+
+-- | Unfixed, 'finalizeTrace' blocked on the worker forever and the
+-- guard below reported the hang. The bound turns a pathological sink
+-- into about one second and a stderr line.
+blockingSinkTest :: TestTree
+blockingSinkTest =
+  testCase "a sink that blocks forever cannot hold withTrace past the drain bound" $ do
+    let a = Custom "baikai-trace-blocking-sink"
+    registerOk a
+    (release, sink) <- blockingSink
+    result <- timeout 2000000 (withTrace sink (stubModel a) stubContext stubOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a blocking sink"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= Stop
+    putMVar release ()
+
+-- | A record whose delivery was never confirmed is not one a strict
+-- caller can account for, so the stall fails the call through the same
+-- path a throwing sink does.
+blockingSinkStrictTest :: TestTree
+blockingSinkStrictTest =
+  testCase "a strict call whose sink never confirms delivery fails" $ do
+    let a = Custom "baikai-trace-blocking-sink-strict"
+    -- The evidence-building fixture, so the sink is the only reason
+    -- this call can fail.
+    registerOkWithEvidence a
+    (release, sink) <- blockingSink
+    result <- timeout 2000000 (withTrace sink (stubModel a) stubContext strictOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a blocking sink"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= ErrorReason
+        case responseError resp of
+          Nothing -> assertFailure "expected the stall to reach the response"
+          Just be ->
+            assertBool
+              ("the error names the stall: " <> Text.unpack (be ^. #message))
+              ("did not confirm delivery" `Text.isInfixOf` (be ^. #message))
+    putMVar release ()
+
+-- | Under 'Fold.tee' the throwing member's exception stopped delivery
+-- to the sibling for the rest of the call and skipped its end-of-stream
+-- action, so this sibling was empty.
+multiSinkThrowingMemberTest :: TestTree
+multiSinkThrowingMemberTest =
+  testCase "a throwing multiSink member does not starve its sibling" $ do
+    let a = Custom "baikai-trace-multisink-throwing"
+    registerOk a
+    (ref, memory) <- memorySink
+    result <-
+      timeout
+        5000000
+        (withTrace (multiSink [throwingSink, memory]) (stubModel a) stubContext stubOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a throwing multiSink member"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= Stop
+    events <- reverse <$> readTVarIO ref
+    case events of
+      [CallStarted {}, CallFinished {}] -> pure ()
+      other -> assertFailure ("the sibling missed events: " <> show other)
+
+multiSinkBlockingMemberTest :: TestTree
+multiSinkBlockingMemberTest =
+  testCase "a blocking multiSink member does not starve its sibling" $ do
+    let a = Custom "baikai-trace-multisink-blocking"
+    registerOk a
+    (release, blocking) <- blockingSink
+    (ref, memory) <- memorySink
+    result <-
+      timeout
+        2000000
+        (withTrace (multiSink [blocking, memory]) (stubModel a) stubContext stubOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a blocking multiSink member"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= Stop
+    events <- reverse <$> readTVarIO ref
+    case events of
+      [CallStarted {}, CallFinished {}] -> pure ()
+      other -> assertFailure ("the sibling missed events: " <> show other)
+    putMVar release ()
+
+-- | The aggregate failure has to say /which/ member failed, or an
+-- operator with three sinks learns only that tracing broke.
+multiSinkStrictNamesMemberTest :: TestTree
+multiSinkStrictNamesMemberTest =
+  testCase "a strict call names the multiSink member that failed" $ do
+    let a = Custom "baikai-trace-multisink-strict"
+    registerOkWithEvidence a
+    (_ref, memory) <- memorySink
+    result <-
+      timeout
+        5000000
+        (withTrace (multiSink [throwingSink, memory]) (stubModel a) stubContext strictOptions)
+    case result of
+      Nothing -> assertFailure "withTrace hung on a throwing multiSink member"
+      Just resp -> do
+        let AssistantPayload {stopReason = sr} = resp ^. #message
+        sr @?= ErrorReason
+        case responseError resp of
+          Nothing -> assertFailure "expected the member failure to reach the response"
+          Just be -> do
+            let msg = be ^. #message
+            assertBool
+              ("the error names the member index: " <> Text.unpack msg)
+              ("member 0" `Text.isInfixOf` msg)
+            assertBool
+              ("the error carries the member's own message: " <> Text.unpack msg)
+              ("sink exploded" `Text.isInfixOf` msg)
 
 -- | A memory sink that parks on the terminal event until released.
 --

@@ -25,7 +25,7 @@ import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Trace (withTrace, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
-import Baikai.Trace.Sink (TraceSink (..))
+import Baikai.Trace.Sink (TraceSink (..), multiSink)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (threadDelay)
@@ -42,6 +42,7 @@ import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
 import OpenTelemetry.Exporter.InMemory.Span (inMemoryListExporter)
 import OpenTelemetry.Trace.Core qualified as Otel
+import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
 import System.Mem (performMajorGC)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -57,7 +58,8 @@ main =
         failureSpanTest,
         abortSpanTest,
         evidenceSpanTest,
-        liveEvidenceSpanTest
+        liveEvidenceSpanTest,
+        multiSinkSiblingSpanTest
       ]
 
 -- | Build a stub 'Model' under a private 'Api' tag. Each test uses
@@ -181,6 +183,33 @@ successSpanTest =
         case Otel.spanKind sp of
           Otel.Client -> pure ()
           other -> assertFailure ("expected Client kind, got: " <> show other)
+      _ -> assertFailure "expected exactly one span"
+
+-- | A sink that throws on every event, paired with the OpenTelemetry
+-- sink. Under 'Fold.tee' the throw stopped delivery to the sibling and
+-- skipped its end-of-stream action, so the span was opened and never
+-- ended and nothing was exported. Per-member isolation ends it.
+throwingSink :: TraceSink
+throwingSink =
+  TraceSink (Fold.drainMapM (\_ -> throwIO (providerError "sink exploded")))
+
+multiSinkSiblingSpanTest :: TestTree
+multiSinkSiblingSpanTest =
+  testCase "a throwing multiSink member still lets the OTel sibling end its span" $ do
+    let a = Custom "baikai-otel-multisink-sibling"
+    registerOk a
+    (tracer, getSpans) <- newTracerWithInMemory
+    let sink = multiSink [throwingSink, otelSink tracer]
+    _ <- withTrace sink (stubModel a) stubContext stubOptions
+    spans <- getSpans
+    assertEqual "exactly one span recorded" 1 (length spans)
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        Otel.hotName hot @?= "baikai.call"
+        case Otel.hotStatus hot of
+          Otel.Ok -> pure ()
+          other -> assertFailure ("expected Ok status, got: " <> show other)
       _ -> assertFailure "expected exactly one span"
 
 failureSpanTest :: TestTree
