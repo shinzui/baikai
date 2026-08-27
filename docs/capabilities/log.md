@@ -13,6 +13,13 @@
   `docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md`
   records why a suite's own `ghc-options` are never evidence about a binary.
 
+* **Update**: CAP-16 (interactive launches) records that the refusal now also
+  covers an approval policy the installed `codex` generation rejects.
+  `codex --help` at 0.149.1 accepts only `on-request` and `never` for
+  `--ask-for-approval`; the older `untrusted` and `on-failure` spellings made the
+  CLI exit with a usage error, which reached a caller as a session that ran and
+  failed rather than as a refusal.
+
 ## 2026-08-10
 
 * **Add**: Adopt the shared OKF capability profile (okf-profiles

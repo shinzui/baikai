@@ -27,7 +27,7 @@ evidence:
     proves: "The Claude Code argument vector — model, prompt, directories, allowed tools, extra args — and that a CodexSandbox policy is refused with SafetyNotExpressible rather than launching an unrestricted session."
   - kind: test
     resource: baikai-openai/test/Main.hs
-    proves: "The Codex argument vector — model, working directory, extra dirs, sandbox, approval, extra args — and that a Claude tool allow-list is refused rather than launching with Codex's default sandbox; DefaultSafety and an empty allow-list still render no safety flag."
+    proves: "The Codex argument vector — model, working directory, extra dirs, sandbox, approval, extra args — and that a Claude tool allow-list is refused rather than launching with Codex's default sandbox, and that the two approval spellings the installed CLI rejects (untrusted, on-failure) are refused before a process is created while on-request still renders; DefaultSafety and an empty allow-list still render no safety flag."
   - kind: example
     resource: baikai-smoke/test/InteractiveSmoke.hs
     proves: "An actual launch of a local interactive session when the tool is on PATH."
@@ -53,6 +53,16 @@ a Claude tool allow-list on Codex — returns
 the expressible alternative. Before that the policy was discarded and an
 *unrestricted* session was started and reported as a success. A caller who asks
 to be constrained is now either constrained or told no.
+
+The same rule covers a policy the *installed tool generation* rejects rather
+than one the tool cannot express in principle. `codex --help` at 0.149.1 lists
+exactly `on-request` and `never` for `--ask-for-approval`; the older spellings
+`untrusted` and `on-failure` make the CLI exit with a usage error, which reached
+a caller as a `Right` carrying a non-zero exit code — a session that ran. Both
+are now refused before process creation, and refused rather than mapped onto
+`on-request`, because substituting a different approval policy would change what
+the caller asked for. Which values the installed tool accepts is the vendor
+adapter's knowledge, so the check lives in `baikai-openai`.
 
 `Left` means no process was started. `Right` with a non-zero exit code means the
 session ran and exited non-zero. `DefaultSafety` and an empty allow-list render
@@ -85,6 +95,10 @@ case result of
   `mori://shinzui/seihou`. No previously rendered argument vector changed.
 - baikai neither installs nor authenticates the tools; they must be on `PATH`
   with their own credentials.
+- The accepted approval spellings are a fact about a tool generation, verified
+  against `codex-cli 0.149.1` on 2026-08-27. A future release that restores
+  `untrusted` or `on-failure`, or drops another value, makes the refusal wrong
+  in the other direction; nothing here detects that automatically.
 - Everything except `InteractiveSmoke` is a pure argument-vector assertion. That
   a session behaves correctly once launched is outside what this repository can
   prove.

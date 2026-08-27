@@ -9,7 +9,11 @@
 -- A safety policy Codex cannot express is refused before launch rather
 -- than dropped: both the pure command builder and the launcher return
 -- 'Either' 'AgentRenderError', and a 'Left' means no process was
--- started.
+-- started. Two things are refused: a tool allow-list, which Codex has no
+-- flag for at all, and an approval policy the installed @codex@
+-- generation does not accept — 'CodexApprovalUntrusted' and
+-- 'CodexApprovalOnFailure', which are older spellings current releases
+-- reject.
 module Baikai.Provider.OpenAI.Interactive
   ( CodexInteractiveConfig,
     executable,
@@ -23,7 +27,7 @@ where
 
 import Baikai.Agent (AgentProvider (..), AgentRenderError (..))
 import Baikai.Interactive
-  ( CodexApprovalPolicy,
+  ( CodexApprovalPolicy (..),
     CodexSandboxMode,
     InteractiveLaunchRequest,
     InteractiveLaunchResult,
@@ -137,7 +141,19 @@ extraDirArgs req =
 safetyArgs :: InteractiveLaunchRequest -> Either AgentRenderError [String]
 safetyArgs req = case req ^. #safety of
   DefaultSafety -> Right []
-  CodexSandbox sandbox approval -> Right (codexSafetyArgs sandbox approval)
+  CodexSandbox sandbox approval
+    | approvalAccepted approval -> Right (codexSafetyArgs sandbox approval)
+    | otherwise ->
+        Left
+          ( SafetyNotExpressible
+              AgentCodex
+              ( "the installed codex CLI accepts only on-request and never for \
+                \--ask-for-approval (codex 0.149.1); it rejects "
+                  <> renderCodexApprovalPolicy approval
+                  <> ", so the session was not started; use CodexApprovalOnRequest or \
+                     \CodexApprovalNever"
+              )
+          )
   -- An empty allow-list restricts nothing, so there is nothing Codex
   -- fails to honor. Only a non-empty list is a restriction Codex
   -- cannot express. The asymmetry with the next case is deliberate.
@@ -152,6 +168,29 @@ safetyArgs req = case req ^. #safety of
                  \default"
           )
       )
+
+-- | Whether the installed @codex@ generation accepts this approval
+-- policy.
+--
+-- @codex --help@ at @codex-cli 0.149.1@ (verified 2026-08-27) lists
+-- exactly two possible values for @--ask-for-approval@, @on-request@ and
+-- @never@. @untrusted@ and @on-failure@ are older spellings the CLI
+-- rejects with a usage error, which would surface as a @Right@ carrying
+-- a non-zero exit code — a session that ran and failed — rather than as
+-- the refusal this module promises.
+--
+-- Refused rather than quietly mapped onto @on-request@: silently
+-- substituting a different approval policy would change the very thing
+-- the caller asked for, which is the failure this module exists to
+-- prevent. Which values the installed tool accepts is the vendor
+-- adapter's knowledge, which is why the check lives here and not in the
+-- core vocabulary.
+approvalAccepted :: CodexApprovalPolicy -> Bool
+approvalAccepted = \case
+  CodexApprovalOnRequest -> True
+  CodexApprovalNever -> True
+  CodexApprovalUntrusted -> False
+  CodexApprovalOnFailure -> False
 
 codexSafetyArgs :: CodexSandboxMode -> CodexApprovalPolicy -> [String]
 codexSafetyArgs sandbox approval =

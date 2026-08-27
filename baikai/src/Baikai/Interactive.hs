@@ -78,11 +78,26 @@ data CodexSandboxMode
   | CodexDangerFullAccess
   deriving stock (Eq, Ord, Show, Generic)
 
+-- | When Codex asks a human before running a command.
+--
+-- The first two are spellings older Codex generations accepted and
+-- current ones reject. They are kept so the type stays stable for a
+-- caller that matches on it, and the Codex launcher in @baikai-openai@
+-- refuses a request carrying one with 'Baikai.Agent.SafetyNotExpressible'
+-- before starting anything, rather than letting the CLI fail with a
+-- usage error after a process was created.
 data CodexApprovalPolicy
-  = CodexApprovalUntrusted
-  | CodexApprovalOnFailure
-  | CodexApprovalOnRequest
-  | CodexApprovalNever
+  = -- | Spelled @untrusted@. Rejected by current Codex releases; the
+    -- Codex launcher refuses a request carrying it.
+    CodexApprovalUntrusted
+  | -- | Spelled @on-failure@. Rejected by current Codex releases; the
+    -- Codex launcher refuses a request carrying it.
+    CodexApprovalOnFailure
+  | -- | Spelled @on-request@: the model decides when to ask.
+    CodexApprovalOnRequest
+  | -- | Spelled @never@: execution failures go straight back to the
+    -- model.
+    CodexApprovalNever
   deriving stock (Eq, Ord, Show, Generic)
 
 -- | Process-level outcome after the interactive CLI exits.

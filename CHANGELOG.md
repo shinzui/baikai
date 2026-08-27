@@ -48,6 +48,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   exit 1, answer lost. This mirrors what the prompt read and the prompt write
   have always done.
 
+- `baikai-openai`: the Codex interactive launcher now **refuses the two approval
+  policies the installed CLI rejects**. `codex --help` at `codex-cli 0.149.1`
+  lists exactly `on-request` and `never` for `--ask-for-approval`;
+  `CodexApprovalUntrusted` and `CodexApprovalOnFailure` are older spellings the
+  CLI answers with `error: invalid value 'untrusted' for
+  '--ask-for-approval'`. Rendering them made a launch return `Right` carrying a
+  non-zero exit code — a session that ran and failed — instead of the `Left
+  SafetyNotExpressible` this module promises for a policy that cannot be
+  honoured. They are refused before any process is created, and refused rather
+  than quietly mapped onto `on-request`, because substituting a different
+  approval policy would change what the caller asked for. The constructors and
+  their spellings are unchanged, so code that matches on `CodexApprovalPolicy`
+  keeps compiling.
+
 - `baikai-agent`: the `baikai` executable now links the **threaded runtime**
   (`ghc-options: -threaded` on the `executable baikai` stanza). Without it a
   blocking operating-system call — the `waitpid` inside

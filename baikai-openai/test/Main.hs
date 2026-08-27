@@ -61,6 +61,7 @@ main =
       [ commandRenderingTest,
         effortRenderingTests,
         safetyRefusalTest,
+        refusesRejectedApprovalPoliciesTest,
         safetyStillRendersTest,
         agentCommandRenderingTest,
         agentCapabilityRenderingTests,
@@ -636,6 +637,58 @@ safetyRefusalTest =
         assertBool "names the provider" ("codex" `Text.isInfixOf` message)
         assertBool "names the rejected tools" ("Read" `Text.isInfixOf` message)
         assertBool "suggests an alternative" ("CodexSandbox" `Text.isInfixOf` message)
+
+-- | An approval policy the installed CLI rejects is refused before a
+-- process is created.
+--
+-- @codex --help@ at 0.149.1 lists exactly two possible values for
+-- @--ask-for-approval@. Rendering @untrusted@ or @on-failure@ made the
+-- CLI exit with a usage error, which reaches a caller as @Right@
+-- carrying a non-zero exit code — a session that ran — rather than as
+-- the refusal this module promises. The message has to name both the
+-- value that was rejected and one that would work, because an operator
+-- reading it is choosing a replacement.
+refusesRejectedApprovalPoliciesTest :: TestTree
+refusesRejectedApprovalPoliciesTest =
+  testGroup
+    "refuses the approval policies the installed codex CLI rejects"
+    ( [ testCase (Text.unpack spelling) $ do
+          let req =
+                interactiveLaunchRequest "inspect the repo"
+                  & #safety .~ CodexSandbox CodexReadOnly policy
+          case codexInteractiveCommand defaultCodexInteractiveConfig req of
+            Right rendered -> assertFailure ("expected refusal, rendered: " <> show rendered)
+            Left err -> do
+              case err of
+                SafetyNotExpressible p _ -> p @?= AgentCodex
+                other -> assertFailure ("expected SafetyNotExpressible, got: " <> show other)
+              let message = renderAgentRenderError err
+              assertBool
+                ("names the rejected value: " <> Text.unpack message)
+                (spelling `Text.isInfixOf` message)
+              assertBool
+                ("names a policy that works: " <> Text.unpack message)
+                ("CodexApprovalOnRequest" `Text.isInfixOf` message)
+      | (spelling, policy) <-
+          [ ("untrusted", CodexApprovalUntrusted),
+            ("on-failure", CodexApprovalOnFailure)
+          ]
+      ]
+        <> [ testCase "an accepted policy still renders" $ do
+               let req =
+                     interactiveLaunchRequest "inspect"
+                       & #safety .~ CodexSandbox CodexWorkspaceWrite CodexApprovalOnRequest
+               fmap snd (codexInteractiveCommand defaultCodexInteractiveConfig req)
+                 @?= Right
+                   [ "--sandbox",
+                     "workspace-write",
+                     "--ask-for-approval",
+                     "on-request",
+                     "--",
+                     "inspect"
+                   ]
+           ]
+    )
 
 -- | The fix refuses only what Codex cannot express. A sandbox policy is
 -- expressible and must still render, and an empty allow-list restricts

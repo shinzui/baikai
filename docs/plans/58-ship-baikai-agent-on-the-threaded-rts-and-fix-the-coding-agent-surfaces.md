@@ -100,11 +100,13 @@ later plan rebases. Exports and version bumps are owned by
       `BinaryTests.hs`, plus `writesUtf8UnderCLocaleTest`.
 - [x] M2 (2026-08-27): `docs/user/unattended-agent-runs.md`, CAP-17, CAP-18,
       `docs/capabilities/log.md`, `CHANGELOG.md`; commit.
-- [ ] M3: refuse `CodexApprovalUntrusted` and `CodexApprovalOnFailure` in `safetyArgs` of
-      `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs`; Haddock in
-      `baikai/src/Baikai/Interactive.hs`; tests in `baikai-openai/test/Main.hs`.
-- [ ] M3: `docs/user/interactive-launches.md` table and messages; CAP-16; log;
-      `CHANGELOG.md`; commit.
+- [x] M3 (2026-08-27): refused `CodexApprovalUntrusted` and `CodexApprovalOnFailure` in
+      `safetyArgs` of `baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs` through
+      `approvalAccepted`; Haddock on both constructors in
+      `baikai/src/Baikai/Interactive.hs`; `refusesRejectedApprovalPoliciesTest` in
+      `baikai-openai/test/Main.hs`.
+- [x] M3 (2026-08-27): `docs/user/interactive-launches.md` table and messages; CAP-16;
+      log; `CHANGELOG.md`; commit.
 - [ ] M4: chunk-level line assembly in `parseCodexJsonlStream`; tests in
       `baikai/test/CliInternalSpec.hs` including the bounded-time multi-megabyte line.
 - [ ] M4: literal-string rendering with escaped fallback in `baikai/src/Baikai/AgentAssets.hs`;
@@ -239,6 +241,17 @@ Recorded during implementation.
   `processGroupTest` keep their one-second deadlines: neither asserts anything about
   what the child printed, so neither is sensitive to how quickly it starts.
   (2026-08-27, M2)
+- The vendor's rejection was re-verified rather than taken from the plan. `codex
+  --version` reports `codex-cli 0.149.1`, `codex --help` lists exactly two possible
+  values for `--ask-for-approval`, and the real invocation answers:
+
+  ```text
+  error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+    [possible values: on-request, never]
+  ```
+
+  Exit code 2 — which, rendered rather than refused, is the `Right (ExitFailure 2)` a
+  caller would have read as "the session ran and failed". (2026-08-27, M3)
 
 
 ## Decision Log

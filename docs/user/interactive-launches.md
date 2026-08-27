@@ -209,7 +209,7 @@ means the session **ran and exited non-zero**, which is an ordinary
 outcome of an interactive session.
 
 `renderAgentRenderError` turns the refusal into one line of plain
-English. The two messages are:
+English. The three messages are:
 
 ```text
 claude cannot honor the requested safety policy: Claude Code cannot
@@ -220,6 +220,11 @@ codex cannot honor the requested safety policy: Codex has no tool
 allow-list flag, so it cannot honor the requested tools (Read); use
 CodexSandbox to restrict Codex, or DefaultSafety to accept its own
 default
+
+codex cannot honor the requested safety policy: the installed codex CLI
+accepts only on-request and never for --ask-for-approval (codex
+0.149.1); it rejects untrusted, so the session was not started; use
+CodexApprovalOnRequest or CodexApprovalNever
 ```
 
 The full behavior table:
@@ -229,14 +234,29 @@ The full behavior table:
 | `DefaultSafety`               | `Right`, no safety flags    | `Right`, no safety flags                |
 | `ClaudeAllowedTools []`       | `Right`, no safety flags    | `Right`, no safety flags                |
 | `ClaudeAllowedTools ["Read"]` | `Right`, `--allowedTools`   | `Left SafetyNotExpressible`             |
-| `CodexSandbox mode approval`  | `Left SafetyNotExpressible` | `Right`, `--sandbox`/`--ask-for-approval` |
+| `CodexSandbox mode CodexApprovalOnRequest` | `Left SafetyNotExpressible` | `Right`, `--sandbox`/`--ask-for-approval` |
+| `CodexSandbox mode CodexApprovalNever`     | `Left SafetyNotExpressible` | `Right`, `--sandbox`/`--ask-for-approval` |
+| `CodexSandbox mode CodexApprovalUntrusted` | `Left SafetyNotExpressible` | `Left SafetyNotExpressible`             |
+| `CodexSandbox mode CodexApprovalOnFailure` | `Left SafetyNotExpressible` | `Left SafetyNotExpressible`             |
 
-Two rows deserve a word. `DefaultSafety` means "I am not specifying a
+Three rows deserve a word. `DefaultSafety` means "I am not specifying a
 policy; use the tool's own default", so rendering no safety flag honors
 it exactly and is **never** a refusal. An *empty* `ClaudeAllowedTools`
 list restricts nothing, so there is nothing for Codex to fail to honor
 and it renders successfully there too; only a non-empty list is a
 restriction Codex cannot express.
+
+The last two rows are about the installed tool rather than about Codex
+in principle. `untrusted` and `on-failure` are spellings older Codex
+generations accepted; `codex --help` at 0.149.1 lists exactly
+`on-request` and `never`, and passing either of the older ones makes the
+CLI exit with a usage error. Left to render, that surfaced as a `Right`
+carrying a non-zero exit code — a session that ran — which is precisely
+what these refusals exist to prevent, so the launcher refuses them
+before creating a process. They are refused rather than quietly mapped
+onto `on-request`, because substituting a different approval policy
+would change what the caller asked for. The constructors stay in
+`CodexApprovalPolicy` so code that matches on the type keeps compiling.
 
 **This is a behavior change.** In previous releases, a policy the chosen
 provider could not express was silently discarded and the session
