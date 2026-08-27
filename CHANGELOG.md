@@ -170,6 +170,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   The three unsuffixed functions remain and pass the model's own field.
   (REV-2 D.8, D.11.)
 
+- `baikai`: `Baikai.Evidence.deriveStrength`, the single rule that turns an
+  observed model, a provider request id and a response id into an
+  `EvidenceStrength`. (REV-2 D.10.)
+
 ### Changed
 
 - `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
@@ -447,6 +451,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   definite destination recorded `endpoint: null`. Where no adapter ran, `null`
   remains the truthful answer. (REV-2 D.8.)
 
+- **Breaking.** `baikai`: `Baikai.Provider.Registry.ApiProvider` gains a fifth
+  field, `strengthCeiling :: EvidenceStrength`, and
+  `Baikai.Evidence.Build.checkEvidenceRequirements` takes that ceiling where it
+  took an `Api`. The gate compared against `declaredStrength`, a table keyed by
+  the API tag, which necessarily answered `EvidenceRequestedOnly` for every
+  `Custom` transport — so a gateway that genuinely observes a model could never
+  satisfy a strict caller who required that it did. Only a provider knows what
+  its evidence reaches. `EvidenceRequestedOnly` reproduces the old behaviour for
+  any custom provider; the four built-in providers fill the field from
+  `declaredStrength`, which is unchanged in value and still used by the
+  unattended-agent surface. (REV-2 D.10, G.1.)
+
+- `baikai`, `baikai-claude`, `baikai-openai`: one strength derivation replaces
+  three. An observed **response id** now counts as correlation alongside a
+  captured request-id header, so a host that names its model and its response id
+  on every chunk but sends no header reaches `model_observed` instead of
+  `requested_only` — which had put it *below* a host that sent only a header and
+  named nothing. `anthropicStrength` and `openaiStrength` are removed;
+  `Baikai.Provider.Cli.Internal.subprocessStrength` keeps its signature and
+  delegates. (REV-2 D.10.)
+
 ### Deprecated
 
 - `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
@@ -490,6 +515,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Baikai.Kit.Install.uninstallOutcomes` (absorbed by `uninstallItem`, which now
   returns the outcomes for the caller to render). The internal `requireSafe` and
   `Baikai.Kit.Status.resolveCacheOrEmpty` are gone with the exits they wrapped.
+
+- **Breaking.** `baikai-claude`: `Baikai.Provider.Claude.Api.anthropicStrength`
+  and `baikai-openai`: `Baikai.Provider.OpenAI.Api.openaiStrength`, both replaced
+  by `Baikai.Evidence.deriveStrength`.
 
 ### Fixed
 

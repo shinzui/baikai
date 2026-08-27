@@ -42,7 +42,7 @@ import Baikai.Content
 import Baikai.Context (Context)
 import Baikai.Cost (Cost (..), zeroCost, zeroCostBreakdown)
 import Baikai.Error (BaikaiError, decodeError)
-import Baikai.Evidence (EvidenceStrength (..), Observed (..), usageEnvelope)
+import Baikai.Evidence (EvidenceStrength (..), Observed (..), deriveStrength, usageEnvelope)
 import Baikai.Message
   ( AssistantPayload (..),
     Message (..),
@@ -741,6 +741,12 @@ cliResponseEnvelope body used =
 -- provider at all — so a successful exit never raises the strength, and
 -- the exit status is deliberately not an argument to this function.
 -- Only a value the tool itself reported can raise it.
+--
+-- The rule itself is 'Evidence.deriveStrength', shared with the HTTP
+-- transports. A subprocess has no response header to capture, so the
+-- tool's session or thread identifier is the correlation identifier it
+-- passes; this keeps its argument order for the three call sites that
+-- already have one.
 subprocessStrength ::
   -- | The session or thread identifier the tool reported.
   Observed Text ->
@@ -748,7 +754,4 @@ subprocessStrength ::
   Observed Text ->
   EvidenceStrength
 subprocessStrength sessionIdentifier reported =
-  case (reported, sessionIdentifier) of
-    (Observed _, Observed _) -> EvidenceModelObserved
-    (_, Observed _) -> EvidenceCorrelated
-    _ -> EvidenceRequestedOnly
+  deriveStrength reported Unobserved sessionIdentifier

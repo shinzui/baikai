@@ -55,7 +55,8 @@ registerErr =
       { apiTag = errApi,
         stream = errStream,
         complete = streamingComplete errStream,
-        describeThinking = \_ _ -> noThinkingRequested
+        describeThinking = \_ _ -> noThinkingRequested,
+        strengthCeiling = EvidenceRequestedOnly
       }
 
 tests :: TestTree

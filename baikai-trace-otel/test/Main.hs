@@ -9,6 +9,7 @@ import Baikai.Error (BaikaiError, providerError)
 import Baikai.Evidence
   ( CallStatus (..),
     EvidenceRequest,
+    EvidenceStrength (..),
     Observed (..),
     TransportKind (..),
     evidenceRequest,
@@ -111,7 +112,8 @@ registerOk a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = EvidenceRequestedOnly
           }
 
 registerFail :: Api -> BaikaiError -> IO ()
@@ -122,7 +124,8 @@ registerFail a e =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = EvidenceRequestedOnly
           }
 
 newTracerWithInMemory :: IO (Otel.Tracer, IO [Otel.ImmutableSpan])
@@ -326,7 +329,8 @@ registerOkWithEvidence a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = EvidenceRequestedOnly
           }
 
 -- | The observed model reaches the span, and the requested one stays
@@ -383,7 +387,8 @@ registerOkObservingModel a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = EvidenceRequestedOnly
           }
 
 evidenceSpanTest :: TestTree

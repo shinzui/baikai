@@ -328,6 +328,14 @@ Record every decision made while working on the plan.
   registered consumers.
   Date: 2026-08-27
 
+- Decision (added by `docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md`,
+  2026-08-27): `Baikai.Provider.Registry.ApiProvider` now has five fields —
+  `apiTag`, `stream`, `complete`, `describeThinking` and the new
+  `strengthCeiling :: EvidenceStrength` — and needs the base value this plan
+  defines for every evolvable record. EP-8 deliberately added none, because a
+  base value added there and renamed here would break third parties twice.
+  Date: 2026-08-27
+
 
 ## Outcomes & Retrospective
 

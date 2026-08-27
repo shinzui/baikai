@@ -523,7 +523,7 @@ strictEvidenceTests =
           other -> assertFailure ("expected a budget drop, got: " <> show other)
         assertBool
           "the gate must refuse it"
-          (not (null (checkEvidenceRequirements (EvidenceRequired EvidenceRequestedOnly) AnthropicMessages (describeThinkingFor m opts)))),
+          (not (null (checkEvidenceRequirements (EvidenceRequired EvidenceRequestedOnly) (declaredStrength AnthropicMessages) (describeThinkingFor m opts)))),
       testCase "the claude CLI's minimal collapse is refused" $
         expectDowngrade
           (EffortClamped ThinkingMinimal "low")
@@ -538,7 +538,7 @@ strictEvidenceTests =
             opts = emptyOptions & #thinking .~ Just ThinkingMedium
         checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          AnthropicMessages
+          (declaredStrength AnthropicMessages)
           (describeThinkingFor m opts)
           @?= []
     ]
@@ -546,7 +546,7 @@ strictEvidenceTests =
     expectDowngrade expected translation =
       case checkEvidenceRequirements
         (EvidenceRequired EvidenceRequestedOnly)
-        AnthropicMessages
+        (declaredStrength AnthropicMessages)
         translation of
         [ThinkingWouldDowngrade [reported]] -> reported @?= expected
         other -> assertFailure ("expected one downgrade refusal, got: " <> show other)

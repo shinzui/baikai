@@ -108,7 +108,8 @@ codexCliProvider cfg =
       complete = runCodexCli cfg,
       -- The model plays no part: this transport's only reasoning
       -- control is a command-line flag derived from Options alone.
-      describeThinking = \_ opts -> codexCliThinking opts
+      describeThinking = \_ opts -> codexCliThinking opts,
+      strengthCeiling = Ev.declaredStrength OpenAICompletionsCli
     }
 
 -- | Install the Codex CLI handler with a caller-supplied config.

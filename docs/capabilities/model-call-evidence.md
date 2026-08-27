@@ -142,6 +142,12 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   JSON schema is author-written content wherever it appears.
 - A record proves what a provider *said*, not what it did. It is a boundary
   record, not an attestation, and nothing here is signed.
+- **A provider declares its own ceiling.** `ApiProvider.strengthCeiling` is what
+  the pre-dispatch gate compares a strict caller's requirement against, replacing
+  a table keyed by the `Api` tag that answered `requested_only` for every custom
+  transport. Declaring more than the transport delivers is the one remaining way
+  to make strict mode lie, so a declaration above `requested_only` needs a test
+  that drives the provider to it.
 - Strict mode fails a call for exactly two reasons of baikai's own: a trace sink
   that threw, so the record did not survive; and a successful terminal that
   carried no record at all, so none was ever built

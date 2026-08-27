@@ -12,7 +12,7 @@ import Baikai.Cost.Log
     withCallLog,
   )
 import Baikai.Cost.Pricing (attachCost, computeCost)
-import Baikai.Evidence (noThinkingRequested)
+import Baikai.Evidence (EvidenceStrength (..), noThinkingRequested)
 import Baikai.Message (AssistantPayload (..), user)
 import Baikai.Model (Model (..), ModelCost (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
@@ -181,7 +181,8 @@ registerCanned resp =
           { apiTag = cannedApi,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = EvidenceRequestedOnly
           }
 
 cannedModel :: Model

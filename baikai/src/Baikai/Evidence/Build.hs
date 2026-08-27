@@ -461,13 +461,20 @@ describeAdjustment = \case
 -- field on any generation, must not have every strict call refused over
 -- it. The drop is still in the record, where they can see it.
 checkEvidenceRequirements ::
-  EvidenceStrictness -> Api -> ThinkingTranslation -> [EvidenceRefusal]
+  EvidenceStrictness ->
+  -- | The provider's own ceiling
+  -- ('Baikai.Provider.Registry.strengthCeiling'), not a value looked up
+  -- by 'Baikai.Api.Api': only the provider knows what its evidence can
+  -- reach, and a tag-keyed table capped every caller-supplied transport
+  -- at 'EvidenceRequestedOnly'.
+  EvidenceStrength ->
+  ThinkingTranslation ->
+  [EvidenceRefusal]
 checkEvidenceRequirements EvidenceBestEffort _ _ = []
-checkEvidenceRequirements (EvidenceRequired needed) api translation =
+checkEvidenceRequirements (EvidenceRequired needed) declared translation =
   [StrengthUnreachable needed declared | declared < needed]
     <> [ThinkingWouldDowngrade downgrades | not (null downgrades)]
   where
-    declared = declaredStrength api
     downgrades = filter weakensThinking (adjustments translation)
 
 -- | Turn a non-empty refusal list into the error the call fails with.

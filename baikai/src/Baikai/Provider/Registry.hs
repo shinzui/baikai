@@ -82,7 +82,26 @@ data ApiProvider = ApiProvider
     --
     -- Never called for a caller who set no @evidence@ request or who
     -- asked for best-effort evidence, which is every existing caller.
-    describeThinking :: !(Model -> Options -> ThinkingTranslation)
+    describeThinking :: !(Model -> Options -> ThinkingTranslation),
+    -- | The highest strength this provider's evidence can reach when
+    -- everything goes well: a static declaration the pre-dispatch gate
+    -- compares against a strict caller's requirement.
+    --
+    -- Only the provider knows this, which is why it is declared here
+    -- rather than looked up by tag. 'Evidence.declaredStrength' is where
+    -- the built-in providers get their value; a caller-supplied
+    -- transport that observes a model was previously capped at
+    -- 'Evidence.EvidenceRequestedOnly' by that table and so could never
+    -- satisfy a strict 'Evidence.EvidenceCorrelated' caller.
+    --
+    -- Declaring more than the provider delivers is the one remaining way
+    -- to make strict mode lie, so a declaration above
+    -- 'Evidence.EvidenceRequestedOnly' needs a test that drives the
+    -- provider to it. A provider that attaches no record at all must
+    -- declare 'Evidence.EvidenceRequestedOnly', and will still fail a
+    -- strict caller at the terminal — see
+    -- @docs\/adr\/0014-strict-evidence-means-a-record-exists.md@.
+    strengthCeiling :: !Evidence.EvidenceStrength
   }
 
 -- | A mutable provider registry handle. Each handle owns its own handler map,
@@ -229,7 +248,7 @@ evidenceRefusals p m opts = case Options.evidence opts of
   Just req ->
     Build.checkEvidenceRequirements
       (Evidence.strictness req)
-      (Model.api m)
+      (strengthCeiling p)
       (describeThinking p m opts)
 
 -- | The error-shaped response a refused call returns.

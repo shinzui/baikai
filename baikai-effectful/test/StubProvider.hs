@@ -101,6 +101,7 @@ stubRegistry t = do
       { apiTag = stubApi,
         complete = stubComplete t,
         stream = stubStream t,
-        describeThinking = \_ _ -> noThinkingRequested
+        describeThinking = \_ _ -> noThinkingRequested,
+        strengthCeiling = EvidenceRequestedOnly
       }
   pure reg

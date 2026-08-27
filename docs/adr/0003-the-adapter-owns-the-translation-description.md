@@ -45,6 +45,24 @@ call the same function. The OpenAI-compatible description runs the real
 The CLI translations compare the word that reaches the flag against the
 canonical level name.
 
+**Where no adapter built a request, the description is obtained rather
+than invented.** Two cases arise, and the core re-derives nothing in
+either:
+
+- A provider *is* registered and did run — the consumer-abort path in
+  `Baikai.Trace` — so the core calls that provider's own
+  `describeThinking`. Asking the adapter is exactly what this record
+  requires; the adapter's answer is the truthful one.
+- No provider is registered, or a `complete` handler threw before
+  returning, so there is nothing to ask. The record then says
+  `not_translated` (see
+  [0002](0002-requested-translated-observed-are-never-collapsed.md)),
+  which states the caller's level and claims nothing about a wire shape
+  that was never built.
+
+Each adapter's own `immediateError` — the path where `prepareCall` failed
+— calls its own describer, for the same reason.
+
 ## Consequences
 
 The rule exists because the alternative is concretely worse, not as a
@@ -60,13 +78,37 @@ hand-written table is easier to read and looks equivalent. It is
 equivalent exactly until someone changes the mapping and not the table,
 which is the failure this whole initiative exists to eliminate.
 
-The cost lands on `ApiProvider`, which gained a fourth field —
-`describeThinking :: Model -> Options -> ThinkingTranslation` — so the
-strictness gate can ask what a provider *would* do before any request
-exists. That broke every registration site across three packages. The
-evidence *channel* did not need it, which is why the plan that built the
-channel deliberately left the type alone; the pre-dispatch *gate* does,
-because it must answer before there is a request to inspect.
+The cost lands on `ApiProvider`, which now carries **two declarations a
+provider alone can make**, and both broke every registration site across
+three packages when they were added:
+
+- `describeThinking :: Model -> Options -> ThinkingTranslation`, so the
+  strictness gate can ask what a provider *would* do before any request
+  exists. The evidence *channel* did not need it, which is why the plan
+  that built the channel deliberately left the type alone; the
+  pre-dispatch *gate* does, because it must answer before there is a
+  request to inspect.
+- `strengthCeiling :: EvidenceStrength`, the highest strength this
+  provider's evidence can reach. The gate compared against a tag-keyed
+  table, `declaredStrength`, which necessarily answered
+  `EvidenceRequestedOnly` for every `Custom` transport — so a gateway
+  that genuinely observes a model could never satisfy a strict caller
+  who required that it did. Only the provider knows.
+
+`declaredStrength` remains, but as a source rather than an authority: the
+four built-in providers fill their `strengthCeiling` from it, and the
+unattended-agent surface still consults it by tool. Declaring more than
+the transport delivers is the one way left to make strict mode lie, so a
+declaration above `EvidenceRequestedOnly` needs a test that drives the
+provider to it.
 
 Related: [0002](0002-requested-translated-observed-are-never-collapsed.md)
-covers the two facts on either side of this one.
+covers the two facts on either side of this one, and
+[0014](0014-strict-evidence-means-a-record-exists.md) is why the ceiling
+must be the provider's own declaration.
+
+## Revisions
+
+- 2026-08-27, `docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md`:
+  stated how a path with no adapter obtains its description, and recorded
+  `ApiProvider.strengthCeiling` as the second provider-owned declaration.

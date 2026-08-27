@@ -10,12 +10,15 @@
 module StrictEvidenceSpec (tests) where
 
 import Baikai
+import Baikai.Evidence.Build (minimalEvidence)
 import Control.Exception (evaluate, try)
 import Control.Exception qualified as Exception
 import Control.Lens ((&), (.~), (^.))
+import Data.Aeson qualified as Aeson
 import Data.Generics.Labels ()
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Time (getCurrentTime)
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
@@ -88,7 +91,7 @@ strengthGateTests =
     [ testCase "a custom transport cannot supply model_observed" $
         case checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          (Custom "someone-elses-gateway")
+          (declaredStrength (Custom "someone-elses-gateway"))
           noThinkingRequested of
           [StrengthUnreachable needed declared] -> do
             needed @?= EvidenceModelObserved
@@ -97,14 +100,14 @@ strengthGateTests =
       testCase "the codex CLI cannot supply model_observed, because it names no model" $
         case checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          OpenAICompletionsCli
+          (declaredStrength OpenAICompletionsCli)
           noThinkingRequested of
           [StrengthUnreachable _ declared] -> declared @?= EvidenceCorrelated
           other -> assertFailure ("expected one StrengthUnreachable, got: " <> show other),
       testCase "the codex CLI can supply correlated" $
         checkEvidenceRequirements
           (EvidenceRequired EvidenceCorrelated)
-          OpenAICompletionsCli
+          (declaredStrength OpenAICompletionsCli)
           noThinkingRequested
           @?= [],
       testCase "an exactly-met requirement is not a refusal" $
@@ -112,7 +115,7 @@ strengthGateTests =
         -- what was asked for satisfies it.
         checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          AnthropicMessages
+          (declaredStrength AnthropicMessages)
           noThinkingRequested
           @?= [],
       testCase "both halves of the gate report together, not one per attempt" $
@@ -122,7 +125,7 @@ strengthGateTests =
         length
           ( checkEvidenceRequirements
               (EvidenceRequired EvidenceModelObserved)
-              (Custom "gateway")
+              (declaredStrength (Custom "gateway"))
               (downgradedBy (EffortClamped ThinkingMax "high"))
           )
           @?= 2
@@ -149,7 +152,7 @@ refusesDowngrade name adjustment expectedPhrase =
   testCase name $
     case checkEvidenceRequirements
       (EvidenceRequired EvidenceRequestedOnly)
-      AnthropicMessages
+      (declaredStrength AnthropicMessages)
       (downgradedBy adjustment) of
       [ThinkingWouldDowngrade [reported]] -> do
         reported @?= adjustment
@@ -196,7 +199,7 @@ downgradeGateTests =
       testCase "several downgrades on one call are reported together" $
         case checkEvidenceRequirements
           (EvidenceRequired EvidenceRequestedOnly)
-          AnthropicMessages
+          (declaredStrength AnthropicMessages)
           ( noThinkingRequested
               & #requested .~ Just ThinkingMax
               & #adjustments
@@ -210,7 +213,7 @@ downgradeGateTests =
         -- no thinking level must still run.
         checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          AnthropicMessages
+          (declaredStrength AnthropicMessages)
           noThinkingRequested
           @?= [],
       testCase "A DROPPED SAMPLING PARAMETER IS NOT A THINKING DOWNGRADE" $
@@ -222,7 +225,7 @@ downgradeGateTests =
         -- Claude model must not have every strict call refused over it.
         checkEvidenceRequirements
           (EvidenceRequired EvidenceRequestedOnly)
-          AnthropicMessages
+          (declaredStrength AnthropicMessages)
           ( noThinkingRequested
               & #adjustments .~ [SamplingDroppedUnsupportedModel ["temperature"]]
           )
@@ -230,7 +233,7 @@ downgradeGateTests =
       testCase "a sampling drop alongside a real downgrade reports only the downgrade" $
         case checkEvidenceRequirements
           (EvidenceRequired EvidenceRequestedOnly)
-          AnthropicMessages
+          (declaredStrength AnthropicMessages)
           ( noThinkingRequested
               & #requested .~ Just ThinkingMax
               & #adjustments
@@ -247,7 +250,7 @@ downgradeGateTests =
         -- configurations that honour the caller in full.
         checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          OpenAIChatCompletions
+          (declaredStrength OpenAIChatCompletions)
           ( noThinkingRequested
               & #requested .~ Just ThinkingXHigh
               & #mode .~ ThinkingModeAdaptive
@@ -268,7 +271,7 @@ bestEffortIsNeverRefusedTests =
     -- a sample is a promise about the sample.
     "a best-effort caller is never refused, on any transport at any level"
     [ testCase (Text.unpack (renderApi api) <> " / " <> label) $
-        checkEvidenceRequirements EvidenceBestEffort api translation @?= []
+        checkEvidenceRequirements EvidenceBestEffort (declaredStrength api) translation @?= []
     | api <-
         [ AnthropicMessages,
           OpenAIChatCompletions,
@@ -329,7 +332,16 @@ lazinessTests =
     "the gate never computes a translation it does not need"
     [ testCase "A BEST-EFFORT CALL NEVER FORCES THE TRANSLATION" $ do
         outcome <-
-          try (evaluate (length (checkEvidenceRequirements EvidenceBestEffort AnthropicMessages explodes)))
+          try
+            ( evaluate
+                ( length
+                    ( checkEvidenceRequirements
+                        EvidenceBestEffort
+                        (declaredStrength AnthropicMessages)
+                        explodes
+                    )
+                )
+            )
         case outcome :: Either Exception.SomeException Int of
           Right n -> n @?= 0
           Left e -> assertFailure ("the translation was forced: " <> show e),
@@ -340,7 +352,7 @@ lazinessTests =
                 ( length
                     ( checkEvidenceRequirements
                         (EvidenceRequired EvidenceRequestedOnly)
-                        AnthropicMessages
+                        (declaredStrength AnthropicMessages)
                         explodes
                     )
                 )
@@ -428,7 +440,31 @@ dispatchTests =
               ("attached no evidence record" `Text.isInfixOf` (err ^. #message))
         -- The provider was reached and its content is kept, so a caller
         -- reading the failure can still see what came back.
-        flattenAssistantText (flattenAssistantBlocks resp) @?= "the provider ran"
+        flattenAssistantText (flattenAssistantBlocks resp) @?= "the provider ran",
+      testCase "A CUSTOM PROVIDER DECLARING correlated SATISFIES A STRICT correlated CALL" $ do
+        -- Under the tag-keyed table this was impossible: every Custom
+        -- transport was capped at requested_only whatever its evidence
+        -- actually reached, so a gateway that observes a response id
+        -- could never serve a strict correlated caller.
+        reg <- newProviderRegistry
+        registerApiProviderWith reg correlatingProvider
+        resp <- completeRequestWith reg customModel testContext (strictly EvidenceCorrelated)
+        responseError resp @?= Nothing
+        case resp ^. #evidence of
+          Nothing -> assertFailure "a strict caller opted into evidence and must get a record"
+          Just ev -> ev ^. #strength @?= EvidenceCorrelated,
+      testCase "a declaration is still a ceiling, not a blank cheque" $ do
+        reg <- newProviderRegistry
+        registerApiProviderWith reg correlatingProvider
+        resp <- completeRequestWith reg customModel testContext (strictly EvidenceModelObserved)
+        case responseError resp of
+          Nothing -> assertFailure "expected a refusal"
+          Just err ->
+            assertBool
+              ("the message names both strengths: " <> Text.unpack (err ^. #message))
+              ( "model_observed" `Text.isInfixOf` (err ^. #message)
+                  && "correlated" `Text.isInfixOf` (err ^. #message)
+              )
     ]
 
 -- ============================================================
@@ -456,6 +492,45 @@ strictly needed =
 bestEffortOptions :: Options
 bestEffortOptions = emptyOptions & #evidence .~ Just (evidenceRequest "run-57")
 
+-- | A custom transport that declares, and delivers, 'EvidenceCorrelated'
+-- — a response id it observed. Its ceiling is its own declaration, which
+-- the tag-keyed table could never express.
+correlatingProvider :: ApiProvider
+correlatingProvider =
+  ApiProvider
+    { apiTag = customApi,
+      stream = liftCompleteToStream handler,
+      complete = handler,
+      describeThinking = \_ _ -> noThinkingRequested,
+      strengthCeiling = EvidenceCorrelated
+    }
+  where
+    handler m _ opts = do
+      now <- getCurrentTime
+      ev <-
+        minimalEvidence
+          m
+          opts
+          TransportHttpApi
+          noThinkingRequested
+          (Aeson.object ["model" Aeson..= (m ^. #modelId :: Text)])
+          now
+          now
+          CallSucceeded
+          Nothing
+      let seen = Observed "gateway-response-1" :: Observed Text
+          observed e =
+            e
+              & #responseId .~ seen
+              & #strength .~ deriveStrength Unobserved Unobserved seen
+      pure
+        ( emptyResponse
+            & #model .~ m
+            & #evidence .~ fmap observed ev
+            & #message . #content
+              .~ Vector.singleton (AssistantText (TextContent "the provider ran"))
+        )
+
 -- | A provider that fails loudly if it is reached. Used to prove the
 -- gate refuses /before/ dispatch rather than annotating afterwards.
 explodingProvider :: ApiProvider
@@ -464,7 +539,8 @@ explodingProvider =
     { apiTag = customApi,
       stream = \_ _ _ -> error "the provider was dispatched despite a strict refusal",
       complete = \_ _ _ -> error "the provider was dispatched despite a strict refusal",
-      describeThinking = \_ _ -> noThinkingRequested
+      describeThinking = \_ _ -> noThinkingRequested,
+      strengthCeiling = EvidenceRequestedOnly
     }
 
 -- | The same shape, but it answers.
@@ -474,7 +550,8 @@ countingProvider =
     { apiTag = customApi,
       stream = liftCompleteToStream handler,
       complete = handler,
-      describeThinking = \_ _ -> noThinkingRequested
+      describeThinking = \_ _ -> noThinkingRequested,
+      strengthCeiling = EvidenceRequestedOnly
     }
   where
     handler m _ _ =

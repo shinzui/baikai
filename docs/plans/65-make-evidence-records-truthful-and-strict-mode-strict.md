@@ -85,11 +85,11 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
       resolved base URL; default-host tests.
 - [x] M3: `usageEnvelope`; `output_config` and `response_format` summarised; fixture markers;
       golden digests recomputed; `evidenceSchemaVersion` bumped to `2.0`.
-- [ ] M4: `deriveStrength`; `anthropicStrength` and `openaiStrength` deleted; `subprocessStrength`
+- [x] M4: `deriveStrength`; `anthropicStrength` and `openaiStrength` deleted; `subprocessStrength`
       delegates; response id counts as correlation; tests.
-- [ ] M4: `ApiProvider.strengthCeiling`; `checkEvidenceRequirements` takes the ceiling; all
+- [x] M4: `ApiProvider.strengthCeiling`; `checkEvidenceRequirements` takes the ceiling; all
       construction sites and the two guide examples updated.
-- [ ] M4: ADRs 0002–0004 revised, ADR 0006 created, README table updated, user guide and
+- [x] M4: ADRs 0002–0004 revised, ADR 0014 created (in M2), README table updated, user guide and
       capability records updated, `okf validate` and the keyless `cabal test all` green.
 
 
@@ -101,6 +101,18 @@ Before this plan that prints `{"requested":null,"mode":"absent"}`; after it prin
   argument (`describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts`), which
   is the expression the OpenAI provider's own `describeThinking` field uses, so `immediateError`
   copies that rather than the two-argument form the plan quotes. (M1)
+
+- The `ApiProvider` fifth field touched 30 construction sites, not the 24 the plan
+  counted, because EP-3 added fixtures after the count was taken. Every one was named by
+  the compiler; the four built-in providers take `declaredStrength <tag>` and every test
+  fixture takes `EvidenceRequestedOnly`, which is exactly what the old tag-keyed table
+  said about a `Custom` tag, so no fixture changed behaviour. (M4)
+
+- Two `baikai-agent` process tests — "a timed-out run reports the output it drained
+  before the kill" and "a pipe held open outside the group does not hang the run" —
+  failed once under a full parallel `cabal test all` and passed on every rerun,
+  including the keyless gate. They spawn real processes with grace periods, so they are
+  timing-sensitive under load rather than affected by anything in this plan. (M4)
 
 - Anthropic's `output_config` is spelled exactly as the plan expected. Read from the
   MercuryTechnologies `claude` SDK at

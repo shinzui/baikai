@@ -229,7 +229,8 @@ cutOffToolCallIsNeverDispatchedTest =
         { apiTag = cutOffApi,
           stream = liftCompleteToStream (\_ _ _ -> pure cutOffResponse),
           complete = \_ _ _ -> pure cutOffResponse,
-          describeThinking = \_ _ -> noThinkingRequested
+          describeThinking = \_ _ -> noThinkingRequested,
+          strengthCeiling = EvidenceRequestedOnly
         }
     dispatched <- newIORef ([] :: [ToolCall])
     let dispatcher tc = modifyIORef' dispatched (<> [tc]) >> pure (toolResultText "never")

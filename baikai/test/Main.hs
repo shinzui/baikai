@@ -94,7 +94,8 @@ testProvider providerName canned =
         { apiTag = testApi,
           stream = liftCompleteToStream handler,
           complete = handler,
-          describeThinking = \_ _ -> noThinkingRequested
+          describeThinking = \_ _ -> noThinkingRequested,
+          strengthCeiling = EvidenceRequestedOnly
         }
 
 main :: IO ()

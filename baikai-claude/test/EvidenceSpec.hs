@@ -57,6 +57,7 @@ tests =
       cacheUsageEvidenceTest,
       immediateErrorRecordsThinkingTest,
       defaultHostEndpointTest,
+      responseIdCountsAsCorrelationTest,
       optOutTest
     ]
 
@@ -226,6 +227,18 @@ defaultHostEndpointTest =
       Just (Object e) -> KeyMap.lookup "endpoint" e @?= Just (String "https://api.anthropic.com")
       other -> assertFailure ("expected an endpoint identity, got: " <> show other)
 
+-- | A response that names its model and its message id but carries no
+-- @request-id@ header still reaches @model_observed@. See the
+-- OpenAI-compatible twin for why this shape matters.
+responseIdCountsAsCorrelationTest :: TestTree
+responseIdCountsAsCorrelationTest =
+  testCase "A RESPONSE ID WITH NO HEADER STILL REACHES model_observed" $ do
+    ev <- oneEvidence =<< replay 200 [] successBody baseOptions
+    field "provider_request_id" ev @?= Just (String "unobserved")
+    field "response_id" ev @?= Just (observedJson "msg_observed")
+    field "observed_model" ev @?= Just (observedJson "claude-haiku-4-5-20990101-server-side")
+    field "strength" ev @?= Just (String "model_observed")
+
 optOutTest :: TestTree
 optOutTest =
   testCase "a call that asked for no evidence emits none" $ do
@@ -256,7 +269,8 @@ replayWith model status headers chunks opts = do
           { apiTag = AnthropicMessages,
             stream = claudeMessagesStreamWith driver,
             complete = streamingComplete (claudeMessagesStreamWith driver),
-            describeThinking = describeThinkingFor
+            describeThinking = describeThinkingFor,
+            strengthCeiling = declaredStrength AnthropicMessages
           }
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink

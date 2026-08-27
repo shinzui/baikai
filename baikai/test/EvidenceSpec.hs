@@ -28,6 +28,7 @@ tests =
     [ canonicalTests,
       digestTests,
       usageEnvelopeTests,
+      deriveStrengthTests,
       redactionTests,
       observedTests,
       adjustmentJsonTests,
@@ -211,6 +212,45 @@ digestTests =
       testCase "a non-object envelope projects to null" $
         configurationProjection (String "not an envelope") @?= Aeson.Null
     ]
+
+-- ============================================================
+-- The one strength rule
+-- ============================================================
+
+-- | All eight combinations, one named case per row.
+--
+-- Three copies of this rule had drifted: the subprocess one counted a
+-- session or thread id as correlation while the two API ones looked only
+-- at a captured header, so a host reporting @model@ and @id@ on every
+-- chunk but no header landed below a host that sent only a header.
+deriveStrengthTests :: TestTree
+deriveStrengthTests =
+  testGroup
+    "deriveStrength"
+    [ row "nothing observed" Unobserved Unobserved Unobserved EvidenceRequestedOnly,
+      row "a model alone does not climb the scale" (Observed "m") Unobserved Unobserved EvidenceRequestedOnly,
+      row "a request id alone is correlation" Unobserved (Observed "req") Unobserved EvidenceCorrelated,
+      row "A RESPONSE ID ALONE IS ALSO CORRELATION" Unobserved Unobserved (Observed "resp") EvidenceCorrelated,
+      row "both identifiers are still correlation" Unobserved (Observed "req") (Observed "resp") EvidenceCorrelated,
+      row "a model with a request id is model_observed" (Observed "m") (Observed "req") Unobserved EvidenceModelObserved,
+      row "A MODEL WITH A RESPONSE ID IS ALSO model_observed" (Observed "m") Unobserved (Observed "resp") EvidenceModelObserved,
+      row "a model with both identifiers is model_observed" (Observed "m") (Observed "req") (Observed "resp") EvidenceModelObserved,
+      testCase "nothing reaches fully_observed" $
+        assertBool
+          "no combination of these three observations may reach the top of the scale"
+          ( all
+              (< EvidenceFullyObserved)
+              [ deriveStrength o r i
+              | o <- both,
+                r <- both,
+                i <- both
+              ]
+          )
+    ]
+  where
+    row name observedModel requestId responseId expected =
+      testCase name (deriveStrength observedModel requestId responseId @?= expected)
+    both = [Unobserved, Observed "x"]
 
 -- ============================================================
 -- The usage a response digest commits to

@@ -34,7 +34,6 @@ module Baikai.Provider.OpenAI.Api
     openaiChatStream,
     openaiChatStreamWith,
     SseDriver,
-    openaiStrength,
     RawChunk (..),
     RawToolDelta (..),
     parseChunk,
@@ -148,7 +147,8 @@ openaiChatProvider =
       -- Runs the real shaping function and keeps only its description,
       -- so the gate's answer and the wire's behaviour cannot disagree.
       describeThinking = \m opts ->
-        describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts
+        describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts,
+      strengthCeiling = Ev.declaredStrength OpenAIChatCompletions
     }
 
 -- | Install the OpenAI Chat Completions handler into an explicit registry.
@@ -716,25 +716,11 @@ observeOpenAI st ass ev =
     & #responseId .~ maybe Ev.Unobserved Ev.Observed (ass ^. #responseId)
     & #usage .~ observedUsage ass
     & #responseCommitment .~ responseCommitment st ass
-    & #strength .~ openaiStrength (ass ^. #observedModel) (ass ^. #providerRequestId)
-
--- | How much an OpenAI-compatible evidence record proves, derived only
--- from what was actually observed.
---
--- No host in this ecosystem echoes the reasoning configuration it
--- applied, so 'Ev.EvidenceFullyObserved' is unreachable on this
--- transport. Reasoning-token counts in the usage block corroborate
--- output volume; they are not a statement of which effort setting was in
--- force and must not raise the strength.
---
--- A successful HTTP status deliberately does not raise it either. A 200
--- means the request was accepted, not that any particular model ran.
-openaiStrength :: Ev.Observed Text -> Ev.Observed Text -> Ev.EvidenceStrength
-openaiStrength observedModel providerRequestId =
-  case (observedModel, providerRequestId) of
-    (Ev.Observed _, Ev.Observed _) -> Ev.EvidenceModelObserved
-    (_, Ev.Observed _) -> Ev.EvidenceCorrelated
-    _ -> Ev.EvidenceRequestedOnly
+    & #strength
+      .~ Ev.deriveStrength
+        (ass ^. #observedModel)
+        (ass ^. #providerRequestId)
+        (maybe Ev.Unobserved Ev.Observed (ass ^. #responseId))
 
 -- | The token accounting, but only if the host actually reported it.
 --

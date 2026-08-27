@@ -577,12 +577,12 @@ strictEvidenceTests =
         -- baikai serves best. See plan 54's Decision Log.
         checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          OpenAIChatCompletions
+          (declaredStrength OpenAIChatCompletions)
           (shapeFor "https://api.openai.com/v1" ThinkingXHigh)
           @?= []
         checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          OpenAIChatCompletions
+          (declaredStrength OpenAIChatCompletions)
           (shapeFor "https://api.openai.com/v1" ThinkingMax)
           @?= [],
       testCase "the codex CLI expresses every level, so only its strength refuses" $ do
@@ -591,12 +591,12 @@ strictEvidenceTests =
         -- alone.
         checkEvidenceRequirements
           (EvidenceRequired EvidenceCorrelated)
-          OpenAICompletionsCli
+          (declaredStrength OpenAICompletionsCli)
           (CodexCli.codexCliThinking (emptyOptions & #thinking .~ Just ThinkingMax))
           @?= []
         case checkEvidenceRequirements
           (EvidenceRequired EvidenceModelObserved)
-          OpenAICompletionsCli
+          (declaredStrength OpenAICompletionsCli)
           (CodexCli.codexCliThinking (emptyOptions & #thinking .~ Just ThinkingMax)) of
           [StrengthUnreachable _ declared] -> declared @?= EvidenceCorrelated
           other -> assertFailure ("expected a strength refusal, got: " <> show other)
@@ -614,7 +614,7 @@ strictEvidenceTests =
     expectDowngrade expected translation =
       case checkEvidenceRequirements
         (EvidenceRequired EvidenceRequestedOnly)
-        OpenAIChatCompletions
+        (declaredStrength OpenAIChatCompletions)
         translation of
         [ThinkingWouldDowngrade [reported]] -> reported @?= expected
         other -> assertFailure ("expected one downgrade refusal, got: " <> show other)

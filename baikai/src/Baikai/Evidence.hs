@@ -53,6 +53,7 @@ module Baikai.Evidence
     EvidenceStrength (..),
     renderEvidenceStrength,
     declaredStrength,
+    deriveStrength,
 
     -- * The caller's request
     EvidenceRequest (..),
@@ -686,6 +687,45 @@ instance FromJSON EvidenceStrength where
 --
 -- * 'Custom' declares 'EvidenceRequestedOnly'. Baikai knows nothing
 --   about a caller-supplied transport and must not assume on its behalf.
+-- | The one rule that turns observations into a strength.
+--
+-- A __correlation identifier__ is the provider's request id (typically a
+-- response header) or its response id; either locates the call in the
+-- provider's own records, which is what 'EvidenceCorrelated' means.
+--
+-- A model is 'EvidenceModelObserved' only /in addition to/ one, because
+-- the scale is cumulative by its own documentation. An unlocatable model
+-- claim does not climb it — it stays recorded in @observed_model@, where
+-- a reader can see it — and no shipped transport produces that
+-- combination. Nothing reaches 'EvidenceFullyObserved'.
+--
+-- A successful status is deliberately not an argument. A 200 means the
+-- request was accepted, not that any particular model ran.
+--
+-- Three copies of this rule had drifted apart: the subprocess one
+-- counted a session or thread id as correlation while the two API ones
+-- looked only at a captured header, so a host reporting @model@ and @id@
+-- on every chunk but no header landed at 'EvidenceRequestedOnly',
+-- /below/ a host that sent only a header.
+deriveStrength ::
+  -- | The model the provider reported serving.
+  Observed Text ->
+  -- | The provider's request id, typically from a response header.
+  Observed Text ->
+  -- | The provider's response id.
+  Observed Text ->
+  EvidenceStrength
+deriveStrength observedModel providerRequestId responseId =
+  case (observedModel, correlated) of
+    (Observed _, True) -> EvidenceModelObserved
+    (_, True) -> EvidenceCorrelated
+    _ -> EvidenceRequestedOnly
+  where
+    correlated = case (providerRequestId, responseId) of
+      (Observed _, _) -> True
+      (_, Observed _) -> True
+      _ -> False
+
 declaredStrength :: Api -> EvidenceStrength
 declaredStrength = \case
   AnthropicMessages -> EvidenceModelObserved

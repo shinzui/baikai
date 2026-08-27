@@ -32,7 +32,6 @@ module Baikai.Provider.Claude.Api
     claudeMessagesStream,
     claudeMessagesStreamWith,
     SseDriver,
-    anthropicStrength,
     Assembler (..),
     emptyAssembler,
     translate,
@@ -128,7 +127,8 @@ claudeMessagesProvider =
       complete = streamingComplete claudeMessagesStream,
       -- The same function 'mapRequest' uses, so the gate's answer and
       -- the wire's behaviour cannot disagree.
-      describeThinking = describeThinkingFor
+      describeThinking = describeThinkingFor,
+      strengthCeiling = Ev.declaredStrength AnthropicMessages
     }
 
 -- | Install the Anthropic Messages handler into an explicit registry.
@@ -481,25 +481,11 @@ observeAnthropic st ass ev =
     & #responseId .~ maybe Ev.Unobserved Ev.Observed (ass ^. #responseId)
     & #usage .~ observedUsage ass
     & #responseCommitment .~ responseCommitment st ass
-    & #strength .~ anthropicStrength (ass ^. #observedModel) (ass ^. #providerRequestId)
-
--- | How much an Anthropic evidence record proves, derived only from
--- what was actually observed.
---
--- Anthropic does not echo the thinking configuration it applied, so
--- 'Ev.EvidenceFullyObserved' is unreachable on this transport. That is
--- a fact about Anthropic's response shape, not a gap to paper over: a
--- reasoning-token count corroborates output volume and says nothing
--- about which effort setting was in force.
---
--- A successful HTTP status deliberately does not raise the strength. A
--- 200 means the request was accepted, not that any particular model ran.
-anthropicStrength :: Ev.Observed Text -> Ev.Observed Text -> Ev.EvidenceStrength
-anthropicStrength observedModel providerRequestId =
-  case (observedModel, providerRequestId) of
-    (Ev.Observed _, Ev.Observed _) -> Ev.EvidenceModelObserved
-    (_, Ev.Observed _) -> Ev.EvidenceCorrelated
-    _ -> Ev.EvidenceRequestedOnly
+    & #strength
+      .~ Ev.deriveStrength
+        (ass ^. #observedModel)
+        (ass ^. #providerRequestId)
+        (maybe Ev.Unobserved Ev.Observed (ass ^. #responseId))
 
 -- | The token accounting, but only if Anthropic actually reported it.
 --

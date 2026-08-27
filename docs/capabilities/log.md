@@ -2,6 +2,16 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-19 (model-call evidence) records one strength rule where there
+  were three, and a provider-declared ceiling. An observed response id now
+  counts as correlation, so a host naming its model and response id on every
+  chunk but sending no header reaches `model_observed` rather than landing below
+  a host that sent only a header. `ApiProvider` gains
+  `strengthCeiling :: EvidenceStrength` and the pre-dispatch gate compares
+  against it instead of a table keyed by the API tag, which had capped every
+  caller-supplied transport at `requested_only`
+  (`docs/adr/0003-the-adapter-owns-the-translation-description.md`, revised).
+
 * **Update**: CAP-19 (model-call evidence) and CAP-10 (OpenTelemetry span export)
   record the 2026-08 evidence-truthfulness pass. Records are now
   `baikai.model-call-evidence/2.0`, because two digests cover different bytes:

@@ -40,6 +40,15 @@ instance, no `fromObserved`, no `withDefault`. `observedValue` exists
 and its own documentation says to use it to *report* absence, never to
 *fill* it.
 
+**The caller's request is recorded on every path, including the paths
+where no adapter ran to translate it.** A call that was refused, never
+dispatched, or abandoned before the adapter could describe what it did
+still has a caller who asked for something, and that is the caller's own
+fact. Such a path spells its translation `ThinkingModeNotTranslated`
+(`"not_translated"`) — the request is recorded, the translation is
+unknown — and never `ThinkingModeAbsent`, which means the caller asked
+for nothing.
+
 ## Consequences
 
 `Maybe` was the obvious choice and is the wrong one, for a reason that
@@ -66,5 +75,29 @@ ever report one, and the honest consequence is that this transport's
 ceiling is lower than its sibling's rather than that it should borrow
 the `--model` flag baikai passed.
 
+Four core paths and both providers' `immediateError` had collapsed the
+request into "absent" for a year, and the fixtures hid it: every stub
+provider's `describeThinking` answered `noThinkingRequested` whatever the
+caller set, so a path that lost the caller's level and a path that kept
+it produced identical records. A fixture that cannot distinguish the two
+outcomes cannot test the rule.
+
+**"Never collapsed" binds consumers too, not only the record.** The
+OpenTelemetry sink set `gen_ai.response.model` — an observation — from
+`TraceEvent.model`, which is the requested id on every constructor. A
+sink that presents a request under an observation's key has collapsed
+the two just as surely as a record would, and with less chance of anyone
+noticing.
+
 Related: [0003](0003-the-adapter-owns-the-translation-description.md)
-covers the middle of the three.
+covers the middle of the three, and
+[0014](0014-strict-evidence-means-a-record-exists.md) covers the prior
+question of whether any of the three was written down at all.
+
+## Revisions
+
+- 2026-08-27, `docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md`:
+  extended the Decision to the paths where no adapter ran, added
+  `not_translated`, and added the consumer-side rule after the
+  OpenTelemetry sink was found labelling a requested id as a response
+  model.

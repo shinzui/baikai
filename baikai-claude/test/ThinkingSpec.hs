@@ -408,7 +408,7 @@ samplingTests =
                -- weakened. A parameter the API never had is not that.
                checkEvidenceRequirements
                  (EvidenceRequired EvidenceRequestedOnly)
-                 AnthropicMessages
+                 (declaredStrength AnthropicMessages)
                  (describeThinkingFor anthropic_claude_sonnet_5 (emptyOptions & #temperature .~ Just 0.2))
                  @?= []
            ]

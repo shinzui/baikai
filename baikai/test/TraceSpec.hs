@@ -119,7 +119,8 @@ registerOk a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = Ev.EvidenceRequestedOnly
           }
 
 registerFail :: Api -> BaikaiError -> IO ()
@@ -130,7 +131,8 @@ registerFail a e =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = Ev.EvidenceRequestedOnly
           }
 
 memorySink :: IO (TVar [TraceEvent], TraceSink)
@@ -295,7 +297,8 @@ registerWithUsage a u =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = Ev.EvidenceRequestedOnly
           }
 
 fidelityTest :: TestTree
@@ -389,7 +392,8 @@ registerOkWithEvidence a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ _ -> noThinkingRequested
+            describeThinking = \_ _ -> noThinkingRequested,
+            strengthCeiling = Ev.EvidenceRequestedOnly
           }
 
 -- | 'registerOk' with an honest describer.
@@ -406,7 +410,8 @@ registerOkHonest a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ o -> Build.requestedTranslation o
+            describeThinking = \_ o -> Build.requestedTranslation o,
+            strengthCeiling = Ev.EvidenceRequestedOnly
           }
 
 -- | A describer that answers with a wire shape of its own, so a test
@@ -429,7 +434,8 @@ registerOkBudgetDescriber a =
           { apiTag = a,
             stream = liftCompleteToStream handler,
             complete = handler,
-            describeThinking = \_ o -> budgetTranslation o
+            describeThinking = \_ o -> budgetTranslation o,
+            strengthCeiling = Ev.EvidenceRequestedOnly
           }
 
 thinkingOptions :: Options
@@ -906,7 +912,8 @@ envelopeNotForcedTest =
         { apiTag = a,
           stream = liftCompleteToStream handler,
           complete = handler,
-          describeThinking = \_ _ -> noThinkingRequested
+          describeThinking = \_ _ -> noThinkingRequested,
+          strengthCeiling = Ev.EvidenceRequestedOnly
         }
     (ref, sink) <- memorySink
     _ <- withTrace sink (stubModel a) stubContext stubOptions

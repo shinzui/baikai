@@ -252,8 +252,27 @@ normally isolates sink failures from calls — the sink runs on its own
 worker, its exception is reported on stderr, and the call succeeds. For
 a strict caller that is backwards: they asked for a record and the record
 did not survive, so the call fails rather than handing back an answer
-they cannot account for. This is the one place in baikai where a call
-that reached the provider and came back is nevertheless reported failed.
+they cannot account for.
+
+**A record that was never built fails the call the same way.** A provider
+can pass the gate and then attach nothing to its terminal, which used to
+give a strict caller a successful answer, no record, and no error
+anywhere — the same failure the sink rule exists to prevent, arriving
+through a different door. Such a call now fails with a message beginning
+`this call required evidence, but the provider attached no evidence
+record`. A call that failed for the provider's own reason keeps the
+provider's error, which is the more useful of the two. Those are the two
+places in baikai where a call that reached the provider and came back is
+nevertheless reported failed; see
+[ADR 0014](../adr/0014-strict-evidence-means-a-record-exists.md).
+
+The gate compares your requirement against the provider's own
+`strengthCeiling`, not against a table keyed by the `Api` tag. A custom
+transport that observes a model can therefore serve a strict caller who
+requires that it did — which the tag-keyed table made impossible, because
+it answered `requested_only` for every `Custom` tag. The declaration is a
+promise: a provider that declares more than it delivers is the one
+remaining way to make strict mode lie.
 
 **Callers who do not opt in are never refused**, on any transport at any
 reasoning level. The test for that guarantee is exhaustive rather than
@@ -310,6 +329,14 @@ reasoning controls, `\_ _ -> noThinkingRequested` is correct and honest.
 `TerminalPayload`'s two smart constructors take the evidence as their new
 first argument; passing `Nothing` reproduces the previous behaviour
 exactly.
+
+It gains a **fifth** field in the next release, `strengthCeiling ::
+EvidenceStrength`, and `checkEvidenceRequirements` takes that ceiling
+where it took an `Api`. `EvidenceRequestedOnly` is the honest declaration
+for a provider that attaches no record or a minimal one, and matches what
+the old tag-keyed table said about every `Custom` transport — so it is
+also the no-behaviour-change answer. Declare more only if you attach a
+record that reaches it, and write the test that drives it there.
 
 **If you implement a custom trace sink.** `TraceEvent` gains a fourth
 constructor, `CallEvidence`. A sink that pattern-matches exhaustively

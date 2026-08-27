@@ -107,7 +107,8 @@ claudeCliProvider cfg =
       complete = runClaudeCli cfg,
       -- The model plays no part: this transport's only reasoning
       -- control is a command-line flag derived from Options alone.
-      describeThinking = \_ opts -> claudeCliThinking opts
+      describeThinking = \_ opts -> claudeCliThinking opts,
+      strengthCeiling = Ev.declaredStrength AnthropicMessagesCli
     }
 
 -- | Install the CLI handler with a caller-supplied config.

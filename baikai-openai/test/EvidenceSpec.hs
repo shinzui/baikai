@@ -58,6 +58,7 @@ tests =
       nonReasoningModelEvidenceTest,
       immediateErrorRecordsThinkingTest,
       defaultHostEndpointTest,
+      responseIdCountsAsCorrelationTest,
       optOutTest
     ]
 
@@ -258,6 +259,23 @@ defaultHostEndpointTest =
       Just (Object e) -> KeyMap.lookup "endpoint" e @?= Just (String "https://api.openai.com")
       other -> assertFailure ("expected an endpoint identity, got: " <> show other)
 
+-- | A host that names its model and its response id on every chunk but
+-- sends no correlation header still reaches @model_observed@.
+--
+-- This is the shape the three drifted strength functions disagreed
+-- about: the API copies looked only at the captured header, so such a
+-- host landed at @requested_only@ — below a host that sent only a
+-- header and named nothing. A response id locates the call in the
+-- provider's own records, which is what correlation means.
+responseIdCountsAsCorrelationTest :: TestTree
+responseIdCountsAsCorrelationTest =
+  testCase "A RESPONSE ID WITH NO HEADER STILL REACHES model_observed" $ do
+    ev <- oneEvidence =<< replayEvents 200 [] successBody baseOptions
+    field "provider_request_id" ev @?= Just (String "unobserved")
+    field "response_id" ev @?= Just (observedJson "chatcmpl-observed")
+    field "observed_model" ev @?= Just (observedJson "gpt-4o-mini-20990101-server-side")
+    field "strength" ev @?= Just (String "model_observed")
+
 optOutTest :: TestTree
 optOutTest =
   testCase "a call that asked for no evidence emits none" $ do
@@ -297,7 +315,8 @@ replayWith bodyRef model status headers chunks opts = do
             stream = openaiChatStreamWith driver,
             complete = streamingComplete (openaiChatStreamWith driver),
             describeThinking = \m opts' ->
-              describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts'
+              describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts',
+            strengthCeiling = declaredStrength OpenAIChatCompletions
           }
   registerApiProviderWith reg provider
   (ref, sink) <- memorySink

@@ -422,6 +422,9 @@ myProvider =
     -- any request is built. Only the strict-evidence gate calls it; a
     -- provider with no reasoning controls answers honestly like this.
     , describeThinking = \_model _opts -> noThinkingRequested
+    -- The highest strength this provider's evidence can reach. Declaring
+    -- more than you deliver is the one way to make strict mode lie.
+    , strengthCeiling = EvidenceRequestedOnly
     }
 
 myModel :: Model
@@ -460,6 +463,7 @@ myProvider =
     , stream = liftCompleteToStream myCompleteProducer
     , complete = myCompleteProducer
     , describeThinking = \_model _opts -> noThinkingRequested
+    , strengthCeiling = EvidenceRequestedOnly
     }
 ```
 
@@ -476,6 +480,17 @@ providers work.
 > `ThinkingTranslation` describing what it becomes — built by the same
 > function that builds the request, so the two cannot drift apart. See
 > [Model-Call Evidence](model-call-evidence.md).
+>
+> **Changed in the next release.** `ApiProvider` gained a fifth field,
+> `strengthCeiling :: EvidenceStrength`, and the strict-evidence gate
+> compares a caller's requirement against it instead of against a table
+> keyed by `Api`. That table answered `EvidenceRequestedOnly` for every
+> `Custom` tag, so a transport that genuinely observes a model could
+> never satisfy a caller who required that it did; only you know what
+> your evidence reaches. `EvidenceRequestedOnly` is the honest answer for
+> a provider that attaches no record or a minimal one, and such a
+> provider will still fail a strict caller at the terminal. Declare more
+> only with a test that drives the provider to it.
 
 ## Cost & usage
 
