@@ -79,7 +79,7 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] M3 (2026-08-27): `EmbeddingModel` derives `Eq`/`Generic`; `apiKey :: Maybe ApiKeySource`; `resolveEmbeddingKey` and `embeddingClientEnv` added; `embed` routes through `Baikai.Http`; six `EmbeddingSpec` cases added; `docs/capabilities/text-embeddings.md` and `docs/capabilities/log.md` updated. The `baseUrlProblem` check in `embed` belongs to M4, which owns it for both providers as well.
 - [x] M4 (2026-08-27): `buildRequest` extracted in both `Sse.hs` with `redirectCount = 0`; `canonicalBaseUrl` strips a trailing `/v1`; `baseUrlProblem` checked in both `prepareCall`s and in `embed`, before the key is resolved.
 - [x] M4 (2026-08-27): fake-manager redirect test and path-composition tests in both provider `SseSpec.hs`; base-URL refusal tests in both `TransportSpec.hs`; `canonicalBaseUrl` cases in `UrlSpec`; `docs/user/models-and-providers.md` "Base URLs" section; evidence and Limits bullets in both backend capability records; `docs/capabilities/log.md` entry.
-- [ ] Final: keyless `cabal test all` gate green; `nix fmt` clean; master plan Progress lines for EP-2 ticked; Outcomes & Retrospective written; ADR distillation pass done.
+- [x] Final (2026-08-27): keyless `cabal test all` gate green across all eight suites; `nix fmt` leaves the tree unchanged; `okf validate docs/capabilities` reports `OK: 22 concepts` and `mori validate` reports `Configuration is valid`; the four EP-2 Progress lines ticked and the registry row set to Complete in the master plan; Outcomes & Retrospective written; the ADR distillation pass promoted `docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md` in M1 and found nothing further durable.
 
 
 ## Surprises & Discoveries
@@ -361,12 +361,51 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose. Before marking the plan complete,
-distill durable project context from the Decision Log, Surprises & Discoveries, and
-this section into docs/adr/. Keep task-local execution details here.
+All four milestones landed, one commit each, each leaving the tree green.
 
-(To be filled during and after implementation.)
+The purpose is met. There is one URL parser in baikai, `Baikai.Url`, and every
+consumer calls it: compat auto-detection, the per-host key table, the evidence
+endpoint, the connection cache, and the base-URL check both providers and the
+embeddings client now run before resolving a key. A base URL with an `@` after
+the authority resolves no key and no vendor compat record — the finding this
+plan exists for, reproduced before the fix as
+`defaultApiKeyEnvForBaseUrl "https://proxy.example.com/v1?u=@api.openai.com"`
+answering `Just "OPENAI_API_KEY"`. Printing an `Options`, a `Model` or a
+`Response` shows `<redacted>` where a credential-carrying header's value would
+be, with the field itself untouched. An empty key variable is an `AuthError`
+naming it. An `EmbeddingModel` pointed at DeepSeek resolves `DEEPSEEK_API_KEY`
+and refuses an unknown host, and shares the chat providers' connection cache. No
+provider POST follows a redirect. And `https://api.deepseek.com/v1` composes to
+one `/v1`, with the rule written down in `docs/user/models-and-providers.md`.
+
+Everything is proven offline: `baikai/test/UrlSpec.hs`, the negative cases and
+the QuickCheck property in `baikai/test/Main.hs`, the redaction and field-drift
+guards there, the key cases in `HelpersSpec` and `EmbeddingSpec`, and the
+request-shape, redirect and base-URL refusal cases in both provider suites. The
+keyless `cabal test all` gate is green across all eight suites.
+
+Four things worth carrying. First, moving a process-global cache into core makes
+count-based assertions in two parallel test cases race each other; one counting
+case per process is the only shape that is not flaky. Second, the plan's M1
+sketch would have landed M4's refusals and path composition three milestones
+early, before the tests that pin them — the milestone boundary was worth
+respecting even though the code was ready. Third, a hand-written `Show` needs a
+mechanical guard, not care: the `Generic`-driven field enumerator in
+`baikai/test/Main.hs` is what makes a field added by a later plan fail loudly
+instead of vanishing from `show`. Fourth, `EventError`'s `errorInfo` is a
+`Maybe`, and a test that pattern-matches it rather than reaching through says
+something true that a lens chain would have hidden.
+
+What remains, and for whom. `Baikai.Url` and `Baikai.Http` are new public
+modules and `buildRequest` is a new provider export; EP-10 decides their final
+home and whether any of it moves behind `.Internal`. `EmbeddingModel.apiKey`
+becoming `Maybe ApiKeySource` and the `Show`/`ToJSON` change are recorded under
+`[Unreleased]`; the version bumps are EP-10's. The evidence endpoint's
+empty-`baseUrl` default (REV-2 D.8) is untouched and belongs to EP-8. EP-3 reads
+`baseUrl` for the thinking style and must call `Baikai.Url` rather than
+introduce a second parser — `docs/adr/0008` says so, and
+`grep -rn 'splitOn "@"\|breakOnEnd "@"' baikai/src baikai-*/src` finding only
+`Baikai/Url.hs` is how to check.
 
 
 ## Context and Orientation

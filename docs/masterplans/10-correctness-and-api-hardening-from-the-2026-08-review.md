@@ -144,7 +144,7 @@ states the version (EP-10).
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Ship baikai-agent on the threaded RTS and fix the coding-agent surfaces | docs/plans/58-ship-baikai-agent-on-the-threaded-rts-and-fix-the-coding-agent-surfaces.md | None | None | Complete |
-| 2 | Unify host parsing and stop credential misdirection | docs/plans/59-unify-host-parsing-and-stop-credential-misdirection.md | None | None | In Progress |
+| 2 | Unify host parsing and stop credential misdirection | docs/plans/59-unify-host-parsing-and-stop-credential-misdirection.md | None | None | Complete |
 | 3 | Make Anthropic thinking style and sampling support catalog-driven | docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md | None | EP-2 | Not Started |
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Not Started |
 | 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Not Started |
@@ -374,10 +374,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-1 M2: SIGKILL escalation, drained output kept on timeout, UTF-8 output regardless of locale
 - [x] EP-1 M3: unexpressible codex approval policies refused as `SafetyNotExpressible`
 - [x] EP-1 M4: linear-time JSONL line assembly and correct TOML escaping for agent assets
-- [ ] EP-2 M1: one URL host parser, used by compat detection, key resolution, evidence and the client cache
-- [ ] EP-2 M2: header credentials redacted in `Show`/`ToJSON`; empty key env vars are `AuthError`
-- [ ] EP-2 M3: embeddings resolve keys per host and share the `ClientEnv` cache
-- [ ] EP-2 M4: no redirects on provider POSTs; base-URL path composition rule stated and enforced
+- [x] EP-2 M1: one URL host parser, used by compat detection, key resolution, evidence and the client cache
+- [x] EP-2 M2: header credentials redacted in `Show`/`ToJSON`; empty key env vars are `AuthError`
+- [x] EP-2 M3: embeddings resolve keys per host and share the `ClientEnv` cache
+- [x] EP-2 M4: no redirects on provider POSTs; base-URL path composition rule stated and enforced
 - [ ] EP-3 M1: catalog record carries Anthropic thinking style and sampling support, generated from data
 - [ ] EP-3 M2: request shaping honours the record (sonnet-5 adaptive, sampling dropped and recorded, zero-cap, replay sanitation, tool-id normalisation)
 - [ ] EP-3 M3: OpenAI-compatible reasoning controls gated on `Model.reasoning` with a recorded adjustment
@@ -472,6 +472,18 @@ plans named (each plan's implementer reads this section before its first commit)
   `docs/adr/0007-text-crossing-a-process-boundary-is-encoded-explicitly.md`. Any later
   plan predicting a pre-fix transcript should re-derive it rather than quote the review.
   (2026-08-27, EP-1)
+- __A process-global cache makes count-based test cases race.__ EP-2 moved the
+  `ClientEnv` cache into core, and the second case in a provider suite that read
+  `cachedClientEnvCount` and expected it to move by exactly one failed against the
+  first under tasty's parallel execution (`expected: 2, but got: 3`). Both provider
+  suites now assert allocation and normalisation in a single case. Any later plan
+  adding a case that counts entries in a shared global should fold it into the
+  existing one. (2026-08-27, EP-2)
+- __`EventError`'s `errorInfo` is a `Maybe BaikaiError`.__ A test that reaches
+  through it with `^. #errorInfo . #category` does not compile; matching on the
+  `Maybe` is both required and more honest, because whether a stream error carries a
+  typed error at all is itself worth asserting. EP-4, EP-5 and EP-8 all write cases
+  over stream errors. (2026-08-27, EP-2)
 
 
 ## Decision Log
@@ -534,6 +546,11 @@ plans named (each plan's implementer reads this section before its first commit)
   Rationale: widening a closed sum is a surface decision that belongs with the other
   freeze-time type changes and the major bump that carries them.
   Date: 2026-08-27
+- Decision: EP-2's ADR is `docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md`,
+  so the next plan to promote a record takes `0009`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-2's
+  distillation pass found nothing durable beyond that record.
+  Date: 2026-08-27
 - Decision: EP-1 allocated ADR numbers `0006` and `0007`, so the next plan to promote a
   record takes `0008`.
   Rationale: the allocation rule in Integration Points is landing order.
@@ -549,6 +566,18 @@ plans named (each plan's implementer reads this section before its first commit)
 
 (To be filled during and after implementation.)
 
+EP-2 complete (2026-08-27), four milestones in four commits `81e2aad`, `0b21ea3`,
+`f11c047`, `a75c59d`. There is one URL parser in baikai and every consumer calls it,
+so a base URL with an `@` after the authority can no longer choose which provider's
+key baikai sends. Credential-carrying headers are redacted wherever baikai prints or
+serialises an `Options`, `Model` or `Response`; an empty key variable is an
+`AuthError` naming it; embeddings resolve keys per host and share the chat providers'
+connection cache; no provider POST follows a redirect; and the base-URL convention is
+stated in `docs/user/models-and-providers.md` and enforced before a key is read. Two
+breaking changes are recorded under `[Unreleased]` for EP-10 to version:
+`EmbeddingModel.apiKey :: Maybe ApiKeySource`, and the hand-written `Show`/`ToJSON`
+on `Options` and `Model`. ADR `0008` records the parser decision.
+
 EP-1 complete (2026-08-27), four milestones in four commits `e2f33cc`, `ab9fc1f`,
 `f5e8722`, `90894ca`. The shipped `baikai` executable now links the threaded runtime,
 a timed-out run escalates to `SIGKILL` across its whole process group and reports what
@@ -562,6 +591,12 @@ carries `AgentTimedOut` — is recorded under `[Unreleased]` for EP-10 to versio
 
 
 ---
+
+Revision note (2026-08-27, EP-2 complete): EP-2's registry row is Complete and its
+four Progress lines are ticked. Two discoveries were added that bind later plans — a
+process-global cache makes count-based test cases race under parallel execution, and
+`EventError.errorInfo` is a `Maybe` — and the Decision Log records that EP-2 took ADR
+number `0008`, so the next plan to promote a record takes `0009`.
 
 Revision note (2026-08-27, EP-1 complete): EP-1's registry row is Complete and its four
 Progress lines are ticked. Three discoveries were added to Surprises & Discoveries that
