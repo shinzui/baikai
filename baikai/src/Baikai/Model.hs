@@ -49,6 +49,7 @@ import Baikai.Compat
     autoDetectAnthropicMessages,
     autoDetectOpenAICompletions,
   )
+import Baikai.Header (HeaderName)
 import Data.Aeson
   ( FromJSON,
     ToJSON (toEncoding, toJSON),
@@ -143,7 +144,7 @@ data Model = Model
     -- instead. An explicit 'Baikai.Options.maxTokens' always wins,
     -- including an explicit @Just 0@.
     maxOutputTokens :: !Natural,
-    headers :: !(Map Text Text),
+    headers :: !(Map HeaderName Text),
     compat :: !Compat
   }
   deriving stock (Eq, Generic)
@@ -213,6 +214,11 @@ zeroModelCost =
 
 -- | A blank 'Model'. Useful as a record-update base for hand-rolled
 -- 'Model' values in tests and one-shot scripts.
+--
+-- Its @api@ is @Custom ""@, which no handler can be registered under
+-- meaningfully: dispatching a model that still carries it fails with
+-- @No provider registered for API: \<blank Custom tag …\>@. Set @api@
+-- (and @modelId@) before calling anything.
 emptyModel :: Model
 emptyModel =
   Model

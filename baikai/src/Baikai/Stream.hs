@@ -28,7 +28,6 @@ module Baikai.Stream
   )
 where
 
-import Baikai.Api (renderApi)
 import Baikai.Content
   ( AssistantContent (..),
     TextContent (..),
@@ -47,6 +46,7 @@ import Baikai.Options (Options)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     ProviderRegistry,
+    describeApi,
     evidenceRefusals,
     globalProviderRegistry,
     lookupApiProviderWith,
@@ -691,7 +691,7 @@ refusedEvents m opts translation refusals = do
 noProviderEvents :: Model -> Options -> IO [AssistantMessageEvent]
 noProviderEvents m opts = do
   now <- getCurrentTime
-  let detail = "No provider registered for API: " <> renderApi (m ^. #api)
+  let detail = "No provider registered for API: " <> describeApi (m ^. #api)
       be = providerUnavailable detail
       msg =
         AssistantMessage

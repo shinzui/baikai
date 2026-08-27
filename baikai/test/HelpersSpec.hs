@@ -5,6 +5,8 @@ import Baikai.Prelude
 import Control.Exception qualified as Exception
 import Data.Aeson qualified as Aeson
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (isJust)
 import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Data.Vector qualified as Vector
@@ -33,7 +35,36 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai helpers"
-    [ testCase "runToolLoop resolves repeated tool turns and leaves final response separate" $ do
+    [ -- The registry keys on 'normaliseApi' of the tag, at registration
+      -- and at lookup, so the two spellings of a built-in API are one
+      -- entry rather than two that dispatch by whichever the model used.
+      testCase "a handler registered under a Custom spelling answers the built-in tag" $ do
+        reg <- newProviderRegistryFrom [oneShotProvider (Custom "anthropic-messages") "spelled custom"]
+        found <- lookupApiProviderWith reg AnthropicMessages
+        assertBool "AnthropicMessages finds the Custom-spelled handler" (isJust found),
+      testCase "a handler registered under the built-in tag answers a Custom spelling" $ do
+        reg <- newProviderRegistryFrom [oneShotProvider AnthropicMessages "spelled built-in"]
+        found <- lookupApiProviderWith reg (Custom "anthropic-messages")
+        assertBool "Custom \"anthropic-messages\" finds the built-in handler" (isJust found),
+      -- A header name is case-insensitive on the wire, so a map keyed
+      -- on 'HeaderName' must hold one entry for two spellings rather
+      -- than two entries whose winner depends on Map order.
+      testCase "two spellings of one header name are one map entry" $ do
+        let hs = Map.fromList [("Authorization", "a"), ("authorization", "b")] :: Map.Map HeaderName Text
+        Map.size hs @?= 1
+        Map.lookup "AUTHORIZATION" hs @?= Just "b",
+      -- 'emptyModel' carries @Custom ""@, which used to render as nothing
+      -- at all: "No provider registered for API: " with an empty tail.
+      testCase "dispatching emptyModel names emptyModel rather than nothing" $ do
+        reg <- newProviderRegistry
+        resp <- completeRequestWith reg emptyModel emptyContext emptyOptions
+        case responseError resp of
+          Nothing -> assertFailure "expected a ProviderUnavailable response"
+          Just err ->
+            assertBool
+              ("expected the blank-tag hint, got: " <> Text.unpack (err ^. #message))
+              ("blank Custom tag" `Text.isInfixOf` (err ^. #message)),
+      testCase "runToolLoop resolves repeated tool turns and leaves final response separate" $ do
         scripted <- newScripted [toolUseResponse "call_1" "get_time", toolUseResponse "call_2" "get_time", textResponse "done"] []
         let ctx0 = addUser "start" emptyContext
             dispatcher _ = pure (toolResultText "2026-06-05T00:00:00Z")

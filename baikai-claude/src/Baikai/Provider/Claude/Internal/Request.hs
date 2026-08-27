@@ -57,6 +57,13 @@ import Numeric.Natural (Natural)
 -- accept Context/Options directly).
 -- ============================================================
 
+-- | The wire wants an absent field for "no stop sequences", and
+-- 'Baikai.Options.stopSequences' says that with an empty list — the one
+-- representation, where @Nothing@ and @Just []@ used to be two.
+nonEmptyStops :: [Text] -> Maybe (Vector.Vector Text)
+nonEmptyStops [] = Nothing
+nonEmptyStops xs = Just (Vector.fromList xs)
+
 -- | Map a baikai request onto the SDK's 'Messages.CreateMessage', and
 -- describe what the caller's reasoning-effort preference became on the
 -- way.
@@ -98,7 +105,7 @@ mapRequest m ctx opts = do
           Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
           Messages.temperature = sampling ^. #temperature,
           Messages.top_p = sampling ^. #topP,
-          Messages.stop_sequences = opts ^. #stopSequences,
+          Messages.stop_sequences = nonEmptyStops (opts ^. #stopSequences),
           Messages.tools = toolsField,
           Messages.tool_choice = toolChoiceField,
           Messages.cache_control = cacheControlField,

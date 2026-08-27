@@ -181,6 +181,16 @@ blockClosingTests =
             r @?= Length
             [tc | AssistantToolCall tc <- Vector.toList (messageBlocks msg)] @?= calls
           other -> assertFailure ("expected a terminal EventDone, got: " <> show (take 1 other)),
+      testCase "a refusal stop is ContentFiltered, not an unclassified provider error" $ do
+        events <- replayStream 200 [] refusalBody
+        assertErrorContract events
+        case reverse events of
+          (EventError TerminalPayload {errorInfo = Just be} : _) -> do
+            -- The content, not the transport, is the problem: its own
+            -- category, and not retryable as sent.
+            be ^. #category @?= ContentFiltered
+            isRetryable be @?= False
+          other -> assertFailure ("expected a terminal EventError, got: " <> show (take 1 other)),
       testCase "a mid-stream transport error closes open blocks before the terminal" $ do
         -- The failure is injected through 'translate' rather than the
         -- transport, because what is under test is the assembler's
@@ -233,6 +243,16 @@ cutOffToolBody =
       "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"hel\"}}",
     frameOf "{\"type\":\"content_block_stop\",\"index\":0}",
     frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":9}}",
+    frameOf "{\"type\":\"message_stop\"}"
+  ]
+
+-- | A stream Anthropic ends with @stop_reason: "refusal"@: the model
+-- declined to answer. Nothing failed on the wire.
+refusalBody :: [ByteString]
+refusalBody =
+  [ frameOf
+      "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_refusal\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-refusal\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}}",
+    frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"refusal\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":1}}",
     frameOf "{\"type\":\"message_stop\"}"
   ]
 

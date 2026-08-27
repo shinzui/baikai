@@ -19,6 +19,7 @@ module Baikai
     module Baikai.AgentAssets,
     module Baikai.Api,
     module Baikai.Auth,
+    module Baikai.Header,
     module Baikai.Model,
     module Baikai.Content,
     module Baikai.StopReason,
@@ -60,6 +61,7 @@ import Baikai.Cost
 import Baikai.Error
 import Baikai.Evidence
 import Baikai.Evidence.Build
+import Baikai.Header
 import Baikai.Interactive
 import Baikai.Message
 import Baikai.Model

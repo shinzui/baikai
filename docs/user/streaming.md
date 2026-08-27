@@ -56,7 +56,7 @@ constructor carries a payload record:
 
 The terminal `Message` always carries the final `Usage` (token
 counts plus `Cost`) and the resolved `StopReason`
-(`Stop | Length | ToolUse | ErrorReason | Aborted`).
+(`Stop | Length | ToolUse | ErrorReason`).
 
 ## Patterns
 
@@ -129,8 +129,8 @@ case last events of
 This is the inverse of how most SDKs handle streaming errors
 (throwing mid-stream and losing partial state). `completeRequest`
 wraps the same flow into a single `Response` whose `stopReason` is
-`ErrorReason` or `Aborted` on failure; the partial content is on
-the response's message.
+`ErrorReason` on failure; the partial content is on the response's
+message.
 
 ### Stopping early
 
@@ -212,7 +212,6 @@ across every `Api` tag. For the full CLI provider surface
 | `Length`       | Hit the `maxTokens` cap or the model's `maxOutputTokens`.                                  |
 | `ToolUse`      | Model emitted tool calls and expects you to dispatch them. See [Tools](tools.md).          |
 | `ErrorReason`  | Provider returned an error (auth, rate limit, malformed input, …). `errorMessage` and structured `errorInfo` are set. |
-| `Aborted`      | The caller cancelled via signal/timeout. The terminal `message` carries whatever streamed first. |
 
 ## Notes
 

@@ -73,6 +73,7 @@ import Baikai.Auth (ApiKeySource)
 import Baikai.Auth qualified as Auth
 import Baikai.CacheRetention (CacheRetention)
 import Baikai.Evidence (EvidenceRequest)
+import Baikai.Header (HeaderName)
 import Baikai.ResponseFormat (ResponseFormat)
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
@@ -86,7 +87,6 @@ import Data.Aeson
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Data.Vector (Vector)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -95,16 +95,28 @@ data Options = Options
     temperature :: !(Maybe Double),
     apiKey :: !(Maybe ApiKeySource),
     timeoutMs :: !(Maybe Int),
-    headers :: !(Map Text Text),
+    headers :: !(Map HeaderName Text),
     metadata :: !(Map Text Value),
+    -- | 'Nothing' and @Just 'ToolChoiceAuto'@ are the same request: both
+    -- send no @tool_choice@ and let the provider apply its own default,
+    -- which is @auto@ at Anthropic and OpenAI. The constructor is kept
+    -- for a caller who wants to say "auto" explicitly.
     toolChoice :: !(Maybe ToolChoice),
+    -- | 'Nothing' and @Just 'CacheRetentionNone'@ are the same request:
+    -- both send no cache-control marker. The constructor is kept for a
+    -- caller who wants to say "no caching" explicitly.
     cacheRetention :: !(Maybe CacheRetention),
     thinking :: !(Maybe ThinkingLevel),
     responseFormat :: !(Maybe ResponseFormat),
     evidence :: !(Maybe EvidenceRequest),
     topP :: !(Maybe Double),
-    stopSequences :: !(Maybe (Vector Text)),
-    seed :: !(Maybe Integer),
+    -- | Sequences that stop generation. Empty means "send nothing" —
+    -- one representation, where @Nothing@ and @Just []@ used to be two
+    -- indistinguishable ones.
+    stopSequences :: ![Text],
+    -- | A machine integer, like 'timeoutMs': every provider that accepts
+    -- a seed accepts one.
+    seed :: !(Maybe Int),
     frequencyPenalty :: !(Maybe Double),
     presencePenalty :: !(Maybe Double)
   }
@@ -173,7 +185,7 @@ emptyOptions =
       responseFormat = Nothing,
       evidence = Nothing,
       topP = Nothing,
-      stopSequences = Nothing,
+      stopSequences = [],
       seed = Nothing,
       frequencyPenalty = Nothing,
       presencePenalty = Nothing

@@ -42,13 +42,12 @@ module Baikai.Provider.OpenAI.Internal.Stream
   )
 where
 
-import Baikai.Api (Api (..))
 import Baikai.Compat (OpenAICompletionsCompat (requiresThinkingAsText))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
-import Baikai.Error (BaikaiError, invalidRequest, providerError)
+import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Message qualified as Msg
@@ -1133,7 +1132,14 @@ closeOnFinish finishReason ass =
       (reason, note) = mapFinishReason finishReason
       pending =
         if reason == Stop.ErrorReason
-          then Just (providerError ("provider stopped the response: finish_reason=" <> finishReason))
+          then
+            Just
+              ( -- A filter is its own category: the content is the
+                -- problem, so a caller can branch on it without matching
+                -- on the message text.
+                (if finishReason == "content_filter" then contentFiltered else providerError)
+                  ("provider stopped the response: finish_reason=" <> finishReason)
+              )
           else Nothing
       ass4 =
         ass3

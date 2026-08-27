@@ -129,7 +129,7 @@ optionsMappingTest =
         opts =
           emptyOptions
             & #topP .~ Just 0.9
-            & #stopSequences .~ Just (Vector.fromList ["END", "STOP"])
+            & #stopSequences .~ ["END", "STOP"]
             & #seed .~ Just 7
             & #frequencyPenalty .~ Just 0.2
             & #presencePenalty .~ Just 0.3

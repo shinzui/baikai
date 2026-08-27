@@ -20,6 +20,7 @@ module Baikai.Auth
 where
 
 import Baikai.Error (authError)
+import Baikai.Header (HeaderName, renderHeaderName)
 import Baikai.Url (hostMatchesSuffix, urlHost)
 import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -32,7 +33,10 @@ import System.Environment qualified as Environment
 
 data ApiKeySource
   = ApiKeyLiteral !Text
-  | ApiKeyEnv !String
+  | -- | 'String' rather than 'Text' because
+    -- 'System.Environment.lookupEnv' takes one; converting here would
+    -- only move the conversion to every call site.
+    ApiKeyEnv !String
   | ApiKeyEnvChain ![String]
   deriving stock (Eq)
 
@@ -111,9 +115,12 @@ isCredentialHeader name =
 
 -- | Replace the value of every credential-carrying header with
 -- 'redactedMarker', leaving the names and every other value alone.
-redactHeaderValues :: Map Text Text -> Map Text Text
+redactHeaderValues :: Map HeaderName Text -> Map HeaderName Text
 redactHeaderValues =
-  Map.mapWithKey (\name value -> if isCredentialHeader name then redactedMarker else value)
+  Map.mapWithKey
+    ( \name value ->
+        if isCredentialHeader (renderHeaderName name) then redactedMarker else value
+    )
 
 -- | Render a credential source for logs, test failures, and debugging without
 -- exposing literal secret material.

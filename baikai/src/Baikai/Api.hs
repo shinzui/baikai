@@ -17,6 +17,7 @@ module Baikai.Api
   ( Api (..),
     renderApi,
     parseApi,
+    normaliseApi,
   )
 where
 
@@ -51,6 +52,18 @@ parseApi = \case
   "openai-completions-cli" -> OpenAICompletionsCli
   "anthropic-messages-cli" -> AnthropicMessagesCli
   t -> Custom t
+
+-- | Collapse a 'Custom' tag that spells a built-in API onto that
+-- constructor, so @Custom "anthropic-messages"@ and 'AnthropicMessages'
+-- are one registry key. Every other value is returned unchanged.
+--
+-- The registry normalises both the key it stores and the tag it is asked
+-- for, so a handler registered under either spelling answers a model
+-- tagged with the other. Derived 'Eq' and 'Ord' are deliberately left
+-- alone: changing them would silently rearrange every @Map Api@ a
+-- consumer holds.
+normaliseApi :: Api -> Api
+normaliseApi = parseApi . renderApi
 
 instance ToJSON Api where
   toJSON = toJSON . renderApi

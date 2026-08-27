@@ -16,6 +16,7 @@ where
 
 import Baikai.Auth qualified as Auth
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), authError, invalidRequest)
+import Baikai.Header (HeaderName, renderHeaderName)
 import Baikai.Http (cachedClientEnvCount, getClientEnvCached)
 import Baikai.Model (Model (..))
 import Baikai.Options (Options (..))
@@ -84,14 +85,18 @@ timeoutError ms =
       exitCode = Nothing
     }
 
+-- | Apply caller overrides over the provider's own headers.
+--
+-- The key type already carries the case-insensitivity rule, so the
+-- overrides cannot contain two spellings of one name and the fold only
+-- has to replace what the provider set.
 applyHeaderOverrides ::
   RequestHeaders ->
-  [(Text, Text)] ->
+  [(HeaderName, Text)] ->
   RequestHeaders
 applyHeaderOverrides =
   foldl addHeader
   where
     addHeader headers (name, value) =
-      let nameBytes = Text.encodeUtf8 name
-          ciName = CI.mk nameBytes
+      let ciName = CI.mk (Text.encodeUtf8 (renderHeaderName name))
        in (ciName, Text.encodeUtf8 value) : filter ((/= ciName) . fst) headers

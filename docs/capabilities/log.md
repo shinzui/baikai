@@ -2,6 +2,15 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-8 (categorised error model) gains a tenth category,
+  `ContentFiltered`. OpenAI's `finish_reason: "content_filter"` and Anthropic's
+  `refusal` stop both landed in `OtherError`, so a caller wanting to branch on a
+  filtered response had to match on the message text; both now carry their own
+  category, and `isRetryable` is `False` for it because the content, not the
+  transport, is the problem. `StopReason.Aborted` is gone in the same release:
+  nothing produced it, and `responseError`, `eventsFor` and `runToolLoop` all
+  treated it as success.
+
 * **Update**: CAP-13 (Anthropic Messages backend), CAP-14 (OpenAI Chat
   Completions backend) and CAP-7 (usage and cost accounting) record the
   0.6 surface freeze. Each provider's streaming machinery — the `SseDriver`

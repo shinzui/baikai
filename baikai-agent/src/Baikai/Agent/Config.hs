@@ -221,13 +221,13 @@ data AgentJob = AgentJob
 -- @FileSource \"KDL v2\"@ — naming the /format/, not the file — so the
 -- user and repository documents are indistinguishable by kind.
 data AgentConfigScope
-  = UserScope
-  | RepositoryScope
+  = AgentUserScope
+  | AgentRepositoryScope
   deriving stock (Eq, Ord, Show, Generic)
 
 renderAgentConfigScope :: AgentConfigScope -> Text
-renderAgentConfigScope UserScope = "user configuration"
-renderAgentConfigScope RepositoryScope = "repository configuration"
+renderAgentConfigScope AgentUserScope = "user configuration"
+renderAgentConfigScope AgentRepositoryScope = "repository configuration"
 
 -- | One configured job name and the scope that supplied the winning
 -- definition of it.
@@ -790,12 +790,12 @@ loadScope scope (Just path) = do
 -- scope that produced it.
 loadScopeSources :: AgentConfigPaths -> IO (Either AgentConfigError [(AgentConfigScope, Source)])
 loadScopeSources paths = do
-  userLoaded <- loadScope UserScope (paths ^. #userConfig)
-  repoLoaded <- loadScope RepositoryScope (paths ^. #repoConfig)
+  userLoaded <- loadScope AgentUserScope (paths ^. #userConfig)
+  repoLoaded <- loadScope AgentRepositoryScope (paths ^. #repoConfig)
   pure $ do
     userSources <- userLoaded
     repoSources <- repoLoaded
-    Right (map ((,) UserScope) userSources <> map ((,) RepositoryScope) repoSources)
+    Right (map ((,) AgentUserScope) userSources <> map ((,) AgentRepositoryScope) repoSources)
 
 -- | Resolve one named job across all five layers.
 --
@@ -950,7 +950,7 @@ loadAgentCeiling paths = do
   case located of
     Just problem -> pure (Left problem)
     Nothing -> do
-      userLoaded <- loadScope UserScope (paths ^. #userConfig)
+      userLoaded <- loadScope AgentUserScope (paths ^. #userConfig)
       pure $ do
         userSources <- userLoaded
         let resolved = resolve defaultResolveOptions userSources agentCeilingConfig
@@ -1071,7 +1071,7 @@ repositoryScopeViolations paths report jobName job = do
       node ^. #key == jobKey jobName leaf
         && maybe
           False
-          ((== renderAgentConfigScope RepositoryScope) . (^. #name))
+          ((== renderAgentConfigScope AgentRepositoryScope) . (^. #name))
           (node ^. #origin)
 
 -- | Refuse a working directory that resolves outside the repository
@@ -1146,7 +1146,7 @@ repositoryPolicyNotice warnings
   where
     fromRepositoryPolicy (UnknownKeyWarning UnknownKeyProblem {key, origin}) =
       NonEmpty.head (keySegments key) == "policy"
-        && origin ^. #name == renderAgentConfigScope RepositoryScope
+        && origin ^. #name == renderAgentConfigScope AgentRepositoryScope
 
 -- | Every configured job name, sorted, each attributed to the
 -- highest-precedence scope defining it.

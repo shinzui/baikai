@@ -28,12 +28,11 @@ module Baikai.Provider.Claude.Internal.Stream
   )
 where
 
-import Baikai.Api (Api (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
-import Baikai.Error (BaikaiError, invalidRequest, providerError)
+import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Message qualified as Msg
@@ -649,7 +648,9 @@ translateEvent raw ass now = case raw of
      in ([], ass & #stopReason .~ stopR & #usage .~ u' & #usageReported .~ True)
   Messages.Message_Stop ->
     let reason = ass ^. #stopReason
-        refusal = providerError "Anthropic refused to generate a response (stop_reason=refusal)"
+        -- A refusal is a filter: the content, not the transport, is
+        -- the problem, and a caller can branch on the category.
+        refusal = contentFiltered "Anthropic refused to generate a response (stop_reason=refusal)"
         msg =
           if reason == Stop.ErrorReason
             then finalMessageOnError ass now (refusal ^. #message)

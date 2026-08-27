@@ -958,7 +958,7 @@ listJobsTest =
           assertFailure ("listing failed: " <> Text.unpack (renderAgentConfigError problem))
         Right entries -> do
           map (^. #name) entries @?= ["demo", "user-only"]
-          map (^. #scope) entries @?= [RepositoryScope, UserScope]
+          map (^. #scope) entries @?= [AgentRepositoryScope, AgentUserScope]
           -- A name defined in two files is reported once, with the
           -- count, because a bare name hides a real source of
           -- confusion.

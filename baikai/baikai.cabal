@@ -67,6 +67,7 @@ library
     Baikai.Error
     Baikai.Evidence
     Baikai.Evidence.Build
+    Baikai.Header
     Baikai.Http
     Baikai.Interactive
     Baikai.Message
@@ -104,6 +105,7 @@ library
     , base16-bytestring  ^>=1.0
     , base64-bytestring  ^>=1.2
     , bytestring         ^>=0.12
+    , case-insensitive   ^>=1.2
     , containers         ^>=0.7
     , cryptohash-sha256  ^>=0.11
     , directory          ^>=1.3

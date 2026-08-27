@@ -80,8 +80,8 @@ mapRequest m ctx opts = do
         Chat.max_completion_tokens = maxTokensField,
         Chat.temperature = opts ^. #temperature,
         Chat.top_p = opts ^. #topP,
-        Chat.stop = opts ^. #stopSequences,
-        Chat.seed = opts ^. #seed,
+        Chat.stop = nonEmptyStops (opts ^. #stopSequences),
+        Chat.seed = fmap fromIntegral (opts ^. #seed),
         Chat.frequency_penalty = opts ^. #frequencyPenalty,
         Chat.presence_penalty = opts ^. #presencePenalty,
         Chat.tools = toolsField,
@@ -89,6 +89,13 @@ mapRequest m ctx opts = do
         Chat.reasoning_effort = reasoningEffortField,
         Chat.response_format = responseFormatField
       }
+
+-- | The wire wants an absent field for "no stop sequences", and
+-- 'Baikai.Options.stopSequences' says that with an empty list — the one
+-- representation, where @Nothing@ and @Just []@ used to be two.
+nonEmptyStops :: [Text] -> Maybe (Vector.Vector Text)
+nonEmptyStops [] = Nothing
+nonEmptyStops xs = Just (Vector.fromList xs)
 
 -- | Map a baikai 'ResponseFormat' onto the upstream OpenAI
 -- 'RF.ResponseFormat'. 'JsonObject' becomes plain-JSON mode;

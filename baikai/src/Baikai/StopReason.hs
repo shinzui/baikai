@@ -8,7 +8,7 @@
 -- subprocess reports an error.
 --
 -- Constructor encoding on the wire is snake-case: @"stop"@, @"length"@,
--- @"tool_use"@, @"error"@, @"aborted"@. @ErrorReason@ is renamed to
+-- @"tool_use"@, @"error"@. @ErrorReason@ is renamed to
 -- @"error"@ so the Haskell name does not clash with @Prelude.Either.Left@
 -- callers and the wire shape stays terse.
 module Baikai.StopReason (StopReason (..)) where
@@ -29,7 +29,6 @@ data StopReason
   | Length
   | ToolUse
   | ErrorReason
-  | Aborted
   deriving stock (Eq, Show, Generic)
 
 stopReasonOptions :: Options

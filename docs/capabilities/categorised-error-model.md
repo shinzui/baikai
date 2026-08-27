@@ -1,7 +1,7 @@
 ---
 title: "Categorised error model with retry classification"
 type: Capability
-description: "Branch on a typed BaikaiError — nine categories, an HTTP status, a Retry-After hint, and a subprocess exit code — delivered in band on the Response or the terminal event, so retry policy is written against structure instead of parsed out of provider error text."
+description: "Branch on a typed BaikaiError — ten categories, an HTTP status, a Retry-After hint, and a subprocess exit code — delivered in band on the Response or the terminal event, so retry policy is written against structure instead of parsed out of provider error text."
 generated:
   by: claude-code/opus-5
   at: "2026-08-27T00:00:00Z"
@@ -46,8 +46,8 @@ evidence:
 
 `BaikaiError` is a record, not a string. It carries an `ErrorCategory` —
 `AuthError`, `RateLimited`, `ContextOverflow`, `InvalidRequest`,
-`TransientError`, `DecodeFailure`, `ProcessFailure`, `ProviderUnavailable`,
-`OtherError` — plus an optional HTTP status, a `retryAfterSeconds` hint, and a
+`ContentFiltered`, `TransientError`, `DecodeFailure`, `ProcessFailure`,
+`ProviderUnavailable`, `OtherError` — plus an optional HTTP status, a `retryAfterSeconds` hint, and a
 subprocess exit code. `isRetryable` answers the question most callers actually
 have, and `classifyHttpStatus` / `classifyHttpStatusWithBody` are pure, so retry
 policy is testable without a provider.
@@ -99,6 +99,12 @@ case resp ^. #errorInfo of
   is not retryable, because against a well-known API host that is a trust-store
   or protocol mismatch a retry reproduces.
 - HTTP 413 is `ContextOverflow` from the status alone, whatever the body says.
+- A provider that refuses or filters the content — OpenAI's
+  `finish_reason: "content_filter"`, Anthropic's `refusal` stop — is
+  `ContentFiltered`, added in baikai 0.6.0.0. It is not retryable: the caller
+  must change what it sent. Before 0.6.0.0 both landed in `OtherError` and the
+  only way to tell a filter from any other failure was to match on the message
+  text.
 - Category assignment for a non-OpenAI, non-Anthropic host depends on that host
   imitating the status conventions of the API it is emulating. A compatible host
   with idiosyncratic statuses lands in `OtherError`.

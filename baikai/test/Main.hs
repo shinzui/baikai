@@ -462,7 +462,7 @@ unknownHostGen = do
 
 -- | A header map with two credential-carrying names, spelled the way a
 -- gateway would, and one ordinary header that must survive redaction.
-credentialHeaders :: Map.Map Text Text
+credentialHeaders :: Map.Map HeaderName Text
 credentialHeaders =
   Map.fromList
     [ ("Authorization", "Bearer sk-live-secret"),

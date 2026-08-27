@@ -84,11 +84,11 @@ Milestone 2 — deprecated shims removed; versions bumped; changelog states remo
 Milestone 3 — `Api` key normalisation, `Aborted` decision, naming and type consistency
 decisions recorded and applied:
 
-- [ ] Add `normaliseApi` to `baikai/src/Baikai/Api.hs`, apply it in `registerApiProviderWith` and `lookupApiProviderWith`, and make the blank-tag dispatch message name `emptyModel`; tests in `baikai/test/HelpersSpec.hs`.
-- [ ] Check EP-4's Decision Log for a producer of `Aborted`; apply the retire branch (default) or the first-class-failure branch, as recorded in this plan's Decision Log.
-- [ ] Add `ContentFiltered` to `ErrorCategory` with `contentFiltered`, route OpenAI `content_filter` and Anthropic `refusal` through it, update CAP-8's category count.
-- [ ] Apply the G.5 decisions: `seed :: Maybe Int`, `stopSequences :: [Text]`, `headers :: Map HeaderName Text` via the new `baikai/src/Baikai/Header.hs`, `AgentConfigScope` constructors renamed; document every "keep" on the field it concerns.
-- [ ] `cabal build all --enable-tests` and the keyless `cabal test all` green.
+- [x] Add `normaliseApi` to `baikai/src/Baikai/Api.hs`, apply it in `registerApiProviderWith` and `lookupApiProviderWith`, and make the blank-tag dispatch message name `emptyModel`; tests in `baikai/test/HelpersSpec.hs`.
+- [x] Check EP-4's Decision Log for a producer of `Aborted`; apply the retire branch (default) or the first-class-failure branch, as recorded in this plan's Decision Log.
+- [x] Add `ContentFiltered` to `ErrorCategory` with `contentFiltered`, route OpenAI `content_filter` and Anthropic `refusal` through it, update CAP-8's category count.
+- [x] Apply the G.5 decisions: `seed :: Maybe Int`, `stopSequences :: [Text]`, `headers :: Map HeaderName Text` via the new `baikai/src/Baikai/Header.hs`, `AgentConfigScope` constructors renamed; document every "keep" on the field it concerns.
+- [x] `cabal build all --enable-tests` and the keyless `cabal test all` green.
 
 Milestone 4 — accessors, parsers and deriving gaps closed; release metadata complete:
 
@@ -152,6 +152,15 @@ implementation. Provide concise evidence.
   load, like the cases EP-1's revision note widened from one second to three and
   five; nothing this plan changed touches it. Recorded rather than fixed: the
   deadline belongs to the plan that wrote it.
+
+- Milestone 3: the acceptance grep `git grep -n "CI.mk" -- 'baikai-*/src'` cannot
+  be empty and was not: `applyHeaderOverrides` still calls `CI.mk` in both
+  `Transport.hs` files, because `http-types`' `RequestHeaders` is
+  @[(CI ByteString, ByteString)]@ and a baikai `HeaderName` has to be encoded
+  into it. (Both `Sse.hs` modules also call it to read a response header, which
+  predates this plan.) What the criterion was after does hold: no code compares
+  or folds header names case-insensitively any more — the key type does it —
+  and the remaining calls are type conversions at the http-types boundary.
 
 
 ## Decision Log
@@ -394,6 +403,30 @@ Record every decision made while working on the plan.
   one; `"."` is the relative spelling of the same root and keeps the base pure.
   `defaultAgentConfigPaths` remains the discovering, `IO` path.
   Date: 2026-08-27
+- Decision (Milestone 3): `Aborted` is retired — the default branch. EP-4's
+  Decision Log (`docs/plans/61-…`, the single `Aborted` hit) records that
+  "nothing here produces an `Aborted` terminal, so EP-10's retirement of
+  `Aborted` stands", and no test pinned it. No consumer of the alternative
+  branch exists.
+  Date: 2026-08-27
+- Decision (Milestone 3): `describeApi` is exported from
+  `Baikai.Provider.Registry` rather than left unexported as the Plan of Work
+  says. Both call sites — `Registry.completeRequestWith` and
+  `Stream.noProviderEvents` — are in different modules, so an unexported
+  function cannot serve both, and duplicating a two-line renderer is exactly the
+  drift this plan removes elsewhere. `Baikai.Provider.Registry` is deliberately
+  not in the umbrella (`baikai/src/Baikai.hs` omits it), and
+  `Baikai.Provider` does not re-export the name, so the umbrella surface is
+  unchanged.
+  Date: 2026-08-27
+- Decision (Milestone 3): `nonEmptyStops :: [Text] -> Maybe (Vector Text)` is
+  defined privately in each provider's `Internal/Request.hs` rather than once in
+  core. Rationale: it is a wire adapter, not a rule — both SDKs happen to model
+  an absent field as `Nothing` and each conversion is two lines beside the field
+  it feeds. Core owns the representation decision (empty means "send nothing");
+  the SDKs own their own encodings.
+  Date: 2026-08-27
+
 - Decision (Milestone 2): the ADR is
   `docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md`, not `0006`.
   The corpus grew from five records to fifteen while EP-1..EP-9 landed, and the

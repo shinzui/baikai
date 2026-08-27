@@ -5,6 +5,7 @@ module Baikai.Error
     -- * Smart constructors
     providerError,
     invalidRequest,
+    contentFiltered,
     decodeError,
     processError,
     rateLimited,
@@ -61,6 +62,11 @@ data ErrorCategory
   | -- | The request was malformed or otherwise rejected as invalid
     -- (HTTP 400/404/422). Not retryable without changes.
     InvalidRequest
+  | -- | The provider refused or filtered the content — OpenAI's
+    -- @finish_reason: "content_filter"@, Anthropic's @refusal@ stop.
+    -- The content, not the transport, is the problem, so it is not
+    -- retryable as-is: the caller must change what it sent.
+    ContentFiltered
   | -- | A transient server-side or network failure (HTTP 408/5xx, or a
     -- connection error). Safe to retry, ideally with backoff.
     TransientError
@@ -140,6 +146,10 @@ providerError = baseError OtherError
 -- | A request rejected as invalid.
 invalidRequest :: Text -> BaikaiError
 invalidRequest = baseError InvalidRequest
+
+-- | Content the provider refused or filtered.
+contentFiltered :: Text -> BaikaiError
+contentFiltered = baseError ContentFiltered
 
 -- | A response that failed to decode.
 decodeError :: Text -> BaikaiError

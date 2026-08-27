@@ -151,7 +151,7 @@ optionsMappingTest =
         opts =
           emptyOptions
             & #topP .~ Just 0.9
-            & #stopSequences .~ Just (Vector.fromList ["END", "STOP"])
+            & #stopSequences .~ ["END", "STOP"]
             & #seed .~ Just 7
             & #frequencyPenalty .~ Just 0.2
             & #presencePenalty .~ Just 0.3
@@ -980,7 +980,10 @@ finishReasonTests =
         assertOneErrorTerminal terminalEvents
         case last terminalEvents of
           EventError TerminalPayload {errorInfo = Just be} -> do
-            be ^. #category @?= OtherError
+            -- Its own category, so a caller can branch on a filtered
+            -- response without matching on the message text.
+            be ^. #category @?= ContentFiltered
+            isRetryable be @?= False
             assertBool "message mentions content_filter" ("content_filter" `Text.isInfixOf` (be ^. #message))
           other -> assertFailure ("expected EventError for content_filter, got: " <> show other),
       testCase "unknown finish_reason is a successful diagnostic" $ do

@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | The provider registry — the dispatch surface that replaces the
 -- prior 'Baikai.Provider' typeclass and 'SomeProvider' existential.
 --
@@ -15,6 +17,7 @@
 module Baikai.Provider.Registry
   ( ApiProvider (apiTag, stream, complete, describeThinking, strengthCeiling),
     apiProviderWith,
+    describeApi,
     ProviderRegistry,
     newProviderRegistry,
     newProviderRegistryFrom,
@@ -34,7 +37,7 @@ module Baikai.Provider.Registry
   )
 where
 
-import Baikai.Api (Api, renderApi)
+import Baikai.Api (Api (..), normaliseApi, renderApi)
 import Baikai.Content (AssistantContent (..), ToolCall, isCutOffToolCall)
 import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
@@ -140,6 +143,17 @@ apiProviderWith tag producer completer =
       strengthCeiling = Evidence.EvidenceRequestedOnly
     }
 
+-- | How an 'Api' tag reads in a dispatch failure.
+--
+-- 'renderApi' everywhere except @Custom ""@, which renders as the empty
+-- string and made "No provider registered for API: " the whole message.
+-- A blank tag has one cause — 'Baikai.Model.emptyModel' whose @api@ was
+-- never set — so the message says that instead of nothing.
+describeApi :: Api -> Text
+describeApi = \case
+  Custom "" -> "<blank Custom tag — emptyModel.api was never set>"
+  other -> renderApi other
+
 -- | A mutable provider registry handle. Each handle owns its own handler map,
 -- so tests and applications can maintain isolated provider sets in one process.
 newtype ProviderRegistry = ProviderRegistry
@@ -169,9 +183,16 @@ globalProviderRegistry = unsafePerformIO newProviderRegistry
 -- | Install (or replace) a handler. Idempotent for the same 'Api'
 -- tag — calling 'registerApiProviderWith' twice for the same tag keeps only
 -- the second handler.
+--
+-- The key is 'normaliseApi' of the provider's own tag, so registering
+-- under @Custom \"anthropic-messages\"@ and under
+-- 'Baikai.Api.AnthropicMessages' collide as one entry rather than
+-- sitting side by side and dispatching by which spelling the model
+-- happened to use.
 registerApiProviderWith :: ProviderRegistry -> ApiProvider -> IO ()
 registerApiProviderWith reg p =
-  atomicModifyIORef' (registryRef reg) $ \m -> (Map.insert (apiTag p) p m, ())
+  atomicModifyIORef' (registryRef reg) $ \m ->
+    (Map.insert (normaliseApi (apiTag p)) p m, ())
 
 -- | Install (or replace) a handler in the process-global registry.
 registerApiProvider :: ApiProvider -> IO ()
@@ -197,8 +218,13 @@ assertRegistered reg tags = do
       )
 
 -- | Look up the handler registered for an 'Api' tag.
+--
+-- Both the stored key and the query go through 'normaliseApi', so a
+-- handler registered under @Custom \"anthropic-messages\"@ answers a
+-- model tagged 'Baikai.Api.AnthropicMessages', and the reverse.
 lookupApiProviderWith :: ProviderRegistry -> Api -> IO (Maybe ApiProvider)
-lookupApiProviderWith reg tag = Map.lookup tag <$> readIORef (registryRef reg)
+lookupApiProviderWith reg tag =
+  Map.lookup (normaliseApi tag) <$> readIORef (registryRef reg)
 
 -- | Look up the handler registered for an 'Api' tag in the process-global
 -- registry.
@@ -220,7 +246,7 @@ completeRequestWith reg m ctx opts = do
       -- "No provider was registered" is a fact about the call, so a
       -- caller who asked for evidence gets a record of it. Nothing was
       -- sent, so the digests are over 'Build.dispatchEnvelope'.
-      let detail = "No provider registered for API: " <> renderApi (Model.api m)
+      let detail = "No provider registered for API: " <> describeApi (Model.api m)
           err = providerUnavailable detail
       ev <-
         Build.minimalEvidence

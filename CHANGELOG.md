@@ -17,6 +17,26 @@ that takes the name away, per
 
 ### Added
 
+- `baikai`: `Baikai.Api.normaliseApi :: Api -> Api`, which collapses a `Custom`
+  tag that spells a built-in API onto that constructor. The registry applies it
+  to the key it stores and to the tag it is asked for, so a handler registered
+  under `Custom "anthropic-messages"` answers a model tagged `AnthropicMessages`
+  and the reverse; the two used to be separate entries and dispatch depended on
+  which spelling the model happened to carry. Derived `Eq`/`Ord` on `Api` are
+  deliberately unchanged: altering them would silently rearrange every
+  `Map Api` a consumer holds. (REV-2 G.4.)
+
+- `baikai`: `Baikai.Header`, a new module exporting `HeaderName` with
+  `headerName` and `renderHeaderName`. See the `headers` retype under Changed.
+
+- `baikai`: `Baikai.Error.ErrorCategory` gains `ContentFiltered` (wire tag
+  `content_filtered`, never retryable) with the smart constructor
+  `contentFiltered`. OpenAI's `finish_reason: "content_filter"` and Anthropic's
+  `refusal` stop now carry it. Both used to be `OtherError`, so the only way to
+  tell a filtered response from any other non-retryable failure was to match on
+  the message text. __Breaking__ for a consumer whose `case` over
+  `ErrorCategory` is exhaustive without a wildcard. (REV-1 1.7 residual.)
+
 - `baikai` (breaking to construct, not to read): every record that can still
   grow a field is now built from an exported base value and refined by record
   update, and its constructor is no longer exported —
@@ -223,6 +243,44 @@ that takes the name away, per
   `EvidenceStrength`. (REV-2 D.10.)
 
 ### Changed
+
+- `baikai` (breaking): `Options.headers` and `Model.headers` are keyed on
+  `Baikai.Header.HeaderName` — a newtype over a case-insensitive `CI Text` that
+  keeps the original spelling — instead of `Text`. A header name is
+  case-insensitive on the wire, so a `Map Text Text` holding both
+  `Authorization` and `authorization` sent whichever the assembling fold reached
+  last; the map now holds one entry per header and the last write wins, as a
+  caller writing two spellings would expect. `HeaderName` has an `IsString`
+  instance, so `Map.singleton "x-test" "1"` and `#headers` updates keep
+  compiling; the spelling given is what goes out on the wire and into JSON.
+  (REV-2 G.5.)
+
+- `baikai` (breaking): `Options.stopSequences` is `[Text]`, where empty means
+  "send nothing", instead of `Maybe (Vector Text)` — `Nothing` and `Just []`
+  were indistinguishable on the wire and only one of them could be right. Plan
+  43's rule is lists for caller-side configuration and `Vector` for
+  provider-bound sequences; this was the one field breaking it. `Options.seed`
+  is `Maybe Int` rather than `Maybe Integer`: a seed is a machine integer at
+  every provider that accepts one, and it now sits beside
+  `timeoutMs :: Maybe Int`. (REV-2 G.5, R14.)
+
+- `baikai` (breaking): `StopReason.Aborted` is removed. Nothing produced it —
+  timeouts are `ErrorReason`/`TransientError`, and a consumer abort is recorded
+  as evidence `CallAborted` — while `responseError`, `eventsFor` and
+  `runToolLoop` all treated it as a *success*, so a value that reached any of
+  them would have been silently mishandled. Since 0.6.0.0 a stream consumer that
+  stops cancels the producer, so no consumer is left to receive such a terminal
+  either. (REV-2 B.6.)
+
+- `baikai-agent` (breaking): `AgentConfigScope`'s constructors are
+  `AgentUserScope` and `AgentRepositoryScope`. `UserScope` collided with
+  `baikai-kit`'s `KitScope` constructor of the same name, the one clash between
+  two baikai-family packages. (REV-2 G.5.)
+
+- `baikai`: dispatching a model whose `api` is still `emptyModel`'s
+  `Custom ""` says so — `No provider registered for API: <blank Custom tag —
+  emptyModel.api was never set>` — where the message used to end after the
+  colon. `emptyModel`'s Haddock says the same thing. (REV-2 G.4.)
 
 - `baikai-claude`, `baikai-openai` (breaking): each provider's streaming
   machinery moved from `Baikai.Provider.<P>.Api` to

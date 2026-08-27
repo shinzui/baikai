@@ -111,8 +111,7 @@ data AssistantMessageEvent
   | -- | The stream's terminal failure event. The payload's 'message'
     -- is an 'AssistantMessage' carrying whatever content blocks were
     -- already closed before the failure, plus a populated
-    -- 'errorMessage' and @stopReason = ErrorReason@ or
-    -- @stopReason = Aborted@.
+    -- 'errorMessage' and @stopReason = ErrorReason@.
     EventError TerminalPayload
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
