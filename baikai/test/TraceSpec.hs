@@ -43,6 +43,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Either (isLeft)
+import Data.List (findIndex)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TextEncoding
@@ -783,12 +784,37 @@ assertMinimalShape ev = do
 
 -- | Exactly one evidence record per call, joined to the rest of the
 -- call's lines by the trace @eventId@.
+-- | The record must reach the sink while the call is still open there.
+--
+-- "Baikai.Trace" pushes 'CallEvidence' before the terminal since commit
+-- @1717694@, because the OpenTelemetry sink ends and removes its span on
+-- the terminal and so could never attach evidence that arrived after it.
+-- 'docs\/capabilities\/model-call-evidence.md' claimed an ordering
+-- assertion existed; this is it, and every evidence case runs it on its
+-- own path — success, failure, abort, unregistered provider.
+assertEvidencePrecedesTerminal :: [TraceEvent] -> IO ()
+assertEvidencePrecedesTerminal events =
+  case (findIndex isEvidence events, findIndex isTerminal events) of
+    (Just i, Just j) ->
+      assertBool
+        ("CallEvidence at " <> show i <> " must precede the terminal at " <> show j)
+        (i < j)
+    (Just _, Nothing) -> assertFailure "an evidence event without a terminal"
+    _ -> assertFailure "no evidence event to order"
+  where
+    isEvidence = \case CallEvidence {} -> True; _ -> False
+    isTerminal = \case
+      CallFinished {} -> True
+      CallFailed {} -> True
+      _ -> False
+
 exactlyOneEvidence :: [TraceEvent] -> IO ModelCallEvidence
 exactlyOneEvidence events = case evidencesIn events of
   [ev] -> do
     let ids = Set.fromList [e ^. #eventId :: Text | e <- events]
     Set.size ids @?= 1
     assertMinimalShape ev
+    assertEvidencePrecedesTerminal events
     pure ev
   other ->
     assertFailure

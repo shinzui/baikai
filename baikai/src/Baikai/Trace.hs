@@ -16,12 +16,27 @@
 -- 'AssistantMessageEvent' is emitted), then watch for the stream's
 -- terminal event ('EventDone' or 'EventError') and push the
 -- matching 'CallFinished' / 'CallFailed' before yielding the
--- terminal event to the consumer. Cleanup ('Nothing' sentinel on
--- the channel + 'takeMVar' on the worker) is idempotent and runs
--- through 'Stream.finallyIO' so an early-aborting consumer eventually
--- records a synthetic 'CallFailed' and never leaks the worker. Sink
--- exceptions are captured by the worker and reported once on stderr
--- during cleanup; they do not propagate into the provider call.
+-- terminal event to the consumer.
+--
+-- Cleanup — the 'Nothing' sentinel on the channel, then a wait for
+-- the worker — runs exactly once per call. On a normal terminal it
+-- runs on the calling thread, so when 'withTrace' returns the sink
+-- has processed this call's events. When the consumer abandons the
+-- stream instead, it runs from streamly's garbage-collection hook:
+-- the synthetic 'CallFailed' and its @aborted@ evidence record are
+-- delivered at the next major collection after the stream becomes
+-- unreachable, and are __not guaranteed before process exit__. A
+-- caller who needs the record before exiting drains the stream to
+-- its terminal ('withTrace', or a fold that keeps consuming) rather
+-- than stopping early.
+--
+-- The wait for the worker is bounded by 'sinkDrainBoundMicros'. A
+-- sink that blocks forever costs the call one second, after which
+-- the worker is abandoned and the stall is reported. Sink
+-- exceptions — and stalls — are recorded by the worker and reported
+-- once on stderr during cleanup; they fail the call only under
+-- 'Baikai.Evidence.EvidenceRequired', where a record whose delivery
+-- was never confirmed is not one the caller can account for.
 module Baikai.Trace
   ( -- * Re-exports
     TraceEvent (..),

@@ -319,10 +319,12 @@ awaitSpans getSpans n = go (100 :: Int)
 -- already delimits, so it must neither open a span nor close one.
 --
 -- The sink is fed a hand-built sequence rather than driven through
--- 'withTrace', for two reasons. It isolates the claim to the sink's own
--- behaviour, and it is the only way to reach the attach path at all:
--- "Baikai.Trace" pushes the evidence event /after/ the terminal, by
--- which point the span has been ended and removed from the map.
+-- 'withTrace' so the claim is about the sink's own behaviour and
+-- nothing else: this case chooses the event order, which is what lets
+-- it assert that an evidence event on its own neither opens a span nor
+-- ends one. The live order — evidence before the terminal — is
+-- 'liveEvidenceSpanTest's subject, and 'Baikai.Trace' pins it in
+-- @baikai/test/TraceSpec.hs@.
 -- | The evidence attributes reach a span from a __live__ call, not only
 -- from a hand-fed stream.
 --

@@ -28,3 +28,4 @@ bundle.
 | [0012](0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md) | The unattended policy ceiling gates every field a repository can set, and `allowedTools` is a grant | accepted |
 | [0013](0013-library-code-never-calls-exitfailure.md) | Library code never calls `exitFailure`; process exit belongs to a command adapter | accepted |
 | [0014](0014-strict-evidence-means-a-record-exists.md) | Strict evidence means a record exists, not merely that the sink did not throw | accepted |
+| [0015](0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md) | Trace cleanup is bounded, and abort cleanup is garbage-collection-eventual | accepted |

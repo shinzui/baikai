@@ -254,6 +254,22 @@ a strict caller that is backwards: they asked for a record and the record
 did not survive, so the call fails rather than handing back an answer
 they cannot account for.
 
+**A sink that blocks counts as a failure too.** Baikai waits at most one
+second for the sink to confirm it has taken this call's events. On expiry
+the worker is abandoned — not killed, which would abort the sink's fold
+mid-step and lose its end-of-stream action — the call proceeds, and one
+line goes to stderr:
+
+```text
+baikai: the trace sink did not confirm delivery within 1000 ms; its worker was abandoned, and events already queued may still be delivered later
+```
+
+A strict caller gets a failed call, with a message saying the record was
+`not confirmed written`. That wording is deliberate: the events may still
+be delivered when the sink eventually unblocks, but they were not
+confirmed delivered before the call returned, and a record you cannot
+account for at the moment you get the answer is not evidence.
+
 **A record that was never built fails the call the same way.** A provider
 can pass the gate and then attach nothing to its terminal, which used to
 give a strict caller a successful answer, no record, and no error
@@ -278,6 +294,29 @@ remaining way to make strict mode lie.
 reasoning level. The test for that guarantee is exhaustive rather than
 representative, because it is the promise every existing caller depends
 on without knowing the feature exists.
+
+### When the record is written
+
+On a call you drain to its terminal — `withTrace`, or a fold that keeps
+consuming — the evidence record is pushed to the sink **synchronously,
+before the terminal event reaches you**, and `withTrace` does not return
+until the sink has taken it (or the one-second bound expires). That is
+the ordinary case and it holds no matter which sink you use.
+
+A consumer that **abandons the stream** — `Stream.take 1`, a fold that
+stops early, an exception on the consumer's side — is different. Baikai
+still records a synthetic `CallFailed` and an `aborted` evidence record,
+but they are delivered from streamly's garbage-collection hook: at the
+next major collection after the abandoned stream becomes unreachable, not
+at the moment you stopped reading. A short-lived process that abandons a
+stream and exits may never write them at all.
+
+If you need the record before your process exits, drain to the terminal.
+`withTrace` does this for you; with `withTraceStream`, use a fold that
+keeps consuming after you have what you need rather than `Stream.take`.
+Calling `System.Mem.performMajorGC` after abandoning is a last resort,
+not a guarantee. See
+[ADR 0015](../adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md).
 
 ### On the unattended agent surface
 

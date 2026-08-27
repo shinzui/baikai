@@ -206,7 +206,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   confirm delivery gets a failed call, through the same path a throwing sink
   takes; `Baikai.Evidence.Build.sinkFailureError` now says "its record was not
   confirmed written" rather than "not written", which is the honest claim for
-  an abandoned worker whose events are still queued. (REV-2 D.5.)
+  an abandoned worker whose events are still queued. The synthetic terminal a
+  consumer's abort produces is delivered from a garbage-collection hook and is
+  not guaranteed before process exit; that was always true and is now stated in
+  `docs/user/model-call-evidence.md`, `docs/capabilities/call-tracing.md` and
+  the `Baikai.Trace` module documentation, with the pattern for callers who need
+  the record. See
+  [docs/adr/0015](docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md).
+  (REV-2 D.5, Theme 7.3.)
 
 - `baikai`: `Baikai.Trace.Sink.multiSink` runs each member on its own drain
   thread behind its own unbounded channel, instead of folding `Fold.tee` across

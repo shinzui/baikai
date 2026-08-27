@@ -2,6 +2,24 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-9 (call tracing) and CAP-10 (OpenTelemetry span export) record
+  the 2026-08 trace-sink hardening. A sink that *blocks* can no longer hold a
+  call: `withTrace` waits at most one second for the worker, abandons it rather
+  than killing it, reports the stall on stderr and fails the call under
+  `EvidenceRequired`. `multiSink` runs each member on its own drain thread, so a
+  member that throws or blocks cannot stop delivery to its siblings or skip their
+  end-of-stream action — an OpenTelemetry span paired with an unwritable file
+  sink used to be opened, never ended and never exported — and a failure names
+  each failed member by zero-based index. The terminal event and its evidence
+  record are committed as one unit against asynchronous exceptions. CAP-9 now
+  states, where a reader meets it, that the synthetic abort terminal is delivered
+  from a garbage-collection hook and is not guaranteed before process exit, with
+  the drain-to-the-terminal pattern for callers who need the record
+  (`docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md`).
+  CAP-10 gains `OtelSinkOptions.parentContext`, which nests the call span under a
+  span the caller supplies; it is fixed per sink because the fold runs on the
+  trace worker thread, where the caller's thread-local context is invisible.
+
 * **Update**: CAP-19 (model-call evidence) records one strength rule where there
   were three, and a provider-declared ceiling. An observed response id now
   counts as correlation, so a host naming its model and response id on every

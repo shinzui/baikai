@@ -67,10 +67,10 @@ rebase in both Decision Logs.
 - [x] M2: blocking-sink (best-effort and strict), throwing/blocking `multiSink` member, strict member-naming, and `closeCallLog`-twice tests in `TraceSpec.hs`, `CostSpec.hs`, `baikai-trace-otel/test/Main.hs`.
 - [x] M3: `OtelSinkOptions.parentContext`; `strengthText` replaced by `renderEvidenceStrength`; `parentContextTest` and the strength-spelling assertion.
 - [x] M3: `baikai-effectful.cabal` no longer depends on `streamly`.
-- [ ] M4: `exactlyOneEvidence` asserts `CallEvidence` precedes the terminal.
-- [ ] M4: abort-delivery semantics in `docs/capabilities/call-tracing.md`, `docs/user/model-call-evidence.md`, `Trace.hs`'s module doc, `Trace/Event.hs`'s Haddock and the otel test comment; `docs/capabilities/opentelemetry-span-export.md` gains the parent-context limit; `docs/capabilities/log.md` entry.
-- [ ] M4: ADR `docs/adr/0006-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md` (next free number at implementation time).
-- [ ] `CHANGELOG.md` entries under `[Unreleased]` for `baikai`, `baikai-trace-otel`, `baikai-effectful`.
+- [x] M4: `exactlyOneEvidence` asserts `CallEvidence` precedes the terminal.
+- [x] M4: abort-delivery semantics in `docs/capabilities/call-tracing.md`, `docs/user/model-call-evidence.md`, `Trace.hs`'s module doc, `Trace/Event.hs`'s Haddock and the otel test comment; `docs/capabilities/opentelemetry-span-export.md` gains the parent-context limit; `docs/capabilities/log.md` entry.
+- [x] M4: ADR `docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md` (the next free number at implementation time; EP-8 took `0014`).
+- [x] `CHANGELOG.md` entries under `[Unreleased]` for `baikai`, `baikai-trace-otel`, `baikai-effectful`.
 - [ ] Keyless test gate and `okf validate docs/capabilities` pass; EP-9 boxes ticked in the MasterPlan.
 
 
@@ -122,6 +122,28 @@ Implementation-time:
   The same `threadDelay 100000` moved *inside* the fixed `uninterruptibleMask_` block
   is harmless — the fifty iterations pass in 15.52s against 10.18s without it — which
   is the point of the mask: the delay is now a window the exception cannot land in.
+  (2026-08-27)
+- __`Baikai.Trace.Event`'s Haddock was already right.__ The plan predicted lines
+  87–95 said the evidence event is pushed "immediately *after*" the terminal and
+  scheduled the correction; commit `1717694` had already changed both the code
+  and that sentence to *before*. Only the stale paragraph in
+  `baikai-trace-otel/test/Main.hs` still described the old order, and it is the
+  one this plan rewrote. A plan quoting a review's line reference should re-read
+  the line. (2026-08-27)
+- __The abort path did not become synchronous after EP-4.__ EP-9's plan asked for
+  this check once EP-4's consumer-side cancellation landed. With `performMajorGC`
+  removed from `awaitEvents` and `awaitSpans`, `earlyAbortTest`,
+  `abortEvidenceTest` and `abortSpanTest` fail on every one of twenty runs — each
+  times out after five seconds with only `CallStarted` recorded, and the OTel
+  case exports no span at all. Cancelling the producer and running the
+  consumer's own `finallyIO` cleanup are different things, and only the first is
+  synchronous. The caveat stands unnarrowed and is recorded that way in
+  `docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md`.
+  (2026-08-27)
+- __The ordering assertion earns its place.__ Swapping the two pushes inside
+  `commitTerminal` fails all four evidence cases — success, failure, abort and
+  unregistered provider — which is what
+  `docs/capabilities/model-call-evidence.md` claimed a test already did.
   (2026-08-27)
 - __EP-8 did not adopt the "not confirmed written" wording, so this plan made the
   edit__, as its Decision Log said it would. `Build.sinkFailureError` now reads "so its
