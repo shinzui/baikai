@@ -113,7 +113,9 @@ data Response = Response
 `EventError` is not an exception. The terminal event is delivered
 through the stream, and its `message` carries every content block
 that closed before the failure. A network drop mid-response still
-gives you whatever text the model had already streamed:
+gives you whatever text the model had already streamed, and the
+terminal's `errorInfo` classifies such a drop as `TransientError`, so
+`isRetryable` is true:
 
 ```haskell
 events <- Stream.toList (streamRequest model ctx opts)

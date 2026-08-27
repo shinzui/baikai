@@ -67,6 +67,33 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Model.baseUrl` and what to do instead. See
   [docs/adr/0008](docs/adr/0008-one-url-host-parser-and-every-consumer-uses-it.md).
 
+- `baikai`: new exposed module `Baikai.Provider.Transport.Classify` — the one
+  rule every HTTP provider uses to classify a transport failure, exporting
+  `classifyTransportException` plus the per-type functions it composes. The rule
+  is *where* the failure happened, not what type it is: anything that breaks or
+  ends the connection after the request went out is `TransientError`, anything
+  that says the request or the configuration is wrong is not retryable, and a
+  programming error stays `OtherError`. It understands all three shapes
+  `http-client` can deliver — an `HttpException` of any constructor, a raw socket
+  `IOException`, and a raw or wrapped `TLSException` — because the manager wraps
+  the connect phase but not the body reader. Core gains direct `build-depends` on
+  `http-types` and `tls`, both already in its install plan. Written for
+  third-party `Custom` providers built on `http-client` as much as for baikai's
+  own two. See
+  [docs/adr/0011](docs/adr/0011-core-owns-transport-failure-classification.md).
+
+- `baikai`: `Baikai.Error.parseHttpDate` and `Baikai.Error.retryAfterSecondsAt`.
+  The first parses an HTTP-date in the IMF-fixdate form servers must send plus
+  the two obsolete forms a recipient must accept; the second converts a
+  `Retry-After` header in either of its forms to seconds against a reference
+  instant, clamping a date already in the past to `0`.
+  `parseRetryAfterSeconds` keeps its integer-only contract, now a deliberate
+  division of labour rather than a limitation.
+
+- `baikai-openai`: `Baikai.Provider.OpenAI.Internal.ErrorClass.classifyErrorFrame`
+  and `Baikai.Provider.OpenAI.Api.parseFrame`, which sort a decoded SSE payload
+  into a classified in-band error or a completion chunk.
+
 - `baikai`: new exposed module `Baikai.Http` — `canonicalBaseUrl`,
   `getClientEnvCached` and `cachedClientEnvCount`, the process-global
   `ClientEnv` cache that both HTTP provider packages now share instead of each
@@ -123,13 +150,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `baikai.model-call-evidence/1.1`. A minor bump: the two sampling adjustment kinds are a
   compatible addition, and no previously recorded digest changes.
 
-### Deprecated
 
-- `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
-  consults it any more — the thinking style of a first-party Anthropic model is
-  a field of its generated catalog record. It is removed at the next major.
+- `baikai`: HTTP 413 classifies as `ContextOverflow` rather than `OtherError`,
+  from the status alone and whatever the body says. 413 *is* the size-limit
+  status and the caller's remedy — shrink the input — is the same either way;
+  making the category depend on body wording would recreate for 413 the
+  inconsistency this release fixes for connection resets. (REV-2 A.7.)
 
-### Changed
+- `baikai`, `baikai-claude`, `baikai-openai`: an HTTP-date `Retry-After` is
+  converted to seconds instead of ignored. Both transports use the response's own
+  `Date` header as the reference instant, falling back to the local clock, so a
+  CDN-fronted `429` — the common case for a date-valued `Retry-After` — now
+  carries a hint rather than leaving the caller to guess. (REV-2 A.9.)
+
+- `baikai-claude`, `baikai-openai`: **behaviour change.** `Options.timeoutMs` of
+  `Just n` with `n <= 0` is refused as `InvalidRequest` before the action runs, so
+  no connection is opened. `System.Timeout.timeout` returns immediately at zero
+  and runs unbounded below it, and the previous `max 0` clamp made both spellings
+  fail instantly as a *retryable* `TransientError` — a classification a caller's
+  retry loop re-issues forever for what is a configuration mistake. `Nothing`
+  remains the only spelling of "no bound". (REV-2 A.10.)
 
 - `baikai`: **breaking.** `Baikai.Embedding.EmbeddingModel.apiKey` is now
   `Maybe ApiKeySource` rather than `ApiKeySource`. `Nothing` means the
@@ -152,7 +192,48 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   account of, because the tool started, may have consumed tokens, and may
   already have changed the working tree.
 
+### Deprecated
+
+- `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
+  consults it any more — the thinking style of a first-party Anthropic model is
+  a field of its generated catalog record. It is removed at the next major.
+
+### Removed
+
+- `baikai-claude`, `baikai-openai`: `responseToError` and `classifyErrorText`
+  (and its private `classifySdkHttpText` half) from both
+  `.Internal.ErrorClass` modules. Neither package runs a `servant-client` client
+  on the chat path any more, so the `ClientError` branch was unreachable, and the
+  text classifiers parsed a string shape the local SSE transports stopped
+  producing in July. The phrase table `classifyErrorText` held survives as the
+  message fallback inside `classifyErrorFrame`, pinned through the entry point the
+  runtime actually uses. Both modules are documented as outside the PVP-stable
+  surface, so this is not a major bump; version bumps are recorded once, later.
+
 ### Fixed
+
+- `baikai-claude`, `baikai-openai`: a failure that lands while the response body
+  is streaming is classified as the transient failure it is. A connection reset,
+  a server closing the socket mid-chunk, a body shorter than its declared length
+  and a TLS session torn down after the handshake all now terminate the stream
+  with `TransientError` and `isRetryable = True`, carrying whatever text had
+  already been drained. Every one of them used to be `OtherError` with
+  `isRetryable = False`, while the identical failure at connect time was
+  transient — because `http-client` wraps the connect phase with the manager's
+  exception wrapper and the body reader with nothing that converts a socket
+  `IOException` or a `TLSException`, so those reached the worker raw and missed
+  the `HttpException` branch entirely. (REV-2 A.2.)
+
+- `baikai-openai`: an in-band `{"error": …}` frame on a `2xx` stream terminates
+  the call with the frame's own classification, status and message. Compatible
+  hosts (OpenRouter, DeepSeek, Together) report an upstream failure they only
+  learned about after committing to a `200` this way, and `parseChunk` never
+  looked at `error`. The pre-fix behaviour was worse than a bad category:
+  OpenRouter's frame carries `choices[0].finish_reason = "error"`, which mapped
+  to `Stop`, so the call ended as `EventDone` with `errorInfo = Nothing` — a
+  consumer switching on the terminal saw a *completed* call. A frame with no
+  `choices` beside the error ended as
+  `OtherError "openai stream ended without finish_reason"`. (REV-2 A.3.)
 
 - `baikai`: `reassembleResponse` is total under duplicated, late and
   timestamp-less input. The first `EventStart` wins the skeleton and

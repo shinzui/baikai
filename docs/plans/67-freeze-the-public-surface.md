@@ -118,6 +118,23 @@ implementation. Provide concise evidence.
 
 ## Decision Log
 
+- Question (recorded by EP-5, 2026-08-27): should `ErrorCategory` gain a `ContentFiltered`
+  constructor? EP-5 left `finish_reason = "content_filter"` as `OtherError` and did not
+  widen the closed sum, because widening it is a surface decision that belongs with the
+  other freeze-time type changes and the major bump that carries them — which the
+  MasterPlan's Integration Points confirms is EP-10's. Until then the message
+  `provider stopped the response: finish_reason=content_filter` is the only signal
+  distinguishing a filter from any other non-retryable failure, and a consumer wanting to
+  branch on it must match on message text.
+  Names EP-5 adds that this plan must cover: `Baikai.Provider.Transport.Classify` (a plain
+  exposed module with five exports; EP-5's recommendation is to keep it public, because its
+  Haddock offers it to third-party `Custom` providers built on `http-client`),
+  `Baikai.Error.parseHttpDate`, `Baikai.Error.retryAfterSecondsAt`,
+  `Baikai.Provider.OpenAI.Internal.ErrorClass.classifyErrorFrame`, and
+  `Baikai.Provider.OpenAI.Api.parseFrame`. Names EP-5 removes, so this plan need not:
+  `responseToError` and `classifyErrorText` from both `.Internal.ErrorClass` modules.
+  Date: 2026-08-27
+
 Record every decision made while working on the plan.
 
 - Decision: Sibling plans EP-1..EP-9 are inputs, not assumptions. Before any export

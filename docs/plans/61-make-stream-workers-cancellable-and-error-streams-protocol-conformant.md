@@ -157,6 +157,19 @@ Implementation-time findings:
 
 ## Decision Log
 
+- Decision (recorded by EP-5, 2026-08-27): EP-5 made the one edit outside its own region
+  that the MasterPlan's Integration Points reserved for it. The OpenAI `worker`'s
+  `Right val -> case parseChunk val of` arm now reads `case parseFrame val of`, and the
+  `Right` branch pushes the frame straight through
+  (`Right frame -> pushFrame q frame`) because `parseFrame` returns
+  `Either String (Either BaikaiError RawChunk)`. Nothing else in `worker` changed; the
+  bounded queue, the bracket and the `Left` path EP-4 built are untouched, and an in-band
+  error frame reaches the assembler as the same `Left` element a non-2xx already used, so
+  EP-4's block closing applies to it unchanged.
+  Rationale: recorded here rather than only in EP-5 because EP-4 owns this file and the
+  MasterPlan requires any further change to the assemblers to be logged against it.
+  Date: 2026-08-27
+
 - Decision: cancellation mechanism. Each provider forks its worker inside
   `Stream.bracketIO` whose acquire action is the fork (returning the `ThreadId`) and
   whose release action is `killThread`; the worker's body runs under

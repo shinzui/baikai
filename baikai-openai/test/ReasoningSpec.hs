@@ -9,17 +9,25 @@ import Baikai.Provider.OpenAI.Api
     closeOpenStream,
     emptyAssembler,
     parseChunk,
+    parseFrame,
     scanThinkTags,
     translate,
     _TagScanState,
   )
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Control.Lens ((&), (.~))
 import Data.Aeson qualified as Aeson
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
+import Network.HTTP.Client.Internal qualified as HTTP
+import Network.HTTP.Types.Status (mkStatus)
+import Network.HTTP.Types.Version (http11)
 import OpenAI.V1.Chat.Completions qualified as Chat
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
@@ -109,22 +117,14 @@ assemblyTests =
                 "TextEnd:2:b",
                 "EventDone"
               ],
-      testCase "whole message shape yields reasoning then text" $ do
-        let raw =
-              Aeson.object
-                [ "choices"
-                    Aeson..= [ Aeson.object
-                                 [ "message"
-                                     Aeson..= Aeson.object
-                                       [ "reasoning_content" Aeson..= ("because" :: Text.Text),
-                                         "content" Aeson..= ("answer" :: Text.Text)
-                                       ],
-                                   "finish_reason" Aeson..= ("stop" :: Text.Text)
-                                 ]
-                             ]
-                ]
-        chunk <- either (assertFailure . ("parse failed: " <>)) pure (parseChunk raw)
-        terminalContent (runChunks deepseek_deepseek_reasoner [chunk])
+      -- Driven through the transport rather than handed straight to
+      -- 'parseChunk', because a `data:` frame is the only way this
+      -- object can reach the assembler: a whole-message shape on a
+      -- streaming endpoint is what a compatible host sends when it
+      -- ignores `stream: true`, and it still arrives framed.
+      testCase "a data frame carrying a whole message object yields reasoning then text" $ do
+        chunks <- transportChunks [dataFrame wholeMessageObject, "data: [DONE]\n\n"]
+        terminalContent (runChunks deepseek_deepseek_reasoner chunks)
           @?= Vector.fromList
             [ AssistantThinking
                 ThinkingContent
@@ -133,8 +133,73 @@ assemblyTests =
                     redacted = False
                   },
               AssistantText (TextContent "answer")
-            ]
+            ],
+      -- The honest statement of the transport's limitation: an SSE
+      -- transport decodes frames, so a bare JSON body reaches nothing at
+      -- all. EP-4 owns the transport's frame handling and may change
+      -- this; until then, pretending 'parseMessageObject' is reachable
+      -- for such a body would be pretending.
+      testCase "a bare JSON body with no data prefix is not decoded" $ do
+        chunks <- transportChunks [LBS.toStrict (Aeson.encode wholeMessageObject)]
+        length chunks @?= 0
     ]
+
+-- | The shape a compatible host sends when it answers a streaming
+-- request with a whole message instead of deltas.
+wholeMessageObject :: Aeson.Value
+wholeMessageObject =
+  Aeson.object
+    [ "choices"
+        Aeson..= [ Aeson.object
+                     [ "message"
+                         Aeson..= Aeson.object
+                           [ "reasoning_content" Aeson..= ("because" :: Text.Text),
+                             "content" Aeson..= ("answer" :: Text.Text)
+                           ],
+                       "finish_reason" Aeson..= ("stop" :: Text.Text)
+                     ]
+                 ]
+    ]
+
+dataFrame :: Aeson.Value -> ByteString
+dataFrame v = "data: " <> LBS.toStrict (Aeson.encode v) <> "\n\n"
+
+-- | Push a recorded 200 body through the real 'sseFromResponse' and the
+-- real 'parseFrame', which is the pair the worker runs.
+transportChunks :: [ByteString] -> IO [RawChunk]
+transportChunks body = do
+  eventsRef <- newIORef []
+  resp <- mkResponse 200 body
+  sseFromResponse resp (const (pure ())) (\ev -> modifyIORef' eventsRef (<> [ev]))
+  events <- readIORef eventsRef
+  traverse decodeOne [v | Right v <- events]
+  where
+    decodeOne v = case parseFrame v of
+      Right (Right chunk) -> pure chunk
+      Right (Left be) -> assertFailure ("expected a chunk, got a classified error: " <> show be)
+      Left err -> assertFailure ("parse failed: " <> err)
+
+-- | The same fixture shape both 'SseSpec' and 'EvidenceSpec' keep, so
+-- neither suite can silently change another's response.
+mkResponse :: Int -> [ByteString] -> IO (HTTP.Response HTTP.BodyReader)
+mkResponse status chunks = do
+  ref <- newIORef chunks
+  let bodyReader = do
+        remaining <- readIORef ref
+        case remaining of
+          [] -> pure ""
+          (x : xs) -> writeIORef ref xs >> pure x
+  pure
+    HTTP.Response
+      { HTTP.responseStatus = mkStatus status "",
+        HTTP.responseVersion = http11,
+        HTTP.responseHeaders = [],
+        HTTP.responseBody = bodyReader,
+        HTTP.responseCookieJar = HTTP.createCookieJar [],
+        HTTP.responseClose' = HTTP.ResponseClose (pure ()),
+        HTTP.responseOriginalRequest = HTTP.defaultRequest,
+        HTTP.responseEarlyHints = []
+      }
 
 tagScannerTests :: TestTree
 tagScannerTests =

@@ -94,10 +94,10 @@ Milestone 3 — 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge sema
 
 Milestone 4 — unreachable-shape tests retired; classifier module docs match the transport:
 
-- [ ] `httpStatusTests` and `sdkTextTests` deleted from both `ErrorClassSpec.hs`; OpenAI `streamedErrorTests` re-fed through `classifyErrorFrame`; `ReasoningSpec` "whole message shape" re-fed through `sseFromResponse`; `servant-client` dropped from any test stanza that no longer imports it.
-- [ ] Module Haddock of both `Internal/ErrorClass.hs`, `docs/capabilities/categorised-error-model.md`, `docs/capabilities/anthropic-messages-backend.md`, `docs/user/streaming.md` (one sentence) and `CHANGELOG.md` `[Unreleased]` updated.
-- [ ] `docs/adr/0006-core-owns-transport-failure-classification.md` written and listed in `docs/adr/README.md`.
-- [ ] Keyless gate from `agents/skills/release/SKILL.md` green; MasterPlan Progress boxes for EP-5 ticked; Outcomes & Retrospective written.
+- [x] `httpStatusTests` deleted in M1 (the export removal forced it) and `sdkTextTests` in M2 (Claude) / here (OpenAI); OpenAI `streamedErrorTests` re-fed through `classifyErrorFrame`; `ReasoningSpec` "whole message shape" re-fed through `sseFromResponse` and `parseFrame`, with a companion case pinning that a bare JSON body decodes to nothing. `servant-client` stays in both test stanzas: `SseSpec` and `TransportSpec` still use `Client.BaseUrl`/`ClientEnv`. (2026-08-27)
+- [x] Module Haddock of both `Internal/ErrorClass.hs` (rewritten in M1/M2), `docs/capabilities/categorised-error-model.md`, `docs/capabilities/anthropic-messages-backend.md`, `docs/user/streaming.md` and `CHANGELOG.md` `[Unreleased]` updated. (2026-08-27)
+- [x] `docs/adr/0011-core-owns-transport-failure-classification.md` written and listed in `docs/adr/README.md` — number `0011`, not the `0006` the plan guessed, per the MasterPlan's landing-order allocation rule. (2026-08-27)
+- [x] Keyless gate green across all eight suites; `okf validate` reports `OK: 22 concepts`; `nix fmt` leaves the tree unchanged; MasterPlan Progress boxes for EP-5 ticked; Outcomes & Retrospective written. (2026-08-27)
 
 
 ## Surprises & Discoveries
@@ -417,8 +417,18 @@ of the plan. Implementation-time discoveries go below them.
   Rationale: `ErrorCategory` is documented as closed and stable; widening it is a
   surface decision that belongs to the plan freezing the surface.
   Date: 2026-08-27
+- Decision: EP-5's ADR is
+  `docs/adr/0011-core-owns-transport-failure-classification.md`, so the next plan to
+  promote a record takes `0012`.
+  Rationale: landing order, per the allocation rule in the MasterPlan's Integration
+  Points; the slug is the identity the plan cited while the number was unallocated.
+  EP-5's distillation pass found nothing durable beyond that record: the phase rule, the
+  413 decision and the `timeoutMs` refusal are all consequences of it or are documented
+  where a caller meets them (`Options`' Haddock, the CAP-8 Limits list).
+  Date: 2026-08-27
 - Decision: A new ADR is warranted and is written in Milestone 4:
-  `docs/adr/0006-core-owns-transport-failure-classification.md`, recording that
+  `docs/adr/0006-core-owns-transport-failure-classification.md` (allocated as `0011` at
+  landing time), recording that
   transport-failure classification is owned by core and keyed on the phase in which the
   failure occurred, and that this supersedes plan 39's "core stays free of
   `http-client`" rationale. `docs/adr/README.md` gains the row.
@@ -439,7 +449,63 @@ of the plan. Implementation-time discoveries go below them.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Complete 2026-08-27, four milestones in four commits `45485d6`, `5d7610c`, `b5fd260`
+and the completion commit.
+
+A failure that lands while the response body is streaming is now classified as the
+transient failure it is. A connection reset, a server closing the socket mid-chunk, a
+body shorter than its declared length and a TLS session torn down after the handshake
+all terminate the stream with `TransientError`, `isRetryable = True`, and whatever text
+had already been drained — on both providers, through one rule in
+`Baikai.Provider.Transport.Classify` with one test suite, rather than two copies of a
+table that drifted identically wrong. The rule is the phase, not the type: a TLS
+handshake that fails is still not retryable, a server that does not speak HTTP is not,
+and a `userError` from a buggy callback yields `Nothing` so the caller's fallback keeps
+it as `OtherError`.
+
+An in-band `{"error": …}` frame on a `2xx` stream now ends the call with the frame's own
+classification, status and message. `parseFrame` sorts each decoded frame before the
+assembler sees it, and the classified error travels back through the same
+`Either BaikaiError RawChunk` channel element a non-2xx uses, so EP-4's block closing
+applies to it unchanged.
+
+413 is `ContextOverflow` from the status alone. An HTTP-date `Retry-After` converts to
+seconds against the response's own `Date` header, so a CDN-fronted `429` carries a hint
+instead of nothing. `Options.timeoutMs` of `Just n` with `n <= 0` is refused as
+`InvalidRequest` before any connection is opened, proven by a real listener on
+`127.0.0.1` whose accept count stays at zero — the previous behaviour fed a retry loop a
+retryable classification for a caller-side mistake, forever.
+
+Every classifier test now feeds a shape the runtime produces. The servant `ResponseF`
+fixtures, `responseToError`, `classifyErrorText` and its `classifySdkHttpText` half are
+gone from both packages; the phrase table survives inside `classifyErrorFrame`, pinned
+through the entry point the worker uses.
+
+The keyless `cabal test all` gate is green across all eight suites (baikai 626,
+baikai-claude 275, baikai-openai 196, baikai-agent 87, baikai-kit 29, baikai-trace-otel 5,
+baikai-effectful 4, and baikai-smoke skipping its live cases as designed). `nix fmt`
+leaves the tree unchanged and `okf validate docs/capabilities` reports `OK: 22 concepts`.
+ADR `0011` records the ownership and the phase rule, and supersedes plan 39's
+"core stays free of `http-client`" rationale.
+
+Two findings for the plans downstream. The severity of REV-2 A.3 was understated: an
+OpenRouter-shaped frame did not merely land in `OtherError`, it ended the call as
+`EventDone` with `errorInfo = Nothing`, so a consumer switching on the terminal saw a
+*completed* call. And the `content_filter` question is recorded in EP-10's Decision Log
+along with the five names EP-5 adds and the two it removes.
+
+No live verification happened; it is not a gate for this plan. A keyed run against
+OpenRouter with a deliberately unavailable upstream model should show a terminal
+`EventError` whose `errorInfo` carries the upstream status and message, which is what
+`MidStreamSpec`'s replayed 502 asserts offline. No versions were bumped; EP-10 owns them.
+
+Breaking changes recorded under `[Unreleased]` for EP-10 to version: `responseToError`
+and `classifyErrorText` removed from both `.Internal.ErrorClass` modules (documented as
+outside the PVP-stable surface), and `timeoutMs <= 0` now refused rather than timing out.
+Names EP-10 must cover: `Baikai.Provider.Transport.Classify` and its five exports,
+`Baikai.Error.parseHttpDate`, `Baikai.Error.retryAfterSecondsAt`,
+`Baikai.Provider.OpenAI.Internal.ErrorClass.classifyErrorFrame`, and
+`Baikai.Provider.OpenAI.Api.parseFrame`.
 
 
 ## Context and Orientation

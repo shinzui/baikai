@@ -4,7 +4,7 @@ type: Capability
 description: "Register one handler and dispatch baikai calls to Anthropic's Messages API over SSE: typed content and tool blocks, thinking blocks with signatures preserved, an allow-listed response-header capture, and Anthropic's own error taxonomy classified into baikai's categories."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-13
 provider: mori://shinzui/baikai
 status: shipped
@@ -45,10 +45,11 @@ Anthropic's Messages API. The provider streams over SSE and reassembles into
 baikai's event algebra, so blocking and streaming callers see the same types they
 would against any other backend.
 
-It is built on the `MercuryTechnologies/claude` SDK for the wire types and
-`servant-client` for transport, which is where the typed error classification
-comes from: a `ClientError` carries the status, `Retry-After`, and body that
-`Baikai.Error`'s classifiers turn into a category.
+It is built on the `MercuryTechnologies/claude` SDK for the wire types and a
+baikai-owned `http-client` SSE transport, which is where the typed error
+classification comes from: a non-2xx is classified from its status, `Retry-After`
+and body, and a transport failure mid-stream through
+`Baikai.Provider.Transport.Classify`, the one rule both HTTP providers share.
 
 Response-header capture is an **allow-list** — `request-id`, `x-request-id`,
 `cf-ray`, in that preference order — not a denylist, so a header a future gateway

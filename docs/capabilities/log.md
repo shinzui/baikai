@@ -2,6 +2,26 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-8 (categorised error model) records that a transport failure
+  is classified by *where* it happened rather than what type it is, and that the
+  rule is core's — `Baikai.Provider.Transport.Classify`, shared by both HTTP
+  providers and available to a third-party one. The Limits list gains three
+  entries and loses one: a mid-body reset, a mid-chunk close and a TLS
+  termination are `TransientError` while a failed handshake is not; HTTP 413 is
+  `ContextOverflow` from the status alone; and an HTTP-date `Retry-After` is now
+  converted against the response's `Date` header rather than ignored. Three test
+  files are added as evidence — `baikai/test/TransportClassifySpec.hs` and both
+  `MidStreamSpec.hs` — and the two provider `ErrorClassSpec` `proves` sentences
+  no longer describe a `servant-client` entry point neither package has on the
+  chat path.
+  `docs/adr/0011-core-owns-transport-failure-classification.md` records why the
+  table moved to core and why the phase, not the type, is the key.
+
+* **Update**: CAP-13 (Anthropic Messages backend) no longer says transport
+  classification comes from a `servant-client` `ClientError`. It comes from a
+  baikai-owned `http-client` SSE transport: a non-2xx from status, `Retry-After`
+  and body, and a mid-stream failure from the shared core classifier.
+
 * **Update**: CAP-2 (typed incremental streaming) records what stopping early
   does to the connection, which was previously stated as one guarantee and is
   really three. Abandoning a stream stops the socket read within a bounded

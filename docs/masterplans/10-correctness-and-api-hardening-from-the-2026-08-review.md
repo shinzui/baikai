@@ -147,7 +147,7 @@ states the version (EP-10).
 | 2 | Unify host parsing and stop credential misdirection | docs/plans/59-unify-host-parsing-and-stop-credential-misdirection.md | None | None | Complete |
 | 3 | Make Anthropic thinking style and sampling support catalog-driven | docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md | None | EP-2 | Complete |
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Complete |
-| 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | In Progress |
+| 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Complete |
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Not Started |
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Not Started |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Not Started |
@@ -386,10 +386,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-4 M2: `EventStart` first on every Claude failure path; `assertErrorContract` on every error stream
 - [x] EP-4 M3: block-closing fidelity (cut-off tool calls, mid-stream `Left`, interleaved reasoning, unknown frames, `[DONE]` variants)
 - [x] EP-4 M4: core reassembly fallbacks and the missing `StreamSpec` cases
-- [ ] EP-5 M1: mid-stream transport failures classified from the shapes http-client actually raises
-- [ ] EP-5 M2: in-band `{"error": …}` frames on 2xx streams classified
-- [ ] EP-5 M3: 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge semantics
-- [ ] EP-5 M4: unreachable-shape tests retired; classifier module docs match the transport
+- [x] EP-5 M1: mid-stream transport failures classified from the shapes http-client actually raises
+- [x] EP-5 M2: in-band `{"error": …}` frames on 2xx streams classified
+- [x] EP-5 M3: 413 overflow, HTTP-date `Retry-After`, and `timeoutMs` edge semantics
+- [x] EP-5 M4: unreachable-shape tests retired; classifier module docs match the transport
 - [ ] EP-6 M1: ceiling gates every repository-settable field; `allowedTools` modelled as a grant
 - [ ] EP-6 M2: ceiling-file provenance decided and documented
 - [ ] EP-6 M3: CLI truthfulness (unknown-key noise, evidence flags, exit 70, endpoint, `errorInfo` bound, staging path)
@@ -539,8 +539,46 @@ plans named (each plan's implementer reads this section before its first commit)
   moved into one `step s event | … | otherwise = case event of`. (2026-08-27,
   EP-4)
 
+- __A finish reason nobody recognises ends a stream /successfully/.__ EP-5 disabled its
+  own frame detection to observe the pre-fix behaviour rather than quote the review, and
+  found REV-2 A.3 understated. An OpenRouter-shaped in-band error frame carries
+  `choices[0].finish_reason = "error"`, which `mapFinishReason` sends to
+  `(Stop, Just "unrecognized finish_reason: error")` — so the call ended as `EventDone`
+  with `errorInfo = Nothing`, and a consumer switching on the terminal saw a completed
+  call. Only a frame with no `choices` produced the
+  `OtherError "openai stream ended without finish_reason"` the review described. Both
+  providers' `mapFinishReason`-equivalents still send an unknown reason to a /success/
+  terminal with a note in `errorMessage`; EP-10, which owns `ErrorCategory` and the
+  `content_filter` question, should decide whether that default is right.
+  (2026-08-27, EP-5)
+- __`http-types` exports the folded header names, so `case-insensitive` is not a
+  dependency.__ Three plans' sketches reach for `Data.CaseInsensitive.mk "Retry-After"`
+  to look up a response header. `Network.HTTP.Types.Header` exports `hRetryAfter`,
+  `hDate` and the rest as constants, and `http-types` is already needed wherever
+  `statusCode` is. EP-9 and EP-10, which both touch header handling, should start from
+  that. (2026-08-27, EP-5)
+- __A test that builds an `HTTP.Response` must import `Network.HTTP.Client.Internal`.__
+  The record's constructor is not exported from `Network.HTTP.Client`, and the failure
+  reads as a shadowing problem ("Illegal term-level use of the type constructor") rather
+  than a missing export. Every existing fixture in the repository already does this; a
+  new one should copy an existing import list rather than the module name. (2026-08-27,
+  EP-5)
+- __Deleting an export forces the tests that call it forward.__ EP-5's plan scheduled the
+  `responseToError` deletion for M1 and the deletion of the tests calling it for M4, which
+  cannot both be true: the provider suites stop compiling the moment the export list
+  changes. Any later plan that removes a name should schedule its test deletions in the
+  same milestone. (2026-08-27, EP-5)
+
 ## Decision Log
 
+- Decision: EP-5's ADR is
+  `docs/adr/0011-core-owns-transport-failure-classification.md`, so the next plan to
+  promote a record takes `0012`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-5's
+  distillation pass found nothing durable beyond that record: the 413 decision and the
+  `timeoutMs` refusal are consequences of the phase rule or are documented where a caller
+  meets them.
+  Date: 2026-08-27
 - Decision: Eleven child plans in four waves, exceeding the preferred seven.
   Rationale: REV-2's sixty-eight findings span eight packages and three surfaces that did
   not exist or were rewritten after July; merging further would either put the most
@@ -638,6 +676,29 @@ plans named (each plan's implementer reads this section before its first commit)
 
 (To be filled during and after implementation.)
 
+EP-5 complete (2026-08-27), four milestones in four commits `45485d6`, `5d7610c`,
+`b5fd260` and the completion commit. A failure that lands while the response body is
+streaming is now the transient failure it is on both providers — a reset, a mid-chunk
+close, a short body and a TLS session torn down after the handshake all end the stream
+with `TransientError`, `isRetryable = True` and the text already drained — through one
+rule in `Baikai.Provider.Transport.Classify` with one test suite, keyed on the phase the
+failure happened in rather than its type. An in-band `{"error": …}` frame on a `2xx`
+stream ends the call with the frame's own classification, status and message, reaching
+the assembler as the same `Left` element a non-2xx uses so EP-4's block closing applies
+unchanged. 413 is `ContextOverflow` from the status alone; an HTTP-date `Retry-After`
+converts against the response's `Date` header; and `timeoutMs <= 0` is refused as
+`InvalidRequest` before any connection is opened, proven against a real listener whose
+accept count stays at zero. Every servant-shaped classifier fixture is gone, along with
+`responseToError` and `classifyErrorText` from both packages. The keyless `cabal test
+all` gate is green across all eight suites, `nix fmt` leaves the tree unchanged, and
+`okf validate docs/capabilities` reports `OK: 22 concepts`. ADR `0011` records the
+ownership decision and supersedes plan 39's "core stays free of `http-client`"
+rationale. Names EP-10 must cover: `Baikai.Provider.Transport.Classify` and its five
+exports (recommended public — its Haddock offers it to third-party `Custom` providers),
+`Baikai.Error.parseHttpDate`, `Baikai.Error.retryAfterSecondsAt`,
+`classifyErrorFrame` and `parseFrame`. Core's direct dependencies grew by `http-types`
+and `tls`, and `baikai-openai`'s by `scientific`. No versions were bumped.
+
 EP-4 complete (2026-08-27), four milestones in four commits `20bd305`, `85731d5`,
 `9276cb3` and the completion commit. A consumer that stops reading now stops the
 provider: both HTTP providers hand frames through a bounded 64-slot queue and run
@@ -710,6 +771,21 @@ carries `AgentTimedOut` — is recorded under `[Unreleased]` for EP-10 to versio
 
 
 ---
+
+Revision note (2026-08-27, EP-5 complete): EP-5's registry row is Complete and its four
+Progress lines are ticked. Four discoveries were added that bind later plans — an
+unrecognised `finish_reason` ends a stream as a /success/ terminal, which EP-10 should
+weigh alongside the `content_filter` question it already owns; `http-types` exports the
+folded header-name constants, so `case-insensitive` need not be a dependency (EP-9 and
+EP-10 both touch header handling); a test that builds an `HTTP.Response` must import
+`Network.HTTP.Client.Internal`; and deleting an export forces the tests that call it
+into the same milestone — and the Decision Log records that EP-5 took ADR number `0011`,
+so the next plan to promote a record takes `0012`. Two Integration Points commitments
+were met as written: EP-5 made the one reserved edit to the OpenAI `worker`
+(`parseChunk` → `parseFrame`) and recorded it in EP-4's Decision Log, and it left
+`content_filter` as `OtherError` while recording the question in EP-10's. The single
+core `http-client` stanza commitment resolved trivially: EP-2 landed it first, so EP-5
+added only `http-types` and `tls`.
 
 Revision note (2026-08-27, EP-4 complete): EP-4's registry row is Complete and its
 four Progress lines are ticked. Four discoveries were added that bind later plans
