@@ -20,7 +20,7 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 name) is the mode where a model emits an internal reasoning trace before its visible
 answer. baikai exposes it through one knob — `Options.thinking :: Maybe ThinkingLevel` —
 and one content type — `Baikai.Content.ThinkingContent`. Today that surface is broken
-end-to-end, as documented in `docs/reviews/2026-07-01-correctness-and-api-review.md`
+end-to-end, as documented in `docs/reviews/correctness-and-api-review.md`
 (Theme 2):
 
 1. A thinking-enabled Anthropic request with default `maxTokens` computes a `max_tokens`

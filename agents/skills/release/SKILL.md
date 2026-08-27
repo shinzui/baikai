@@ -380,6 +380,8 @@ okf validate docs/capabilities --profile docs/capabilities/profile.dhall \
   --profile-enforce --log-enforce
 okf validate docs/improvement-requests \
   --profile mori/improvement-requests-profile.dhall --profile-enforce
+okf validate docs/reviews --strict --profile docs/reviews/profile.dhall \
+  --profile-enforce --log-enforce
 okf graph docs/capabilities
 ```
 

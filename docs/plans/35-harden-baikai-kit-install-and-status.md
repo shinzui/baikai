@@ -39,7 +39,7 @@ this is observable by running `cabal test baikai-kit` from the repository root: 
 tests fail against the current code and pass after the fixes. This plan is EP-2 of the
 MasterPlan at `docs/masterplans/7-correctness-and-api-hardening-from-the-2026-07-review.md`
 and covers all seven Theme 8 findings of
-`docs/reviews/2026-07-01-correctness-and-api-review.md`. It has no dependencies on other
+`docs/reviews/correctness-and-api-review.md`. It has no dependencies on other
 plans and touches only the `baikai-kit` package plus `docs/user/kit.md`.
 
 
@@ -215,7 +215,7 @@ per-provider base directory (`providerAgentsBase` in
 current directory for Codex).
 
 The module map, with the findings each one carries (numbering follows Theme 8 of
-`docs/reviews/2026-07-01-correctness-and-api-review.md`):
+`docs/reviews/correctness-and-api-review.md`):
 
 `baikai-kit/src/Baikai/Kit/Install.hs` — install/uninstall/update/list. Finding 8.1
 (major, security): `doInstall` joins manifest text straight into filesystem paths with

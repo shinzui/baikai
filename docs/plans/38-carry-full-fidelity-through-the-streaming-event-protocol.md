@@ -322,7 +322,7 @@ Terms used below:
   exceptions and continuing defeats cancellation.
 
 The six defects this plan fixes, all verified in the current source (line numbers as of
-commit `759ddc9`; the review is `docs/reviews/2026-07-01-correctness-and-api-review.md`,
+commit `759ddc9`; the review is `docs/reviews/correctness-and-api-review.md`,
 Theme 2 item 3 and Theme 10 items 1–4):
 
 1. **Thinking fidelity lost in reassembly** (`baikai/src/Baikai/Stream.hs:172-179` and

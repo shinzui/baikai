@@ -15,7 +15,7 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 
 ## Vision & Scope
 
-The library review recorded in `docs/reviews/2026-07-01-correctness-and-api-review.md`
+The library review recorded in `docs/reviews/correctness-and-api-review.md`
 found roughly forty-five correctness defects and fourteen API-design gaps across the
 baikai packages. The review's verdict was that the architecture is sound but three
 load-bearing subsystems do not work as documented: error classification never produces

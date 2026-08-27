@@ -37,7 +37,7 @@ span is left open without a status. You can see all of this working by running t
 that hang or fail before the fix and pass after it.
 
 These are review findings Theme 7 (items 1–3) plus the OpenTelemetry defensive-drop note
-from `docs/reviews/2026-07-01-correctness-and-api-review.md`; this plan is EP-1 of the
+from `docs/reviews/correctness-and-api-review.md`; this plan is EP-1 of the
 MasterPlan at `docs/masterplans/7-correctness-and-api-hardening-from-the-2026-07-review.md`.
 It has no dependencies on any sibling plan and touches only
 `baikai/src/Baikai/Trace.hs`, `baikai/src/Baikai/Cost/Log.hs`,

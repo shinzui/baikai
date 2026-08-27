@@ -37,7 +37,7 @@ code and asserts both the disjoint fields and the exact `Cost`.
 
 This is EP-4 of the MasterPlan at
 `docs/masterplans/7-correctness-and-api-hardening-from-the-2026-07-review.md`, fixing
-Theme 3 of the review at `docs/reviews/2026-07-01-correctness-and-api-review.md`. The
+Theme 3 of the review at `docs/reviews/correctness-and-api-review.md`. The
 MasterPlan's Integration Points section names this plan as the owner of the `Usage`
 field semantics that EP-7 and EP-8 later consume, so the documentation part of this
 work is load-bearing, not cosmetic.

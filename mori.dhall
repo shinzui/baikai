@@ -216,5 +216,13 @@ in  Schema.Project::{
         , description = Some
             "What baikai provides today, one concept per capability, with evidence"
         }
+      , Schema.OkfBundle::{
+        , name = "reviews"
+        , path = "docs/reviews"
+        , profile = Some "docs/reviews/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "Commit-pinned records of what was reviewed, by whom, and what came of it"
+        }
       ]
     }

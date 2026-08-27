@@ -20,7 +20,7 @@ baikai advertises a "compat quirk" system: per-host feature flags (in
 `baikai/src/Baikai/Compat.hs`) that are supposed to reshape requests so one provider
 handler can serve OpenAI, DeepSeek, OpenRouter, Together, Z.ai/Qwen (all speaking the
 OpenAI Chat Completions protocol) and Anthropic plus Fireworks (speaking the Anthropic
-Messages protocol). The 2026-07 review (`docs/reviews/2026-07-01-correctness-and-api-review.md`,
+Messages protocol). The 2026-07 review (`docs/reviews/correctness-and-api-review.md`,
 Theme 4) verified that most of these flags are decorative — defined, generated,
 auto-detected, asserted in tests, and consumed by no provider code. The same review
 found that per-call transport options are silently ignored (`Options.timeoutMs`,

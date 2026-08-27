@@ -1,4 +1,61 @@
-# Correctness & API review — 2026-07-01
+---
+type: Review
+title: Correctness and API review of every package at 0.2
+description: Five parallel readers found the architecture sound but error classification, extended thinking, and the compat-quirk system not working as documented, and asked for themes 1–4 to be fixed before the library is relied on for important work.
+generated:
+  by: claude-code/fable-5
+  at: "2026-08-27T02:30:00Z"
+reviewId: REV-1
+subject: mori://shinzui/baikai
+subjectKind: project
+reviewedSha: 759ddc9e7d110c8935a4c863ef472ae20890aa1f
+coverage: full
+reviewedAt: "2026-07-02T03:45:00Z"
+reviewerKind: model
+reviewer: claude-code/opus-5
+provider: anthropic
+model: claude-opus-5
+effort: unspecified
+outcome: changes-requested
+dimensions:
+  - correctness
+  - security
+  - design
+  - test-coverage
+  - documentation
+  - operability
+produced:
+  - mori://shinzui/baikai/masterplans/7-correctness-and-api-hardening-from-the-2026-07-review
+  - mori://shinzui/baikai/plans/34-harden-trace-and-call-log-workers
+  - mori://shinzui/baikai/plans/35-harden-baikai-kit-install-and-status
+  - mori://shinzui/baikai/plans/36-harden-cli-subprocess-argument-and-pipe-handling
+  - mori://shinzui/baikai/plans/37-correct-usage-and-cost-accounting
+  - mori://shinzui/baikai/plans/38-carry-full-fidelity-through-the-streaming-event-protocol
+  - mori://shinzui/baikai/plans/39-unify-the-error-contract-and-revive-error-classification
+  - mori://shinzui/baikai/plans/40-fix-extended-thinking-and-reasoning-across-providers
+  - mori://shinzui/baikai/plans/41-implement-compat-quirks-and-transport-options
+  - mori://shinzui/baikai/plans/42-add-core-ergonomic-helpers-before-the-api-freeze
+  - mori://shinzui/baikai/plans/43-tighten-the-public-surface-and-sweep-the-docs
+context: >-
+  Five parallel readers (core, claude, openai, satellites, API design) read the
+  whole workspace at the reviewed commit — baikai, baikai-claude, baikai-openai
+  0.2.0.0 and baikai-kit 0.1.0.0 plus baikai-trace-otel and baikai-effectful —
+  with the build and every suite green, including live smoke against OpenAI and
+  both coding-agent CLIs; the highest-severity findings were then re-verified
+  against the source and, for the CLI argument-parsing items, against the
+  installed `claude` binary. The model identity recorded here is reconstructed
+  from the repository's authoring convention in that period (every record it
+  generated names claude-code/opus-5), not from a session record, and the effort
+  the run was asked for was not recorded.
+---
+
+# Correctness and API review of every package at 0.2
+
+> This record was converted on 2026-08-27 from the free-form review committed in
+> `b96304c` as `docs/reviews/2026-07-01-correctness-and-api-review.md`. The text
+> below is that review verbatim; its `path:line` references are as of
+> `759ddc9`. What became of each finding is recorded in the review that
+> continues from this one, REV-2.
 
 Scope: all five packages plus `baikai-kit` / `baikai-trace-otel`, reviewed by five
 parallel reviewers (core, claude, openai, satellites, API design); the

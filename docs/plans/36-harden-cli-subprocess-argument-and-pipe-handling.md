@@ -20,7 +20,7 @@ baikai can drive the locally installed `claude` and `codex` command-line binarie
 model providers: `claude -p` and `codex exec` run as subprocesses and their output is
 returned through the same `completeRequest` / `streamRequest` surface as the HTTP API
 providers. It can also launch full interactive Claude Code and Codex terminal sessions.
-The 2026-07-01 correctness review (`docs/reviews/2026-07-01-correctness-and-api-review.md`,
+The 2026-07-01 correctness review (`docs/reviews/correctness-and-api-review.md`,
 Theme 6) found three defects in how those subprocesses are invoked and drained, all in
 paths the existing tests never exercise:
 

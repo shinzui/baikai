@@ -28,7 +28,7 @@ baikai advertises a load-bearing feature for anyone running "important tasks" th
 when a call fails, the caller receives a typed `BaikaiError` whose `category` (for example
 `RateLimited`, `AuthError`, `TransientError`) and `isRetryable` accessor let the
 application decide retry policy without parsing error text. The 2026-07-01 review
-(`docs/reviews/2026-07-01-correctness-and-api-review.md`, Theme 1) found that this feature
+(`docs/reviews/correctness-and-api-review.md`, Theme 1) found that this feature
 is effectively dead: the classifiers that map HTTP failures onto categories are never
 reached by real traffic, because the vendored SDKs deliver HTTP failures as plain text
 strings and as `http-client` exceptions — shapes the classifiers do not match. A real

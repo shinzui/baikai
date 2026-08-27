@@ -16,7 +16,7 @@ Decision Log, and Outcomes & Retrospective must be kept up to date as work proce
 This is EP-9 (wave 4) of the MasterPlan at
 `docs/masterplans/7-correctness-and-api-hardening-from-the-2026-07-review.md`. It
 implements API design recommendations 2, 3, 4, 6, 7, 9, 10, and 11 from
-`docs/reviews/2026-07-01-correctness-and-api-review.md`. It soft-depends on
+`docs/reviews/correctness-and-api-review.md`. It soft-depends on
 `docs/plans/39-unify-the-error-contract-and-revive-error-classification.md` (EP-6),
 which defines the in-band error contract and the `responseError` accessor that the
 new tool loop terminates on. `docs/plans/43-tighten-the-public-surface-and-sweep-the-docs.md`

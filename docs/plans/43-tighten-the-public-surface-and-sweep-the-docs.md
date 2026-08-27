@@ -21,7 +21,7 @@ This is the last plan of the master plan at
 makes the baikai library's public surface safe to freeze and makes the documentation
 truthful about the behavior the earlier plans (EP-1 through EP-9) delivered. It implements
 API design recommendations 5, 8, 12, 13, and 14 plus Theme 10 items 5 and 9 from the
-review at `docs/reviews/2026-07-01-correctness-and-api-review.md`.
+review at `docs/reviews/correctness-and-api-review.md`.
 
 After this change a downstream user gets four things they did not have before. First,
 adding a field to `Options`, `Context`, `Model`, the compat records, the launch request,
@@ -358,7 +358,7 @@ Where this plan states post-fix behavior it cites the owning plan; if an owning 
 changed course, its Decision Log wins and this plan must be revised.
 
 The review that defines this plan's scope is
-`docs/reviews/2026-07-01-correctness-and-api-review.md` — recommendations 5
+`docs/reviews/correctness-and-api-review.md` — recommendations 5
 (constructor exports), 8 (`_X` renames), 12 (export hygiene), 13 (doc drift), 14
 (consistency nits), and Theme 10 items 5 (`baikai/src/Baikai/Embedding.hs:95` partial
 `V.head`) and 9 (`baikai/fetch/FetchModelsCore.hs:522-524` JSON escaping;
