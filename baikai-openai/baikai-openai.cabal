@@ -91,6 +91,7 @@ test-suite baikai-openai-test
     ErrorClassSpec
     EvidenceSpec
     LifecycleSpec
+    MidStreamSpec
     ReasoningSpec
     ShapeSpec
     SseSpec
@@ -110,6 +111,7 @@ test-suite baikai-openai-test
     , http-client
     , http-types
     , lens              ^>=5.3
+    , network
     , openai
     , servant-client
     , stm
@@ -119,4 +121,5 @@ test-suite baikai-openai-test
     , temporary
     , text              ^>=2.1
     , time
+    , tls
     , vector

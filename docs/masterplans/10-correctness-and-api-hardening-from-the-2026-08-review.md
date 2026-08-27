@@ -147,7 +147,7 @@ states the version (EP-10).
 | 2 | Unify host parsing and stop credential misdirection | docs/plans/59-unify-host-parsing-and-stop-credential-misdirection.md | None | None | Complete |
 | 3 | Make Anthropic thinking style and sampling support catalog-driven | docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md | None | EP-2 | Complete |
 | 4 | Make stream workers cancellable and error streams protocol-conformant | docs/plans/61-make-stream-workers-cancellable-and-error-streams-protocol-conformant.md | None | None | Complete |
-| 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | Not Started |
+| 5 | Classify mid-stream failures and in-band error frames | docs/plans/62-classify-mid-stream-failures-and-in-band-error-frames.md | None | EP-4 | In Progress |
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Not Started |
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Not Started |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Not Started |

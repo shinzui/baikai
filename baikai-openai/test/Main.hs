@@ -41,6 +41,7 @@ import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
 import EvidenceSpec qualified
 import LifecycleSpec qualified
+import MidStreamSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import ReasoningSpec qualified
@@ -92,6 +93,7 @@ main =
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
         LifecycleSpec.tests,
+        MidStreamSpec.tests,
         ReasoningSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,

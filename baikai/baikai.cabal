@@ -78,6 +78,7 @@ library
     Baikai.Provider.Cli.Internal
     Baikai.Provider.Internal.StreamWorker
     Baikai.Provider.Registry
+    Baikai.Provider.Transport.Classify
     Baikai.Response
     Baikai.ResponseFormat
     Baikai.StopReason
@@ -110,6 +111,7 @@ library
     , generic-lens       ^>=2.3
     , http-client        ^>=0.7
     , http-client-tls    ^>=0.3
+    , http-types         ^>=0.12
     , lens               ^>=5.3
     , openai             ^>=2.5
     , process            ^>=1.6
@@ -120,6 +122,7 @@ library
     , streamly-core      >=0.3   && <0.5
     , text               ^>=2.1
     , time               ^>=1.14
+    , tls                >=2.2   && <2.5
     , unliftio-core      ^>=0.2
     , vector             ^>=0.13
 
@@ -193,6 +196,7 @@ test-suite baikai-test
     SurfaceSpec
     ThinkingLevelSpec
     TraceSpec
+    TransportClassifySpec
     UrlSpec
     UsageSpec
 
@@ -206,6 +210,8 @@ test-suite baikai-test
     , directory
     , filepath
     , generic-lens
+    , http-client
+    , http-types
     , lens
     , openai
     , process
@@ -219,4 +225,5 @@ test-suite baikai-test
     , temporary
     , text
     , time
+    , tls
     , vector

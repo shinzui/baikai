@@ -42,6 +42,7 @@ import Test.Tasty.QuickCheck (Gen)
 import Test.Tasty.QuickCheck qualified as QC
 import ThinkingLevelSpec qualified
 import TraceSpec qualified
+import TransportClassifySpec qualified
 import UrlSpec qualified
 import UsageSpec qualified
 
@@ -123,6 +124,7 @@ main = do
         SurfaceSpec.tests,
         ThinkingLevelSpec.tests,
         TraceSpec.tests,
+        TransportClassifySpec.tests,
         UrlSpec.urlTests,
         UsageSpec.tests
       ]

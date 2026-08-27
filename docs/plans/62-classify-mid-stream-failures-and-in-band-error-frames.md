@@ -72,10 +72,11 @@ classifier test feeds a shape the runtime produces.
 
 Milestone 1 — mid-stream transport failures classified from the shapes http-client actually raises:
 
-- [ ] `baikai/src/Baikai/Provider/Transport/Classify.hs` created and exposed; `http-client`, `http-types`, `tls` added to the `baikai` library `build-depends`.
-- [ ] `classifyException` in both `Internal/ErrorClass.hs` modules delegates to `classifyTransportException`; the servant `ClientError` branch, `fromClientError` and `responseToError` deleted; `Servant.Client` imports removed.
-- [ ] `baikai/test/TransportClassifySpec.hs` written and wired into `baikai/test/Main.hs` and `baikai/baikai.cabal`.
-- [ ] `MidStreamSpec.hs` created in both provider test trees with the throwing-body-reader fixtures; `cabal test baikai baikai-claude baikai-openai` green.
+- [x] `baikai/src/Baikai/Provider/Transport/Classify.hs` created and exposed; `http-types` and `tls` added to the `baikai` library `build-depends` (`http-client` was already direct, added by EP-2). (2026-08-27)
+- [x] `classifyException` in both `Internal/ErrorClass.hs` modules delegates to `classifyTransportException`; the servant `ClientError` branch, `fromClientError` and `responseToError` deleted; `Servant.Client` imports removed. (2026-08-27)
+- [x] `baikai/test/TransportClassifySpec.hs` written and wired into `baikai/test/Main.hs` and `baikai/baikai.cabal` — 30 cases. (2026-08-27)
+- [x] `MidStreamSpec.hs` created in both provider test trees with the throwing-body-reader fixtures; `cabal test baikai baikai-claude baikai-openai` green (615 / 272 / 180). (2026-08-27)
+- [x] Pulled forward from Milestone 4 because the export removal made them uncompilable: `httpStatusTests` and `mkResp` deleted from both `ErrorClassSpec.hs`; "429 without Retry-After -> RateLimited, no hint" re-homed to `baikai/test/ErrorSpec.hs`; "non-ClientError exception" renamed to "non-transport exception"; the delegation case added to both. (2026-08-27)
 
 Milestone 2 — in-band `{"error": …}` frames on 2xx streams classified:
 
@@ -180,6 +181,37 @@ of the plan. Implementation-time discoveries go below them.
   `Manager` inside `ClientEnv`). `Baikai.Embedding` in core does run the `openai` SDK's
   servant client, but it never calls either `Internal/ErrorClass.hs`, so deleting the
   servant branches there removes no reachable behaviour.
+
+
+### Implementation-time discoveries
+
+- __`case-insensitive` is not needed to look up a response header.__ The plan's
+  `classifyHttpExceptionContent` sketch used `lookup (CI.mk "Retry-After") hdrs`, which
+  would have added a fourth direct dependency to core. `http-types` — which the module
+  already needs for `statusCode` — exports the folded header names as constants
+  (`hRetryAfter`, `hDate`), so the lookup is `lookup hRetryAfter hdrs` and the dependency
+  list is the three the plan named. Milestone 3's `Date` lookup uses `hDate` for the same
+  reason. (2026-08-27, M1)
+- __`http-client` was already a direct dependency of core.__ EP-2 added `http-client` and
+  `http-client-tls` for `baikai/src/Baikai/Http.hs`, so this milestone added only
+  `http-types ^>=0.12` and `tls >=2.2 && <2.5`. The MasterPlan's "whichever lands second
+  reuses the stanza the first added" commitment was met by EP-2 landing first. (2026-08-27, M1)
+- __A test that builds an `HTTP.Response` must import `Network.HTTP.Client.Internal`.__
+  The record's constructor is not exported from `Network.HTTP.Client`; both existing
+  provider `EvidenceSpec.hs` files already import the `.Internal` module for exactly this,
+  and both new `MidStreamSpec.hs` files follow. Building the response through
+  `Network.HTTP.Client` alone fails with "Illegal term-level use of the type constructor",
+  which reads like a shadowing problem and is not one. (2026-08-27, M1)
+- __Deleting `responseToError` forced part of Milestone 4 forward.__ The plan scheduled the
+  `httpStatusTests` deletion for M4, but M1 removes the export those tests call, so the
+  provider suites stop compiling the moment the export list changes. The deletion, the
+  re-homing of "429 without Retry-After", and the `fallbackTests` rename all landed in M1
+  instead. `sdkTextTests` still compiles (both `classifyErrorText` functions survive until
+  M2) and stays where the plan put it. (2026-08-27, M1)
+- __EP-4's block closing already carries the partial text.__ The plan flagged the OpenAI
+  "carrying the partial text" assertion as needing a fallback to `TextDelta` events if EP-4
+  had not landed. EP-4 has landed, and both providers' terminals carry `"Hel"` in the
+  closed text block, so both cases assert on the terminal as written. (2026-08-27, M1)
 
 
 ## Decision Log

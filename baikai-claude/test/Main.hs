@@ -30,6 +30,7 @@ import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
 import EvidenceSpec qualified
 import LifecycleSpec qualified
+import MidStreamSpec qualified
 import ShapeSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
@@ -74,6 +75,7 @@ main =
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
         LifecycleSpec.tests,
+        MidStreamSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,
         ThinkingSpec.tests,

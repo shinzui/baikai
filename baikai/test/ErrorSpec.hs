@@ -36,6 +36,12 @@ httpHelperTests =
         category e @?= RateLimited
         httpStatus e @?= Just 429
         retryAfterSeconds e @?= Just 12,
+      -- Re-homed from the provider suites' servant fixtures: the
+      -- assertion is about 'httpError', which is where it belongs.
+      testCase "429 without Retry-After -> RateLimited, no hint" $ do
+        let e = httpError 429 Nothing "slow down"
+        category e @?= RateLimited
+        retryAfterSeconds e @?= Nothing,
       testCase "400 + overflow body -> ContextOverflow" $
         category (httpError 400 Nothing "maximum context length exceeded")
           @?= ContextOverflow,
