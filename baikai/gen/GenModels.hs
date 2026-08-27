@@ -34,7 +34,8 @@ import Data.List (sort, sortOn)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as TIO
 import GenModelsCore
-  ( checkIdentifierCollisions,
+  ( checkAnthropicCompat,
+    checkIdentifierCollisions,
     flattenEntries,
     renderModule,
   )
@@ -56,6 +57,9 @@ main = do
       Right c -> pure c
   let allEntries = concatMap flattenEntries catalogs
   case checkIdentifierCollisions allEntries of
+    Left err -> die (Text.unpack err)
+    Right () -> pure ()
+  case checkAnthropicCompat allEntries of
     Left err -> die (Text.unpack err)
     Right () -> pure ()
   let sorted = sortOn fst allEntries

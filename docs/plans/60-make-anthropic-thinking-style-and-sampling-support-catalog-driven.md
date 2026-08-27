@@ -66,13 +66,13 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
 
 ## Progress
 
-- [ ] M1: `supportsSamplingParameters` on `AnthropicMessagesCompat`; prefix table
-      disconnected from `anthropicMessagesCompatFor` and deprecated.
-- [ ] M1: generation facts in `FetchModelsCore.hs` rendered into `anthropic.json`;
+- [x] M1: `supportsSamplingParameters` on `AnthropicMessagesCompat`; prefix table
+      disconnected from `anthropicMessagesCompatFor` and deprecated. (2026-08-27)
+- [x] M1: generation facts in `FetchModelsCore.hs` rendered into `anthropic.json`;
       generator parses, renders, refuses an Anthropic entry without a compat block, and
-      imports the selectors its rendering needs; `Generated.hs` regenerated.
-- [ ] M1: `FetchModelsSpec`, `GenModelsSpec`, `CatalogSpec` and `baikai/test/Main.hs`
-      updated; the ADR and its README row written.
+      imports the selectors its rendering needs; `Generated.hs` regenerated. (2026-08-27)
+- [x] M1: `FetchModelsSpec`, `GenModelsSpec`, `CatalogSpec` and `baikai/test/Main.hs`
+      updated; the ADR and its README row written. (2026-08-27)
 - [ ] M2: the two sampling adjustments, `weakensThinking`, the strict-gate filter and
       schema version `1.1`.
 - [ ] M2: `planRequest` (sampling plan, zero-cap floor, adjustments visible through
@@ -91,7 +91,35 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
 
 ## Surprises & Discoveries
 
-(None yet.)
+- __The generator's compat-rendering path needed two import fixes, not one.__ The
+  plan's Context predicted the rendered module header would lack the
+  `AnthropicMessagesCompat (…)` selectors its record update needs. It also lacked the
+  `OpenAICompletionsCompat (…)` selectors, for the same reason and with the same
+  consequence — no shipped entry had ever been rendered with either branch. Both
+  import blocks are now emitted, so the first catalog to carry an OpenAI-compatible
+  per-model override will build too. (2026-08-27, M1)
+- __The file-level `"compat": "auto"` line makes a naive "no compat block" assertion
+  fail.__ The first version of `FetchModelsSpec`'s "an OpenAI model renders no compat
+  block" case searched the rendered catalog for `"compat"` and failed on the
+  file-level directive four lines from the top. It asserts on `"compat": {` — the
+  per-model block's opening — instead. (2026-08-27, M1)
+- __The repository formatter and `CatalogSpec` can contradict each other.__ The
+  generator's first compat rendering laid the record update out as
+  `compat = CompatAnthropicMessages` with the record on following lines; `ormolu`
+  (through the `treefmt` pre-commit hook) rewrites that to `compat =` with the
+  constructor on its own line and the braces two columns deeper. Since `CatalogSpec`
+  demands the generator's output be byte-identical to the committed file, the two
+  checks could never both pass. `renderCompat` now returns source lines in exactly
+  the layout the formatter produces, and `nix fmt` leaves `Generated.hs` unchanged.
+  Any future change to the rendered layout has to be checked against `nix fmt`, not
+  only against the compiler. (2026-08-27, M1)
+- __M1 alone leaves `baikai-claude`'s `ThinkingSpec` red, as the plan predicted, and
+  the fix is one line rather than a milestone boundary.__ The plan's M1 acceptance
+  says the `claude-sonnet-4-6` rows fail until M2. Rather than commit a red suite,
+  the pinned style in `anthropicModels` was flipped to `AnthropicThinkingAdaptive`
+  in the M1 commit: it is the assertion the catalog decision made true, and M2
+  restructures that table into four columns regardless. Every suite is green at
+  every commit. (2026-08-27, M1)
 
 
 ## Decision Log

@@ -46,11 +46,10 @@ where
 import Baikai.Api (Api (..), renderApi)
 import Baikai.Auth qualified as Auth
 import Baikai.Compat
-  ( AnthropicMessagesCompat (..),
+  ( AnthropicMessagesCompat,
     OpenAICompletionsCompat,
     autoDetectAnthropicMessages,
     autoDetectOpenAICompletions,
-    defaultAnthropicThinkingStyle,
   )
 import Data.Aeson
   ( FromJSON,
@@ -109,13 +108,21 @@ openaiCompletionsCompatFor m = case compat m of
 -- the explicit one if 'compat' is 'CompatAnthropicMessages',
 -- otherwise the result of inspecting 'baseUrl' via
 -- 'autoDetectAnthropicMessages'.
+--
+-- An explicit record always wins. 'CompatNone' means host
+-- auto-detection alone: the budget thinking style and sampling
+-- parameters supported, which is what every generation before Opus 4.7
+-- and every known compatible host accepts. The model id is never
+-- consulted, because a generation's wire quirks are a fact of the
+-- catalog record, not of its id — every Anthropic model in
+-- "Baikai.Models.Generated" carries an explicit
+-- 'CompatAnthropicMessages'. A hand-rolled model naming an
+-- adaptive-era id must set its own record or start from the catalog
+-- value.
 anthropicMessagesCompatFor :: Model -> AnthropicMessagesCompat
 anthropicMessagesCompatFor m = case compat m of
   CompatAnthropicMessages c -> c
-  _ ->
-    (autoDetectAnthropicMessages (baseUrl m))
-      { thinkingStyle = defaultAnthropicThinkingStyle (modelId m)
-      }
+  _ -> autoDetectAnthropicMessages (baseUrl m)
 
 -- | The data record baikai dispatches on.
 data Model = Model
@@ -128,6 +135,15 @@ data Model = Model
     input :: ![InputModality],
     cost :: !ModelCost,
     contextWindow :: !Natural,
+    -- | The provider's cap on output tokens for this model, or @0@
+    -- when it is unknown (a hand-rolled model built from
+    -- 'emptyModel', or a catalog entry upstream published no limit
+    -- for). @0@ is not a request for zero output: the OpenAI adapter
+    -- omits the cap entirely, and the Anthropic adapter — whose API
+    -- requires the field and rejects @0@ — sends
+    -- @Baikai.Provider.Claude.Internal.Request.uncappedMaxTokensFloor@
+    -- instead. An explicit 'Baikai.Options.maxTokens' always wins,
+    -- including an explicit @Just 0@.
     maxOutputTokens :: !Natural,
     headers :: !(Map Text Text),
     compat :: !Compat

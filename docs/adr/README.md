@@ -22,3 +22,4 @@ bundle.
 | [0006](0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md) | A process-spawning executable ships on the threaded runtime, and its suite proves it | accepted |
 | [0007](0007-text-crossing-a-process-boundary-is-encoded-explicitly.md) | Text crossing a process boundary is encoded explicitly as UTF-8, never through the locale | accepted |
 | [0008](0008-one-url-host-parser-and-every-consumer-uses-it.md) | There is one URL host parser and every consumer uses it | accepted |
+| [0009](0009-provider-capability-facts-live-in-the-generated-catalog-record.md) | Provider capability facts such as thinking style and sampling support live in the generated catalog record and never in a hand table | accepted |

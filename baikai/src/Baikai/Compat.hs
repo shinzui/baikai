@@ -46,7 +46,8 @@ module Baikai.Compat
       ( supportsLongCacheRetention,
         supportsCacheControlOnTools,
         sendSessionAffinityHeaders,
-        thinkingStyle
+        thinkingStyle,
+        supportsSamplingParameters
       ),
     AnthropicThinkingStyle (..),
     defaultAnthropicMessagesCompat,
@@ -213,9 +214,21 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     --   @Baikai.Provider.Claude.Transport.requestHeaders@.
     sendSessionAffinityHeaders :: !Bool,
     -- | Which extended-thinking request shape to send for the
-    --   selected model generation. Consumed by
-    --   @Baikai.Provider.Claude.Api.computeThinking@.
-    thinkingStyle :: !AnthropicThinkingStyle
+    --   selected model generation. Which shape a generation accepts
+    --   is a fact of the generated catalog record
+    --   ("Baikai.Models.Generated"), not something to be guessed from
+    --   the model id. Consumed by
+    --   @Baikai.Provider.Claude.Internal.Request.computeThinking@.
+    thinkingStyle :: !AnthropicThinkingStyle,
+    -- | Whether the model generation accepts the sampling parameters
+    --   @temperature@, @top_p@ and @top_k@. Adaptive-era generations
+    --   from Opus 4.7 and Sonnet 5 onward reject them with a 400, so
+    --   the Anthropic adapter drops them and records
+    --   'Baikai.Evidence.SamplingDroppedUnsupportedModel'. Which
+    --   generations accept them is a fact of the generated catalog
+    --   record, not of this type. Consumed by
+    --   @Baikai.Provider.Claude.Internal.Request.planRequest@.
+    supportsSamplingParameters :: !Bool
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -227,12 +240,21 @@ defaultAnthropicMessagesCompat =
     { supportsLongCacheRetention = True,
       supportsCacheControlOnTools = True,
       sendSessionAffinityHeaders = False,
-      thinkingStyle = AnthropicThinkingBudget
+      thinkingStyle = AnthropicThinkingBudget,
+      supportsSamplingParameters = True
     }
 
--- | The thinking style a first-party Anthropic model id defaults to
--- when the model carries no explicit compat record. Unknown ids
--- default to the budget style used by earlier model generations.
+-- | The thinking style a first-party Anthropic model id defaults to,
+-- guessed from an id prefix. Unknown ids default to the budget style
+-- used by earlier model generations.
+--
+-- Nothing in baikai consults this any more: the thinking style of a
+-- first-party Anthropic model is a field of its generated catalog
+-- record ('Baikai.Models.Generated'), populated from
+-- @baikai\/data\/models\/anthropic.json@, and
+-- 'Baikai.Model.anthropicMessagesCompatFor' returns that record. The
+-- table is kept for one release so a caller that built a model on it
+-- still compiles; it is removed at the next major.
 defaultAnthropicThinkingStyle :: Text -> AnthropicThinkingStyle
 defaultAnthropicThinkingStyle modelId
   | adaptive "claude-opus-4-6" = AnthropicThinkingAdaptive
@@ -242,6 +264,7 @@ defaultAnthropicThinkingStyle modelId
   | otherwise = AnthropicThinkingBudget
   where
     adaptive prefix = prefix `Text.isPrefixOf` modelId
+{-# DEPRECATED defaultAnthropicThinkingStyle "The thinking style of a first-party Anthropic model is a field of its generated catalog record (Baikai.Models.Generated); start from that value or set CompatAnthropicMessages explicitly." #-}
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
 -- host based on its @baseUrl@. Falls back to

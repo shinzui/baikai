@@ -8,9 +8,25 @@ module Baikai.Models.Generated where
 
 import Baikai.Api (Api (..))
 import Baikai.Compat
-  ( AnthropicThinkingStyle (..),
+  ( AnthropicMessagesCompat
+      ( sendSessionAffinityHeaders,
+        supportsCacheControlOnTools,
+        supportsLongCacheRetention,
+        supportsSamplingParameters,
+        thinkingStyle
+      ),
+    AnthropicThinkingStyle (..),
     CacheControlFormat (..),
     MaxTokensField (..),
+    OpenAICompletionsCompat
+      ( cacheControlFormat,
+        maxTokensField,
+        requiresThinkingAsText,
+        supportsLongCacheRetention,
+        supportsStrictMode,
+        supportsUsageInStreaming,
+        thinkingFormat
+      ),
     ThinkingFormat (..),
     defaultAnthropicMessagesCompat,
     defaultOpenAICompletionsCompat,
@@ -57,7 +73,15 @@ anthropic_claude_fable_5 =
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False
+            }
     }
 
 anthropic_claude_haiku_4_5 :: Model
@@ -80,7 +104,15 @@ anthropic_claude_haiku_4_5 =
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingBudget,
+              supportsSamplingParameters = True
+            }
     }
 
 anthropic_claude_opus_4_5 :: Model
@@ -103,7 +135,15 @@ anthropic_claude_opus_4_5 =
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingBudget,
+              supportsSamplingParameters = True
+            }
     }
 
 anthropic_claude_opus_4_6 :: Model
@@ -126,7 +166,15 @@ anthropic_claude_opus_4_6 =
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = True
+            }
     }
 
 anthropic_claude_opus_4_7 :: Model
@@ -149,7 +197,15 @@ anthropic_claude_opus_4_7 =
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False
+            }
     }
 
 anthropic_claude_opus_4_8 :: Model
@@ -172,7 +228,15 @@ anthropic_claude_opus_4_8 =
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False
+            }
     }
 
 anthropic_claude_sonnet_4_5 :: Model
@@ -195,7 +259,15 @@ anthropic_claude_sonnet_4_5 =
       contextWindow = 1000000,
       maxOutputTokens = 64000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingBudget,
+              supportsSamplingParameters = True
+            }
     }
 
 anthropic_claude_sonnet_4_6 :: Model
@@ -218,7 +290,15 @@ anthropic_claude_sonnet_4_6 =
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = True
+            }
     }
 
 anthropic_claude_sonnet_5 :: Model
@@ -241,7 +321,15 @@ anthropic_claude_sonnet_5 =
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False
+            }
     }
 
 deepseek_deepseek_chat :: Model

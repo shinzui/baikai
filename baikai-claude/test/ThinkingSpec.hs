@@ -45,7 +45,7 @@ anthropicModels =
     ("claude-opus-4-7", anthropic_claude_opus_4_7, AnthropicThinkingAdaptive),
     ("claude-opus-4-8", anthropic_claude_opus_4_8, AnthropicThinkingAdaptive),
     ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget),
-    ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingBudget)
+    ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive)
   ]
 
 thinkingLevels :: [(String, ThinkingLevel)]

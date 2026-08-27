@@ -40,6 +40,8 @@ module FetchModelsCore
     -- * Output catalog shape
     CatalogModel (..),
     CatalogCost (..),
+    CatalogModelCompat (..),
+    AnthropicGenerationFacts (..),
     Catalog (..),
 
     -- * Provider specs and normalization
@@ -62,6 +64,7 @@ module FetchModelsCore
   )
 where
 
+import Baikai.Compat (AnthropicThinkingStyle (..))
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
 import Data.Aeson (Value (String), eitherDecode, encode, withObject, (.!=), (.:), (.:?))
@@ -188,6 +191,26 @@ data CatalogCost = CatalogCost
   }
   deriving stock (Eq, Show, Generic)
 
+-- | The two request-shaping facts every curated Anthropic model must
+-- state before it can enter the catalog. Which extended-thinking wire
+-- shape a generation accepts, and whether it accepts the sampling
+-- parameters @temperature@, @top_p@ and @top_k@, are facts about the
+-- generation that no amount of inspecting the model id or the base URL
+-- can recover; they are curated here and travel through the catalog
+-- JSON into the generated 'Baikai.Compat.AnthropicMessagesCompat'.
+data AnthropicGenerationFacts = AnthropicGenerationFacts
+  { thinkingStyle :: !AnthropicThinkingStyle,
+    supportsSamplingParameters :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | A per-model @compat@ block in the catalog JSON. Only
+-- @anthropic-messages@ needs one today; the OpenAI-compatible side is
+-- fully covered by the file-level @"compat": "auto"@ directive and
+-- 'Baikai.Compat.autoDetectOpenAICompletions'.
+data CatalogModelCompat = CatalogAnthropicCompat !AnthropicGenerationFacts
+  deriving stock (Eq, Show, Generic)
+
 -- | One emitted catalog model. @enabled@ is always @true@ for emitted
 -- models, so it is not stored here; the renderer writes it literally.
 data CatalogModel = CatalogModel
@@ -197,7 +220,8 @@ data CatalogModel = CatalogModel
     input :: ![InputModality],
     cost :: !CatalogCost,
     contextWindow :: !Integer,
-    maxOutputTokens :: !Integer
+    maxOutputTokens :: !Integer,
+    compat :: !(Maybe CatalogModelCompat)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -219,7 +243,11 @@ data ProviderSpec = ProviderSpec
   { provider :: !Text,
     baseUrl :: !Text,
     api :: !Text,
-    include :: !(Text -> Bool)
+    include :: !(Text -> Bool),
+    -- | The per-model @compat@ block to render, if this provider needs
+    -- one. 'const Nothing' for a provider whose file-level
+    -- @"compat": "auto"@ directive says everything.
+    compatFor :: !(Text -> Maybe CatalogModelCompat)
   }
   deriving stock (Generic)
 
@@ -253,20 +281,51 @@ openaiInclude =
       "o1"
     ]
 
--- | Curation include set for Anthropic: the current generations.
-anthropicInclude :: Set Text
+-- | Curation include set for Anthropic: the current generations, each
+-- keyed to the request-shaping facts of its generation.
+--
+-- This is the one place a human vets an Anthropic id, so it is also the
+-- one place the facts are stated: no id can be curated in without them,
+-- and a wholesale refresh cannot lose them. Each entry MUST carry a
+-- dated comment naming its source, exactly as 'overrides' does. The
+-- generator refuses an @anthropic-messages@ entry that reaches it
+-- without a @compat@ block, so a hand edit cannot quietly drop one
+-- back to host auto-detection.
+anthropicInclude :: Map Text AnthropicGenerationFacts
 anthropicInclude =
-  Set.fromList
-    [ "claude-opus-4-8",
-      "claude-opus-4-7",
-      "claude-opus-4-6",
-      "claude-opus-4-5",
-      "claude-sonnet-5",
-      "claude-sonnet-4-6",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5",
-      "claude-fable-5"
+  Map.fromList
+    [ -- 2026-08-27: adaptive-only, sampling parameters rejected with a
+      -- 400 — Anthropic API reference cached 2026-06-24, as consulted
+      -- by REV-2 C.1 (docs/reviews/correctness-and-api-review-follow-up.md).
+      ("claude-opus-4-8", adaptiveNoSampling),
+      -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
+      ("claude-opus-4-7", adaptiveNoSampling),
+      -- 2026-08-27: accepts both thinking shapes, but the budget shape is
+      -- deprecated for this generation, so baikai sends the adaptive one;
+      -- sampling parameters still accepted — same source.
+      ("claude-opus-4-6", adaptiveWithSampling),
+      -- 2026-08-27: budget shape, sampling parameters accepted — same source.
+      ("claude-opus-4-5", budgetWithSampling),
+      -- 2026-08-27: adaptive-only, sampling parameters rejected with a 400.
+      -- This is the finding: the retired prefix table did not know this id
+      -- and sent it budget_tokens — same source.
+      ("claude-sonnet-5", adaptiveNoSampling),
+      -- 2026-08-27: as claude-opus-4-6 — budget deprecated but functional,
+      -- sampling accepted; baikai prefers the non-deprecated shape — same
+      -- source. Plan 40 left this membership to a live check that never
+      -- happened; docs/plans/60-... M4 is where it meets a real key.
+      ("claude-sonnet-4-6", adaptiveWithSampling),
+      -- 2026-08-27: budget shape, sampling parameters accepted — same source.
+      ("claude-sonnet-4-5", budgetWithSampling),
+      -- 2026-08-27: budget shape, sampling parameters accepted — same source.
+      ("claude-haiku-4-5", budgetWithSampling),
+      -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
+      ("claude-fable-5", adaptiveNoSampling)
     ]
+  where
+    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False
+    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True
+    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True
 
 -- | Provider spec for OpenAI's first-party chat-completions endpoint.
 openaiSpec :: ProviderSpec
@@ -275,7 +334,8 @@ openaiSpec =
     { provider = "openai",
       baseUrl = "https://api.openai.com",
       api = "openai-chat-completions",
-      include = (`Set.member` openaiInclude)
+      include = (`Set.member` openaiInclude),
+      compatFor = const Nothing
     }
 
 -- | Provider spec for Anthropic's first-party messages endpoint.
@@ -285,7 +345,8 @@ anthropicSpec =
     { provider = "anthropic",
       baseUrl = "https://api.anthropic.com",
       api = "anthropic-messages",
-      include = (`Set.member` anthropicInclude)
+      include = (`Map.member` anthropicInclude),
+      compatFor = fmap CatalogAnthropicCompat . (`Map.lookup` anthropicInclude)
     }
 
 -- | Normalize one provider's upstream models into a 'Catalog'. Keeps
@@ -325,7 +386,8 @@ normalizeProvider spec upstream =
                 cacheWriteCost = fromMaybe 0 (m ^. #cacheWriteCost)
               },
           contextWindow = fromMaybe 0 (m ^. #contextWindow),
-          maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens)
+          maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens),
+          compat = (spec ^. #compatFor) (m ^. #modelId)
         }
 
 -- | Strip a trailing @" (latest)"@ display-name suffix that models.dev
@@ -500,12 +562,39 @@ renderModel m =
     "        \"cacheWrite\": " <> renderNum (c ^. #cacheWriteCost),
     "      },",
     "      \"contextWindow\": " <> Text.pack (show (m ^. #contextWindow)) <> ",",
-    "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ",",
-    "      \"enabled\": true",
-    "    }"
+    "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ","
   ]
+    ++ renderModelCompat (m ^. #compat)
+    ++ [ "      \"enabled\": true",
+         "    }"
+       ]
   where
     c = m ^. #cost
+
+-- | Render the per-model @compat@ block, if the provider spec supplied
+-- one. The block sits between @maxOutputTokens@ and @enabled@ so a
+-- @git diff@ over the catalog shows a generation's wire facts next to
+-- its limits.
+renderModelCompat :: Maybe CatalogModelCompat -> [Text]
+renderModelCompat Nothing = []
+renderModelCompat (Just (CatalogAnthropicCompat facts)) =
+  [ "      \"compat\": {",
+    "        \"kind\": \"anthropic-messages\",",
+    "        \"thinkingStyle\": "
+      <> jsonString (renderThinkingStyle (facts ^. #thinkingStyle))
+      <> ",",
+    "        \"supportsSamplingParameters\": "
+      <> jsonBool (facts ^. #supportsSamplingParameters),
+    "      },"
+  ]
+
+-- | The catalog dialect spells the thinking style as a word, as every
+-- other catalog enum does. The derived JSON instance on
+-- 'Baikai.Compat.AnthropicThinkingStyle' is part of 'Baikai.Model.Model'\'s
+-- pinned round trip and is deliberately not reused here.
+renderThinkingStyle :: AnthropicThinkingStyle -> Text
+renderThinkingStyle AnthropicThinkingBudget = "budget"
+renderThinkingStyle AnthropicThinkingAdaptive = "adaptive"
 
 renderInput :: [InputModality] -> Text
 renderInput ms = "[" <> Text.intercalate ", " (map one ms) <> "]"

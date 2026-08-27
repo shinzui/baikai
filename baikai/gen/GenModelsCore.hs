@@ -14,6 +14,8 @@ module GenModelsCore
     GeneratedEntry (..),
     flattenEntries,
     checkIdentifierCollisions,
+    checkAnthropicCompat,
+    parseAnthropicThinkingStyle,
     sanitizeIdentifier,
     renderModule,
   )
@@ -25,6 +27,7 @@ import Baikai.Compat
       ( sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
         supportsLongCacheRetention,
+        supportsSamplingParameters,
         thinkingStyle
       ),
     AnthropicThinkingStyle (..),
@@ -124,14 +127,27 @@ parseAnthropicCompat o = do
   slcr <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
   scot <- o .:? "supportsCacheControlOnTools" .!= d.supportsCacheControlOnTools
   ssah <- o .:? "sendSessionAffinityHeaders" .!= d.sendSessionAffinityHeaders
-  ts <- o .:? "thinkingStyle" .!= d.thinkingStyle
+  ts <- optionalField o "thinkingStyle" parseAnthropicThinkingStyle d.thinkingStyle
+  ssp <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
   pure
     d
       { supportsLongCacheRetention = slcr,
         supportsCacheControlOnTools = scot,
         sendSessionAffinityHeaders = ssah,
-        thinkingStyle = ts
+        thinkingStyle = ts,
+        supportsSamplingParameters = ssp
       }
+
+-- | The catalog dialect spells the extended-thinking wire shape as a
+-- word, as every other catalog enum does, rather than through the
+-- derived instance on 'AnthropicThinkingStyle' (which is part of
+-- 'Baikai.Model.Model'\'s pinned JSON round trip and names the Haskell
+-- constructor).
+parseAnthropicThinkingStyle :: Text -> Parser AnthropicThinkingStyle
+parseAnthropicThinkingStyle = \case
+  "budget" -> pure AnthropicThinkingBudget
+  "adaptive" -> pure AnthropicThinkingAdaptive
+  t -> fail $ "unknown thinkingStyle: " <> Text.unpack t
 
 parseMaxTokensField :: Text -> Parser MaxTokensField
 parseMaxTokensField = \case
@@ -299,6 +315,32 @@ checkIdentifierCollisions entries =
         <> Text.intercalate ", " (map origin (reverse es))
     origin e = e.provider <> "/" <> e.modelId
 
+-- | Every @anthropic-messages@ entry must state its thinking style and
+-- sampling support explicitly. An entry left at the file-level
+-- @"compat": "auto"@ directive would fall through to host
+-- auto-detection, which knows the host but cannot know the model
+-- generation — the drift that sent @claude-sonnet-5@ a @budget_tokens@
+-- request the generation rejects. The generator refuses rather than
+-- guessing, so a hand edit to @baikai/data/models/anthropic.json@ that
+-- drops a block fails the build instead of shipping.
+checkAnthropicCompat :: [(Text, GeneratedEntry)] -> Either Text ()
+checkAnthropicCompat entries =
+  case [e | (_, e) <- entries, e.api == AnthropicMessages, not (stated e.compat)] of
+    [] -> Right ()
+    missing -> Left (Text.intercalate "; " (map complain missing))
+  where
+    stated = \case
+      CatalogCompatAnthropic _ -> True
+      _ -> False
+    complain e =
+      "anthropic-messages entry "
+        <> e.provider
+        <> "/"
+        <> e.modelId
+        <> " has no compat block; add {\"kind\":\"anthropic-messages\""
+        <> ",\"thinkingStyle\":\"budget\"|\"adaptive\""
+        <> ",\"supportsSamplingParameters\":true|false}"
+
 -- | Replace any non-identifier character with @_@. Haskell allows
 -- letters, digits, underscore, and apostrophe; everything else
 -- (slash, dash, dot, colon, ...) becomes an underscore.
@@ -342,9 +384,25 @@ renderModule entries =
         "",
         "import Baikai.Api (Api (..))",
         "import Baikai.Compat",
-        "  ( AnthropicThinkingStyle (..),",
+        "  ( AnthropicMessagesCompat",
+        "      ( sendSessionAffinityHeaders,",
+        "        supportsCacheControlOnTools,",
+        "        supportsLongCacheRetention,",
+        "        supportsSamplingParameters,",
+        "        thinkingStyle",
+        "      ),",
+        "    AnthropicThinkingStyle (..),",
         "    CacheControlFormat (..),",
         "    MaxTokensField (..),",
+        "    OpenAICompletionsCompat",
+        "      ( cacheControlFormat,",
+        "        maxTokensField,",
+        "        requiresThinkingAsText,",
+        "        supportsLongCacheRetention,",
+        "        supportsStrictMode,",
+        "        supportsUsageInStreaming,",
+        "        thinkingFormat",
+        "      ),",
         "    ThinkingFormat (..),",
         "    defaultAnthropicMessagesCompat,",
         "    defaultOpenAICompletionsCompat,",
@@ -408,11 +466,12 @@ renderEntry g =
     renderCost g.cost <> ",",
     "      contextWindow = " <> Text.pack (show g.contextWindow) <> ",",
     "      maxOutputTokens = " <> Text.pack (show g.maxOutputTokens) <> ",",
-    "      headers = Map.empty,",
-    "      compat = " <> renderCompat g.compat,
-    "    }",
-    ""
+    "      headers = Map.empty,"
   ]
+    ++ renderCompat g.compat
+    ++ [ "    }",
+         ""
+       ]
 
 renderText :: Text -> Text
 renderText t =
@@ -455,34 +514,40 @@ renderRational :: Rational -> Text
 renderRational r =
   Text.pack (show (numerator r)) <> " % " <> Text.pack (show (denominator r))
 
-renderCompat :: CatalogCompat -> Text
+-- | The @compat@ field of one rendered entry, as source lines.
+--
+-- The layout is the one @ormolu@ produces, because the repository
+-- formatter runs over the generated module and @CatalogSpec@ demands
+-- the generator's output be byte-identical to the committed file: a
+-- layout the formatter would rewrite makes those two checks
+-- contradict each other.
+renderCompat :: CatalogCompat -> [Text]
 renderCompat = \case
-  CatalogCompatAuto -> "CompatNone"
+  CatalogCompatAuto -> ["      compat = CompatNone"]
   CatalogCompatOpenAI c ->
-    Text.intercalate
-      "\n"
-      [ "CompatOpenAICompletions",
-        "        defaultOpenAICompletionsCompat",
-        "          { maxTokensField = " <> renderMaxTokensField c.maxTokensField <> ",",
-        "            supportsStrictMode = " <> renderBool c.supportsStrictMode <> ",",
-        "            requiresThinkingAsText = " <> renderBool c.requiresThinkingAsText <> ",",
-        "            thinkingFormat = " <> renderThinkingFormat c.thinkingFormat <> ",",
-        "            cacheControlFormat = " <> renderMaybeCacheControl c.cacheControlFormat <> ",",
-        "            supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming <> ",",
-        "            supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
-        "          }"
-      ]
+    [ "      compat =",
+      "        CompatOpenAICompletions",
+      "          defaultOpenAICompletionsCompat",
+      "            { maxTokensField = " <> renderMaxTokensField c.maxTokensField <> ",",
+      "              supportsStrictMode = " <> renderBool c.supportsStrictMode <> ",",
+      "              requiresThinkingAsText = " <> renderBool c.requiresThinkingAsText <> ",",
+      "              thinkingFormat = " <> renderThinkingFormat c.thinkingFormat <> ",",
+      "              cacheControlFormat = " <> renderMaybeCacheControl c.cacheControlFormat <> ",",
+      "              supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming <> ",",
+      "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
+      "            }"
+    ]
   CatalogCompatAnthropic c ->
-    Text.intercalate
-      "\n"
-      [ "CompatAnthropicMessages",
-        "        defaultAnthropicMessagesCompat",
-        "          { supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention <> ",",
-        "            supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools <> ",",
-        "            sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders <> ",",
-        "            thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle,
-        "          }"
-      ]
+    [ "      compat =",
+      "        CompatAnthropicMessages",
+      "          defaultAnthropicMessagesCompat",
+      "            { supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention <> ",",
+      "              supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools <> ",",
+      "              sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders <> ",",
+      "              thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle <> ",",
+      "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters,
+      "            }"
+    ]
 
 renderMaxTokensField :: MaxTokensField -> Text
 renderMaxTokensField = \case

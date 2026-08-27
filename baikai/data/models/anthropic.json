@@ -17,6 +17,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
       "enabled": true
     },
     {
@@ -32,6 +37,11 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 64000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "budget",
+        "supportsSamplingParameters": true
+      },
       "enabled": true
     },
     {
@@ -47,6 +57,11 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 64000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "budget",
+        "supportsSamplingParameters": true
+      },
       "enabled": true
     },
     {
@@ -62,6 +77,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": true
+      },
       "enabled": true
     },
     {
@@ -77,6 +97,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
       "enabled": true
     },
     {
@@ -92,6 +117,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
       "enabled": true
     },
     {
@@ -107,6 +137,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 64000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "budget",
+        "supportsSamplingParameters": true
+      },
       "enabled": true
     },
     {
@@ -122,6 +157,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": true
+      },
       "enabled": true
     },
     {
@@ -137,6 +177,11 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
       "enabled": true
     }
   ]

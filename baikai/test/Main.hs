@@ -342,32 +342,29 @@ tests =
         compat ^. #supportsCacheControlOnTools @?= False
         compat ^. #sendSessionAffinityHeaders @?= True
         compat ^. #supportsLongCacheRetention @?= False
-        compat ^. #thinkingStyle @?= AnthropicThinkingBudget,
-      testCase "Anthropic compat defaults thinking style by model generation" $ do
-        anthropicMessagesCompatFor anthropic_claude_opus_4_6
-          ^. #thinkingStyle
-          @?= AnthropicThinkingAdaptive
-        anthropicMessagesCompatFor anthropic_claude_opus_4_7
-          ^. #thinkingStyle
-          @?= AnthropicThinkingAdaptive
-        anthropicMessagesCompatFor anthropic_claude_opus_4_8
-          ^. #thinkingStyle
-          @?= AnthropicThinkingAdaptive
-        anthropicMessagesCompatFor anthropic_claude_fable_5
-          ^. #thinkingStyle
-          @?= AnthropicThinkingAdaptive
-        anthropicMessagesCompatFor anthropic_claude_haiku_4_5
-          ^. #thinkingStyle
-          @?= AnthropicThinkingBudget
-        anthropicMessagesCompatFor anthropic_claude_opus_4_5
-          ^. #thinkingStyle
-          @?= AnthropicThinkingBudget
-        anthropicMessagesCompatFor anthropic_claude_sonnet_4_5
-          ^. #thinkingStyle
-          @?= AnthropicThinkingBudget
-        anthropicMessagesCompatFor anthropic_claude_sonnet_4_6
-          ^. #thinkingStyle
-          @?= AnthropicThinkingBudget,
+        compat ^. #thinkingStyle @?= AnthropicThinkingBudget
+        compat ^. #supportsSamplingParameters @?= True,
+      testCase "Anthropic catalog compat records carry thinking style and sampling support" $ do
+        let facts m =
+              let c = anthropicMessagesCompatFor m
+               in (c ^. #thinkingStyle, c ^. #supportsSamplingParameters)
+        facts anthropic_claude_fable_5 @?= (AnthropicThinkingAdaptive, False)
+        facts anthropic_claude_haiku_4_5 @?= (AnthropicThinkingBudget, True)
+        facts anthropic_claude_opus_4_5 @?= (AnthropicThinkingBudget, True)
+        facts anthropic_claude_opus_4_6 @?= (AnthropicThinkingAdaptive, True)
+        facts anthropic_claude_opus_4_7 @?= (AnthropicThinkingAdaptive, False)
+        facts anthropic_claude_opus_4_8 @?= (AnthropicThinkingAdaptive, False)
+        facts anthropic_claude_sonnet_4_5 @?= (AnthropicThinkingBudget, True)
+        facts anthropic_claude_sonnet_4_6 @?= (AnthropicThinkingAdaptive, True)
+        facts anthropic_claude_sonnet_5 @?= (AnthropicThinkingAdaptive, False),
+      testCase "a hand-rolled Anthropic model with CompatNone gets budget style and sampling supported" $ do
+        -- The model id names an adaptive-era generation, but nothing
+        -- reads it: a generation's wire facts are a field of the
+        -- catalog record, and a hand-rolled model carries none.
+        let handRolled = mkModel AnthropicMessages "claude-sonnet-5" ""
+            compat = anthropicMessagesCompatFor handRolled
+        compat ^. #thinkingStyle @?= AnthropicThinkingBudget
+        compat ^. #supportsSamplingParameters @?= True,
       testCase "user smart constructor produces a UserMessage" $ do
         let ts = read "2026-06-05 01:02:03 UTC"
         case userAt ts "hello" of

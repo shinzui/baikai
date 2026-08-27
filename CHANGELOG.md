@@ -9,6 +9,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: every Anthropic model in the generated catalog now carries an
+  explicit `CompatAnthropicMessages` record stating the two request-shaping
+  facts of its generation: `AnthropicMessagesCompat.thinkingStyle` (which
+  extended-thinking wire shape it accepts) and the new
+  `AnthropicMessagesCompat.supportsSamplingParameters` (whether it accepts
+  `temperature`, `top_p` and `top_k`). Both are sourced from
+  `baikai/data/models/anthropic.json`, which the fetcher writes from its
+  curated `anthropicInclude` table, and `baikai-gen-models` now refuses an
+  `anthropic-messages` entry that reaches it without a `compat` block rather
+  than falling back to host auto-detection, which cannot know a generation.
+  This is what fixes `claude-sonnet-5`, whose thinking requests were shaped by
+  a prefix table that did not know the id. See
+  [docs/adr/0009](docs/adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md).
+
 - `baikai`: new exposed module `Baikai.Url` — the one place baikai turns a URL
   into a host name. `parseUrl` yields a `UrlParts` record with the scheme, host,
   port and path, plus flags saying whether userinfo, a query string or a
@@ -25,6 +39,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   keeping its own. Core gains direct `build-depends` on `servant-client`,
   `http-client` and `http-client-tls`, which were already in its install plan
   through the `openai` SDK.
+
+### Changed
+
+- `baikai`: `Baikai.Model.anthropicMessagesCompatFor` no longer overlays a
+  thinking style guessed from the model id onto a model whose `compat` is
+  `CompatNone`. `CompatNone` now means host auto-detection alone — the budget
+  thinking shape, sampling parameters supported. Every catalog model carries an
+  explicit record, so this changes nothing for them; a **hand-rolled** model
+  naming an adaptive-era id (`claude-sonnet-5`, `claude-opus-4-7`,
+  `claude-opus-4-8`, `claude-fable-5`) must now carry
+  `CompatAnthropicMessages (defaultAnthropicMessagesCompat {thinkingStyle = AnthropicThinkingAdaptive, supportsSamplingParameters = False})`
+  or start from the catalog value.
+
+- `baikai-claude`: `anthropic_claude_sonnet_4_6` now sends the adaptive
+  thinking shape rather than `budget_tokens`. The budget shape is deprecated
+  for that generation; baikai sends the shape Anthropic documents as current.
+
+### Deprecated
+
+- `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
+  consults it any more — the thinking style of a first-party Anthropic model is
+  a field of its generated catalog record. It is removed at the next major.
 
 ### Changed
 

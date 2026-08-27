@@ -4,6 +4,7 @@
 -- models.dev-shaped fixture. No network is involved.
 module FetchModelsSpec (tests) where
 
+import Baikai.Compat (AnthropicThinkingStyle (..))
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
 import Data.Aeson qualified as Aeson
@@ -57,7 +58,8 @@ expectedOpenAI =
               input = [InputText, InputImage],
               cost = CatalogCost 0.05 0.4 0 0,
               contextWindow = 400000,
-              maxOutputTokens = 128000
+              maxOutputTokens = 128000,
+              compat = Nothing
             },
           CatalogModel
             { modelId = "gpt-5.4",
@@ -66,7 +68,39 @@ expectedOpenAI =
               input = [InputText, InputImage],
               cost = CatalogCost 2.5 15 0.25 0,
               contextWindow = 1050000,
-              maxOutputTokens = 128000
+              maxOutputTokens = 128000,
+              compat = Nothing
+            }
+        ]
+    }
+
+-- | Expected Anthropic catalog after normalization. The one fixture
+-- model carries the generation facts curated in 'anthropicInclude':
+-- the budget thinking shape, sampling parameters accepted.
+expectedAnthropic :: Catalog
+expectedAnthropic =
+  Catalog
+    { provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      api = "anthropic-messages",
+      models =
+        [ CatalogModel
+            { modelId = "claude-opus-4-5",
+              name = "Claude Opus 4.5",
+              reasoning = True,
+              input = [InputText, InputImage],
+              cost = CatalogCost 5 25 1.5 6.25,
+              contextWindow = 200000,
+              maxOutputTokens = 64000,
+              compat =
+                Just
+                  ( CatalogAnthropicCompat
+                      ( AnthropicGenerationFacts
+                          { thinkingStyle = AnthropicThinkingBudget,
+                            supportsSamplingParameters = True
+                          }
+                      )
+                  )
             }
         ]
     }
@@ -124,7 +158,8 @@ tests =
                           input = [InputText],
                           cost = CatalogCost 0 0 0 0,
                           contextWindow = 1,
-                          maxOutputTokens = 1
+                          maxOutputTokens = 1,
+                          compat = Nothing
                         }
                     ]
                 }
@@ -147,6 +182,29 @@ tests =
         upstream <- loadUpstream
         let ids = map (^. #modelId) (catalogFor upstream anthropicSpec ^. #models)
         ids @?= ["claude-opus-4-5"],
+      testCase "Anthropic normalization carries the curated generation facts" $ do
+        upstream <- loadUpstream
+        catalogFor upstream anthropicSpec @?= expectedAnthropic,
+      testCase "the generation facts render as a per-model compat block" $ do
+        upstream <- loadUpstream
+        let rendered = renderText (catalogFor upstream anthropicSpec)
+        assertBool
+          "compat block rendered"
+          ( Text.unlines
+              [ "      \"compat\": {",
+                "        \"kind\": \"anthropic-messages\",",
+                "        \"thinkingStyle\": \"budget\",",
+                "        \"supportsSamplingParameters\": true",
+                "      },"
+              ]
+              `Text.isInfixOf` rendered
+          ),
+      testCase "an OpenAI model renders no compat block" $ do
+        upstream <- loadUpstream
+        let rendered = renderText (catalogFor upstream openaiSpec)
+        assertBool
+          "no per-model compat block (the file-level \"compat\": \"auto\" stays)"
+          (not ("\"compat\": {" `Text.isInfixOf` rendered)),
       testCase "\" (latest)\" suffix is stripped from display names" $ do
         upstream <- loadUpstream
         let cat = catalogFor upstream anthropicSpec
