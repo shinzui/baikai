@@ -128,9 +128,18 @@ optionsMappingTest =
             & #presencePenalty .~ Just 0.3
     case mapRequest model emptyContext opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
-      Right (req, _) -> do
+      Right (req, translation) -> do
         Messages.top_p req @?= Just 0.9
         Messages.stop_sequences req @?= Just (Vector.fromList ["END", "STOP"])
+        -- seed, frequencyPenalty and presencePenalty have no Anthropic
+        -- Messages field on any generation. They are dropped, but the
+        -- drop is recorded rather than silent — the whole point of the
+        -- adjustment list.
+        translation
+          ^. #adjustments
+          @?= [ SamplingDroppedUnsupportedApi
+                  ["seed", "frequency_penalty", "presence_penalty"]
+              ]
 
 commandRenderingTest :: TestTree
 commandRenderingTest =

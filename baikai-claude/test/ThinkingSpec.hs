@@ -5,13 +5,20 @@ module ThinkingSpec (tests) where
 import Baikai
 import Baikai.Models.Generated
 import Baikai.Provider.Claude.Api (Assembler, emptyAssembler, translate)
-import Baikai.Provider.Claude.Internal.Request (mapRequest)
+import Baikai.Provider.Claude.Internal.Request
+  ( describeThinkingFor,
+    mapRequest,
+    normalizeToolCallId,
+    uncappedMaxTokensFloor,
+  )
 import Claude.V1.Messages qualified as Messages
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
+import Data.Char qualified as Char
 import Data.Generics.Labels ()
 import Data.IntMap.Strict qualified as IntMap
+import Data.List qualified as List
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
@@ -33,19 +40,34 @@ tests =
       tooSmallCapDropsThinkingTest,
       mergedOutputConfigTest,
       explicitCompatOverridesDefaultTest,
+      anthropicModelsCoverCatalogTest,
+      samplingTests,
+      zeroCapFloorTests,
+      replaySanitationTests,
+      toolIdTests,
       streamFidelityTests
     ]
 
-anthropicModels :: [(String, Model, AnthropicThinkingStyle)]
+-- | Every Anthropic model in the generated catalog, with the two
+-- request-shaping facts its compat record states. Written out by hand
+-- rather than read off the record, so a catalog refresh that changes a
+-- generation's wire shape fails a row here instead of quietly agreeing
+-- with itself. The last column is
+-- 'Baikai.Compat.supportsSamplingParameters'.
+--
+-- @anthropicModelsCoverCatalogTest@ ties the table to @allModels@, so a
+-- newly curated model cannot arrive unpinned.
+anthropicModels :: [(String, Model, AnthropicThinkingStyle, Bool)]
 anthropicModels =
-  [ ("claude-fable-5", anthropic_claude_fable_5, AnthropicThinkingAdaptive),
-    ("claude-haiku-4-5", anthropic_claude_haiku_4_5, AnthropicThinkingBudget),
-    ("claude-opus-4-5", anthropic_claude_opus_4_5, AnthropicThinkingBudget),
-    ("claude-opus-4-6", anthropic_claude_opus_4_6, AnthropicThinkingAdaptive),
-    ("claude-opus-4-7", anthropic_claude_opus_4_7, AnthropicThinkingAdaptive),
-    ("claude-opus-4-8", anthropic_claude_opus_4_8, AnthropicThinkingAdaptive),
-    ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget),
-    ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive)
+  [ ("claude-fable-5", anthropic_claude_fable_5, AnthropicThinkingAdaptive, False),
+    ("claude-haiku-4-5", anthropic_claude_haiku_4_5, AnthropicThinkingBudget, True),
+    ("claude-opus-4-5", anthropic_claude_opus_4_5, AnthropicThinkingBudget, True),
+    ("claude-opus-4-6", anthropic_claude_opus_4_6, AnthropicThinkingAdaptive, True),
+    ("claude-opus-4-7", anthropic_claude_opus_4_7, AnthropicThinkingAdaptive, False),
+    ("claude-opus-4-8", anthropic_claude_opus_4_8, AnthropicThinkingAdaptive, False),
+    ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget, True),
+    ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive, True),
+    ("claude-sonnet-5", anthropic_claude_sonnet_5, AnthropicThinkingAdaptive, False)
   ]
 
 thinkingLevels :: [(String, ThinkingLevel)]
@@ -64,7 +86,7 @@ neverExceedsCapTests =
       req <- requestFor model (emptyOptions & #thinking .~ Just level)
       Messages.max_tokens req <= model ^. #maxOutputTokens
         @?= True
-  | (name, model, _) <- anthropicModels,
+  | (name, model, _, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
   ]
 
@@ -85,7 +107,7 @@ styleTests =
           Messages.max_tokens req @?= model ^. #maxOutputTokens
           (Messages.output_config req >>= Messages.effort)
             @?= adaptiveEffort level
-  | (name, model, style) <- anthropicModels,
+  | (name, model, style, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
   ]
 
@@ -317,6 +339,253 @@ adaptiveEffort = \case
   ThinkingHigh -> Nothing
   ThinkingXHigh -> Just "xhigh"
   ThinkingMax -> Just "max"
+
+-- | The pinned table above must name exactly the catalog's Anthropic
+-- ids. Without this, curating a new generation into the catalog adds a
+-- model nothing checks, which is how @claude-sonnet-5@ shipped with the
+-- wrong thinking shape in the first place.
+anthropicModelsCoverCatalogTest :: TestTree
+anthropicModelsCoverCatalogTest =
+  testCase "anthropicModels covers exactly the catalog's Anthropic ids" $
+    List.sort [m ^. #modelId | (_, m, _, _) <- anthropicModels]
+      @?= List.sort [m ^. #modelId | m <- allModels, m ^. #api == AnthropicMessages]
+
+-- | Sampling parameters against the catalog's own record.
+--
+-- The adaptive-era generations reject @temperature@, @top_p@ and
+-- @top_k@ with a 400, so baikai omits them and records the omission
+-- rather than sending a request it knows will fail. The generations
+-- that accept them get them verbatim, and nothing is recorded.
+samplingTests :: TestTree
+samplingTests =
+  testGroup
+    "sampling parameters follow the catalog record"
+    ( [ testCase (name <> " " <> verb) $ do
+          let opts = emptyOptions & #temperature .~ Just 0.2 & #topP .~ Just 0.9
+          req <- requestFor model opts
+          t <- translationFor model opts
+          if supported
+            then do
+              Messages.temperature req @?= Just 0.2
+              Messages.top_p req @?= Just 0.9
+              filter isSamplingAdjustment (t ^. #adjustments) @?= []
+            else do
+              Messages.temperature req @?= Nothing
+              Messages.top_p req @?= Nothing
+              filter isSamplingAdjustment (t ^. #adjustments)
+                @?= [SamplingDroppedUnsupportedModel ["temperature", "top_p"]]
+      | (name, model, _, supported) <- anthropicModels,
+        let verb = if supported then "forwards temperature and top_p" else "drops temperature and top_p and records it"
+      ]
+        <> [ testCase "sampling is dropped and recorded even when no thinking level is set" $ do
+               -- The adjustment list is not only about thinking. A call
+               -- that asked for no thinking at all still reports what
+               -- happened to its sampling parameters.
+               let opts = emptyOptions & #temperature .~ Just 0.2
+               req <- requestFor anthropic_claude_sonnet_5 opts
+               t <- translationFor anthropic_claude_sonnet_5 opts
+               Messages.temperature req @?= Nothing
+               t ^. #mode @?= ThinkingModeAbsent
+               t ^. #requested @?= Nothing
+               t ^. #adjustments @?= [SamplingDroppedUnsupportedModel ["temperature"]],
+             testCase "only the parameters the caller actually set are named" $ do
+               let opts = emptyOptions & #topP .~ Just 0.9
+               t <- translationFor anthropic_claude_sonnet_5 opts
+               t ^. #adjustments @?= [SamplingDroppedUnsupportedModel ["top_p"]],
+             testCase "seed and penalties are recorded as API-level drops" $ do
+               -- These three have no Anthropic Messages field on any
+               -- generation, so they are dropped even on a model that
+               -- accepts temperature.
+               let opts =
+                     emptyOptions
+                       & #seed .~ Just 7
+                       & #presencePenalty .~ Just 0.3
+               t <- translationFor anthropic_claude_haiku_4_5 opts
+               t ^. #adjustments
+                 @?= [SamplingDroppedUnsupportedApi ["seed", "presence_penalty"]],
+             testCase "a sampling drop does not refuse a strict call" $
+               -- The gate refuses a call whose thinking would be
+               -- weakened. A parameter the API never had is not that.
+               checkEvidenceRequirements
+                 (EvidenceRequired EvidenceRequestedOnly)
+                 AnthropicMessages
+                 (describeThinkingFor anthropic_claude_sonnet_5 (emptyOptions & #temperature .~ Just 0.2))
+                 @?= []
+           ]
+    )
+
+isSamplingAdjustment :: ThinkingAdjustment -> Bool
+isSamplingAdjustment = \case
+  SamplingDroppedUnsupportedModel {} -> True
+  SamplingDroppedUnsupportedApi {} -> True
+  _ -> False
+
+-- | A model whose cap is unknown still needs a @max_tokens@.
+--
+-- Anthropic requires the field and rejects @0@, so a hand-rolled model
+-- built from 'emptyModel' used to send @"max_tokens":0@ — and, with
+-- thinking set, to have its whole thinking plan discarded because the
+-- budget could not fit inside a ceiling of zero.
+zeroCapFloorTests :: TestTree
+zeroCapFloorTests =
+  testGroup
+    "a model with an unknown output cap sends the documented floor"
+    [ testCase "hand-rolled model with unknown cap sends the 1024 floor" $ do
+        req <- requestFor uncappedModel emptyOptions
+        Messages.max_tokens req @?= uncappedMaxTokensFloor,
+      testCase "the floor leaves room for a thinking budget" $ do
+        let opts = emptyOptions & #thinking .~ Just ThinkingLow
+        req <- requestFor uncappedModel opts
+        t <- translationFor uncappedModel opts
+        Messages.max_tokens req @?= uncappedMaxTokensFloor + thinkingTokenBudget ThinkingLow
+        requestThinking req
+          @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = thinkingTokenBudget ThinkingLow}
+        t ^. #adjustments @?= [],
+      testCase "an explicit maxTokens of zero is forwarded as written" $ do
+        -- The floor stands in for an unknown cap, not for a caller's
+        -- own choice. Someone who wrote Just 0 gets 0.
+        req <- requestFor uncappedModel (emptyOptions & #maxTokens .~ Just 0)
+        Messages.max_tokens req @?= 0
+    ]
+  where
+    uncappedModel =
+      emptyModel
+        & #modelId .~ "custom-claude"
+        & #api .~ AnthropicMessages
+        & #reasoning .~ True
+        & #maxOutputTokens .~ 0
+
+-- | Anthropic rejects an empty text block and an empty content array.
+-- baikai can produce either from its own bookkeeping, so replay strips
+-- them before they reach the wire.
+replaySanitationTests :: TestTree
+replaySanitationTests =
+  testGroup
+    "replay never sends an empty block or an empty turn"
+    [ testCase "an assistant turn of only empty text is dropped entirely" $ do
+        msgs <- mappedMessages [assistantBlocks [AssistantText (TextContent "")], user "next"]
+        Vector.length msgs @?= 1
+        (messageRole <$> (msgs Vector.!? 0)) @?= Just Messages.User,
+      testCase "an empty text block beside a real one is dropped, the turn kept" $ do
+        msgs <- mappedMessages [assistantBlocks [AssistantText (TextContent ""), AssistantText (TextContent "visible")]]
+        Vector.length msgs @?= 1
+        case msgs Vector.!? 0 of
+          Just m -> Vector.length (messageContent m) @?= 1
+          Nothing -> assertFailure "expected one message",
+      testCase "an assistant turn of only unsigned thinking is dropped" $ do
+        -- Unsigned thinking is already omitted block by block, because
+        -- Anthropic rejects a thinking block without its signature.
+        -- What is new is that the empty turn left behind goes too.
+        msgs <-
+          mappedMessages
+            [ assistantBlocks
+                [AssistantThinking ThinkingContent {thinking = "hmm", signature = Nothing, redacted = False}],
+              user "next"
+            ]
+        Vector.length msgs @?= 1,
+      testCase "a tool call keeps its turn even beside empty text" $ do
+        msgs <-
+          mappedMessages
+            [assistantBlocks [AssistantToolCall (ToolCall "toolu_1" "f" (Aeson.object [])), AssistantText (TextContent "")]]
+        Vector.length msgs @?= 1
+        case msgs Vector.!? 0 of
+          Just m -> Vector.length (messageContent m) @?= 1
+          Nothing -> assertFailure "expected one message",
+      testCase "a user turn with nothing left in it is refused locally" $
+        -- The caller's error, not baikai's: refused here with a better
+        -- message than the provider's 400, and with the same category.
+        case mapRequest anthropic_claude_haiku_4_5 (contextOf [userBlocks [UserText (TextContent "")]]) emptyOptions of
+          Left e -> assertBool ("mentions the user turn: " <> Text.unpack e) ("user turn" `Text.isInfixOf` e)
+          Right _ -> assertFailure "expected a user turn with no blocks to be refused"
+    ]
+
+-- | Tool-call ids are normalised on both sides of the round trip, so
+-- the normalisation has to be injective enough that two distinct calls
+-- in one turn never collapse onto one id.
+toolIdTests :: TestTree
+toolIdTests =
+  testGroup
+    "tool-call ids normalise without colliding"
+    [ testCase "an Anthropic-minted id passes through unchanged" $
+        normalizeToolCallId "toolu_01ABCdef" @?= "toolu_01ABCdef",
+      testCase "an OpenAI-minted id passes through unchanged" $
+        normalizeToolCallId "call_abc-123_x" @?= "call_abc-123_x",
+      testCase "ids that used to collide no longer do" $ do
+        -- Both used to sanitise to "a_b".
+        normalizeToolCallId "a.b" /= normalizeToolCallId "a_b" @?= True
+        assertValidId (normalizeToolCallId "a.b")
+        assertValidId (normalizeToolCallId "a_b"),
+      testCase "a long id is truncated to the limit with its hash suffix" $ do
+        let long = Text.replicate 70 "x"
+            normalised = normalizeToolCallId long
+        Text.length normalised @?= 64
+        Text.index normalised 51 @?= '_'
+        assertValidId normalised,
+      testCase "ids differing only past character 64 stay distinct" $
+        normalizeToolCallId (Text.replicate 64 "x" <> "a")
+          /= normalizeToolCallId (Text.replicate 64 "x" <> "b")
+          @?= True,
+      testCase "a call and the result answering it normalise to the same id" $ do
+        msgs <-
+          mappedMessages
+            [ assistantBlocks [AssistantToolCall (ToolCall "a.b" "f" (Aeson.object []))],
+              toolResult "a.b" "f" "done" False
+            ]
+        toolUseIds msgs @?= toolResultIds msgs,
+      testCase "two tool calls with one id in a turn are refused" $
+        case mapRequest
+          anthropic_claude_haiku_4_5
+          ( contextOf
+              [ assistantBlocks
+                  [ AssistantToolCall (ToolCall "dup" "f" (Aeson.object [])),
+                    AssistantToolCall (ToolCall "dup" "g" (Aeson.object []))
+                  ]
+              ]
+          )
+          emptyOptions of
+          Left e -> assertBool ("mentions the duplicate: " <> Text.unpack e) ("duplicate" `Text.isInfixOf` e)
+          Right _ -> assertFailure "expected duplicate tool_use ids to be refused"
+    ]
+  where
+    assertValidId i = do
+      assertBool ("within 64 characters: " <> Text.unpack i) (Text.length i <= 64)
+      assertBool ("no character outside the alphabet: " <> Text.unpack i) (Text.all ok i)
+    ok c = (Char.isAscii c && Char.isAlphaNum c) || c == '_' || c == '-'
+    toolUseIds msgs =
+      [i | m <- Vector.toList msgs, Messages.Content_Tool_Use {Messages.id = i} <- Vector.toList (messageContent m)]
+    toolResultIds msgs =
+      [ i
+      | m <- Vector.toList msgs,
+        Messages.Content_Tool_Result {Messages.tool_use_id = i} <- Vector.toList (messageContent m)
+      ]
+
+-- | An assistant turn carrying exactly these blocks.
+assistantBlocks :: [AssistantContent] -> Message
+assistantBlocks blocks =
+  AssistantMessage
+    AssistantPayload
+      { content = Vector.fromList blocks,
+        usage = zeroUsage,
+        stopReason = Stop,
+        errorMessage = Nothing,
+        timestamp = Just testTime
+      }
+
+-- | A user turn carrying exactly these blocks.
+userBlocks :: [UserContent] -> Message
+userBlocks blocks =
+  UserMessage
+    UserPayload
+      { content = Vector.fromList blocks,
+        timestamp = Just testTime
+      }
+
+mappedMessages :: [Message] -> IO (Vector.Vector Messages.Message)
+mappedMessages msgs =
+  requestMessages <$> requestForContext anthropic_claude_haiku_4_5 (contextOf msgs) emptyOptions
+
+messageRole :: Messages.Message -> Messages.Role
+messageRole Messages.Message {Messages.role = r} = r
 
 streamFidelityTests :: TestTree
 streamFidelityTests =

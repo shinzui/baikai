@@ -6,6 +6,7 @@ module EvidenceSpec (tests) where
 
 import Baikai.Evidence
 import Baikai.Provider.Cli.Internal qualified as Internal
+import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Control.Concurrent (threadDelay)
 import Control.Monad (replicateM)
 import Data.Aeson (Value (Number, Object, String), object, (.=))
@@ -26,8 +27,55 @@ tests =
       digestTests,
       redactionTests,
       observedTests,
+      adjustmentJsonTests,
       callIdTests
     ]
+
+-- ============================================================
+-- Adjustment JSON
+-- ============================================================
+
+-- | Every adjustment kind, through JSON and back.
+--
+-- The two sampling kinds carry a @fields@ array and no @requested@
+-- level, so a decoder that reads @requested@ before it reads @kind@
+-- fails on them. Round-tripping every constructor is what keeps that
+-- ordering honest as constructors are added.
+adjustmentJsonTests :: TestTree
+adjustmentJsonTests =
+  testGroup
+    "ThinkingAdjustment JSON"
+    ( [ testCase (show adjustment) (roundTripAdjustment adjustment)
+      | adjustment <-
+          [ EffortClamped ThinkingMax "high",
+            EffortCollapsedToToggle ThinkingHigh,
+            EffortOmitted ThinkingHigh,
+            ThinkingDroppedUnsupportedModel ThinkingLow,
+            ThinkingDroppedUnsupportedHost ThinkingMinimal,
+            ThinkingDroppedBudgetExceeded ThinkingMax 32000 8192,
+            SamplingDroppedUnsupportedModel ["temperature", "top_p"],
+            SamplingDroppedUnsupportedApi ["seed", "frequency_penalty", "presence_penalty"]
+          ]
+      ]
+        <> [ testCase "a sampling drop encodes its kind and fields and no requested level" $
+               Aeson.toJSON (SamplingDroppedUnsupportedModel ["temperature", "top_p"])
+                 @?= Aeson.object
+                   [ "kind" Aeson..= ("sampling_dropped_unsupported_model" :: Text.Text),
+                     "fields" Aeson..= (["temperature", "top_p"] :: [Text.Text])
+                   ],
+             testCase "an API-level sampling drop names its own kind" $
+               Aeson.toJSON (SamplingDroppedUnsupportedApi ["seed"])
+                 @?= Aeson.object
+                   [ "kind" Aeson..= ("sampling_dropped_unsupported_api" :: Text.Text),
+                     "fields" Aeson..= (["seed"] :: [Text.Text])
+                   ]
+           ]
+    )
+  where
+    roundTripAdjustment :: ThinkingAdjustment -> IO ()
+    roundTripAdjustment v = case Aeson.fromJSON (Aeson.toJSON v) of
+      Aeson.Success v' -> v' @?= v
+      Aeson.Error e -> assertFailure ("round trip failed: " <> e)
 
 -- ============================================================
 -- Canonical encoding

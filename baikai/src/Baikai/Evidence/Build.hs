@@ -53,6 +53,7 @@ import Baikai.Evidence
     declaredStrength,
     newCallId,
     renderEvidenceStrength,
+    weakensThinking,
   )
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -291,10 +292,13 @@ renderEvidenceRefusal = \case
     "the reasoning-effort request would not reach the provider as asked: "
       <> Text.intercalate "; " (map describeAdjustment adjustments)
 
--- | One downgrade, in words. These are the six places baikai weakens a
+-- | One adjustment, in words. Six of these are places baikai weakens a
 -- thinking request, and the whole point of strict mode is that a caller
 -- can refuse each of them by name rather than discovering it in a trace
--- afterwards.
+-- afterwards. The two sampling entries are rendered here as well, so a
+-- record printed for a human reads completely, even though
+-- 'Baikai.Evidence.weakensThinking' keeps them out of the refusal
+-- list.
 describeAdjustment :: ThinkingAdjustment -> Text
 describeAdjustment = \case
   EffortClamped lvl wire ->
@@ -318,6 +322,12 @@ describeAdjustment = \case
       <> Text.pack (show budget)
       <> "-token budget does not fit inside the resolved output ceiling of "
       <> Text.pack (show maxOut)
+  SamplingDroppedUnsupportedModel fields ->
+    Text.intercalate ", " fields
+      <> " would be dropped, because this model generation rejects sampling parameters"
+  SamplingDroppedUnsupportedApi fields ->
+    Text.intercalate ", " fields
+      <> " would be dropped, because this API has no such field on any generation"
 
 -- | The pre-dispatch gate: every reason this call must not proceed, or
 -- an empty list when it may.
@@ -341,13 +351,21 @@ describeAdjustment = \case
 -- The downgrade rule needs one judgement stated, because it is not
 -- obvious. A caller who requested no level at all is never downgraded —
 -- there is nothing to weaken, and 'Baikai.Evidence.noThinkingRequested'
--- carries no adjustments, so this falls out. But /every/ non-empty
--- adjustment list refuses, including
+-- carries no adjustments, so this falls out. But every adjustment that
+-- weakens the thinking request refuses, including
 -- 'Baikai.Evidence.EffortOmitted', which is the subtlest: that request
 -- is not weaker in effect, it is merely indistinguishable on the wire
 -- from the provider's default. A caller who demanded strict evidence and
 -- receives a request they cannot later prove asked for @high@ has not
 -- got what they demanded.
+--
+-- The adjustment list is filtered through
+-- 'Baikai.Evidence.weakensThinking' rather than tested for emptiness,
+-- because it also carries the sampling drops. The documented contract is
+-- refusing a call that would /weaken the requested thinking level/; a
+-- caller who set @seed@ on a Claude model, where the API has no such
+-- field on any generation, must not have every strict call refused over
+-- it. The drop is still in the record, where they can see it.
 checkEvidenceRequirements ::
   EvidenceStrictness -> Api -> ThinkingTranslation -> [EvidenceRefusal]
 checkEvidenceRequirements EvidenceBestEffort _ _ = []
@@ -356,7 +374,7 @@ checkEvidenceRequirements (EvidenceRequired needed) api translation =
     <> [ThinkingWouldDowngrade downgrades | not (null downgrades)]
   where
     declared = declaredStrength api
-    downgrades = adjustments translation
+    downgrades = filter weakensThinking (adjustments translation)
 
 -- | Turn a non-empty refusal list into the error the call fails with.
 --

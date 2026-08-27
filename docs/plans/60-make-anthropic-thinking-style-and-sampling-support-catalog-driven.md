@@ -73,12 +73,13 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
       imports the selectors its rendering needs; `Generated.hs` regenerated. (2026-08-27)
 - [x] M1: `FetchModelsSpec`, `GenModelsSpec`, `CatalogSpec` and `baikai/test/Main.hs`
       updated; the ADR and its README row written. (2026-08-27)
-- [ ] M2: the two sampling adjustments, `weakensThinking`, the strict-gate filter and
-      schema version `1.1`.
-- [ ] M2: `planRequest` (sampling plan, zero-cap floor, adjustments visible through
-      `describeThinkingFor`), replay sanitation, hash-suffixed tool-call ids.
-- [ ] M2: cache-write pricing limitation documented; `ThinkingSpec`, `Main.hs` and
+- [x] M2: the two sampling adjustments, `weakensThinking`, the strict-gate filter and
+      schema version `1.1`. (2026-08-27)
+- [x] M2: `planRequest` (sampling plan, zero-cap floor, adjustments visible through
+      `describeThinkingFor`), replay sanitation, hash-suffixed tool-call ids. (2026-08-27)
+- [x] M2: cache-write pricing limitation documented; `ThinkingSpec`, `Main.hs` and
       `EvidenceSpec` cases in `baikai-claude/test/`, including the usage-mapping pin.
+      (2026-08-27)
 - [ ] M3: OpenAI-compatible reasoning controls gated on `Model.reasoning`; the two pinned
       tests re-based; gate tests added; `model-call-evidence.md` table corrected.
 - [ ] M4: every Anthropic catalog id pinned in `ThinkingSpec` and `CatalogSpec`, both
@@ -124,6 +125,27 @@ Theme I items 3 and 4, and the REV-1 residuals under Theme 2 (2.2 partial) and T
 
 ## Decision Log
 
+- Decision: `crypton` was already a `baikai-claude` dependency, but the plan's
+  `cryptohash-sha256` / `base16-bytestring` pair was added as written rather than
+  reusing `Crypto.Hash`.
+  Rationale: `Baikai.Evidence` computes its two digests with exactly that pair
+  (`SHA256.hash` then `Base16.encode` then `decodeLatin1`), and the tool-call suffix is
+  the same operation. One idiom for "hex of a SHA-256" across the repository is worth
+  more than one fewer dependency, and both are already in the build plan through
+  `baikai`. `Crypto.Hash` stays where it is, in `Transport.hs`'s affinity seed.
+  Date: 2026-08-27
+- Decision: The duplicate-`tool_use`-id check is a helper over the already-mapped
+  block vector (`duplicateToolUseId`), not a fold threaded through the mapping.
+  Rationale: normalisation has already happened by then, so the check sees exactly the
+  ids that would go on the wire — including a residual hash collision, which a check
+  written over the original ids would miss.
+  Date: 2026-08-27
+- Decision: `resolveBaseTokens` is its own named function rather than inline in both
+  `mapRequest` and `planRequest`.
+  Rationale: the two must agree on the output base or the budget-fit rule is computed
+  against a different ceiling than the one sent, which is the class of bug REV-2 C.2
+  reported. One function is the only way to keep them from drifting.
+  Date: 2026-08-27
 - Decision: Both facts live on `Baikai.Compat.AnthropicMessagesCompat`: the existing
   `thinkingStyle` and a new `supportsSamplingParameters :: Bool` (default `True`). The
   catalog emits an explicit `CompatAnthropicMessages` record for every Anthropic model, so

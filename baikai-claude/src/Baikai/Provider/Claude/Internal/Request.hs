@@ -6,10 +6,14 @@
 -- compatibility guarantees. Import the public provider module for stable application code.
 module Baikai.Provider.Claude.Internal.Request
   ( mapRequest,
+    planRequest,
     planThinking,
     describeThinkingFor,
     ThinkingPlan (..),
+    SamplingPlan (..),
+    uncappedMaxTokensFloor,
     computeThinking,
+    normalizeToolCallId,
   )
 where
 
@@ -32,12 +36,14 @@ import Baikai.Tool qualified as Tool
 import Claude.V1.Messages qualified as Messages
 import Claude.V1.Tool qualified as ClaudeTool
 import Control.Lens ((%~), (&), (.~), (^.))
+import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
+import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Base64 qualified as Base64
 import Data.Char (isAlphaNum, isAscii)
 import Data.Generics.Labels ()
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -64,12 +70,12 @@ import Numeric.Natural (Natural)
 mapRequest ::
   Model -> Context -> Options -> Either Text (Messages.CreateMessage, ThinkingTranslation)
 mapRequest m ctx opts = do
-  msgs <- traverse mapMessage (Vector.toList (ctx ^. #messages))
+  msgs <- catMaybes <$> traverse mapMessage (Vector.toList (ctx ^. #messages))
   let compat = anthropicMessagesCompatFor m
       cap = m ^. #maxOutputTokens
-      baseTokens = fromMaybe cap (opts ^. #maxTokens)
+      baseTokens = resolveBaseTokens m opts
       clamp n = if cap == 0 then n else min n cap
-      (plan, translation) = planThinking m opts
+      (plan, sampling, translation) = planRequest m opts
       maxTokensField_ = case budget plan of
         Just b -> clamp (baseTokens + b)
         Nothing -> clamp baseTokens
@@ -90,8 +96,8 @@ mapRequest m ctx opts = do
           Messages.messages = Vector.fromList msgs,
           Messages.max_tokens = maxTokensField_,
           Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
-          Messages.temperature = opts ^. #temperature,
-          Messages.top_p = opts ^. #topP,
+          Messages.temperature = sampling ^. #temperature,
+          Messages.top_p = sampling ^. #topP,
           Messages.stop_sequences = opts ^. #stopSequences,
           Messages.tools = toolsField,
           Messages.tool_choice = toolChoiceField,
@@ -102,43 +108,129 @@ mapRequest m ctx opts = do
       translation
     )
 
--- | The thinking plan for one request and the description of how it got
--- there, including the max-tokens interaction that can discard an
--- already-computed budget.
+-- | The sampling parameters that will reach the wire, after the compat
+-- record's gate. 'Nothing' means the field is omitted — the SDK encodes
+-- 'Messages.CreateMessage' with @omitNothingFields = True@, so a
+-- 'Nothing' is genuinely absent from the request body rather than a
+-- JSON @null@ the provider would reject.
+data SamplingPlan = SamplingPlan
+  { temperature :: !(Maybe Double),
+    topP :: !(Maybe Double)
+  }
+  deriving stock (Eq, Show, Generic)
+
+-- | The @max_tokens@ sent for a model whose cap is unknown (@0@) when
+-- the caller set no 'Baikai.Options.maxTokens'.
+--
+-- Anthropic requires @max_tokens@ on every request and rejects @0@, so
+-- the OpenAI adapter's rule — omit the field entirely — is not
+-- available here. 1024 is the SDK's own @_CreateMessage@ default and is
+-- accepted by every generation and every known compatible host.
+--
+-- This is a default, not a downgrade of anything the caller asked for,
+-- so no adjustment is recorded: it is visible in the request body, which
+-- the evidence record already digests. An explicit
+-- @maxTokens = Just 0@ is forwarded as written.
+uncappedMaxTokensFloor :: Natural
+uncappedMaxTokensFloor = 1024
+
+-- | The output-token base this request resolves to before any thinking
+-- budget is added: the caller's 'Baikai.Options.maxTokens' if they set
+-- one, the model's cap if it knows one, and 'uncappedMaxTokensFloor'
+-- when neither is available.
+resolveBaseTokens :: Model -> Options -> Natural
+resolveBaseTokens m opts = case opts ^. #maxTokens of
+  Just n -> n
+  Nothing
+    | cap == 0 -> uncappedMaxTokensFloor
+    | otherwise -> cap
+  where
+    cap = m ^. #maxOutputTokens
+
+-- | Everything 'mapRequest' decides about thinking, sampling and the
+-- output ceiling, and the one description of all of it.
 --
 -- Factored out of 'mapRequest' so the pre-dispatch strictness gate can
 -- ask what /would/ happen without building a request. Both callers go
 -- through this one function on purpose: a gate that reimplemented the
 -- ceiling arithmetic would miss the least discoverable of baikai's
 -- downgrades the first time either side changed, and it would miss it
--- silently.
+-- silently. The same argument puts sampling here rather than in
+-- 'mapRequest': the adapter that builds the request owns the
+-- description of what it translated
+-- (@docs\/adr\/0003-the-adapter-owns-the-translation-description.md@),
+-- and a dropped @temperature@ is a translation, not an absence
+-- (@docs\/adr\/0002-requested-translated-observed-are-never-collapsed.md@).
 --
--- The interaction it captures: the output-token ceiling this request
--- resolves to still has the thinking budget inside it, the budget has to
--- fit, and when it does not the entire thinking plan is dropped. A
--- caller who lowered @maxTokens@ on a reasoning model silently loses
--- thinking, which is why both colliding numbers are recorded in the
--- adjustment.
+-- The thinking interaction it captures: the output-token ceiling this
+-- request resolves to still has the thinking budget inside it, the
+-- budget has to fit, and when it does not the entire thinking plan is
+-- dropped. A caller who lowered @maxTokens@ on a reasoning model
+-- silently loses thinking, which is why both colliding numbers are
+-- recorded in the adjustment.
+--
+-- The sampling gate: 'Baikai.Compat.supportsSamplingParameters' says
+-- whether the model generation accepts @temperature@ and @top_p@ at
+-- all. Adaptive-era generations reject them with a 400, so they are
+-- dropped and the drop is recorded. Three more sampling controls —
+-- @seed@, @frequencyPenalty@ and @presencePenalty@ — have no field in
+-- the Anthropic Messages API on any generation, so they are recorded
+-- separately: one is a fact about the model, the other about the API.
+planRequest :: Model -> Options -> (ThinkingPlan, SamplingPlan, ThinkingTranslation)
+planRequest m opts =
+  (plan, sampling, translation & #adjustments %~ (<> samplingAdjustments))
+  where
+    compat = anthropicMessagesCompatFor m
+    cap = m ^. #maxOutputTokens
+    baseTokens = resolveBaseTokens m opts
+    clamp n = if cap == 0 then n else min n cap
+    (plan0, translation0) = computeThinking compat m (opts ^. #thinking)
+    resolvedCeiling = clamp (baseTokens + fromMaybe 0 (budget plan0))
+    (plan, translation) = case (budget plan0, translation0 ^. #requested) of
+      (Just b, Just lvl)
+        | resolvedCeiling <= b ->
+            ( emptyThinkingPlan,
+              dropThinking (ThinkingDroppedBudgetExceeded lvl b resolvedCeiling) translation0
+            )
+      _ -> (plan0, translation0)
+
+    gated = not (supportsSamplingParameters compat)
+    sampling
+      | gated = SamplingPlan {temperature = Nothing, topP = Nothing}
+      | otherwise =
+          SamplingPlan {temperature = opts ^. #temperature, topP = opts ^. #topP}
+
+    -- In wire order, and only the ones the caller actually set.
+    modelDropped =
+      [name | (name, isSet) <- [("temperature", set_ (opts ^. #temperature)), ("top_p", set_ (opts ^. #topP))], isSet]
+    apiDropped =
+      [ name
+      | (name, isSet) <-
+          [ ("seed", set_ (opts ^. #seed)),
+            ("frequency_penalty", set_ (opts ^. #frequencyPenalty)),
+            ("presence_penalty", set_ (opts ^. #presencePenalty))
+          ],
+        isSet
+      ]
+    set_ :: Maybe a -> Bool
+    set_ = maybe False (const True)
+
+    samplingAdjustments =
+      [SamplingDroppedUnsupportedModel modelDropped | gated, not (null modelDropped)]
+        <> [SamplingDroppedUnsupportedApi apiDropped | not (null apiDropped)]
+
+-- | The thinking half of 'planRequest', for callers that need only it.
 planThinking :: Model -> Options -> (ThinkingPlan, ThinkingTranslation)
-planThinking m opts =
-  let compat = anthropicMessagesCompatFor m
-      cap = m ^. #maxOutputTokens
-      baseTokens = fromMaybe cap (opts ^. #maxTokens)
-      clamp n = if cap == 0 then n else min n cap
-      (plan0, translation0) = computeThinking compat m (opts ^. #thinking)
-      resolvedCeiling = clamp (baseTokens + fromMaybe 0 (budget plan0))
-   in case (budget plan0, translation0 ^. #requested) of
-        (Just b, Just lvl)
-          | resolvedCeiling <= b ->
-              ( emptyThinkingPlan,
-                dropThinking (ThinkingDroppedBudgetExceeded lvl b resolvedCeiling) translation0
-              )
-        _ -> (plan0, translation0)
+planThinking m opts = let (plan, _, translation) = planRequest m opts in (plan, translation)
 
 -- | What this provider would do with the caller's reasoning-effort
 -- request, without building or sending anything. The
 -- 'Baikai.Provider.Registry.describeThinking' implementation for the
 -- Anthropic Messages provider.
+--
+-- A projection of 'planRequest' rather than its own derivation, so the
+-- gate, the builder and the evidence record all read one answer — the
+-- sampling drops included.
 describeThinkingFor :: Model -> Options -> ThinkingTranslation
 describeThinkingFor m opts = snd (planThinking m opts)
 
@@ -341,37 +433,103 @@ mkAnthropicToolChoice = \case
   -- Unreachable in typed requests: ToolChoiceNone is injected by the shaper.
   Tool.ToolChoiceNone -> ClaudeTool.ToolChoice_Auto
 
--- | Anthropic enforces @[a-zA-Z0-9_-]+@ on tool-call ids and caps
--- their length at 64 characters. Callers may have used any
--- naming convention, so the provider boundary normalizes here
--- whenever an id is round-tripped back to Anthropic — both on
--- assistant turn replay ('Content_Tool_Use') and on tool-result
--- messages ('Content_Tool_Result').
+-- | Anthropic enforces @[a-zA-Z0-9_-]@ on tool-call ids and caps their
+-- length at 64 characters. Callers may have used any naming convention,
+-- so the provider boundary normalizes here whenever an id is
+-- round-tripped back to Anthropic — both on assistant turn replay
+-- ('Messages.Content_Tool_Use') and on tool-result messages
+-- ('Messages.Content_Tool_Result').
+--
+-- An id that already satisfies the rule passes through byte for byte.
+-- That covers every id either provider actually mints — Anthropic's
+-- @toolu_…@ and OpenAI's @call_…@ — and it must, because the
+-- tool-result side normalizes with this same function and the two have
+-- to agree.
+--
+-- Any other id is sanitised, truncated to 51 characters and suffixed
+-- with @_@ plus twelve lowercase hex characters of the SHA-256 of the
+-- /original/. Mapping every disallowed character to @_@ and truncating
+-- is not injective: @a.b@ and @a_b@ both became @a_b@, and two ids
+-- differing only after character 64 both became the same 64 characters
+-- — two distinct calls in one turn collapsing onto one id, which
+-- silently misroutes a tool result. Forty-eight bits of hash make a
+-- collision among one conversation's calls negligible, and 'mapMessage'
+-- turns a remaining collision into a clear error rather than a
+-- misrouted result. Refusing non-conforming ids outright was rejected:
+-- it would break replay of any conversation begun on a provider with a
+-- different id alphabet.
 normalizeToolCallId :: Text -> Text
-normalizeToolCallId =
-  Text.take 64 . Text.map sanitise
+normalizeToolCallId original
+  | isValid original = original
+  | otherwise = Text.take 51 (Text.map sanitise original) <> "_" <> suffix
   where
-    sanitise c
-      | isAscii c && isAlphaNum c = c
-      | c == '_' || c == '-' = c
-      | otherwise = '_'
+    isValid t = not (Text.null t) && Text.length t <= 64 && Text.all allowed t
+    allowed c = (isAscii c && isAlphaNum c) || c == '_' || c == '-'
+    sanitise c = if allowed c then c else '_'
+    suffix =
+      Text.take
+        12
+        (Text.decodeLatin1 (Base16.encode (SHA256.hash (Text.encodeUtf8 original))))
 
-mapMessage :: Msg.Message -> Either Text Messages.Message
+-- | Map one baikai message onto an SDK message, or say why it cannot
+-- be sent, or say that it should not be sent at all.
+--
+-- Three outcomes rather than two, because Anthropic rejects both an
+-- empty text block and an empty @content@ array, and baikai can produce
+-- either from its own bookkeeping:
+--
+-- * @Right (Just msg)@ — the ordinary case.
+--
+-- * @Right Nothing@ — an /assistant/ turn left with no blocks after
+--   empty text was dropped. That turn is baikai's own artifact: a text
+--   block that opened and closed with no deltas, or a turn whose only
+--   content was unsigned thinking, which replay already omits because
+--   Anthropic rejects a thinking block without its signature. Dropping
+--   it loses nothing the model said, and Anthropic merges the adjacent
+--   user turns itself. A placeholder would fabricate content the model
+--   never produced.
+--
+-- * @Left reason@ — a /user/ turn left with no blocks. That is a caller
+--   error, not baikai's, so it is refused locally with a better message
+--   than the provider's 400 and with the same
+--   'Baikai.Error.InvalidRequest' category, which 'prepareCall' already
+--   assigns. It is also refused when two @tool_use@ blocks in one
+--   assistant turn normalise onto the same id, which would misroute the
+--   tool result answering one of them.
+mapMessage :: Msg.Message -> Either Text (Maybe Messages.Message)
 mapMessage = \case
   Msg.UserMessage Msg.UserPayload {Msg.content = uc} ->
-    Right
-      Messages.Message
-        { Messages.role = Messages.User,
-          Messages.content = Vector.mapMaybe userContentToBlock uc,
-          Messages.cache_control = Nothing
-        }
+    let blocks = Vector.mapMaybe userContentToBlock uc
+     in if Vector.null blocks
+          then
+            Left
+              "Anthropic Messages rejects a user turn with no content blocks; \
+              \this one had none, or only empty text"
+          else
+            Right
+              ( Just
+                  Messages.Message
+                    { Messages.role = Messages.User,
+                      Messages.content = blocks,
+                      Messages.cache_control = Nothing
+                    }
+              )
   Msg.AssistantMessage Msg.AssistantPayload {Msg.content = ac} ->
-    Right
-      Messages.Message
-        { Messages.role = Messages.Assistant,
-          Messages.content = Vector.mapMaybe assistantContentToBlock ac,
-          Messages.cache_control = Nothing
-        }
+    let blocks = Vector.mapMaybe assistantContentToBlock ac
+     in case duplicateToolUseId blocks of
+          Just dup ->
+            Left ("duplicate tool_use id after normalisation: " <> dup)
+          Nothing
+            | Vector.null blocks -> Right Nothing
+            | otherwise ->
+                Right
+                  ( Just
+                      Messages.Message
+                        { Messages.role = Messages.Assistant,
+                          Messages.content = blocks,
+                          Messages.cache_control = Nothing
+                        }
+                  )
   Msg.ToolResultMessage
     Msg.ToolResultPayload
       { Msg.toolCallId = tid,
@@ -382,22 +540,41 @@ mapMessage = \case
         Left unsupported -> Left unsupported
         Right body ->
           Right
-            Messages.Message
-              { Messages.role = Messages.User,
-                Messages.content =
-                  Vector.singleton
-                    Messages.Content_Tool_Result
-                      { Messages.tool_use_id = normalizeToolCallId tid,
-                        Messages.content = nonEmpty body,
-                        Messages.is_error = Just err
-                      },
-                Messages.cache_control = Nothing
-              }
+            ( Just
+                Messages.Message
+                  { Messages.role = Messages.User,
+                    Messages.content =
+                      Vector.singleton
+                        Messages.Content_Tool_Result
+                          { Messages.tool_use_id = normalizeToolCallId tid,
+                            Messages.content = nonEmpty body,
+                            Messages.is_error = Just err
+                          },
+                    Messages.cache_control = Nothing
+                  }
+            )
 
+-- | The first @tool_use@ id that appears twice in one assistant turn,
+-- if any. Ids are already normalised at this point, so this catches the
+-- residual hash collision as well as a caller that reused an id.
+duplicateToolUseId :: Vector Messages.Content -> Maybe Text
+duplicateToolUseId = go [] . Vector.toList
+  where
+    go _ [] = Nothing
+    go seen (Messages.Content_Tool_Use {Messages.id = i} : rest)
+      | i `elem` seen = Just i
+      | otherwise = go (i : seen) rest
+    go seen (_ : rest) = go seen rest
+
+-- | An empty text block is dropped: Anthropic rejects
+-- @{"type":"text","text":""}@ outright, and an empty block carries
+-- nothing the model or the caller said.
 userContentToBlock :: Content.UserContent -> Maybe Messages.Content
 userContentToBlock = \case
-  Content.UserText (Content.TextContent t) ->
-    Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
+  Content.UserText (Content.TextContent t)
+    | Text.null t -> Nothing
+    | otherwise ->
+        Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
   Content.UserImage img ->
     Just
       Messages.Content_Image
@@ -410,10 +587,16 @@ userContentToBlock = \case
           Messages.cache_control = Nothing
         }
 
+-- | As 'userContentToBlock' for empty text. Unsigned thinking is also
+-- dropped, because Anthropic rejects a thinking block whose signature
+-- is missing; a turn left with no blocks at all is then dropped
+-- entirely by 'mapMessage'.
 assistantContentToBlock :: Content.AssistantContent -> Maybe Messages.Content
 assistantContentToBlock = \case
-  Content.AssistantText (Content.TextContent t) ->
-    Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
+  Content.AssistantText (Content.TextContent t)
+    | Text.null t -> Nothing
+    | otherwise ->
+        Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
   Content.AssistantThinking th ->
     if Content.redacted th
       then Just Messages.Content_Redacted_Thinking {Messages.data_ = Content.thinking th}

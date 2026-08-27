@@ -807,6 +807,17 @@ skeletonMessage ass _now =
 -- | The assembler's token accounting with this model's pricing applied.
 -- Shared so the terminal message and the evidence record cannot report
 -- two different figures for one call.
+--
+-- __Known limitation: cache writes are priced at one rate.__ Anthropic
+-- bills a one-hour ('Baikai.CacheRetention.CacheRetentionLong') cache
+-- write at roughly twice the five-minute rate, but the catalog carries a
+-- single @cacheWriteCost@ — the five-minute one — and the SDK's
+-- 'Messages.Usage' reports a single @cache_creation_input_tokens@ with
+-- no per-TTL split (see 'anthroUsageToBaikai'). A long-retention write
+-- is therefore /under-stated/ here. Token counts are unaffected; only
+-- the dollar figure is low. Fixing it needs a second value carried off
+-- the worker channel, a second field inside the evidence record, and a
+-- second rate models.dev does not publish.
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
   let usageBare = ass ^. #usage
@@ -895,6 +906,12 @@ renderAnthropicError v = case v of
 -- into baikai's 'Usage' shape. Cache-related counters are populated
 -- where present; cost is left at zero (the terminal event
 -- recomputes it).
+--
+-- @cache_creation_input_tokens@ is one number covering both cache-write
+-- TTLs. The SDK's 'Messages.Usage' has no per-TTL breakdown, so baikai
+-- cannot tell a five-minute write from a one-hour one and prices both at
+-- the catalog's single @cacheWriteCost@; see 'finalUsage' and
+-- @docs\/user\/prompt-caching.md@.
 anthroUsageToBaikai :: Messages.Usage -> Usage.Usage
 anthroUsageToBaikai u =
   let i = u ^. #input_tokens

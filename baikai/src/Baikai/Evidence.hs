@@ -40,6 +40,7 @@ module Baikai.Evidence
     ThinkingTranslation (..),
     ThinkingMode (..),
     ThinkingAdjustment (..),
+    weakensThinking,
     noThinkingRequested,
 
     -- * Endpoint and transport
@@ -91,7 +92,7 @@ import Data.Aeson
   )
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Aeson.Types (typeMismatch)
+import Data.Aeson.Types (Parser, typeMismatch)
 import Data.Bits (Bits, shiftL, shiftR, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
@@ -227,6 +228,12 @@ instance FromJSON ThinkingMode where
 -- Levels are carried as 'ThinkingLevel' rather than text so that
 -- strict evidence mode can compare them; they render through
 -- 'Baikai.ThinkingLevel.renderThinkingLevel' in JSON.
+--
+-- Two constructors are not about thinking: the sampling drops record
+-- that @temperature@, @top_p@, @seed@ and their kind were removed
+-- because the model generation or the API rejects them. They carry no
+-- requested level and 'weakensThinking' is 'False' for them, so strict
+-- evidence mode does not refuse a call over one.
 data ThinkingAdjustment
   = -- | The requested level was replaced by a weaker one the transport
     -- accepts. Carries the requested level and the wire text sent.
@@ -248,7 +255,37 @@ data ThinkingAdjustment
     -- fit inside the resolved output-token ceiling. Carries the
     -- requested level, the budget that was computed, and the ceiling.
     ThinkingDroppedBudgetExceeded !ThinkingLevel !Natural !Natural
+  | -- | Sampling parameters the caller set were removed because the
+    -- chosen model generation rejects them. Carries the wire names
+    -- removed, in wire order, for example
+    -- @["temperature","top_p"]@. Carries no requested level: it is
+    -- not about thinking, and it happens on calls that asked for no
+    -- thinking at all.
+    SamplingDroppedUnsupportedModel ![Text]
+  | -- | Sampling parameters the caller set were removed because this
+    -- API has no field for them on any generation — the Anthropic
+    -- Messages API has no @seed@, @frequency_penalty@ or
+    -- @presence_penalty@. Carries the wire names removed, in wire
+    -- order.
+    SamplingDroppedUnsupportedApi ![Text]
   deriving stock (Eq, Show, Generic)
+
+-- | Whether an adjustment weakens the /thinking/ the caller asked for.
+--
+-- Strict evidence mode refuses a call whose translation would weaken
+-- the requested thinking level; it must not refuse one merely because
+-- a sampling parameter had nowhere to go. The six level-carrying
+-- constructors weaken thinking; the two sampling ones do not.
+weakensThinking :: ThinkingAdjustment -> Bool
+weakensThinking = \case
+  EffortClamped {} -> True
+  EffortCollapsedToToggle {} -> True
+  EffortOmitted {} -> True
+  ThinkingDroppedUnsupportedModel {} -> True
+  ThinkingDroppedUnsupportedHost {} -> True
+  ThinkingDroppedBudgetExceeded {} -> True
+  SamplingDroppedUnsupportedModel {} -> False
+  SamplingDroppedUnsupportedApi {} -> False
 
 -- | Adjustments encode as a tagged object whose @kind@ names the
 -- constructor in snake_case and whose @requested@ field carries the
@@ -270,28 +307,43 @@ instance ToJSON ThinkingAdjustment where
         "thinking_dropped_budget_exceeded"
         lvl
         ["budget_tokens" .= budget, "max_tokens" .= maxOut]
+    SamplingDroppedUnsupportedModel fields ->
+      untagged "sampling_dropped_unsupported_model" fields
+    SamplingDroppedUnsupportedApi fields ->
+      untagged "sampling_dropped_unsupported_api" fields
     where
       tagged kind lvl extra =
         object
           ( ["kind" .= (kind :: Text), "requested" .= renderThinkingLevel lvl]
               <> extra
           )
+      untagged kind fields =
+        object ["kind" .= (kind :: Text), "fields" .= (fields :: [Text])]
 
+-- | @kind@ is read first, because only the six level-carrying kinds
+-- have a @requested@ field to read: the two sampling kinds carry a
+-- @fields@ array instead.
 instance FromJSON ThinkingAdjustment where
   parseJSON = \case
     Object o -> do
       kind <- o .: "kind"
-      lvl <- o .: "requested" >>= parseThinkingLevelText
+      let withLevel :: (ThinkingLevel -> Parser ThinkingAdjustment) -> Parser ThinkingAdjustment
+          withLevel k = o .: "requested" >>= parseThinkingLevelText >>= k
       case kind :: Text of
-        "effort_clamped" -> EffortClamped lvl <$> o .: "wire"
-        "effort_collapsed_to_toggle" -> pure (EffortCollapsedToToggle lvl)
-        "effort_omitted" -> pure (EffortOmitted lvl)
+        "effort_clamped" -> withLevel $ \lvl -> EffortClamped lvl <$> o .: "wire"
+        "effort_collapsed_to_toggle" -> withLevel (pure . EffortCollapsedToToggle)
+        "effort_omitted" -> withLevel (pure . EffortOmitted)
         "thinking_dropped_unsupported_model" ->
-          pure (ThinkingDroppedUnsupportedModel lvl)
+          withLevel (pure . ThinkingDroppedUnsupportedModel)
         "thinking_dropped_unsupported_host" ->
-          pure (ThinkingDroppedUnsupportedHost lvl)
+          withLevel (pure . ThinkingDroppedUnsupportedHost)
         "thinking_dropped_budget_exceeded" ->
-          ThinkingDroppedBudgetExceeded lvl <$> o .: "budget_tokens" <*> o .: "max_tokens"
+          withLevel $ \lvl ->
+            ThinkingDroppedBudgetExceeded lvl <$> o .: "budget_tokens" <*> o .: "max_tokens"
+        "sampling_dropped_unsupported_model" ->
+          SamplingDroppedUnsupportedModel <$> o .: "fields"
+        "sampling_dropped_unsupported_api" ->
+          SamplingDroppedUnsupportedApi <$> o .: "fields"
         other -> fail ("unknown thinking adjustment: " <> show other)
     v -> typeMismatch "ThinkingAdjustment" v
 
@@ -336,6 +388,12 @@ data ThinkingTranslation = ThinkingTranslation
     -- | Everything that happened to the request between the canonical
     -- level and the wire, in the order it was applied. Empty means the
     -- request was expressed exactly.
+    --
+    -- Reasoning /and/ sampling changes travel here: a
+    -- 'SamplingDroppedUnsupportedModel' entry can appear on a call
+    -- whose 'mode' is 'ThinkingModeAbsent', because nothing about
+    -- thinking was asked and something about sampling was dropped.
+    -- 'mode' describes the thinking configuration only.
     adjustments :: ![ThinkingAdjustment]
   }
   deriving stock (Eq, Show, Generic)
@@ -368,6 +426,12 @@ instance FromJSON ThinkingTranslation where
 -- Distinct from a call that asked for a level the transport could not
 -- express, which is 'ThinkingModeUnsupported' with a non-empty
 -- 'adjustments' list.
+--
+-- This value's 'adjustments' list is empty, but a real call that asked
+-- for no thinking may still carry adjustments: a dropped sampling
+-- parameter is recorded whatever the thinking mode. Build such a
+-- translation by adding to this one rather than by assuming
+-- @mode = absent@ implies nothing happened.
 noThinkingRequested :: ThinkingTranslation
 noThinkingRequested =
   ThinkingTranslation
@@ -662,8 +726,12 @@ evidenceRequest rid =
 -- existing readers working; bump the major component when a field is
 -- removed, changes meaning, or when 'canonicalEncode' changes, since
 -- that invalidates every previously recorded digest.
+-- The @1.1@ minor bump added the @sampling_dropped_unsupported_model@
+-- and @sampling_dropped_unsupported_api@ adjustment kinds. They are a
+-- compatible addition: a reader that switches on @kind@ and ignores
+-- what it does not know keeps working, and no existing digest changes.
 evidenceSchemaVersion :: Text
-evidenceSchemaVersion = "baikai.model-call-evidence/1.0"
+evidenceSchemaVersion = "baikai.model-call-evidence/1.1"
 
 -- | Everything Baikai can say about one completed provider call.
 --

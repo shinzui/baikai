@@ -126,6 +126,15 @@ much cheaper — on the calls that follow.
 - **CLI providers report zeros.** `claude -p` and `codex exec` don't
   expose token usage, so every `Usage` counter (cache included) is zero
   through the CLI providers — use the API providers to measure caching.
+- **A one-hour cache write is priced at the five-minute rate.** Anthropic
+  bills a `CacheRetentionLong` write at roughly twice the short-retention
+  rate, but its API reports one `cache_creation_input_tokens` count with
+  no per-TTL split, and the catalog carries one `cacheWriteCost` — the
+  five-minute one. baikai therefore *under-states* the dollar cost of a
+  long-retention write. The token counts are right; only `cachedWriteUsd`
+  is low. Nothing baikai can read off the wire distinguishes the two, so
+  measure a long-TTL run against your provider bill rather than against
+  `Cost`.
 - **Verify with the smoke suite.** `baikai-smoke`'s `CacheSmoke` case
   makes a write-then-read pair against a live host and asserts the
   second call reports `cacheReadTokens > 0`. Run it with a real

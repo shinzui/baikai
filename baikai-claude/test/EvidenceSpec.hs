@@ -52,6 +52,8 @@ tests =
     [ successEvidenceTest,
       rateLimitEvidenceTest,
       thinkingEvidenceTest,
+      samplingEvidenceTest,
+      cacheUsageEvidenceTest,
       optOutTest
     ]
 
@@ -182,7 +184,13 @@ optOutTest =
 -- | Run one recorded response through the real adapter and the real
 -- trace path, and return every trace event it produced.
 replay :: Int -> [(ByteString, ByteString)] -> [ByteString] -> Options -> IO [TraceEvent]
-replay status headers chunks opts = do
+replay = replayWith testModel
+
+-- | 'replay' against a model of the caller's choosing, for the cases
+-- whose point is a fact of the model's compat record.
+replayWith ::
+  Model -> Int -> [(ByteString, ByteString)] -> [ByteString] -> Options -> IO [TraceEvent]
+replayWith model status headers chunks opts = do
   reg <- newProviderRegistry
   let driver = replayDriver status headers chunks
       provider =
@@ -197,7 +205,7 @@ replay status headers chunks opts = do
   _ <-
     Stream.fold
       Fold.drain
-      (withTraceStreamWith reg sink testModel emptyContext opts)
+      (withTraceStreamWith reg sink model emptyContext opts)
   reverse <$> readTVarIO ref
 
 -- | A transport driver that serves a recorded response instead of
@@ -268,6 +276,79 @@ successBody =
     "\"role\":\"assistant\",\"content\":[],\"model\":\"claude-haiku-4-5-20990101-server-side\",",
     "\"stop_reason\":null,\"stop_sequence\":null,",
     "\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n",
+    "data: {\"type\":\"content_block_start\",\"index\":0,",
+    "\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+    "data: {\"type\":\"content_block_delta\",\"index\":0,",
+    "\"delta\":{\"type\":\"text_delta\",\"text\":\"pong\"}}\n\n",
+    "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+    "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},",
+    "\"usage\":{\"output_tokens\":5}}\n\n",
+    "data: {\"type\":\"message_stop\"}\n\n"
+  ]
+
+samplingEvidenceTest :: TestTree
+samplingEvidenceTest =
+  testCase "a dropped sampling parameter appears in the evidence record" $ do
+    -- The generation rejects temperature with a 400, so baikai omits
+    -- it. What must not happen is that it vanishes: the caller set a
+    -- value, and the record says what became of it. The thinking mode
+    -- is "absent" here — nothing about thinking was asked — which is
+    -- exactly the case a reader would misread as "nothing happened".
+    let model =
+          testModel
+            & #compat
+              .~ CompatAnthropicMessages
+                (defaultAnthropicMessagesCompat {supportsSamplingParameters = False})
+    ev <-
+      oneEvidence
+        =<< replayWith
+          model
+          200
+          successHeaders
+          successBody
+          (baseOptions & #temperature .~ Just 0.2)
+    case field "thinking" ev of
+      Just (Object t) -> do
+        KeyMap.lookup "mode" t @?= Just (String "absent")
+        KeyMap.lookup "requested" t @?= Just Null
+        case KeyMap.lookup "adjustments" t of
+          Just (Array adjustments) -> case Vector.toList adjustments of
+            [Object a] -> do
+              KeyMap.lookup "kind" a
+                @?= Just (String "sampling_dropped_unsupported_model")
+              KeyMap.lookup "fields" a
+                @?= Just (Array (Vector.fromList [String "temperature"]))
+            other -> assertFailure ("expected exactly one adjustment, got: " <> show other)
+          other -> assertFailure ("expected an adjustments array, got: " <> show other)
+      other -> assertFailure ("expected a thinking object, got: " <> show other)
+
+cacheUsageEvidenceTest :: TestTree
+cacheUsageEvidenceTest =
+  testCase "cache-write and cache-read counts reach the observed usage" $ do
+    -- The counts are what the whole cache-pricing story rests on, and
+    -- nothing pinned them: cache_creation_input_tokens is what baikai
+    -- prices at the catalog's single cacheWriteCost, and totalTokens
+    -- must count both cache classes as billed input.
+    ev <- oneEvidence =<< replay 200 successHeaders cachedBody baseOptions
+    case field "usage" ev of
+      Just (Object u) -> case KeyMap.lookup "observed" u of
+        Just (Object o) -> do
+          KeyMap.lookup "input_tokens" o @?= Just (Number 11)
+          KeyMap.lookup "cache_write_tokens" o @?= Just (Number 40)
+          KeyMap.lookup "cache_read_tokens" o @?= Just (Number 60)
+          KeyMap.lookup "output_tokens" o @?= Just (Number 5)
+          KeyMap.lookup "total_tokens" o @?= Just (Number (11 + 40 + 60 + 5))
+        other -> assertFailure ("expected an observed usage object, got: " <> show other)
+      other -> assertFailure ("expected a usage object, got: " <> show other)
+
+-- | 'successBody' with cache counters on its @message_start@.
+cachedBody :: [ByteString]
+cachedBody =
+  [ "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_observed\",\"type\":\"message\",",
+    "\"role\":\"assistant\",\"content\":[],\"model\":\"claude-haiku-4-5-20990101-server-side\",",
+    "\"stop_reason\":null,\"stop_sequence\":null,",
+    "\"usage\":{\"input_tokens\":11,\"output_tokens\":0,",
+    "\"cache_creation_input_tokens\":40,\"cache_read_input_tokens\":60}}}\n\n",
     "data: {\"type\":\"content_block_start\",\"index\":0,",
     "\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
     "data: {\"type\":\"content_block_delta\",\"index\":0,",

@@ -213,6 +213,34 @@ downgradeGateTests =
           AnthropicMessages
           noThinkingRequested
           @?= [],
+      testCase "A DROPPED SAMPLING PARAMETER IS NOT A THINKING DOWNGRADE" $
+        -- The documented contract is refusing a call that would weaken
+        -- the requested thinking level. A sampling parameter the model
+        -- generation or the API has nowhere to put is recorded in the
+        -- evidence — that is what the adjustment is for — but it is not
+        -- a thinking downgrade, and a caller who set `temperature` on a
+        -- Claude model must not have every strict call refused over it.
+        checkEvidenceRequirements
+          (EvidenceRequired EvidenceRequestedOnly)
+          AnthropicMessages
+          ( noThinkingRequested
+              & #adjustments .~ [SamplingDroppedUnsupportedModel ["temperature"]]
+          )
+          @?= [],
+      testCase "a sampling drop alongside a real downgrade reports only the downgrade" $
+        case checkEvidenceRequirements
+          (EvidenceRequired EvidenceRequestedOnly)
+          AnthropicMessages
+          ( noThinkingRequested
+              & #requested .~ Just ThinkingMax
+              & #adjustments
+                .~ [ EffortOmitted ThinkingMax,
+                     SamplingDroppedUnsupportedModel ["temperature", "top_p"]
+                   ]
+          ) of
+          [ThinkingWouldDowngrade reported] ->
+            reported @?= [EffortOmitted ThinkingMax]
+          other -> assertFailure ("expected one ThinkingWouldDowngrade, got: " <> show other),
       testCase "a level expressed exactly is not a downgrade" $
         -- The native OpenAI shape sends every canonical level verbatim
         -- and codex accepts all six. Refusing those would reject the
@@ -267,7 +295,9 @@ bestEffortIsNeverRefusedTests =
                   EffortOmitted lvl,
                   ThinkingDroppedUnsupportedModel lvl,
                   ThinkingDroppedUnsupportedHost lvl,
-                  ThinkingDroppedBudgetExceeded lvl 32000 8192
+                  ThinkingDroppedBudgetExceeded lvl 32000 8192,
+                  SamplingDroppedUnsupportedModel ["temperature"],
+                  SamplingDroppedUnsupportedApi ["seed"]
                 ]
             ]
     ]
@@ -282,6 +312,8 @@ adjustmentName = \case
   ThinkingDroppedUnsupportedModel {} -> "dropped-model"
   ThinkingDroppedUnsupportedHost {} -> "dropped-host"
   ThinkingDroppedBudgetExceeded {} -> "dropped-budget"
+  SamplingDroppedUnsupportedModel {} -> "sampling-dropped-model"
+  SamplingDroppedUnsupportedApi {} -> "sampling-dropped-api"
 
 -- ============================================================
 -- The gate does no work on the default path

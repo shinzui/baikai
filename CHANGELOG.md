@@ -23,6 +23,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a prefix table that did not know the id. See
   [docs/adr/0009](docs/adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md).
 
+- `baikai`: two new `Baikai.Evidence.ThinkingAdjustment` constructors,
+  `SamplingDroppedUnsupportedModel` and `SamplingDroppedUnsupportedApi`, encoding as
+  `{"kind":"sampling_dropped_unsupported_model","fields":["temperature","top_p"]}` and
+  `{"kind":"sampling_dropped_unsupported_api","fields":["seed"]}`. They record sampling
+  parameters removed because the model generation rejects them, or because the API has no
+  such field on any generation. Both carry a `fields` array and no `requested` level, so
+  they can appear on a call whose thinking mode is `absent`.
+
+- `baikai`: `Baikai.Evidence.weakensThinking`, which says whether an adjustment weakens the
+  thinking the caller asked for. Strict evidence mode filters through it, so a dropped
+  sampling parameter is recorded without refusing the call — the documented contract is
+  refusing a call that would weaken the requested *thinking level*.
+
+- `baikai-claude`: `Baikai.Provider.Claude.Internal.Request` exports `planRequest`,
+  `SamplingPlan`, `uncappedMaxTokensFloor` and `normalizeToolCallId` as test seams.
+  `planThinking` and `describeThinkingFor` are now projections of `planRequest`, so the
+  strict gate, the request builder and the evidence record read one answer.
+
 - `baikai`: new exposed module `Baikai.Url` — the one place baikai turns a URL
   into a host name. `parseUrl` yields a `UrlParts` record with the scheme, host,
   port and path, plus flags saying whether userinfo, a query string or a
@@ -56,6 +74,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   thinking shape rather than `budget_tokens`. The budget shape is deprecated
   for that generation; baikai sends the shape Anthropic documents as current.
 
+- `baikai`: `Baikai.Evidence.evidenceSchemaVersion` is now
+  `baikai.model-call-evidence/1.1`. A minor bump: the two sampling adjustment kinds are a
+  compatible addition, and no previously recorded digest changes.
+
 ### Deprecated
 
 - `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
@@ -86,6 +108,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   already have changed the working tree.
 
 ### Fixed
+
+- `baikai-claude`: a thinking request on `claude-sonnet-5` no longer 400s. It sends
+  `"thinking":{"type":"adaptive"}` and no `budget_tokens`, because the shape is read off
+  the model's catalog record rather than guessed from its id. (REV-2 C.1.)
+
+- `baikai-claude`: `temperature` and `top_p` are no longer sent to a model generation that
+  rejects them with a 400. They are omitted and the omission is recorded as
+  `sampling_dropped_unsupported_model` in the call's evidence. `seed`, `frequencyPenalty`
+  and `presencePenalty`, which the Anthropic Messages API has no field for on any
+  generation, are recorded as `sampling_dropped_unsupported_api`. (REV-2 C.1, C.5.)
+
+- `baikai-claude`: a model whose `maxOutputTokens` is `0` no longer sends
+  `"max_tokens":0`, which Anthropic rejects — and, with thinking set, no longer had its
+  whole thinking plan discarded for not fitting inside a ceiling of zero. It sends
+  `uncappedMaxTokensFloor` (1024, the SDK's own default) instead. An explicit
+  `maxTokens = Just 0` is still forwarded as written. (REV-2 C.2.)
+
+- `baikai-claude`: replay no longer sends an empty text block or an empty `content` array,
+  both of which Anthropic rejects. An empty text block is dropped; an assistant turn left
+  with nothing is dropped whole (it is baikai's own artifact — a block that closed with no
+  deltas, or only unsigned thinking, which replay already omits); a user turn left with
+  nothing is refused locally with a message naming the turn. (REV-2 C.3.)
+
+- `baikai-claude`: tool-call ids that differ only in characters the alphabet forbids, or
+  only past character 64, no longer normalise onto the same id and misroute a tool result.
+  A conforming id passes through unchanged — every id Anthropic and OpenAI actually mint
+  does — and any other is truncated to 51 characters and suffixed with twelve hex
+  characters of its SHA-256. Two `tool_use` blocks in one turn that still collide are
+  refused rather than sent. (REV-2 C.7.)
 
 - `baikai`: an `EmbeddingModel` pointed at a non-OpenAI host no longer sends
   `OPENAI_API_KEY` to it. The default key source was that variable whatever the
