@@ -14,6 +14,7 @@ import Baikai.Agent
   )
 import Baikai.Agent.Run (runAgentCommand, timeoutMicros)
 import Baikai.Evidence (noThinkingRequested)
+import BinaryTests (binaryTests)
 import CliTests (cliTests)
 import ConfigTests (configTests)
 import Control.Concurrent (threadDelay)
@@ -44,7 +45,8 @@ main =
       "baikai-agent"
       [ runTests,
         configTests,
-        cliTests
+        cliTests,
+        binaryTests
       ]
 
 runTests :: TestTree

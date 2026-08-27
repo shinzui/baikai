@@ -19,3 +19,4 @@ bundle.
 | [0003](0003-the-adapter-owns-the-translation-description.md) | The provider adapter owns the description of what it translated, and no layer re-derives it | accepted |
 | [0004](0004-two-digests-commitment-and-configuration.md) | Emit two digests, because a commitment and a configuration fingerprint are different values | accepted |
 | [0005](0005-what-baikai-deliberately-does-not-do.md) | Baikai does not sign, does not hold sanctioning policy, does not claim provider internals, and does not own retries | accepted |
+| [0006](0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md) | A process-spawning executable ships on the threaded runtime, and its suite proves it | accepted |

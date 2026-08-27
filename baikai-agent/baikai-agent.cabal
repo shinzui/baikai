@@ -89,6 +89,14 @@ executable baikai
   hs-source-dirs: app
   main-is:        Main.hs
 
+  -- The runner waits on the child with waitForProcess under
+  -- System.Timeout and drains the child's pipes on forked threads.
+  -- Without the threaded runtime that wait blocks every Haskell thread,
+  -- so the configured timeout can never fire and a chatty child
+  -- deadlocks the run on a full pipe. BinaryTests proves it against this
+  -- executable rather than against the suite's own runtime.
+  ghc-options:    -threaded
+
   -- Deliberately thin: everything real lives in Baikai.Agent.Cli so the
   -- whole command-line surface is reachable from the test suite without
   -- spawning the built binary.
@@ -102,18 +110,25 @@ executable baikai
     , text                  ^>=2.1
 
 test-suite baikai-agent-test
-  import:         common-options
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is:        Main.hs
+  import:             common-options
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Main.hs
   other-modules:
+    BinaryTests
     CliTests
     ConfigTests
     EvidenceTests
 
   -- -threaded is not optional here: the runner forks threads to drain
   -- pipes and relies on System.Timeout interrupting a blocking wait.
-  ghc-options:    -threaded -with-rtsopts=-N
+  ghc-options:        -threaded -with-rtsopts=-N
+
+  -- BinaryTests spawns the shipped executable rather than exercising the
+  -- library in this process. Naming it here makes cabal build it before
+  -- this suite and put it on the PATH the suite inherits, so the case
+  -- runs the binary a user installs instead of this suite's own runtime.
+  build-tool-depends: baikai-agent:baikai
   build-depends:
     , aeson
     , baikai

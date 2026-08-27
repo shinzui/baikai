@@ -7,6 +7,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `baikai-agent`: the `baikai` executable now links the **threaded runtime**
+  (`ghc-options: -threaded` on the `executable baikai` stanza). Without it a
+  blocking operating-system call — the `waitpid` inside
+  `System.Process.waitForProcess` — stopped every Haskell thread in the
+  installed binary, so a job's configured `timeout` could never fire and a
+  coding agent that wrote more than one pipe buffer deadlocked against the
+  runner's drain threads. Both defects existed only in the shipped executable:
+  the test suite was already compiled `-threaded`, so every runner test passed
+  under a runtime the binary did not have.
+
+  The suite now proves the runtime the binary ships with rather than its own.
+  `baikai-agent/test/BinaryTests.hs` spawns the built executable — cabal builds
+  it first and puts it on the suite's `PATH` through
+  `build-tool-depends: baikai-agent:baikai` — asserts that `baikai +RTS --info`
+  reports `rts_thr`, and runs `baikai agent run` against a stub agent that
+  outlives its deadline, requiring exit 75 within seconds and the whole process
+  group gone. See
+  [docs/adr/0006](docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md).
+
 ## [baikai 0.5.0.0] - 2026-08-05
 
 ### Added

@@ -72,13 +72,16 @@ later plan rebases. Exports and version bumps are owned by
 
 ## Progress
 
-- [ ] M1: `baikai-agent/baikai-agent.cabal`: `-threaded` on `executable baikai`;
-      `build-tool-depends: baikai-agent:baikai` and `BinaryTests` on the test suite.
-- [ ] M1: write `baikai-agent/test/BinaryTests.hs` (`builtBaikai`, `runBaikai`, the `+RTS
-      --info` test, the spawned-binary timeout test); register it in `test/Main.hs`; run
-      the timeout test once against the unthreaded binary and record the hang.
-- [ ] M1: write `docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md`
-      and its row in `docs/adr/README.md`; `CHANGELOG.md` entry; commit.
+- [x] M1 (2026-08-27): `baikai-agent/baikai-agent.cabal`: `-threaded` on `executable
+      baikai`; `build-tool-depends: baikai-agent:baikai` and `BinaryTests` on the test
+      suite.
+- [x] M1 (2026-08-27): wrote `baikai-agent/test/BinaryTests.hs` (`builtBaikai`,
+      `runBaikai`, `reportsTheThreadedRuntimeTest`, `timesOutAHungAgentTest`); registered
+      it in `test/Main.hs`; ran it against the unthreaded binary first and recorded both
+      failures in Surprises & Discoveries.
+- [x] M1 (2026-08-27): wrote
+      `docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md` and
+      its row in `docs/adr/README.md`; `CHANGELOG.md` entry; commit.
 - [ ] M2: add `AgentTimedOut` to `baikai/src/Baikai/Agent.hs`; `RunTimedOut` carries it;
       `renderAgentRunFailure`; `baikai/test/AgentSpec.hs` line 210.
 - [ ] M2: rewrite `terminateGroup` (INT, TERM, KILL, each stage bounded, group polled);
@@ -145,6 +148,53 @@ Recorded during plan authoring (2026-08-27); keep appending during implementatio
   when `perl` is absent.
 - `python3` here has `tomllib`, so a rendered Codex agent file can be checked against a
   real TOML parser by hand; no Haskell TOML parser is in the build plan and none is added.
+
+Recorded during implementation.
+
+- The pre-fix transcript M1 asked for. With `BinaryTests` wired in and the executable
+  still lacking `-threaded`, `cabal test baikai-agent --test-show-details=direct
+  --test-options='-p "the built baikai binary"'` gave both failures at once:
+
+  ```text
+    the built baikai binary
+      baikai +RTS --info reports the threaded runtime:            FAIL (1.21s)
+        ,("RTS way", "rts_v")
+      agent run stops a child that outlives its timeout, exit 75: FAIL (30.01s)
+        the run never returned: the configured timeout did not stop the child.
+  ```
+
+  The second case burned its whole thirty-second bound: the job's deadline was one
+  second at that point and the stub sleeps for a hundred and twenty, so nothing but the
+  test's own bound ended it. With `-threaded` the same case finishes in 3.09 s against
+  the three-second deadline the next entry explains. (2026-08-27, M1)
+- __cabal does not rebuild an executable when only its `ghc-options` change.__ After
+  adding `-threaded`, `cabal build baikai-agent:exe:baikai` reported "Building
+  executable" and the resulting binary still said `rts_v`; `cabal build -v3` passed no
+  `-threaded` to GHC at all. Removing the component's build directory
+  (`dist-newstyle/build/aarch64-osx/ghc-9.12.4/baikai-agent-0.1.0.0/x`) and rebuilding
+  produced `rts_thr`. The `+RTS --info` assertion is what turns this from a mystery into
+  a message, which is now part of what ADR 0006 says. (2026-08-27, M1)
+- GHC 9.12.4 prints the pair with a space — `("RTS way", "rts_thr")` — not in the
+  compact form the plan quoted. The assertion therefore matches the way name alone
+  (`"rts_thr"`), which still separates it from `"rts_v"` and leaves the surrounding
+  spacing GHC's to change. (2026-08-27, M1)
+- __The spawned-binary deadline cannot be one second.__ With `timeout "1s"` the case
+  passed when run alone and failed every time the whole suite ran, deterministically.
+  The failure was not a signal race: the diagnostic showed the stub's process-id file
+  had never been created at all —
+
+  ```text
+  the stub never recorded a process id. stdout:
+  stderr:
+  the run exceeded its timeout of 1s
+  pidfile exists: False listing: [".","..","workspace","agents.kdl","hang.sh"]
+  ```
+
+  — so the stub's first line had not run when the group was killed, one second after
+  the spawn. Starting `/bin/sh` takes longer than that while eighty other cases run in
+  parallel under `-with-rtsopts=-N`. The job now uses `timeout "3s"`, still forty times
+  shorter than the stub's own sleep, so what the case proves is unchanged. Three
+  consecutive full-suite runs pass at 3.05–3.09 s. (2026-08-27, M1)
 
 
 ## Decision Log
@@ -227,6 +277,24 @@ Recorded during plan authoring (2026-08-27); keep appending during implementatio
   `docs/adr/0001-architecture-decision-record-convention.md` fixes the format (plain
   files, `title`/`status`/`date` frontmatter, Context / Decision / Consequences, a row
   in `docs/adr/README.md`).
+  Date: 2026-08-27
+- Decision: The spawned-binary timeout case gives its job a three-second deadline, not
+  the one second the plan drafted.
+  Rationale: one second is shorter than the time the operating system takes to start
+  `/bin/sh` while the rest of the suite runs in parallel, so the case failed
+  deterministically in a full-suite run having never let the stub run a line — a fact
+  about process-start latency, not about the runner. Three seconds is still forty times
+  shorter than the stub's own sleep and well inside the case's fifteen-second bound, so
+  the case still proves that the deadline stopped the child rather than the child
+  finishing. Rejected: marking the case sequential with tasty's `after`, which would
+  hide the latency rather than accommodate it, and shortening the stub's sleep, which
+  would weaken the very distinction being asserted.
+  Date: 2026-08-27
+- Decision: The runtime assertion matches the way name `"rts_thr"` rather than the whole
+  printed pair.
+  Rationale: GHC 9.12.4 prints `("RTS way", "rts_thr")` with a space, and the spacing of
+  that list is GHC's to change; the way name is the fact under test and is already
+  unambiguous against the non-threaded `"rts_v"`.
   Date: 2026-08-27
 
 
@@ -358,7 +426,7 @@ the first two and of each other.
 Scope: the shipped binary links the threaded RTS, and the suite proves it against the
 built executable rather than against itself. At the end, `baikai +RTS --info` reports
 `("RTS way","rts_thr")`, and `baikai agent run` against a child that sleeps two minutes
-with `timeout "1s"` exits 75 in a few seconds instead of two minutes.
+with a short `timeout` exits 75 in a few seconds instead of two minutes.
 
 In `baikai-agent/baikai-agent.cabal`, add to the `executable baikai` stanza:
 
@@ -420,8 +488,14 @@ scope:
 
 ```kdl
 jobs { hang { provider "claude" executable "<tmp>/hang.sh" working-dir "<tmp>/workspace"
-              output "capture" timeout "1s" safety { capability "read-only" } } }
+              output "capture" timeout "3s" safety { capability "read-only" } } }
 ```
+
+Three seconds rather than one, for the reason recorded in Surprises & Discoveries: a
+one-second deadline is shorter than the time the operating system takes to start
+`/bin/sh` while the rest of the suite runs in parallel, so the case failed having never
+let the stub run a line. Three seconds still leaves the stub's own hundred-and-twenty
+second sleep as the only other thing that could end the run.
 
 The test runs `baikai agent run hang --prompt go --user-config <tmp>/agents.kdl` with
 `BAIKAI_TEST_PIDFILE=<tmp>/pids` in the environment, wrapped in `System.Timeout.timeout
