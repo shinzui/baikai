@@ -118,6 +118,20 @@ implementation. Provide concise evidence.
 
 ## Decision Log
 
+- Note (recorded by EP-9, 2026-08-27): `baikai-trace-otel`'s `OtelSinkOptions` gains a
+  third field, `parentContext :: !(Maybe OpenTelemetry.Context.Context)`, default
+  `Nothing`. The constructor is exported, so the addition breaks positional
+  construction; EP-9 documented the record-update-on-`defaultOtelSinkOptions` path
+  rather than adding a base value, on the same reasoning EP-8 used for
+  `ApiProvider.strengthCeiling` — a base value added by a code plan and renamed at the
+  freeze would break third parties twice. The base value this plan defines for every
+  evolvable record must cover all three fields. EP-9 also adds three internal names
+  that stay unexported by design and must not be frozen:
+  `Baikai.Trace.TraceSinkStalled`, `Baikai.Trace.Sink.TraceSinkFailure` and
+  `Baikai.Trace.Sink.Member`; both exception types render as text through
+  `displayException` on every path a caller sees, so exporting either would freeze a
+  name for no reader. `Baikai.Cost.Log.CallLogHandle` gains a `closed :: IORef Bool`
+  field; the type is exported opaquely and stays that way.
 - Question (recorded by EP-5, 2026-08-27): should `ErrorCategory` gain a `ContentFiltered`
   constructor? EP-5 left `finish_reason = "content_filter"` as `OtherError` and did not
   widen the closed sum, because widening it is a surface decision that belongs with the

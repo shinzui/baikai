@@ -71,7 +71,7 @@ rebase in both Decision Logs.
 - [x] M4: abort-delivery semantics in `docs/capabilities/call-tracing.md`, `docs/user/model-call-evidence.md`, `Trace.hs`'s module doc, `Trace/Event.hs`'s Haddock and the otel test comment; `docs/capabilities/opentelemetry-span-export.md` gains the parent-context limit; `docs/capabilities/log.md` entry.
 - [x] M4: ADR `docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md` (the next free number at implementation time; EP-8 took `0014`).
 - [x] `CHANGELOG.md` entries under `[Unreleased]` for `baikai`, `baikai-trace-otel`, `baikai-effectful`.
-- [ ] Keyless test gate and `okf validate docs/capabilities` pass; EP-9 boxes ticked in the MasterPlan.
+- [x] Keyless test gate and `okf validate docs/capabilities` pass; EP-9 boxes ticked in the MasterPlan.
 
 
 ## Surprises & Discoveries
@@ -170,6 +170,25 @@ Implementation-time:
 
 ## Decision Log
 
+- Decision: EP-9's ADR is
+  `docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md`, so the
+  next plan to promote a record takes `0016`.
+  Rationale: landing order, per the allocation rule in the MasterPlan's Integration
+  Points. EP-8 took `0014`. The record carries three durable rules — the bounded
+  sink wait, the `StablePtr` root invariant, and that no plan may rely on `finallyIO`
+  for prompt cleanup on early stop — that until now lived only in plan 34's Decision
+  Log and masterplan 7's Surprises.
+  Date: 2026-08-27
+- Decision: This plan made the `Build.sinkFailureError` wording edit EP-8 was asked
+  for: "so its record was not confirmed written" replaces "so its record was not
+  written".
+  Rationale: EP-8 landed without it, and the plan's own coordination note said this
+  plan would make the edit in that case. "Not written" is false for a stall, whose
+  events are still queued behind the blocked sink and may yet be delivered; "not
+  confirmed written" is true for both a throwing sink and a stalled one, and it is the
+  claim a strict caller actually needs — the call returned without delivery being
+  confirmed. No test asserted the old phrase.
+  Date: 2026-08-27
 - Decision: The terminal-path writes — `terminalSent := True`, the `CallEvidence` push,
   the terminal push — run inside one `uninterruptibleMask_` block with the flag set
   *first*, through a helper `commitTerminal` used by both terminal branches of
@@ -305,7 +324,40 @@ Implementation-time:
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Complete, 2026-08-27, four milestones in four commits (`4c12790`, `e1ecf89`,
+`7013c28`, `feeac50`) plus this one.
+
+`withTrace` and `withTraceStream` now return within a bounded time whatever a sink
+does. A sink that blocks forever costs the call one second, after which its worker is
+abandoned — not killed, which would lose the fold's end-of-stream action — and one
+stderr line reports the stall; a caller under `EvidenceRequired` gets a failed call
+saying the record was `not confirmed written`. Unfixed, the same test reported
+`withTrace hung on a blocking sink` after its two-second guard. The terminal event and
+its evidence record are committed as one unit under `uninterruptibleMask_` with the
+flag written first, so the finaliser can never see a half-committed terminal: with the
+window widened by a `threadDelay`, the fifty-iteration test fails on its first
+iteration with two `CallEvidence` events and a `CallFailed` after the `CallFinished`,
+and the same delay inside the fixed block is harmless. `multiSink` runs each member on
+its own drain thread; a throwing or blocking member no longer starves its siblings —
+under `Fold.tee` the sibling received /nothing/, and the OpenTelemetry sibling's span
+was opened, never ended and never exported — and a failure names each failed member by
+zero-based index. `otelSinkWith` accepts a parent `Context`, `closeCallLog` is
+idempotent, the strength attribute is rendered by the function the JSON uses, and
+`baikai-effectful` no longer declares a `streamly` dependency it never imported.
+
+Eight suites pass under the release skill's keyless command; `okf validate
+docs/capabilities --profile-enforce --log-enforce` exits 0 over 22 concepts.
+
+What the plan got wrong, and what a later plan should take from it. `Trace/Event.hs`'s
+Haddock was already correct — commit `1717694` had fixed both the code and the
+sentence — so the only stale description of the old order was a comment in the
+OpenTelemetry test; a plan quoting a review's line reference should re-read the line
+rather than trust it. The EP-4 follow-up check the plan scheduled came back negative:
+cancelling the producer did not make the consumer's own `finallyIO` cleanup
+synchronous, so the garbage-collection caveat stands unnarrowed, and the ADR records
+how to re-check it rather than predicting. And `Build.onSinkFailure`'s stderr line
+could not be reused for a stall: it says the events "were dropped", which is the one
+thing an abandoned worker's events were not.
 
 
 ## Context and Orientation

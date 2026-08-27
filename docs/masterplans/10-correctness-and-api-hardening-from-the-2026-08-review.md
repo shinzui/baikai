@@ -151,7 +151,7 @@ states the version (EP-10).
 | 6 | Close the unattended-run policy ceiling | docs/plans/63-close-the-unattended-run-policy-ceiling.md | None | EP-1 | Complete |
 | 7 | Make baikai-kit symlink-safe and exit-free | docs/plans/64-make-baikai-kit-symlink-safe-and-exit-free.md | None | None | Complete |
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Complete |
-| 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | In Progress |
+| 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Complete |
 | 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Not Started |
 | 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | Not Started |
 
@@ -402,10 +402,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-8 M2: strict mode fails a call whose terminal carries no record
 - [x] EP-8 M3: observed model only in the OTel span; endpoint default host; commitment digest without cost
 - [x] EP-8 M4: one strength derivation; `ApiProvider` declares its ceiling; ADRs 0002–0004 revised
-- [ ] EP-9 M1: terminal and evidence exactly once under asynchronous exceptions
-- [ ] EP-9 M2: a blocking or throwing sink cannot hang the call or starve sibling sinks
-- [ ] EP-9 M3: OTel parent-context option; strength rendering shared
-- [ ] EP-9 M4: abort-terminal delivery semantics documented; evidence-order pinned in `TraceSpec`
+- [x] EP-9 M1: terminal and evidence exactly once under asynchronous exceptions
+- [x] EP-9 M2: a blocking or throwing sink cannot hang the call or starve sibling sinks
+- [x] EP-9 M3: OTel parent-context option; strength rendering shared
+- [x] EP-9 M4: abort-terminal delivery semantics documented; evidence-order pinned in `TraceSpec`
 - [ ] EP-10 M1: constructor policy applied to every evolvable record; assembler seams behind `.Internal`
 - [ ] EP-10 M2: deprecated shims removed; versions bumped; changelog states removals
 - [ ] EP-10 M3: `Api` key normalisation, `Aborted` decision, naming and type consistency decisions recorded and applied
@@ -637,8 +637,57 @@ plans named (each plan's implementer reads this section before its first commit)
   reads text a user supplied. (2026-08-27, EP-7)
 
 
+- EP-9's `OtelSinkOptions.parentContext` is the third field on that record, and EP-10
+  (`docs/plans/67-freeze-the-public-surface.md`) now carries a Decision Log line saying
+  so, together with the three internal names EP-9 adds that must stay unexported
+  (`TraceSinkStalled`, `TraceSinkFailure`, `Member`) and the new opaque
+  `CallLogHandle.closed` field. EP-9 added no base value, for EP-8's reason: one added
+  by a code plan and renamed at the freeze would break third parties twice.
+  (2026-08-27, EP-9)
+- __The EP-4 follow-up check came back negative.__ EP-9's plan asked whether EP-4's
+  consumer-side cancellation had incidentally made the trace finaliser synchronous on
+  the abort path, which would have let the garbage-collection caveat be narrowed. It
+  has not: with `performMajorGC` removed from the polling helpers, `earlyAbortTest`,
+  `abortEvidenceTest` and `abortSpanTest` fail on every one of twenty runs. Cancelling
+  the producer and running the consumer's own `Stream.finallyIO` cleanup are different
+  things, and only the first is synchronous. Any later plan touching abort behaviour
+  should re-run that check rather than assume either answer. (2026-08-27, EP-9)
+- __A plan that quotes a review's line reference should re-read the line.__ EP-9
+  scheduled a correction to `Baikai.Trace.Event`'s Haddock, which REV-2 said described
+  the evidence event as arriving *after* the terminal. Commit `1717694` had already
+  fixed both the code and that sentence; the only stale description left was a comment
+  in `baikai-trace-otel/test/Main.hs`. EP-10 and EP-11 both work from review line
+  references. (2026-08-27, EP-9)
+- __A shared stderr helper can be wrong for a new failure mode.__ `Build.onSinkFailure`
+  says a call's trace events "were dropped", which is true for a sink that threw and
+  false for one that stalled — an abandoned worker's events are still queued and may
+  yet be delivered. EP-9 branched `reportSinkError` rather than reusing the line, and
+  reworded `Build.sinkFailureError` to "not confirmed written". EP-10 and EP-11 should
+  treat a message that is accurate for one cause and not another as a defect, not a
+  wording preference. (2026-08-27, EP-9)
+
+
 ## Decision Log
 
+- Decision: EP-9's ADR is
+  `docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md`, so the
+  next plan to promote a record takes `0016`.
+  Rationale: landing order, per the allocation rule in Integration Points. EP-9's
+  distillation pass promoted the three rules that had lived only in plan 34's Decision
+  Log and masterplan 7's Surprises — the bounded sink wait, the `StablePtr` root
+  invariant, and that no plan may rely on `finallyIO` for prompt cleanup on early stop
+  — into that one record. Its other durable facts are documented where a caller meets
+  them: the abort caveat and the drain-to-the-terminal pattern in
+  `docs/user/model-call-evidence.md` and `docs/capabilities/call-tracing.md`, and the
+  per-sink parent context in `docs/capabilities/opentelemetry-span-export.md`.
+  Date: 2026-08-27
+- Decision: EP-9 made the `Build.sinkFailureError` wording edit its plan asked EP-8
+  for: "its record was not confirmed written" replaces "not written".
+  Rationale: EP-8 landed without it, and EP-9's Decision Log said EP-9 would make the
+  edit in that case. "Not written" is false for a stalled sink, whose events are still
+  queued; the new wording is true for both causes and is the claim a strict caller
+  needs. Recorded in both Decision Logs.
+  Date: 2026-08-27
 - Decision: EP-8's ADR is
   `docs/adr/0014-strict-evidence-means-a-record-exists.md`, so the next plan to promote a
   record takes `0015`.
