@@ -347,9 +347,7 @@ danglingBlocks s =
     toolBlock raw
       | Text.null raw = Nothing
       | otherwise =
-          let decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 raw) of
-                Right v -> v
-                Left _ -> Aeson.String raw
+          let decoded = Content.toolArgumentsFromText raw
            in Just
                 ( AssistantToolCall
                     Content.ToolCall

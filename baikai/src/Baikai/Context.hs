@@ -30,8 +30,8 @@ module Baikai.Context
   )
 where
 
-import Baikai.Content (AssistantContent (..), ToolCall (..))
-import Baikai.Message (Message (..), ToolResult, toolResultFromCallNow, toolResultText, user)
+import Baikai.Content (AssistantContent (..), ToolCall (..), isCutOffToolCall)
+import Baikai.Message (Message (..), ToolResult, toolResultErrorText, toolResultFromCallNow, toolResultText, user)
 import Baikai.Response (Response (..), responseMessage)
 import Baikai.Tool (Tool)
 import Control.Applicative ((<|>))
@@ -106,6 +106,16 @@ addResponse resp = addMessage (responseMessage resp)
 -- 'ToolResult' carrying text blocks, image blocks, and an error flag.
 -- Any error handling (timeouts, sandboxing, multi-call concurrency)
 -- lives in the dispatcher.
+--
+-- A tool call cut off by the output cap
+-- ('Baikai.Content.isCutOffToolCall') is __never dispatched__: its
+-- arguments are the raw text the model got as far as sending, not a
+-- request it finished making. It still gets a
+-- 'Baikai.Message.ToolResultMessage', with @isError = True@ explaining
+-- why, because a caller driving the exchange by hand expects one result
+-- per call and must not silently lose the turn.
+-- 'Baikai.Provider.Registry.runToolLoop' stops on such a response
+-- instead of reaching here.
 appendToolResult ::
   Context ->
   Response ->
@@ -118,7 +128,10 @@ appendToolResult ctx resp dispatcher = do
   results <-
     traverse
       ( \tc -> do
-          result <- dispatcher tc
+          result <-
+            if isCutOffToolCall tc
+              then pure cutOffToolResult
+              else dispatcher tc
           toolResultFromCallNow tc result
       )
       toolCalls
@@ -129,6 +142,13 @@ appendToolResult ctx resp dispatcher = do
                <> V.singleton respMsg
                <> V.fromList results
            )
+
+-- | What 'appendToolResult' reports instead of dispatching a call the
+-- model never finished asking for.
+cutOffToolResult :: ToolResult
+cutOffToolResult =
+  toolResultErrorText
+    "tool call arguments were cut off by the output limit; the call was not dispatched — raise maxTokens and retry"
 
 -- | Text-only convenience wrapper for the common case where every
 -- tool call returns one successful text block.

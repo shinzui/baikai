@@ -27,6 +27,10 @@ module Baikai.Content
     AssistantContent (..),
     ToolResultContent (..),
 
+    -- * Tool-call arguments
+    toolArgumentsFromText,
+    isCutOffToolCall,
+
     -- * Smart defaults
     emptyTextContent,
     emptyThinkingContent,
@@ -54,6 +58,7 @@ import Data.Aeson
     (.:),
     (.=),
   )
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base64 qualified as Base64
@@ -87,12 +92,48 @@ data ThinkingContent = ThinkingContent
 -- | A model-issued tool invocation. @id_@ has a trailing underscore in
 -- Haskell to dodge a clash with @Prelude.id@; the JSON encoding strips
 -- it back to @id@.
+--
+-- @arguments@ is the decoded JSON value the model sent — normally an
+-- object. A bare 'Data.Aeson.String' is the __cut-off marker__: the
+-- model's argument stream was truncated (by the output cap, or by a
+-- transport failure mid-call) and the raw text is kept verbatim rather
+-- than replaced by something well-formed that the model never asked
+-- for. 'isCutOffToolCall' is the predicate; 'toolArgumentsFromText' is
+-- the one rule that produces it. A cut-off call must not be dispatched:
+-- 'Baikai.Provider.Registry.runToolLoop' stops on one and
+-- 'Baikai.Context.appendToolResult' reports it as a tool-result error.
 data ToolCall = ToolCall
   { id_ :: !Text,
     name :: !Text,
     arguments :: !Value
   }
   deriving stock (Eq, Show, Generic)
+
+-- | Turn a tool call's accumulated argument text into its @arguments@
+-- value.
+--
+-- Empty text is an empty object: Anthropic opens a @tool_use@ block with
+-- no input and streams no delta, and an empty object is exactly what the
+-- model asked for. Non-empty text that does not decode is kept verbatim
+-- as a 'Data.Aeson.String' — the call was cut off, and no byte of what
+-- the model did send is dropped.
+--
+-- Both provider assemblers and core's stream-recovery path use this one
+-- rule, so 'isCutOffToolCall' means the same thing at every layer.
+-- Before it, the assemblers replaced malformed arguments with @{}@ and a
+-- tool loop happily executed the call with no arguments at all.
+toolArgumentsFromText :: Text -> Value
+toolArgumentsFromText raw
+  | Text.null (Text.strip raw) = Aeson.Object mempty
+  | otherwise = case Aeson.eitherDecodeStrict (Text.encodeUtf8 raw) of
+      Right v -> v
+      Left _ -> Aeson.String raw
+
+-- | 'True' when the call's argument stream was cut off: @arguments@ is
+-- the raw text rather than a decoded value. See 'ToolCall'.
+isCutOffToolCall :: ToolCall -> Bool
+isCutOffToolCall ToolCall {arguments = Aeson.String _} = True
+isCutOffToolCall _ = False
 
 -- | An inline image block. Bytes are stored decoded; the JSON encoding
 -- emits base64 under @data@ and the @mimeType@ camel-snakes to

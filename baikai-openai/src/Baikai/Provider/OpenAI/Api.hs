@@ -871,6 +871,11 @@ data Assembler = Assembler
     -- | baikai contentIndex → accumulated arguments JSON.
     toolArgs :: !(IntMap Text),
     closed :: !(IntMap Content.AssistantContent),
+    -- | The next @contentIndex@ to hand out. Every block open takes it
+    -- and bumps it, and no index is ever reused: text and thinking
+    -- close each other before opening, so a stream that alternates
+    -- between them produces 0, 1, 2, … in the order the host sent them,
+    -- which is the order reassembly rebuilds the message in.
     nextContentIndex :: !Int,
     usage :: !Usage.Usage,
     stopReason :: !Stop.StopReason,
@@ -946,9 +951,12 @@ translate ::
   UTCTime ->
   ([AssistantMessageEvent], Assembler)
 translate chunk ass now
-  | Left be <- chunk =
-      let msg = finalMessage ass now (Just (be ^. #message)) Stop.ErrorReason
-       in ([EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg be)], ass)
+  -- A transport failure mid-stream goes through the same closer as a
+  -- clean channel close, so text, reasoning and tool arguments that were
+  -- open when it arrived are closed before the terminal. Building the
+  -- terminal from 'blocksInOrder' alone -- which is what this branch used
+  -- to do -- silently dropped them from both the events and the message.
+  | Left be <- chunk = closeOpenStream now (Just be) ass
   | Right raw <- chunk =
       let -- 0. Record what the host said about itself.
           ass0 = observeChunk raw ass
@@ -1000,10 +1008,20 @@ applyReasoningDelta (Just d) ass =
       ( [ThinkingDelta DeltaPayload {contentIndex = i, delta = d}],
         ass & #reasoningAccum %~ (<> d)
       )
+    -- Opening a thinking block closes an open text block first, so at
+    -- most one of the two is open at a time and every _End precedes the
+    -- next _Start. 'applyVisibleTextDelta' already closes reasoning
+    -- symmetrically. Tool-call blocks are deliberately not closed here:
+    -- hosts emit @content@ and @tool_calls@ in one chunk, and closing a
+    -- tool call early would split a block the host meant as one.
     Nothing ->
-      let i = ass ^. #nextContentIndex
-       in ( [ThinkingStart IndexPayload {contentIndex = i}, ThinkingDelta DeltaPayload {contentIndex = i, delta = d}],
-            ass
+      let (textEvents, ass0) = closeOpenText ass
+          i = ass0 ^. #nextContentIndex
+       in ( textEvents
+              <> [ ThinkingStart IndexPayload {contentIndex = i},
+                   ThinkingDelta DeltaPayload {contentIndex = i, delta = d}
+                 ],
+            ass0
               & #reasoningOpen .~ Just i
               & #reasoningAccum .~ d
               & #nextContentIndex .~ (i + 1)
@@ -1229,10 +1247,12 @@ closeOpenTools ass =
   where
     closeOne (acc, a) (i, argsText) =
       let (tid, tn) = fromMaybe ("", "") (IntMap.lookup i (a ^. #toolMeta))
+          -- One rule, shared with the Claude assembler and with core's
+          -- stream recovery: text that does not decode is kept verbatim
+          -- as a String, marking the call cut off, rather than replaced
+          -- by an empty object a tool loop would execute.
           decoded :: Value
-          decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 argsText) of
-            Right v -> v
-            Left _ -> Aeson.Object mempty
+          decoded = Content.toolArgumentsFromText argsText
           tc =
             Content.ToolCall
               { Content.id_ = tid,
@@ -1253,10 +1273,15 @@ closeOpenStream ::
   UTCTime -> Maybe BaikaiError -> Assembler -> ([AssistantMessageEvent], Assembler)
 closeOpenStream now mErr ass
   | ass ^. #finishSeen =
-      -- Channel closed cleanly after finish_reason.
+      -- The frames ended after finish_reason: either cleanly (the
+      -- channel-close call site, which passes 'Nothing') or with a
+      -- classified transport failure that arrived afterwards. The
+      -- caller's error wins, because a stream that failed after
+      -- finish_reason still failed.
       let reason = ass ^. #stopReason
           terminalErr =
-            (ass ^. #pendingError)
+            mErr
+              <|> (ass ^. #pendingError)
               <|> if reason == Stop.ErrorReason
                 then Just (providerError "provider stopped the response with an error finish_reason")
                 else Nothing

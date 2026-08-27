@@ -11,6 +11,7 @@ module Baikai.Provider.Claude.Sse
     claudeSseStreamValue,
     claudeSseStreamValueWithHeaders,
     sseFromResponse,
+    decodeFrame,
     buildRequest,
     ResponseMetadata (..),
     capturedHeaderNames,
@@ -21,10 +22,12 @@ import Baikai.Error (BaikaiError, decodeError, httpError, parseRetryAfterSeconds
 import Claude.V1.Messages qualified as Messages
 import Control.Monad (foldM, when)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as Aeson.Key
 import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
 import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
+import Data.Char (isSpace)
 import Data.IORef qualified as IORef
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -193,12 +196,14 @@ sseFromResponse response onMetadata onEvent = do
             case es of
               [] -> pure False
               _ -> do
-                let payload = S8.concat es
-                case Aeson.eitherDecodeStrict payload of
-                  Left err -> onEvent (Left (decodeError (Text.pack err))) >> pure False
-                  Right val -> case Aeson.fromJSON val of
-                    Aeson.Error err -> onEvent (Left (decodeError (Text.pack err))) >> pure False
-                    Aeson.Success ev -> onEvent (Right ev) >> pure False
+                let payload = S8.dropWhileEnd isSpace (S8.concat es)
+                if SBS.null payload
+                  then -- An empty @data:@ line is a heartbeat, not a frame.
+                    pure False
+                  else case decodeFrame payload of
+                    Left e -> onEvent (Left e) >> pure False
+                    Right Nothing -> pure False
+                    Right (Just ev) -> onEvent (Right ev) >> pure False
 
           handleLine line =
             let l = stripCR line
@@ -233,6 +238,62 @@ sseFromResponse response onMetadata onEvent = do
                     stop <- foldM (\acc ln -> if acc then pure True else handleLine ln) False completeLines
                     if stop then pure () else loop
       loop
+
+-- | Decode one SSE frame.
+--
+-- @Right Nothing@ is a frame this transport deliberately skips: an event
+-- @type@, or a @content_block_delta@ whose @delta.type@, that the SDK
+-- has no constructor for. The SDK decodes both with aeson's tagged-object
+-- encoding and no unknown-tag fallback, so an unrecognised tag is a
+-- decode /failure/ there — and a new frame type from Anthropic must not
+-- end an otherwise healthy stream. A frame of a __known__ type that
+-- still fails to decode is a genuine fault and stays a 'decodeError'.
+--
+-- Both tag lists are copied from the SDK's @constructorTagModifier@
+-- tables in @Claude.V1.Messages@. A frame carrying no @type@ field at
+-- all is not "unknown" — it is malformed, and fails as before.
+decodeFrame :: SBS.ByteString -> Either BaikaiError (Maybe Messages.MessageStreamEvent)
+decodeFrame payload = case Aeson.eitherDecodeStrict payload of
+  Left err -> Left (decodeError (Text.pack err))
+  Right val
+    | frameIsUnknown val -> Right Nothing
+    | otherwise -> case Aeson.fromJSON val of
+        Aeson.Error err -> Left (decodeError (Text.pack err))
+        Aeson.Success ev -> Right (Just ev)
+
+-- | Whether this frame names a type the SDK has no constructor for.
+frameIsUnknown :: Aeson.Value -> Bool
+frameIsUnknown val = case val of
+  Aeson.Object o -> case Aeson.Key.lookup "type" o of
+    Just (Aeson.String "content_block_delta") ->
+      case Aeson.Key.lookup "delta" o of
+        Just (Aeson.Object d) -> case Aeson.Key.lookup "type" d of
+          Just (Aeson.String dt) -> dt `notElem` knownDeltaTypes
+          _ -> False
+        _ -> False
+    Just (Aeson.String t) -> t `notElem` knownEventTypes
+    _ -> False
+  _ -> False
+
+knownEventTypes :: [Text]
+knownEventTypes =
+  [ "message_start",
+    "content_block_start",
+    "content_block_delta",
+    "content_block_stop",
+    "message_delta",
+    "message_stop",
+    "ping",
+    "error"
+  ]
+
+knownDeltaTypes :: [Text]
+knownDeltaTypes =
+  [ "text_delta",
+    "input_json_delta",
+    "thinking_delta",
+    "signature_delta"
+  ]
 
 normalizePath :: String -> String
 normalizePath = \case

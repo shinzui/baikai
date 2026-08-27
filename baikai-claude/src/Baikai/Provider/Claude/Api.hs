@@ -95,6 +95,7 @@ import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet qualified as IntSet
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -372,14 +373,20 @@ step s
             then pure Nothing
             else do
               now <- getCurrentTime
-              let (ev, ass') = unexpectedEoS now ass0
-              sealed <- sealTerminal (s' & #assembler .~ ass') ev
-              pure
-                ( Just
-                    ( sealed,
-                      s' & #assembler .~ ass' & #finished .~ True
+              let (events, ass') = unexpectedEoS now ass0
+              case events of
+                [] -> pure Nothing
+                (e : rest) -> do
+                  sealed <- sealTerminal (s' & #assembler .~ ass') e
+                  pure
+                    ( Just
+                        ( sealed,
+                          s'
+                            & #pending .~ rest
+                            & #assembler .~ ass'
+                            & #finished .~ True
+                        )
                     )
-                )
         Just raw -> do
           now <- getCurrentTime
           let (events, ass') = translate raw ass0 now
@@ -560,13 +567,43 @@ terminal = \case
   EventError {} -> True
   _ -> False
 
--- | The recovery path: channel closed before any terminal event.
+-- | The recovery path: the frame queue closed before any terminal event.
+--
+-- Returns the block-closing events first and then the terminal, so a
+-- consumer reading raw events and a consumer reassembling them see the
+-- same partial output.
 unexpectedEoS ::
-  UTCTime -> Assembler -> (AssistantMessageEvent, Assembler)
+  UTCTime -> Assembler -> ([AssistantMessageEvent], Assembler)
 unexpectedEoS now ass =
-  let errText = "claude stream ended without message_stop"
-      msg = finalMessageOnError ass now errText
-   in (EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg (providerError errText)), ass)
+  let (closeEvents, ass') = closeOpenBlocks ass
+      errText = "claude stream ended without message_stop"
+      msg = finalMessageOnError ass' now errText
+   in ( closeEvents
+          <> [EventError (errorTerminal Nothing (ass' ^. #responseId) Stop.ErrorReason msg (providerError errText))],
+        ass'
+      )
+
+-- | Close every still-open block in ascending index order, exactly as a
+-- @content_block_stop@ for each would.
+--
+-- Used on every failure path, because the terminal message is built from
+-- 'blocksInOrder' — the /closed/ blocks — and a failure that left text,
+-- thinking or tool arguments open would otherwise drop them from both
+-- the events and the message. Core's reassembler recovers open buffers
+-- on its own; a consumer reading raw events had no such recourse.
+closeOpenBlocks :: Assembler -> ([AssistantMessageEvent], Assembler)
+closeOpenBlocks ass = foldl' close ([], ass) openIndices
+  where
+    openIndices =
+      IntSet.toAscList . IntSet.unions $
+        map
+          IntMap.keysSet
+          [ ass ^. #textBuf,
+            ass ^. #thinkBuf,
+            ass ^. #redactedBuf,
+            ass ^. #toolArgsBuf
+          ]
+    close (acc, a) i = let (evs, a') = handleBlockStop i a in (acc <> evs, a')
 
 -- | Translation state across one streaming call.
 --
@@ -635,8 +672,12 @@ translate ::
   ([AssistantMessageEvent], Assembler)
 translate raw ass now = case raw of
   Left be ->
-    let msg = finalMessageOnError ass now (be ^. #message)
-     in ([EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg be)], ass)
+    let (closeEvents, ass') = closeOpenBlocks ass
+        msg = finalMessageOnError ass' now (be ^. #message)
+     in ( closeEvents
+            <> [EventError (errorTerminal Nothing (ass' ^. #responseId) Stop.ErrorReason msg be)],
+          ass'
+        )
   Right ev -> translateEvent ev ass now
 
 translateEvent ::
@@ -693,11 +734,15 @@ translateEvent raw ass now = case raw of
             else EventDone (doneTerminal Nothing (ass ^. #responseId) reason msg)
      in ([terminalEvent], ass)
   Messages.Error {Messages.error = errVal} ->
-    let errText = renderAnthropicError errVal
+    let (closeEvents, ass') = closeOpenBlocks ass
+        errText = renderAnthropicError errVal
         mErr = classifyErrorValue errVal
-        msg = finalMessageOnError ass now errText
+        msg = finalMessageOnError ass' now errText
         errInfo = fromMaybe (providerError errText) mErr
-     in ([EventError (errorTerminal Nothing (ass ^. #responseId) Stop.ErrorReason msg errInfo)], ass)
+     in ( closeEvents
+            <> [EventError (errorTerminal Nothing (ass' ^. #responseId) Stop.ErrorReason msg errInfo)],
+          ass'
+        )
 
 handleBlockStart ::
   Int ->
@@ -808,15 +853,15 @@ handleBlockStop i ass
             -- A tool args buffer is opened together with metadata in
             -- handleBlockStart; the fallback is defensive only.
             fromMaybe ("", "") (IntMap.lookup i (ass ^. #toolMeta))
+          -- One rule, shared with the OpenAI assembler and with core's
+          -- stream recovery: empty text is an empty object (Anthropic
+          -- opens a tool_use block with no input and streams no delta),
+          -- and text that does not decode is kept verbatim as a String,
+          -- marking the call cut off. This module used to answer @{}@
+          -- to both, which handed a tool loop a well-formed call the
+          -- model never finished asking for.
           decoded :: Value
-          decoded = case Aeson.eitherDecodeStrict (Text.encodeUtf8 argsText) of
-            Right v -> v
-            Left _ ->
-              -- Anthropic sometimes opens a tool_use block with an
-              -- empty input that never streams any delta. Fall back
-              -- to an empty object so the resulting ToolCall is
-              -- well-formed.
-              Aeson.Object mempty
+          decoded = Content.toolArgumentsFromText argsText
           tc =
             Content.ToolCall
               { Content.id_ = tid,

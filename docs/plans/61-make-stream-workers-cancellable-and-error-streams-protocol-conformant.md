@@ -71,13 +71,13 @@ it.
 - [x] M2: `Event.hs` "temporary gap" note retired; `StartPayload.responseId` Haddock corrected
 - [x] M2: `assertErrorContract` strengthened in both suites and applied to every error stream
 - [x] M2: pre-`message_start` failure shapes pinned in `baikai-claude/test/SseSpec.hs`
-- [ ] M3: `toolArgumentsFromText` and `isCutOffToolCall` in `Baikai.Content`; both assemblers
+- [x] M3: `toolArgumentsFromText` and `isCutOffToolCall` in `Baikai.Content`; both assemblers
       and `danglingBlocks` use them; `runToolLoop`/`appendToolResult` never dispatch a cut-off call
-- [ ] M3: Claude `closeOpenBlocks` on every failure path; OpenAI mid-stream `Left` closes blocks
-- [ ] M3: OpenAI interleaved reasoning closes the open text block first
-- [ ] M3: Claude `decodeFrame` skips unknown event and delta types; both transports ignore
+- [x] M3: Claude `closeOpenBlocks` on every failure path; OpenAI mid-stream `Left` closes blocks
+- [x] M3: OpenAI interleaved reasoning closes the open text block first
+- [x] M3: Claude `decodeFrame` skips unknown event and delta types; both transports ignore
       empty `data:` and trim `[DONE]`
-- [ ] M3: SseSpec cases added in both packages
+- [x] M3: SseSpec cases added in both packages
 - [ ] M4: reassembly fallbacks (wall-clock latency, duplicate `EventStart`, post-terminal
       events) with the six new `StreamSpec` cases
 - [ ] M4: Haddock, `docs/user/streaming.md`, `docs/user/tools.md`,

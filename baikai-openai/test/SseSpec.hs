@@ -5,7 +5,7 @@ import Baikai.Http qualified as Http
 import Baikai.Models.Generated (openai_gpt_4o_mini)
 import Baikai.Provider.OpenAI.Api
   ( Assembler,
-    RawChunk,
+    RawChunk (..),
     SseDriver,
     emptyAssembler,
     openaiChatStreamWith,
@@ -25,18 +25,21 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
+import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
 import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 tests :: TestTree
 tests =
@@ -72,9 +75,126 @@ tests =
           (EventError TerminalPayload {errorInfo = Just be} : _) -> category be @?= AuthError
           other -> assertFailure ("expected a terminal EventError carrying errorInfo, got: " <> show (take 1 other)),
       observationTests,
+      blockClosingTests,
       requestShapeTests,
       redirectTests
     ]
+
+-- | How blocks close when something goes wrong, and what the transport
+-- does with a frame it was not written for.
+blockClosingTests :: TestTree
+blockClosingTests =
+  testGroup
+    "block closing under failure"
+    [ testCase "[DONE] with trailing whitespace terminates without a decode error" $ do
+        -- Hosts send @data: [DONE] @ and @data: [DONE]\r@; an exact
+        -- comparison turned the end of a healthy stream into a decode
+        -- error terminal.
+        events <-
+          transportEvents
+            200
+            (init successBody <> ["data: [DONE] \n\n"])
+        assertAllRight events
+        length events @?= 3,
+      testCase "an empty data heartbeat is ignored" $ do
+        events <- transportEvents 200 ["data:\n\n", "data: {\"choices\":[]}\n\n", "data: [DONE]\n\n"]
+        assertAllRight events
+        length events @?= 1,
+      testCase "a tool call cut off by finish_reason length closes with its raw argument text" $ do
+        let chunks =
+              [ toolChunk (Just "call_1") (Just "search") (Just "{\"query\":\"hel"),
+                "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}\n\n"
+              ]
+        events <- replayStream 200 [] chunks
+        let calls = [tc | ToolCallEnd ToolCallEndPayload {toolCall = tc} <- events]
+        case calls of
+          [tc] -> do
+            tc ^. #arguments @?= Aeson.String "{\"query\":\"hel"
+            assertBool "the call is marked cut off" (isCutOffToolCall tc)
+          other -> assertFailure ("expected exactly one ToolCallEnd, got: " <> show (length other))
+        case reverse events of
+          (EventDone TerminalPayload {reason = r} : _) -> r @?= Length
+          other -> assertFailure ("expected a terminal EventDone, got: " <> show (take 1 other)),
+      testCase "a mid-stream transport error closes open blocks before the terminal" $ do
+        -- Injected through 'translate' rather than the transport,
+        -- because what is under test is the assembler's Left path: a
+        -- classified error arriving with a text block open.
+        let (openEvents, ass) =
+              translate
+                (Right emptyChunk {contentDelta = Just "partial"})
+                (emptyAssembler streamTestModel testTime)
+                testTime
+            (failEvents, _) = translate (Left (providerUnavailable "connection reset mid-stream")) ass testTime
+        assertBool
+          ("expected a text block to be open, got: " <> show openEvents)
+          (not (null [() | TextStart {} <- openEvents]))
+        case failEvents of
+          [TextEnd BlockEndPayload {contentIndex = 0, content = body}, EventError TerminalPayload {message = msg}] -> do
+            body @?= "partial"
+            [t | AssistantText (TextContent t) <- Vector.toList (messageBlocks msg)] @?= ["partial"]
+          other -> assertFailure ("expected TextEnd then EventError, got: " <> show other)
+    ]
+
+toolChunk :: Maybe Text.Text -> Maybe Text.Text -> Maybe Text.Text -> ByteString
+toolChunk tid tname targs =
+  "data: "
+    <> LBS.toStrict
+      ( Aeson.encode
+          ( Aeson.object
+              [ "choices"
+                  Aeson..= [ Aeson.object
+                               [ "index" Aeson..= (0 :: Int),
+                                 "delta"
+                                   Aeson..= Aeson.object
+                                     [ "tool_calls"
+                                         Aeson..= [ Aeson.object
+                                                      [ "index" Aeson..= (0 :: Int),
+                                                        "id" Aeson..= tid,
+                                                        "type" Aeson..= ("function" :: Text.Text),
+                                                        "function"
+                                                          Aeson..= Aeson.object
+                                                            ["name" Aeson..= tname, "arguments" Aeson..= targs]
+                                                      ]
+                                                  ]
+                                     ]
+                               ]
+                           ]
+              ]
+          )
+      )
+    <> "\n\n"
+
+-- | The raw chunk values the transport produced, with no assembler
+-- involved.
+transportEvents :: Int -> [ByteString] -> IO [Either BaikaiError Aeson.Value]
+transportEvents status chunks = do
+  eventsRef <- newIORef []
+  resp <- mkResponse status [] chunks
+  sseFromResponse resp (const (pure ())) (\ev -> modifyIORef' eventsRef (<> [ev]))
+  readIORef eventsRef
+
+assertAllRight :: [Either BaikaiError Aeson.Value] -> Assertion
+assertAllRight events =
+  case [e | Left e <- events] of
+    [] -> pure ()
+    errs -> assertFailure ("expected no transport errors, got: " <> show errs)
+
+emptyChunk :: RawChunk
+emptyChunk =
+  RawChunk
+    { contentDelta = Nothing,
+      reasoningDelta = Nothing,
+      finishReason = Nothing,
+      toolDeltas = [],
+      usage = Nothing,
+      model = Nothing,
+      responseId = Nothing
+    }
+
+messageBlocks :: Message -> Vector AssistantContent
+messageBlocks = \case
+  AssistantMessage AssistantPayload {content = c} -> c
+  _ -> Vector.empty
 
 -- | Drain a recorded response as the provider stream a consumer sees.
 replayStream :: Int -> [(ByteString, ByteString)] -> [ByteString] -> IO [AssistantMessageEvent]

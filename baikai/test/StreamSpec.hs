@@ -5,6 +5,7 @@ import Baikai.Prelude
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay, throwTo)
 import Control.Exception qualified as Exception
 import Data.Aeson qualified as Aeson
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Time (UTCTime)
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
@@ -138,7 +139,15 @@ tests =
                 ]
         resp ^. #message ^. #content @?= expected
         resp ^. #message ^. #stopReason @?= Stop
-        resp ^. #message ^. #errorMessage @?= Just "stream ended without terminal event",
+        resp ^. #message ^. #errorMessage @?= Just "stream ended without terminal event"
+        -- The recovered call is the same shape the two provider
+        -- assemblers now produce for a cut-off call, and it says so.
+        [tc | AssistantToolCall tc <- Vector.toList (resp ^. #message ^. #content)]
+          @?= [ToolCall {id_ = "", name = "", arguments = Aeson.String "{\"a\":1"}]
+        assertBool
+          "a flushed dangling tool call is marked cut off"
+          (all isCutOffToolCall [tc | AssistantToolCall tc <- Vector.toList (resp ^. #message ^. #content)]),
+      cutOffToolCallIsNeverDispatchedTest,
       testCase "latencyMs is clamped at zero" $ do
         let oldResponse =
               responseWith Nothing [AssistantText (TextContent "old")]
@@ -184,3 +193,66 @@ tests =
             be ^. #retryAfterSeconds @?= Just 5
           Nothing -> assertFailure "expected lifted BaikaiError to survive reassembly"
     ]
+
+-- | A tool call the model never finished asking for is not executed.
+--
+-- Both halves: 'runToolLoopWith' stops with the response intact rather
+-- than dispatching, and 'appendToolResult' -- the documented direct
+-- round-trip, which a caller drives by hand -- appends an error result
+-- without calling the dispatcher either.
+cutOffToolCallIsNeverDispatchedTest :: TestTree
+cutOffToolCallIsNeverDispatchedTest =
+  testCase "a cut-off tool call is never dispatched" $ do
+    let cutOffCall = ToolCall {id_ = "call_1", name = "search", arguments = Aeson.String "{\"a\":1"}
+        -- 'Length' is what a real cut-off carries; the guard does not
+        -- rely on it, because a compatible host can report
+        -- @finish_reason: tool_calls@ for truncated arguments.
+        cutOffResponse =
+          emptyResponse
+            & #message
+            .~ assistantPayload (Vector.singleton (AssistantToolCall cutOffCall)) Length Nothing epoch
+            & #model
+            .~ cutOffModel
+            & #api
+            .~ cutOffApi
+            & #provider
+            .~ "stream-spec"
+    reg <- newProviderRegistry
+    registerApiProviderWith
+      reg
+      ApiProvider
+        { apiTag = cutOffApi,
+          stream = liftCompleteToStream (\_ _ _ -> pure cutOffResponse),
+          complete = \_ _ _ -> pure cutOffResponse,
+          describeThinking = \_ _ -> noThinkingRequested
+        }
+    dispatched <- newIORef ([] :: [ToolCall])
+    let dispatcher tc = modifyIORef' dispatched (<> [tc]) >> pure (toolResultText "never")
+
+    (_, looped) <- runToolLoopWith reg 4 dispatcher cutOffModel streamContext streamOptions
+    looped ^. #message ^. #content @?= Vector.singleton (AssistantToolCall cutOffCall)
+    looped ^. #message ^. #stopReason @?= Length
+    readIORef dispatched >>= \calls -> calls @?= []
+
+    ctx' <- appendToolResult streamContext cutOffResponse dispatcher
+    readIORef dispatched >>= \calls -> calls @?= []
+    case Vector.toList (ctx' ^. #messages) of
+      [_assistant, ToolResultMessage p] -> do
+        p ^. #isError @?= True
+        p ^. #toolCallId @?= "call_1"
+      other -> assertFailure ("expected the assistant message then one tool result, got: " <> show (length other))
+
+-- | Its own tag, so this case cannot collide with the module's other
+-- registrations when the suite runs in one process.
+cutOffApi :: Api
+cutOffApi = Custom "baikai-stream-spec-cutoff"
+
+cutOffModel :: Model
+cutOffModel =
+  emptyModel
+    & #modelId
+    .~ "stream-spec-cutoff-model"
+    & #api
+    .~ cutOffApi
+    & #provider
+    .~ "stream-spec"

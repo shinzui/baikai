@@ -83,6 +83,32 @@ assemblyTests =
                   },
               AssistantText (TextContent "answer done")
             ],
+      testCase "reasoning after visible text closes the text block first" $ do
+        -- The other half of the same rule: opening a thinking block
+        -- closes an open text block, so at most one of the two is open
+        -- at a time and every _End precedes the next _Start. Before
+        -- this, reasoning opened at index 1 while text stayed open at
+        -- 0, and the later text delta landed back on 0 -- two blocks
+        -- open at once and an index revisited after a later one.
+        let chunks =
+              [ emptyChunk {contentDelta = Just "a"},
+                emptyChunk {reasoningDelta = Just "r"},
+                emptyChunk {contentDelta = Just "b"},
+                emptyChunk {finishReason = Just "stop"}
+              ]
+            events = runChunks deepseek_deepseek_reasoner chunks
+        eventShape events
+          @?= [ "TextStart:0",
+                "TextDelta:0:a",
+                "TextEnd:0:a",
+                "ThinkingStart:1",
+                "ThinkingDelta:1:r",
+                "ThinkingEnd:1:r",
+                "TextStart:2",
+                "TextDelta:2:b",
+                "TextEnd:2:b",
+                "EventDone"
+              ],
       testCase "whole message shape yields reasoning then text" $ do
         let raw =
               Aeson.object

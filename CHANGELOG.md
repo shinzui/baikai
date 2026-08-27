@@ -9,6 +9,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: `Baikai.Content.toolArgumentsFromText` and
+  `Baikai.Content.isCutOffToolCall`. The first is the single rule that turns a
+  tool call's accumulated argument text into its `arguments` value — empty text
+  is an empty object, non-empty text that does not decode is kept verbatim as a
+  `String` — and both provider assemblers and core's stream-recovery path now
+  use it, so the second means the same thing at every layer.
+
 - `baikai`: new exposed module `Baikai.Provider.Internal.StreamWorker` — the
   bounded hand-off both HTTP providers now use between their SSE worker thread
   and the consumer draining the stream. `FrameQueue` is a 64-slot `TBQueue` plus
@@ -68,6 +75,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   through the `openai` SDK.
 
 ### Changed
+
+- `baikai`: a tool call cut off by the output cap is no longer executed.
+  `runToolLoop` stops with the response and its tool calls intact when any call
+  is cut off, and `appendToolResult` appends a `ToolResultMessage` with
+  `isError = True` explaining why instead of calling the dispatcher. Previously
+  both assemblers replaced truncated arguments with `{}` and a tool loop
+  happily ran the call with no arguments at all. (REV-2 B.2.)
 
 - `baikai-claude`, `baikai-openai`: a consumer that stops reading now stops the
   provider. Both packages fork their SSE worker under `Stream.bracketIO` and
@@ -139,6 +153,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   already have changed the working tree.
 
 ### Fixed
+
+- `baikai-claude`, `baikai-openai`: a transport failure mid-stream now closes
+  the blocks that were open when it arrived, on both providers, so a consumer
+  reading raw events and a consumer reassembling them see the same partial
+  output. Both providers built their terminal from the closed blocks alone and
+  silently dropped open text, thinking and tool arguments. On the Claude side
+  this covers `translate (Left …)`, the in-band `error` frame, and the
+  unexpected end of stream. (REV-2 B.3.)
+
+- `baikai-openai`: reasoning that arrives after visible text closes the open
+  text block before opening the thinking block, so at most one of the two is
+  open at a time, every `_End` precedes the next `_Start`, and no `contentIndex`
+  is revisited after a later one. (REV-2 B.4.)
+
+- `baikai-claude`: an SSE frame whose event `type` — or whose
+  `content_block_delta` `delta.type` — the SDK has no constructor for is now
+  skipped instead of ending the stream with a decode error. The SDK decodes both
+  with no unknown-tag fallback, so a new frame type from Anthropic used to be a
+  terminal fault. A frame of a *known* type that still fails to decode remains
+  one. `Baikai.Provider.Claude.Sse` exports the new `decodeFrame`. (REV-2 B.5.)
+
+- `baikai-claude`, `baikai-openai`: an empty `data:` heartbeat is ignored, and
+  on the OpenAI side `[DONE]` is compared after trailing whitespace is trimmed,
+  so `data: [DONE] ` and `data: [DONE]\r` end the stream rather than failing to
+  decode. (REV-2 A.8.)
 
 - `baikai-claude`: every failing stream now begins with `EventStart`. The
   producer pre-seeds the start event before the first wire read, exactly as the

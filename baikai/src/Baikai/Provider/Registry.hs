@@ -33,7 +33,7 @@ module Baikai.Provider.Registry
 where
 
 import Baikai.Api (Api, renderApi)
-import Baikai.Content (AssistantContent (..), ToolCall)
+import Baikai.Content (AssistantContent (..), ToolCall, isCutOffToolCall)
 import Baikai.Context (Context, appendToolResult, contextOf)
 import Baikai.Error (providerUnavailable)
 import Baikai.Evidence (ThinkingTranslation, noThinkingRequested)
@@ -250,6 +250,12 @@ runToolLoop = runToolLoopWith globalProviderRegistry
 -- exceptions become error tool results so the model can recover; asynchronous
 -- exceptions are rethrown. Dispatchers should return 'toolResultErrorText' for
 -- unknown tool names rather than throwing.
+--
+-- The loop also stops, with the response and its tool calls intact, when
+-- any tool call was cut off by the output cap
+-- ('Baikai.Content.isCutOffToolCall'). The model asked for something it
+-- could not finish, and the only useful next step -- raise @maxTokens@
+-- and retry -- is the caller's to take.
 runToolLoopWith ::
   ProviderRegistry ->
   Int ->
@@ -269,10 +275,17 @@ runToolLoopWith reg budget dispatcher model ctx0 opts =
           ctx' <- appendToolResult ctx resp (safeDispatcher dispatcher)
           go (remaining - 1) ctx'
 
+    -- A cut-off call is normally a 'Length' stop, which the second
+    -- clause already catches, but a compatible host that reports
+    -- @finish_reason: tool_calls@ for truncated arguments would slip
+    -- through it. Dispatching a call the model never finished asking
+    -- for is the one outcome this loop must not have, so the check is
+    -- on the calls themselves.
     shouldStop remaining resp =
       responseError resp /= Nothing
         || responseStopReason resp /= ToolUse
         || Vector.null (responseToolCalls resp)
+        || Vector.any isCutOffToolCall (responseToolCalls resp)
         || remaining <= 1
 
 -- | One-shot text completion through the global registry. Throws the

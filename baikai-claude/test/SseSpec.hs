@@ -23,13 +23,15 @@ import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
 import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 tests :: TestTree
 tests =
@@ -121,8 +123,135 @@ observationTests =
           -- adapter's preference order lives in capturedHeaderNames.
           [md] -> md ^. #headers @?= [("cf-ray", "ray-9"), ("x-request-id", "gw-1")]
           other -> assertFailure ("expected exactly one metadata value, got: " <> show other),
-      failureStreamTests
+      failureStreamTests,
+      blockClosingTests
     ]
+
+-- | How blocks close when something goes wrong, and what the transport
+-- does with a frame it was not written for.
+--
+-- The point of the group is that a consumer reading raw events and a
+-- consumer reassembling them see the same partial output, and that a
+-- frame Anthropic adds later does not end a healthy stream.
+blockClosingTests :: TestTree
+blockClosingTests =
+  testGroup
+    "block closing under failure"
+    [ testCase "a tool call cut off by max_tokens closes with its raw argument text" $ do
+        events <- replayStream 200 [] cutOffToolBody
+        let calls = [tc | ToolCallEnd ToolCallEndPayload {toolCall = tc} <- events]
+        case calls of
+          [tc] -> do
+            tc ^. #arguments @?= Aeson.String "{\"query\":\"hel"
+            assertBool "the call is marked cut off" (isCutOffToolCall tc)
+          other -> assertFailure ("expected exactly one ToolCallEnd, got: " <> show (length other))
+        case reverse events of
+          (EventDone TerminalPayload {reason = r, message = msg} : _) -> do
+            r @?= Length
+            [tc | AssistantToolCall tc <- Vector.toList (messageBlocks msg)] @?= calls
+          other -> assertFailure ("expected a terminal EventDone, got: " <> show (take 1 other)),
+      testCase "a mid-stream transport error closes open blocks before the terminal" $ do
+        -- The failure is injected through 'translate' rather than the
+        -- transport, because what is under test is the assembler's
+        -- Left path: a classified error arriving with a text block open.
+        (openEvents, ass) <- replayTranslate openTextBody
+        let (failEvents, _) = translate (Left (providerUnavailable "connection reset mid-stream")) ass testTime
+        assertBool
+          ("expected a text block to be open, got: " <> show openEvents)
+          (not (null [() | TextStart {} <- openEvents]))
+        case failEvents of
+          [TextEnd BlockEndPayload {contentIndex = 0, content = body}, EventError TerminalPayload {message = msg}] -> do
+            body @?= "partial"
+            [t | AssistantText (TextContent t) <- Vector.toList (messageBlocks msg)] @?= ["partial"]
+          other -> assertFailure ("expected TextEnd then EventError, got: " <> show other),
+      testCase "an unknown event type is skipped without ending the stream" $ do
+        events <-
+          transportEvents
+            200
+            [ frameOf "{\"type\":\"message_stop\"}",
+              frameOf "{\"type\":\"message_checkpoint\",\"checkpoint\":\"abc\"}",
+              frameOf "{\"type\":\"ping\"}"
+            ]
+        assertAllRight events
+        length events @?= 2,
+      testCase "an unknown delta type is skipped without ending the stream" $ do
+        events <-
+          transportEvents
+            200
+            [ frameOf "{\"type\":\"message_stop\"}",
+              frameOf "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"citations_delta\",\"citation\":{}}}",
+              frameOf "{\"type\":\"ping\"}"
+            ]
+        assertAllRight events
+        length events @?= 2,
+      testCase "an empty data heartbeat is ignored" $ do
+        events <- transportEvents 200 ["data:\n\n", frameOf "{\"type\":\"message_stop\"}"]
+        assertAllRight events
+        length events @?= 1
+    ]
+
+-- | A stream that opens a tool call, streams half its arguments, and is
+-- cut off by the output cap.
+cutOffToolBody :: [ByteString]
+cutOffToolBody =
+  [ frameOf
+      "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_cutoff\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-cutoff\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":4,\"output_tokens\":0}}}",
+    frameOf
+      "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"search\",\"input\":{}}}",
+    frameOf
+      "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"hel\"}}",
+    frameOf "{\"type\":\"content_block_stop\",\"index\":0}",
+    frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":9}}",
+    frameOf "{\"type\":\"message_stop\"}"
+  ]
+
+-- | A stream that opens a text block and streams one delta into it,
+-- and stops there: the state a mid-stream failure finds.
+openTextBody :: [ByteString]
+openTextBody =
+  [ frameOf
+      "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_open\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-open\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":2,\"output_tokens\":0}}}",
+    frameOf "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+    frameOf "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}"
+  ]
+
+frameOf :: ByteString -> ByteString
+frameOf body = "data: " <> body <> "\n\n"
+
+-- | The raw events the transport produced, with no assembler involved.
+transportEvents ::
+  Int -> [ByteString] -> IO [Either BaikaiError Messages.MessageStreamEvent]
+transportEvents status chunks = do
+  eventsRef <- newIORef []
+  resp <- mkResponse status [] chunks
+  sseFromResponse resp (const (pure ())) (\ev -> modifyIORef' eventsRef (<> [ev]))
+  readIORef eventsRef
+
+assertAllRight :: [Either BaikaiError Messages.MessageStreamEvent] -> Assertion
+assertAllRight events =
+  case [e | Left e <- events] of
+    [] -> pure ()
+    errs -> assertFailure ("expected no transport errors, got: " <> show errs)
+
+-- | Replay through the real transport and fold the result through the
+-- real translator, returning both the events emitted and the assembler
+-- state they left behind.
+replayTranslate :: [ByteString] -> IO ([AssistantMessageEvent], Assembler)
+replayTranslate chunks = do
+  raw <- transportEvents 200 chunks
+  pure
+    ( foldl'
+        ( \(acc, a) ev ->
+            let (evs, a') = translate ev a testTime in (acc <> evs, a')
+        )
+        ([], emptyAssembler anthropic_claude_haiku_4_5 testTime)
+        raw
+    )
+
+messageBlocks :: Message -> Vector AssistantContent
+messageBlocks = \case
+  AssistantMessage AssistantPayload {content = c} -> c
+  _ -> Vector.empty
 
 -- | Every way a Claude stream can fail before Anthropic has said
 -- anything about the response.

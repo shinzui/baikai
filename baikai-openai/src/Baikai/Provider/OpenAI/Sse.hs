@@ -19,6 +19,7 @@ import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
 import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
+import Data.Char (isSpace)
 import Data.IORef qualified as IORef
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -191,12 +192,20 @@ sseFromResponse response onMetadata onEvent = do
             case es of
               [] -> pure False
               _ -> do
-                let payload = S8.concat es
-                if payload == "[DONE]"
-                  then pure True
-                  else case Aeson.eitherDecodeStrict payload of
-                    Left err -> onEvent (Left (decodeError (Text.pack err))) >> pure False
-                    Right val -> onEvent (Right val) >> pure False
+                -- Trailing whitespace is trimmed before the comparison:
+                -- hosts send @data: [DONE] @ and @data: [DONE]\r@, and
+                -- an exact match against those turned the end of a
+                -- healthy stream into a decode error. An empty payload
+                -- is a heartbeat, not a frame.
+                let payload = S8.dropWhileEnd isSpace (S8.concat es)
+                if SBS.null payload
+                  then pure False
+                  else
+                    if payload == "[DONE]"
+                      then pure True
+                      else case Aeson.eitherDecodeStrict payload of
+                        Left err -> onEvent (Left (decodeError (Text.pack err))) >> pure False
+                        Right val -> onEvent (Right val) >> pure False
 
           handleLine line =
             let l = stripCR line
