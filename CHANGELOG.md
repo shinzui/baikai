@@ -133,6 +133,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `http-client` and `http-client-tls`, which were already in its install plan
   through the `openai` SDK.
 
+- `baikai-kit`: `Baikai.Kit.Error` with the closed `KitError` sum, its
+  `Exception` instance and `renderKitError`; `Baikai.Kit.Path.safeSourcePath`,
+  which resolves an untrusted relative source below the kit checkout and refuses
+  a symbolic link in any component or a canonical path outside the checkout;
+  `Baikai.Kit.Manifest.itemSources`/`ItemSources`, the one pure derivation of an
+  item's source list, and `supportedManifestVersions`;
+  `Baikai.Kit.Sidecar.hashEntries`; `Baikai.Kit.Repo.KitRepo`/`RepoRefresh`;
+  `Baikai.Kit.Install.installFrom`, `renderAvailable` and `UpdateReport`;
+  `Baikai.Kit.Status.StatusReport`, `UpstreamAvailability` and the now-pure
+  `renderStatusTable`; `Baikai.Kit.Command.runKitCommand`. `KitState` gains
+  `KitUpstreamRefused`, rendered `refused`. (REV-2 E.5, F.10, F.11.)
+
 ### Changed
 
 - `baikai`: `AgentSafety.allowedTools` is documented as the __grant__ it is.
@@ -334,6 +346,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   account of, because the tool started, may have consumed tokens, and may
   already have changed the working tree.
 
+- **Breaking.** `baikai-kit`: every library function returns
+  `Either KitError a` and prints nothing; only
+  `Baikai.Kit.Command.runKit` prints `Error: …` and exits 1. `loadManifest`,
+  `loadManifestMaybe`, `installItem`, `listAvailable`, `uninstallItem`,
+  `updateKit` and `ensureKitRepo` change shape accordingly, `computeKitHash`
+  takes the kit root, a base and relative file names, `kitStatus` returns a
+  `StatusReport` instead of printing, and `KitUpdate`'s report is rendered by
+  the caller. See `docs/adr/0013-library-code-never-calls-exitfailure.md`. A
+  consumer that only calls `runKit` and `kitCommandParser` needs no change; one
+  that calls the library directly binds `Right`. (REV-2 F.11.)
+
+- `baikai-kit`: a kit is plain files. Install, the content hash and `kit status`
+  resolve every listed source through `safeSourcePath`, so a kit repository that
+  commits a symbolic link can no longer have a file read through it and copied
+  into a provider directory. `kit status` shows such an item as `refused`.
+  (REV-2 E.5 = F.10.)
+
+- `baikai-kit`: a manifest whose `version` is not 1 or 2 is refused with
+  `KitManifestVersionUnsupported` instead of being decoded and installed.
+  (REV-2 F.12.)
+
 ### Deprecated
 
 - `baikai`: `Baikai.Compat.defaultAnthropicThinkingStyle`. Nothing in baikai
@@ -371,6 +404,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   message fallback inside `classifyErrorFrame`, pinned through the entry point the
   runtime actually uses. Both modules are documented as outside the PVP-stable
   surface, so this is not a major bump; version bumps are recorded once, later.
+
+- **Breaking.** `baikai-kit`: `Baikai.Kit.Path.safeUnder` (exported and unused),
+  `Baikai.Kit.Manifest.agentSources` (replaced by `itemSources`) and
+  `Baikai.Kit.Install.uninstallOutcomes` (absorbed by `uninstallItem`, which now
+  returns the outcomes for the caller to render). The internal `requireSafe` and
+  `Baikai.Kit.Status.resolveCacheOrEmpty` are gone with the exits they wrapped.
 
 ### Fixed
 
@@ -649,6 +688,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   outlives its deadline, requiring exit 75 within seconds and the whole process
   group gone. See
   [docs/adr/0006](docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md).
+
+- `baikai-kit`: `kit status` with no cache and no network prints
+  `No kit items installed.` and exits 0. It used to exit 1: the guard around
+  `ensureKitRepo` caught `IOException`, which is not what `exitFailure` throws.
+  (REV-2 F.11.)
+
+- `baikai-kit`: `Baikai.Kit.Status.upstreamHash` joined the manifest `path`
+  without validating it, a second unsanitised join that grew after the July
+  hardening pass validated the first. Both now go through `itemSources` and
+  `safeSourcePath`. (REV-2 Theme 8.1.)
 
 ## [baikai 0.5.0.0] - 2026-08-05
 

@@ -5,6 +5,7 @@ module Main (main) where
 import Baikai.Interactive (InteractiveProvider (InteractiveClaude, InteractiveCodex))
 import Baikai.Kit
   ( AgentEntry (..),
+    KitCommand (..),
     KitConfig (..),
     KitError (..),
     KitItem (..),
@@ -16,14 +17,18 @@ import Baikai.Kit
     RemovalOutcome (..),
     SidecarMeta (..),
     SkillEntry (..),
+    UpstreamAvailability (..),
     classify,
     collectStatus,
     computeKitHash,
     installItem,
+    kitStatus,
+    loadManifest,
     pullKitRepo,
     readSidecar,
     renderState,
     renderUninstallReport,
+    runKit,
     safeItemName,
     safeRelativePath,
     safeSourcePath,
@@ -31,7 +36,6 @@ import Baikai.Kit
     sidecarPath,
     stripYamlFrontmatter,
     uninstallItem,
-    uninstallOutcomes,
     updateKit,
   )
 import Baikai.Prelude
@@ -71,7 +75,8 @@ main =
           frontmatterTests,
           classifyTests,
           statusFilesystemTests,
-          installRoundTripTests
+          installRoundTripTests,
+          typedErrorTests
         ]
 
 manifestTests :: TestTree
@@ -171,15 +176,20 @@ pathSafetyTests =
       testCase "install refuses a manifest file path that escapes the install root" $
         withPreparedKitHome $ \home cache -> do
           BS.writeFile (cache </> "kit.json") maliciousManifestJson
-          result <- try @ExitCode (installItem testConfig "evil" UserScope)
-          result @?= Left (ExitFailure 1)
-          assertFileMissing (takeDirectory home </> "escape.txt"),
+          result <- installItem testConfig "evil" UserScope
+          assertKitError "KitUnsafePath" isUnsafePath result
+          assertFileMissing (takeDirectory home </> "escape.txt")
+          exitResult <- try @ExitCode (runKit testConfig (KitInstall "evil" UserScope))
+          exitResult @?= Left (ExitFailure 1),
       testCase "uninstall refuses a traversal name" $
         withPreparedKitHome $ \home _cache -> do
           let victim = home </> "victim"
           createDirectoryIfMissing True victim
-          result <- try @ExitCode (uninstallItem testConfig "../victim" UserScope)
-          result @?= Left (ExitFailure 1)
+          result <- uninstallItem testConfig "../victim" UserScope
+          assertKitError "KitUnsafeName" isUnsafeName result
+          assertDirectoryExists victim
+          exitResult <- try @ExitCode (runKit testConfig (KitUninstall "../victim" UserScope))
+          exitResult @?= Left (ExitFailure 1)
           assertDirectoryExists victim
     ]
 
@@ -207,13 +217,13 @@ symlinkSafetyTests =
         withPreparedKitHome $ \home cache -> do
           plantSymlinkedSource home cache
           let claudeSkill = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
-          result <- try @ExitCode (installItem testConfig "demo" UserScope)
-          result @?= Left (ExitFailure 1)
+          result <- installItem testConfig "demo" UserScope
+          assertKitError "KitSourceSymlink" isSourceSymlink result
           assertFileMissing (claudeSkill </> "sub" </> "secret.txt")
           assertFileMissing (claudeSkill </> "SKILL.md"),
       testCase "status reports refused when upstream lists a symlinked source" $
         withPreparedKitHome $ \home cache -> do
-          installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
           plantSymlinkedSource home cache
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
@@ -251,7 +261,7 @@ statusFilesystemTests =
             @?= codexBase </> ".codex" </> "agents" </> "reviewer.testkit-kit.json",
       testCase "delisted installed item keeps sidecar version in status" $
         withPreparedKitHome $ \_home cache -> do
-          installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
           BS.writeFile (cache </> "kit.json") manifestWithoutDemoJson
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
@@ -260,7 +270,7 @@ statusFilesystemTests =
           mapM_ (\row -> row ^. #installedVersion @?= Just "0.1.0") demoRows,
       testCase "version and cached hash drift reports dirty+outdated" $
         withPreparedKitHome $ \_home cache -> do
-          installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
           BS.writeFile (cache </> "skills" </> "demo" </> "SKILL.md") "changed instructions\n"
           BS.writeFile (cache </> "kit.json") manifestWithDemoVersionJson
           rows <- collectStatus testConfig cache [(UserScope, "user")]
@@ -284,7 +294,7 @@ installRoundTripTests =
               codexAgent = codexBase </> ".codex" </> "agents" </> "reviewer.toml"
               claudeAgentSidecar = claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
               codexAgentSidecar = codexBase </> ".codex" </> "agents" </> "reviewer.testkit-kit.json"
-          installItem config "demo" UserScope
+          _ <- assertRight =<< installItem config "demo" UserScope
           assertFileExists (claudeSkill </> "SKILL.md")
           assertFileExists (codexSkill </> "SKILL.md")
           assertFileExists (claudeSkill </> ".testkit-kit.json")
@@ -294,17 +304,17 @@ installRoundTripTests =
               (sidecar ^. #name) @?= ("demo" :: Text)
               (sidecar ^. #kind) @?= ("skill" :: Text)
             Nothing -> assertFailure "expected a skill sidecar"
-          uninstallItem config "demo" UserScope
+          _ <- assertRight =<< uninstallItem config "demo" UserScope
           assertDirectoryMissing claudeSkill
           assertDirectoryMissing codexSkill
-          installItem config "reviewer" UserScope
+          _ <- assertRight =<< installItem config "reviewer" UserScope
           assertFileExists claudeAgent
           assertFileExists codexAgent
           assertFileExists claudeAgentSidecar
           assertFileExists codexAgentSidecar
           toml <- Text.Encoding.decodeUtf8 <$> BS.readFile codexAgent
           assertBool "Codex agent TOML should contain developer instructions" ("developer_instructions" `Text.isInfixOf` toml)
-          uninstallItem config "reviewer" UserScope
+          _ <- assertRight =<< uninstallItem config "reviewer" UserScope
           assertFileMissing claudeAgent
           assertFileMissing codexAgent
           assertFileMissing claudeAgentSidecar
@@ -313,7 +323,7 @@ installRoundTripTests =
         withPreparedKitHome $ \home cache -> do
           let codexAgent = home </> ".codex" </> "agents" </> "reviewer.toml"
           BS.writeFile (cache </> "agents" </> "reviewer.md") "---\r\nname: reviewer\r\n---\r\nReview carefully.\r\n"
-          installItem testConfig "reviewer" UserScope
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope
           toml <- Text.Encoding.decodeUtf8 <$> BS.readFile codexAgent
           assertBool "frontmatter name should be stripped" (not ("name: reviewer" `Text.isInfixOf` toml))
           assertBool "CR characters should be stripped" (not ("\r" `Text.isInfixOf` toml)),
@@ -323,8 +333,8 @@ installRoundTripTests =
               claudeAgent = claudeBase </> ".claude" </> "agents" </> "reviewer.md"
               claudeAgentSidecar = claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
           BS.writeFile (home </> ".codex") ""
-          result <- try @ExitCode (installItem testConfig "reviewer" UserScope)
-          result @?= Left (ExitFailure 1)
+          result <- installItem testConfig "reviewer" UserScope
+          assertKitError "KitWriteFailed" isWriteFailed result
           assertFileMissing claudeAgent
           assertFileMissing claudeAgentSidecar
           tmpFiles <- findFilesWithSuffix home ".baikai-kit-tmp"
@@ -338,26 +348,58 @@ installRoundTripTests =
           @?= "Removed stale kit metadata for 'reviewer' from user scope."
         renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude False False False]
           @?= "'demo' is not installed in user scope.",
-      testCase "uninstallOutcomes reports per-provider removals" $
+      testCase "uninstallItem reports per-provider removals" $
         withPreparedKitHome $ \home _cache -> do
           let codexSkill = home </> ".agents" </> "skills" </> "demo"
-          installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
           removeDirectoryRecursive codexSkill
-          outcomes <- uninstallOutcomes testConfig "demo" UserScope
+          outcomes <- assertRight =<< uninstallItem testConfig "demo" UserScope
           let claudeOutcome = findOutcome InteractiveClaude outcomes
               codexOutcome = findOutcome InteractiveCodex outcomes
           view #skillRemoved claudeOutcome @?= True
           view #skillRemoved codexOutcome @?= False
           view #agentRemoved codexOutcome @?= False
           view #sidecarRemoved codexOutcome @?= False,
-      testCase "pull failure is returned and update exits nonzero" $
+      testCase "pull failure is returned as a typed error" $
         withPreparedKitHome $ \_home cache -> do
           result <- pullKitRepo testConfig cache
           case result of
             PullFailed _ -> pure ()
             PullSucceeded -> assertFailure "expected fake .git cache pull to fail"
-          updateResult <- try @ExitCode (updateKit testConfig Nothing)
-          updateResult @?= Left (ExitFailure 1)
+          updateResult <- updateKit testConfig Nothing
+          assertKitError "KitPullFailed" isPullFailed updateResult
+    ]
+
+typedErrorTests :: TestTree
+typedErrorTests =
+  testGroup
+    "Typed errors"
+    [ testCase "loadManifest returns typed errors" $
+        withSystemTempDirectory "baikai-kit-manifest" $ \dir -> do
+          missing <- loadManifest dir
+          assertKitError "KitManifestMissing" isManifestMissing missing
+          BS.writeFile (dir </> "kit.json") "{"
+          invalid <- loadManifest dir
+          assertKitError "KitManifestInvalid" isManifestInvalid invalid,
+      testCase "installItem returns KitItemNotFound" $
+        withPreparedKitHome $ \_home _cache -> do
+          result <- installItem testConfig "nope" UserScope
+          assertKitError "KitItemNotFound" (== KitItemNotFound "nope") result,
+      testCase "kit status offline on a fresh HOME exits 0" $
+        withSystemTempDirectory "baikai-kit-offline" $ \tmp -> do
+          oldHome <- lookupEnv "HOME"
+          let home = tmp </> "home"
+              config = testConfig & #repoUrl .~ "file:///nonexistent-kit"
+          createDirectoryIfMissing True home
+          setEnv "HOME" home
+          flip finally (restoreHome oldHome) $ do
+            exitResult <- try @ExitCode (runKit config KitStatus)
+            exitResult @?= Right ()
+            report <- kitStatus config
+            (report ^. #rows) @?= []
+            case report ^. #upstream of
+              UpstreamUnavailable (KitCloneFailed _ _) -> pure ()
+              other -> assertFailure ("expected an unavailable upstream, got " <> show other)
     ]
 
 decodeFixture :: FilePath -> IO KitManifest
@@ -421,9 +463,10 @@ withPreparedKitHome action =
     BS.writeFile (cache </> "kit.json") manifestJson
     setEnv "HOME" home
     action home cache `finally` restoreHome oldHome
-  where
-    restoreHome Nothing = unsetEnv "HOME"
-    restoreHome (Just value) = setEnv "HOME" value
+
+restoreHome :: Maybe String -> IO ()
+restoreHome Nothing = unsetEnv "HOME"
+restoreHome (Just value) = setEnv "HOME" value
 
 -- | Plant a committed-symlink kit: a directory link out of the checkout
 --   and a manifest that lists a file below it.
@@ -518,6 +561,33 @@ maliciousManifestJson =
         "}],",
         "\"agents\":[]} "
       ]
+
+isUnsafePath :: KitError -> Bool
+isUnsafePath = \case KitUnsafePath _ _ -> True; _ -> False
+
+isUnsafeName :: KitError -> Bool
+isUnsafeName = \case KitUnsafeName _ _ -> True; _ -> False
+
+isSourceSymlink :: KitError -> Bool
+isSourceSymlink = \case KitSourceSymlink _ -> True; _ -> False
+
+isWriteFailed :: KitError -> Bool
+isWriteFailed = \case KitWriteFailed {} -> True; _ -> False
+
+isPullFailed :: KitError -> Bool
+isPullFailed = \case KitPullFailed _ -> True; _ -> False
+
+isManifestMissing :: KitError -> Bool
+isManifestMissing = \case KitManifestMissing _ -> True; _ -> False
+
+isManifestInvalid :: KitError -> Bool
+isManifestInvalid = \case KitManifestInvalid _ _ -> True; _ -> False
+
+assertKitError :: (Show a) => String -> (KitError -> Bool) -> Either KitError a -> IO ()
+assertKitError label matches result =
+  case result of
+    Left err | matches err -> pure ()
+    other -> assertFailure ("expected " <> label <> ", got " <> show other)
 
 assertRight :: (Show e) => Either e a -> IO a
 assertRight = \case

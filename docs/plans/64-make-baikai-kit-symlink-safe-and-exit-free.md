@@ -68,9 +68,9 @@ here, even if it requires splitting a partially completed task into two ("done" 
 - [x] Milestone 1: create `baikai-kit/src/Baikai/Kit/Error.hs` with `KitError` and `renderKitError`; add `safeSourcePath` to `baikai-kit/src/Baikai/Kit/Path.hs` and delete `safeUnder`; add `itemSources` to `baikai-kit/src/Baikai/Kit/Manifest.hs`.
 - [x] Milestone 1: route `computeKitHash` (`Sidecar.hs`), `planInstall` (`Install.hs`) and `upstreamHash` (`Status.hs`) through `safeSourcePath`; add `KitUpstreamRefused` to `KitState`.
 - [x] Milestone 1: symlink fixture tests (install, hash, status) green; `cabal build all --enable-tests` green.
-- [ ] Milestone 2: `ensureKitRepo` returns `Either KitError KitRepo`; `loadManifest`/`loadManifestMaybe` return typed errors; `installItem`, `installFrom`, `listAvailable`, `updateKit`, `uninstallItem`, `kitStatus` return `Either`/reports; `requireSafe` deleted; no `exitFailure` remains outside `Baikai.Kit.Command`.
-- [ ] Milestone 2: `runKitCommand` and the exiting `runKit` in `Command.hs`; existing `try @ExitCode` tests moved onto `runKit`; offline-status test green.
-- [ ] Milestone 2: ADR `docs/adr/NNNN-library-code-never-calls-exitfailure.md` written and indexed in `docs/adr/README.md`.
+- [x] Milestone 2: `ensureKitRepo` returns `Either KitError KitRepo`; `loadManifest`/`loadManifestMaybe` return typed errors; `installItem`, `installFrom`, `listAvailable`, `updateKit`, `uninstallItem`, `kitStatus` return `Either`/reports; `requireSafe` deleted; no `exitFailure` remains outside `Baikai.Kit.Command`.
+- [x] Milestone 2: `runKitCommand` and the exiting `runKit` in `Command.hs`; existing `try @ExitCode` tests moved onto `runKit`; offline-status test green.
+- [x] Milestone 2: ADR `docs/adr/0013-library-code-never-calls-exitfailure.md` written and indexed in `docs/adr/README.md`.
 - [ ] Milestone 3: multi-file agents installed under `<agents dir>/<name>/`; destination pre-check; `openTempFile` temp names; journaled phase two with backups and restore; `executePlanWith` test seam.
 - [ ] Milestone 3: manifest `version` gate (`supportedManifestVersions = [1, 2]`); `installedFiles`/`installedHash` in `SidecarMeta`; `reinstallPresent` with `OverwritePolicy`; `--force` on `kit update`; `stripYamlFrontmatter` normalises every branch.
 - [ ] Milestone 3: fidelity tests green; `CHANGELOG.md` `[Unreleased]` entries written.
@@ -82,7 +82,19 @@ here, even if it requires splitting a partially completed task into two ("done" 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-(None yet.)
+- The plan proposed pinning the exit boundary with `grep -rn "System.Exit"
+  baikai-kit/src` matching only `Command.hs`. That check cannot pass:
+  `Baikai.Kit.Repo` matches on `ExitCode` from `readProcessWithExitCode`, which
+  is reading a child process's status, not exiting. The boundary is pinned with
+  the narrower `grep -rn "exitFailure\|exitWith" baikai-kit/src`, which matches
+  only `Command.hs` (its import and its one call). Recorded in ADR 0013.
+
+- `updateKit` was given its `UpdateReport` in Milestone 2 rather than Milestone
+  3. The plan had it return `IO (Either KitError ())` in Milestone 2, which
+  would have left the per-item "Updated '<name>' (<scope>)" lines being printed
+  by the library — the one thing Milestone 2 exists to remove. Milestone 3 adds
+  the `OverwritePolicy` argument and fills `skipped`; the record's shape is
+  unchanged.
 
 
 ## Decision Log
@@ -245,6 +257,15 @@ Record every decision made while working on the plan.
   use bare field names with no Hungarian-style prefixes; `DuplicateRecordFields` and
   `OverloadedLabels` are default extensions in `baikai-kit/baikai-kit.cabal`.
   Rationale: repository-wide rule, including internal records.
+  Date: 2026-08-27
+- Decision (implementation): each module raises `KitError` internally with
+  `throwIO` and catches it at every exported boundary with a private
+  `kitTry = try @KitError`, rather than threading `Either` through every
+  intermediate step by hand. What a caller observes is unchanged — every
+  exported function returns `Either KitError a`, and no `KitError` escapes the
+  package — and the alternative was an `ExceptT` the plan forbids (it would add
+  a dependency) or a hand-rolled bind chain in nine functions. Recorded in ADR
+  0013 as an explicitly permitted implementation shape.
   Date: 2026-08-27
 - Decision: This plan creates the ADR "library code never calls `exitFailure`" under
   the plain-file convention of `docs/adr/0001-architecture-decision-record-convention.md`,

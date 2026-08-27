@@ -1,10 +1,13 @@
 module Baikai.Kit.Status
   ( KitState (..),
+    StatusReport (..),
     StatusRow (..),
+    UpstreamAvailability (..),
     classify,
     collectStatus,
     kitStatus,
     renderState,
+    renderStatusTable,
   )
 where
 
@@ -14,16 +17,14 @@ import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, provider
 import Baikai.Kit.Error (KitError (..))
 import Baikai.Kit.Install (loadManifestMaybe, lookupItem)
 import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemSources, itemVersion, kindLabel)
-import Baikai.Kit.Repo (ensureKitRepo)
+import Baikai.Kit.Repo (RepoRefresh (..), ensureKitRepo)
 import Baikai.Kit.Sidecar (SidecarMeta, computeKitHash, readSidecar, sidecarPath)
 import Baikai.Prelude
-import Control.Exception (IOException, try)
 import Control.Monad (forM)
 import Data.List (groupBy, isPrefixOf, isSuffixOf, nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
-import Data.Text.IO qualified as Text.IO
-import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, (</>))
 
 data KitState
@@ -35,6 +36,25 @@ data KitState
   | KitUpstreamRefused
   | KitUnknown
   deriving stock (Eq, Ord, Show)
+
+-- | Whether the cached upstream could be consulted for this report.
+data UpstreamAvailability
+  = -- | The cache was refreshed and its manifest read.
+    UpstreamReady
+  | -- | The cache could not be refreshed; the rows compare against the
+    --   copy already on disk. The 'Text' is git's output.
+    UpstreamStale !Text
+  | -- | There is no usable cache: the rows say what is installed and
+    --   nothing about how it compares.
+    UpstreamUnavailable !KitError
+  deriving stock (Eq, Show)
+
+-- | What @kit status@ found, for the caller to render.
+data StatusReport = StatusReport
+  { upstream :: !UpstreamAvailability,
+    rows :: ![StatusRow]
+  }
+  deriving stock (Eq, Generic, Show)
 
 data StatusRow = StatusRow
   { name :: !Text,
@@ -73,15 +93,34 @@ classify (Just sm) (Just it) mUpstreamHash =
         (False, True) -> KitDirty
         (False, False) -> KitUpToDate
 
-kitStatus :: KitConfig -> IO ()
+-- | Collect the status of everything installed. Needs no network: a kit
+--   repository that cannot be reached is reported as
+--   'UpstreamUnavailable' and the installed rows are still returned.
+kitStatus :: KitConfig -> IO StatusReport
 kitStatus config = do
-  cacheDir <- resolveCacheOrEmpty config
-  rows <- collectStatus config cacheDir [(UserScope, "user"), (ProjectScope, "project")]
-  renderStatusTable rows
+  repo <- ensureKitRepo config
+  case repo of
+    Left err -> report (UpstreamUnavailable err) ""
+    Right resolved -> do
+      let availability = case resolved ^. #refresh of
+            RepoStale err -> UpstreamStale err
+            RepoCloned -> UpstreamReady
+            RepoPulled -> UpstreamReady
+      manifest <- loadManifestMaybe (resolved ^. #dir)
+      case manifest of
+        Left err -> report (UpstreamUnavailable err) ""
+        Right Nothing -> report availability ""
+        Right (Just _) -> report availability (resolved ^. #dir)
+  where
+    report upstream cacheDir = do
+      rows <- collectStatus config cacheDir [(UserScope, "user"), (ProjectScope, "project")]
+      pure StatusReport {upstream, rows}
 
 collectStatus :: KitConfig -> FilePath -> [(KitScope, Text)] -> IO [StatusRow]
 collectStatus config cacheDir scopes = do
-  mManifest <- loadManifestMaybe cacheDir
+  -- A manifest that cannot be read is treated here as no manifest; the
+  -- report as a whole says so through 'UpstreamUnavailable'.
+  mManifest <- either (const Nothing) id <$> loadManifestMaybe cacheDir
   fmap concat . forM scopes $ \(scope, scopeText) -> do
     items <- scanInstalled config scope
     forM items $ \(provider, baseDir, itemName', scannedKind) -> do
@@ -101,15 +140,6 @@ collectStatus config cacheDir scopes = do
             latestVersion = mItem >>= itemVersion,
             state = state'
           }
-
-resolveCacheOrEmpty :: KitConfig -> IO FilePath
-resolveCacheOrEmpty config = do
-  result <- try @IOException (ensureKitRepo config)
-  case result of
-    Right dir -> do
-      manifestExists <- doesFileExist (dir </> "kit.json")
-      pure (if manifestExists then dir else "")
-    Left _ -> pure ""
 
 -- | The hash of an item's sources as they are in the cached checkout.
 --
@@ -158,41 +188,40 @@ scanAgents provider dir = do
       pure [(provider, Text.pack (dropAgentExtension provider f), AgentKind) | f <- files]
     else pure []
 
-renderStatusTable :: [StatusRow] -> IO ()
-renderStatusTable [] = Text.IO.putStrLn "No kit items installed."
-renderStatusTable rows = do
-  let displayRows = aggregateStatusRows rows
-      nameW = colWidth displayRows "NAME" (^. #name)
-      kindW = colWidth displayRows "TYPE" (^. #kind)
-      scopeW = colWidth displayRows "SCOPE" (^. #scope)
-      providersW = colWidth displayRows "PROVIDERS" (^. #providers)
-      instW = colWidth displayRows "INSTALLED" (renderMVer . view #installedVersion)
-      latW = colWidth displayRows "LATEST" (renderMVer . view #latestVersion)
-      hdr =
-        Text.justifyLeft (nameW + 2) ' ' "NAME"
-          <> Text.justifyLeft (kindW + 2) ' ' "TYPE"
-          <> Text.justifyLeft (scopeW + 2) ' ' "SCOPE"
-          <> Text.justifyLeft (providersW + 2) ' ' "PROVIDERS"
-          <> Text.justifyLeft (instW + 2) ' ' "INSTALLED"
-          <> Text.justifyLeft (latW + 2) ' ' "LATEST"
-          <> "STATE"
-  Text.IO.putStrLn hdr
-  mapM_ (printRow nameW kindW scopeW providersW instW latW) displayRows
+-- | The table @kit status@ prints, without a trailing newline.
+renderStatusTable :: [StatusRow] -> Text
+renderStatusTable [] = "No kit items installed."
+renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows)
   where
-    colWidth displayRows colTitle f =
+    displayRows = aggregateStatusRows rows
+    nameW = colWidth "NAME" (^. #name)
+    kindW = colWidth "TYPE" (^. #kind)
+    scopeW = colWidth "SCOPE" (^. #scope)
+    providersW = colWidth "PROVIDERS" (^. #providers)
+    instW = colWidth "INSTALLED" (renderMVer . view #installedVersion)
+    latW = colWidth "LATEST" (renderMVer . view #latestVersion)
+    hdr =
+      Text.justifyLeft (nameW + 2) ' ' "NAME"
+        <> Text.justifyLeft (kindW + 2) ' ' "TYPE"
+        <> Text.justifyLeft (scopeW + 2) ' ' "SCOPE"
+        <> Text.justifyLeft (providersW + 2) ' ' "PROVIDERS"
+        <> Text.justifyLeft (instW + 2) ' ' "INSTALLED"
+        <> Text.justifyLeft (latW + 2) ' ' "LATEST"
+        <> "STATE"
+
+    colWidth colTitle f =
       maximum (Text.length colTitle : map (Text.length . f) displayRows)
 
     renderMVer = fromMaybe "-"
 
-    printRow nameW kindW scopeW providersW instW latW row =
-      Text.IO.putStrLn $
-        Text.justifyLeft (nameW + 2) ' ' (row ^. #name)
-          <> Text.justifyLeft (kindW + 2) ' ' (row ^. #kind)
-          <> Text.justifyLeft (scopeW + 2) ' ' (row ^. #scope)
-          <> Text.justifyLeft (providersW + 2) ' ' (row ^. #providers)
-          <> Text.justifyLeft (instW + 2) ' ' (renderMVer (row ^. #installedVersion))
-          <> Text.justifyLeft (latW + 2) ' ' (renderMVer (row ^. #latestVersion))
-          <> renderState (row ^. #state)
+    printRow row =
+      Text.justifyLeft (nameW + 2) ' ' (row ^. #name)
+        <> Text.justifyLeft (kindW + 2) ' ' (row ^. #kind)
+        <> Text.justifyLeft (scopeW + 2) ' ' (row ^. #scope)
+        <> Text.justifyLeft (providersW + 2) ' ' (row ^. #providers)
+        <> Text.justifyLeft (instW + 2) ' ' (renderMVer (row ^. #installedVersion))
+        <> Text.justifyLeft (latW + 2) ' ' (renderMVer (row ^. #latestVersion))
+        <> renderState (row ^. #state)
 
 aggregateStatusRows :: [StatusRow] -> [StatusRow]
 aggregateStatusRows rows =

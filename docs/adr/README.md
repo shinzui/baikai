@@ -26,3 +26,4 @@ bundle.
 | [0010](0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md) | A stream consumer that stops owns cancelling the producer | accepted |
 | [0011](0011-core-owns-transport-failure-classification.md) | Core owns transport failure classification, keyed on the phase the failure happened in | accepted |
 | [0012](0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md) | The unattended policy ceiling gates every field a repository can set, and `allowedTools` is a grant | accepted |
+| [0013](0013-library-code-never-calls-exitfailure.md) | Library code never calls `exitFailure`; process exit belongs to a command adapter | accepted |

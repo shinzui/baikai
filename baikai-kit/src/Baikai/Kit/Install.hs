@@ -1,14 +1,23 @@
+-- | Reading the manifest and installing what it lists.
+--
+--   Every function here returns @'Either' 'KitError' a@ and prints
+--   nothing: rendering and exiting belong to 'Baikai.Kit.Command.runKit'.
+--   Internally the module raises 'KitError' and catches it at each
+--   exported boundary, which keeps the plumbing readable without changing
+--   what a caller observes.
 module Baikai.Kit.Install
   ( loadManifest,
     loadManifestMaybe,
     lookupItem,
     installItem,
+    installFrom,
     uninstallItem,
-    uninstallOutcomes,
     renderUninstallReport,
     RemovalOutcome (..),
+    UpdateReport (..),
     updateKit,
     listAvailable,
+    renderAvailable,
     stripYamlFrontmatter,
   )
 where
@@ -21,7 +30,7 @@ import Baikai.AgentAssets
   )
 import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (InteractiveProjectScope))
 import Baikai.Kit.Config (KitConfig, KitScope (..), kitCacheDir, providerAgentsBase, providerLabel, scopeLabel, sidecarFileName)
-import Baikai.Kit.Error (KitError (..), renderKitError)
+import Baikai.Kit.Error (KitError (..))
 import Baikai.Kit.Manifest
   ( AgentEntry,
     ItemSources,
@@ -29,13 +38,13 @@ import Baikai.Kit.Manifest
     KitItemKind (..),
     KitManifest (..),
     SkillEntry,
-    itemKind,
     itemName,
     itemSources,
     kitItemKind,
+    supportedManifestVersions,
   )
 import Baikai.Kit.Path (safeItemName, safeSourcePath)
-import Baikai.Kit.Repo (PullResult (..), ensureKitRepo, pullKitRepo)
+import Baikai.Kit.Repo (KitRepo, PullResult (..), RepoRefresh (..), ensureKitRepo, pullKitRepo)
 import Baikai.Kit.Sidecar (computeKitHash, newSidecarMeta, sidecarPath)
 import Baikai.Prelude
 import Control.Exception (IOException, catch, throwIO, try)
@@ -54,9 +63,7 @@ import System.Directory
     removeFile,
     renameFile,
   )
-import System.Exit (exitFailure)
 import System.FilePath (takeDirectory, (</>))
-import System.IO (hPutStrLn, stderr)
 
 data PlannedWrite = PlannedWrite
   { destination :: !FilePath,
@@ -75,34 +82,25 @@ data RemovalOutcome = RemovalOutcome
   }
   deriving stock (Eq, Generic, Show)
 
-loadManifest :: FilePath -> IO KitManifest
-loadManifest repoDir = do
-  let manifestPath = repoDir </> "kit.json"
-  exists <- doesFileExist manifestPath
-  unless exists $ do
-    hPutStrLn stderr "Error: kit.json not found in kit repository."
-    exitFailure
-  result <- eitherDecodeFileStrict' manifestPath
-  case result of
-    Left err -> do
-      hPutStrLn stderr $ "Error: Failed to parse kit.json: " <> err
-      exitFailure
-    Right manifest -> pure manifest
+-- | What @kit update@ did, for the caller to render.
+data UpdateReport = UpdateReport
+  { refresh :: !RepoRefresh,
+    updated :: ![(Text, KitScope)],
+    skipped :: ![(Text, KitScope)]
+  }
+  deriving stock (Eq, Generic, Show)
 
-loadManifestMaybe :: FilePath -> IO (Maybe KitManifest)
-loadManifestMaybe "" = pure Nothing
-loadManifestMaybe cacheDir = do
-  let manifestPath = cacheDir </> "kit.json"
-  exists <- doesFileExist manifestPath
-  if not exists
-    then pure Nothing
-    else do
-      result <- eitherDecodeFileStrict' manifestPath
-      case result of
-        Left err -> do
-          hPutStrLn stderr $ "Warning: failed to parse kit.json: " <> err
-          pure Nothing
-        Right manifest -> pure (Just manifest)
+-- | Read and validate the manifest at @<dir>/kit.json@.
+loadManifest :: FilePath -> IO (Either KitError KitManifest)
+loadManifest = kitTry . loadManifestIO
+
+-- | The same, tolerating an absent cache or an absent manifest. A
+--   manifest that is present but unreadable is still a 'Left'.
+loadManifestMaybe :: FilePath -> IO (Either KitError (Maybe KitManifest))
+loadManifestMaybe "" = pure (Right Nothing)
+loadManifestMaybe cacheDir = kitTry $ do
+  exists <- doesFileExist (cacheDir </> "kit.json")
+  if exists then Just <$> loadManifestIO cacheDir else pure Nothing
 
 lookupItem :: Text -> KitManifest -> Maybe KitItem
 lookupItem n manifest =
@@ -110,35 +108,25 @@ lookupItem n manifest =
     Just skill -> Just (KitSkillItem skill)
     Nothing -> KitAgentItem <$> find (\entry -> entry ^. #name == n) (manifest ^. #agents)
 
-installItem :: KitConfig -> Text -> KitScope -> IO ()
-installItem config itemN scope = do
-  repoDir <- ensureKitRepo config
-  manifest <- loadManifest repoDir
-  case lookupItem itemN manifest of
-    Nothing -> do
-      hPutStrLn stderr $ "Error: '" <> Text.unpack itemN <> "' not found in kit manifest."
-      exitFailure
-    Just item -> do
-      result <- try @KitError (try @IOException (doInstall config repoDir item scope))
-      case result of
-        Right (Right ()) ->
-          Text.IO.putStrLn $
-            "Installed " <> itemKind item <> " '" <> itemN <> "' to " <> scopeLabel scope <> " scope."
-        Right (Left e) -> do
-          hPutStrLn stderr $ "Error: install failed, no changes were made: " <> show e
-          exitFailure
-        Left kitErr -> do
-          Text.IO.hPutStrLn stderr ("Error: " <> renderKitError kitErr)
-          exitFailure
+-- | Refresh the cache, read the manifest and install one item. The
+--   'KitRepo'\'s refresh state is dropped by this convenience; a command
+--   that wants to warn about a stale cache composes 'ensureKitRepo',
+--   'loadManifest' and 'installFrom' itself.
+installItem :: KitConfig -> Text -> KitScope -> IO (Either KitError KitItem)
+installItem config itemN scope = kitTry $ do
+  repo <- requireRepo config
+  manifest <- loadManifestIO (repo ^. #dir)
+  installFromIO config (repo ^. #dir) manifest itemN scope
 
-uninstallItem :: KitConfig -> Text -> KitScope -> IO ()
-uninstallItem config n scope = do
-  outcomes <- uninstallOutcomes config n scope
-  Text.IO.putStrLn (renderUninstallReport n scope outcomes)
+-- | The network-free half of 'installItem': install one item from a
+--   manifest already read out of @repoDir@.
+installFrom :: KitConfig -> FilePath -> KitManifest -> Text -> KitScope -> IO (Either KitError KitItem)
+installFrom config repoDir manifest itemN scope =
+  kitTry (installFromIO config repoDir manifest itemN scope)
 
-uninstallOutcomes :: KitConfig -> Text -> KitScope -> IO [RemovalOutcome]
-uninstallOutcomes config n scope = do
-  safeName <- requireSafe "item name" (safeItemName n)
+uninstallItem :: KitConfig -> Text -> KitScope -> IO (Either KitError [RemovalOutcome])
+uninstallItem config n scope = kitTry $ do
+  safeName <- orThrow (KitUnsafeName n) (safeItemName n)
   forM (config ^. #providers) $ \provider -> do
     providerBase <- providerAgentsBase config provider scope
     skillRemoved <- removeIfDirectory (skillTarget config provider providerBase safeName)
@@ -170,54 +158,100 @@ renderUninstallReport n scope outcomes
           ++ ["agent" | any (^. #agentRemoved) outcomes]
     removedProviders = map (providerLabel . view #provider) (filter assetRemoved outcomes)
 
-updateKit :: KitConfig -> Maybe Text -> IO ()
-updateKit config mName = do
+-- | Refresh the cache and reinstall the items that are already installed.
+--   A failed refresh is an error here, unlike the other verbs: fetching
+--   is what update is for.
+updateKit :: KitConfig -> Maybe Text -> IO (Either KitError UpdateReport)
+updateKit config mName = kitTry $ do
   cacheDir <- kitCacheDir config
   exists <- doesDirectoryExist cacheDir
-  if exists
-    then do
-      result <- pullKitRepo config cacheDir
-      case result of
-        PullSucceeded -> Text.IO.putStrLn "Kit repository updated."
-        PullFailed err -> do
-          hPutStrLn stderr $ "Error: failed to update kit repository: " <> Text.unpack err
-          hPutStrLn stderr "The cached copy is unchanged; installed items were not reinstalled."
-          exitFailure
-    else do
-      _ <- ensureKitRepo config
-      Text.IO.putStrLn "Kit repository cloned."
-  manifest <- loadManifest =<< kitCacheDir config
-  case mName of
-    Just n -> do
-      reinstallIfPresent config n UserScope manifest
-      reinstallIfPresent config n ProjectScope manifest
-    Nothing -> reinstallAllPresent config manifest
+  refresh <-
+    if exists
+      then do
+        result <- pullKitRepo config cacheDir
+        case result of
+          PullSucceeded -> pure RepoPulled
+          PullFailed err -> throwIO (KitPullFailed err)
+      else view #refresh <$> requireRepo config
+  manifest <- loadManifestIO cacheDir
+  updated <- reinstallPresentIO config cacheDir manifest mName
+  pure UpdateReport {refresh, updated, skipped = []}
 
-listAvailable :: KitConfig -> IO ()
-listAvailable config = do
-  repoDir <- ensureKitRepo config
-  manifest <- loadManifest repoDir
-  let sk = manifest ^. #skills
-      ag = manifest ^. #agents
-  if null sk && null ag
-    then Text.IO.putStrLn "No items available in the kit."
-    else do
-      unless (null sk) $ do
-        Text.IO.putStrLn "Skills:"
-        let maxLen = maximum $ map (Text.length . view #name) sk
-        mapM_ (printEntry maxLen . skillNameDesc) sk
-      unless (null ag) $ do
-        unless (null sk) (Text.IO.putStrLn "")
-        Text.IO.putStrLn "Agents:"
-        let maxLen = maximum $ map (Text.length . view #name) ag
-        mapM_ (printEntry maxLen . agentNameDesc) ag
+-- | Refresh the cache and read the manifest of what the kit offers.
+listAvailable :: KitConfig -> IO (Either KitError KitManifest)
+listAvailable config = kitTry $ do
+  repo <- requireRepo config
+  loadManifestIO (repo ^. #dir)
+
+-- | The listing @kit list@ prints, without a trailing newline.
+renderAvailable :: KitManifest -> Text
+renderAvailable manifest
+  | null skills && null agents = "No items available in the kit."
+  | otherwise = Text.intercalate "\n" (skillBlock ++ gap ++ agentBlock)
   where
-    printEntry maxLen (n, desc) =
-      Text.IO.putStrLn $ "  " <> Text.justifyLeft (maxLen + 2) ' ' n <> desc
+    skills = manifest ^. #skills
+    agents = manifest ^. #agents
+    gap = ["" | not (null skills), not (null agents)]
+    skillBlock
+      | null skills = []
+      | otherwise = "Skills:" : map (entryLine (columnWidth (map (view #name) skills)) . skillNameDesc) skills
+    agentBlock
+      | null agents = []
+      | otherwise = "Agents:" : map (entryLine (columnWidth (map (view #name) agents)) . agentNameDesc) agents
+    columnWidth names = maximum (map Text.length names)
+    entryLine width (n, desc) = "  " <> Text.justifyLeft (width + 2) ' ' n <> desc
+
+-- Internal ------------------------------------------------------------
+
+loadManifestIO :: FilePath -> IO KitManifest
+loadManifestIO repoDir = do
+  let manifestPath = repoDir </> "kit.json"
+  exists <- doesFileExist manifestPath
+  unless exists (throwIO (KitManifestMissing manifestPath))
+  result <- eitherDecodeFileStrict' manifestPath
+  case result of
+    Left err -> throwIO (KitManifestInvalid manifestPath (Text.pack err))
+    Right manifest -> do
+      let declared = manifest ^. #version
+      unless (declared `elem` supportedManifestVersions) $
+        throwIO (KitManifestVersionUnsupported manifestPath declared)
+      pure manifest
+
+installFromIO :: KitConfig -> FilePath -> KitManifest -> Text -> KitScope -> IO KitItem
+installFromIO config repoDir manifest itemN scope =
+  case lookupItem itemN manifest of
+    Nothing -> throwIO (KitItemNotFound itemN)
+    Just item -> do
+      doInstall config repoDir item scope
+      pure item
+
+requireRepo :: KitConfig -> IO KitRepo
+requireRepo config = ensureKitRepo config >>= either throwIO pure
+
+reinstallPresentIO :: KitConfig -> FilePath -> KitManifest -> Maybe Text -> IO [(Text, KitScope)]
+reinstallPresentIO config repoDir manifest mName =
+  fmap concat . forM candidates $ \n ->
+    fmap concat . forM [UserScope, ProjectScope] $ \scope -> do
+      installed <- isInstalled config n scope
+      case (installed, lookupItem n manifest) of
+        (True, Just item) -> do
+          doInstall config repoDir item scope
+          pure [(n, scope)]
+        _ -> pure []
+  where
+    candidates = case mName of
+      Just n -> [n]
+      Nothing ->
+        map (view #name) (manifest ^. #skills)
+          ++ map (view #name) (manifest ^. #agents)
 
 doInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> IO ()
-doInstall config repoDir item scope =
-  planInstall config repoDir item scope >>= executePlan
+doInstall config repoDir item scope = do
+  writes <- planInstall config repoDir item scope
+  outcome <- try @IOException (executePlan writes)
+  case outcome of
+    Left e -> throwIO (KitWriteFailed (Text.pack (show e)) [] [])
+    Right () -> pure ()
 
 planInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> IO [PlannedWrite]
 planInstall config repoDir item scope = do
@@ -270,9 +304,6 @@ resolveSources repoDir sources =
     resolved <- safeSourcePath repoDir ((sources ^. #base) </> rel)
     (rel,) <$> either throwIO pure resolved
 
-orThrow :: (Text -> KitError) -> Either Text a -> IO a
-orThrow toError = either (throwIO . toError) pure
-
 executePlan :: [PlannedWrite] -> IO ()
 executePlan writes = do
   tempPaths <- phaseOne [] writes
@@ -300,54 +331,23 @@ executePlan writes = do
         _ <- try @IOException (removeFile temp)
         pure ()
 
-requireSafe :: Text -> Either Text a -> IO a
-requireSafe what = \case
-  Right a -> pure a
-  Left reason -> do
-    hPutStrLn stderr $ "Error: unsafe " <> Text.unpack what <> ": " <> Text.unpack reason
-    exitFailure
-
-reinstallIfPresent :: KitConfig -> Text -> KitScope -> KitManifest -> IO ()
-reinstallIfPresent config n scope manifest = do
-  installed <- isInstalled config n scope
-  when installed $
-    case lookupItem n manifest of
-      Nothing -> pure ()
-      Just item -> do
-        repoDir <- kitCacheDir config
-        doInstall config repoDir item scope
-        Text.IO.putStrLn $ "Updated '" <> n <> "' (" <> scopeLabel scope <> ")"
-
-reinstallAllPresent :: KitConfig -> KitManifest -> IO ()
-reinstallAllPresent config manifest = do
-  let allNames =
-        map (view #name) (manifest ^. #skills)
-          ++ map (view #name) (manifest ^. #agents)
-  repoDir <- kitCacheDir config
-  updated <- fmap sum $ forM allNames $ \n -> do
-    userInstalled <- isInstalled config n UserScope
-    projectInstalled <- isInstalled config n ProjectScope
-    let count = (if userInstalled then 1 else 0) + (if projectInstalled then 1 else 0) :: Int
-    when userInstalled $
-      case lookupItem n manifest of
-        Nothing -> pure ()
-        Just item -> doInstall config repoDir item UserScope
-    when projectInstalled $
-      case lookupItem n manifest of
-        Nothing -> pure ()
-        Just item -> doInstall config repoDir item ProjectScope
-    pure count
-  Text.IO.putStrLn $ "Updated " <> Text.pack (show updated) <> " item(s)."
-
 isInstalled :: KitConfig -> Text -> KitScope -> IO Bool
 isInstalled config n scope = do
-  safeName <- requireSafe "item name" (safeItemName n)
+  safeName <- orThrow (KitUnsafeName n) (safeItemName n)
   results <- forM (config ^. #providers) $ \provider -> do
     providerBase <- providerAgentsBase config provider scope
     skillExists <- doesDirectoryExist (skillTarget config provider providerBase safeName)
     agentExists <- doesFileExist (agentTarget config provider providerBase safeName)
     pure (skillExists || agentExists)
   pure (or results)
+
+-- | Run an action that may raise a 'KitError' and hand the caller a
+--   value. Only 'KitError' is caught; anything else propagates.
+kitTry :: IO a -> IO (Either KitError a)
+kitTry = try
+
+orThrow :: (Text -> KitError) -> Either Text a -> IO a
+orThrow toError = either (throwIO . toError) pure
 
 removeIfDirectory :: FilePath -> IO Bool
 removeIfDirectory dir = do
