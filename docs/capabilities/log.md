@@ -20,6 +20,13 @@
   CLI exit with a usage error, which reached a caller as a session that ran and
   failed rather than as a refusal.
 
+* **Update**: CAP-22 (agent asset layouts) records that a Codex custom agent's
+  instructions body is now rendered as a TOML *literal* multi-line string, so a
+  backslash in the body is a backslash. Rendered as a basic string, a body
+  containing `\d+` made Codex refuse to load the file with an unknown-escape
+  error; `tomllib` rejects the old output the same way. A body a literal string
+  cannot hold falls back to a fully escaped basic string.
+
 ## 2026-08-10
 
 * **Add**: Adopt the shared OKF capability profile (okf-profiles

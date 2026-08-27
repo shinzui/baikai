@@ -48,6 +48,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   exit 1, answer lost. This mirrors what the prompt read and the prompt write
   have always done.
 
+- `baikai`: `parseCodexJsonlStream` assembles lines in **linear time**. It
+  previously unpacked every chunk into a stream of bytes and appended them one
+  at a time with `BS.snoc`, copying the whole accumulator per byte — quadratic
+  in line length, so one codex event carrying a two-million-character message
+  cost on the order of a trillion byte moves and in practice never finished.
+  Lines are now cut out of each chunk with `BS.elemIndex` and `BS.splitAt`, and
+  the pieces of a line that spans a chunk boundary are joined once. Behaviour is
+  unchanged: a non-JSON line is still skipped, and a last line without a
+  trailing newline is still parsed.
+
+- `baikai`: a Codex custom agent's instructions body renders as a TOML
+  **literal** multi-line string (`'''`), which interprets nothing, instead of a
+  basic one (`"""`), which interprets backslash escapes. As a basic string an
+  instruction as ordinary as "match `\d+`" made Codex refuse to load the file;
+  `tomllib` rejects the old output with `Unescaped '\' in a string`. A body a
+  literal string cannot hold — one containing three apostrophes, a bare carriage
+  return, or a control character other than tab and newline — falls back to a
+  fully escaped basic string. `tomlString`, which renders `name` and
+  `description`, now escapes every control character as TOML 1.0 requires
+  instead of only the five it happened to name.
+
 - `baikai-openai`: the Codex interactive launcher now **refuses the two approval
   policies the installed CLI rejects**. `codex --help` at `codex-cli 0.149.1`
   lists exactly `on-request` and `never` for `--ask-for-approval`;

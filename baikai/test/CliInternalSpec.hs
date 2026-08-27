@@ -18,11 +18,13 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.List (isInfixOf)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Vector qualified as Vector
 import Streamly.Data.Stream qualified as Stream
 import System.Directory (doesFileExist, getPermissions, setOwnerExecutable, setPermissions)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Timeout qualified as Timeout
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -149,7 +151,41 @@ codexParserTests =
             [ "{\"type\":\"turn.completed\",\
               \\"usage\":{\"input_tokens\":5,\"cached_input_tokens\":9,\"output_tokens\":1}}\n"
             ]
-        fmap (^. #inputTokens) (report ^. #usage) @?= Just 0
+        fmap (^. #inputTokens) (report ^. #usage) @?= Just 0,
+      -- Chunk boundaries are the operating system's business, not the
+      -- codex event schema's: a pipe read returns whatever bytes had
+      -- arrived, which for a long event is the middle of a line.
+      testCase "a line spanning several chunks is one event" $ do
+        report <-
+          parseCodex
+            [ "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_mess",
+              "age\",\"text\":\"split\"}}\n"
+            ]
+        report ^. #message @?= "split",
+      testCase "a final line without a newline is still parsed" $ do
+        report <-
+          parseCodex
+            ["{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"last\"}}"]
+        report ^. #message @?= "last",
+      -- The previous implementation appended one byte at a time with
+      -- BS.snoc, copying the whole accumulator per byte: quadratic in
+      -- line length, so a two-million-character message cost on the
+      -- order of a trillion byte moves and never finished. The bound is
+      -- what makes this a test rather than a benchmark.
+      testCase "a multi-megabyte event is assembled in linear time" $ do
+        let body = Text.replicate 2000000 "a"
+            event =
+              Text.encodeUtf8
+                ( "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\""
+                    <> body
+                    <> "\"}}\n"
+                )
+        finished <- Timeout.timeout 10000000 (parseCodex [event])
+        case finished of
+          Nothing ->
+            assertFailure
+              "assembling one two-megabyte event did not finish within ten seconds"
+          Just report -> Text.length (report ^. #message) @?= 2000000
     ]
 
 -- ============================================================

@@ -107,11 +107,14 @@ later plan rebases. Exports and version bumps are owned by
       `baikai-openai/test/Main.hs`.
 - [x] M3 (2026-08-27): `docs/user/interactive-launches.md` table and messages; CAP-16;
       log; `CHANGELOG.md`; commit.
-- [ ] M4: chunk-level line assembly in `parseCodexJsonlStream`; tests in
-      `baikai/test/CliInternalSpec.hs` including the bounded-time multi-megabyte line.
-- [ ] M4: literal-string rendering with escaped fallback in `baikai/src/Baikai/AgentAssets.hs`;
-      `tomlString` escapes every control character; `baikai/test/AgentAssetsSpec.hs`;
-      `docs/user/agent-assets.md`; CAP-22; log; `CHANGELOG.md`; commit.
+- [x] M4 (2026-08-27): chunk-level line assembly in `parseCodexJsonlStream`; three new
+      cases in `baikai/test/CliInternalSpec.hs`, including the bounded-time
+      multi-megabyte line, which failed by its ten-second bound before the change and
+      passes in 0.03 s after.
+- [x] M4 (2026-08-27): literal-string rendering with an escaped fallback in
+      `baikai/src/Baikai/AgentAssets.hs`; `tomlString` escapes every control character;
+      `baikai/test/AgentAssetsSpec.hs`; `docs/user/agent-assets.md`; CAP-22; log;
+      `CHANGELOG.md`; commit.
 - [ ] Final: keyless `cabal test all` gate green; tick the four EP-1 lines in
       `docs/masterplans/10-correctness-and-api-hardening-from-the-2026-08-review.md`;
       Outcomes & Retrospective; ADR distillation pass.
@@ -252,6 +255,19 @@ Recorded during implementation.
 
   Exit code 2 — which, rendered rather than refused, is the `Right (ExitFailure 2)` a
   caller would have read as "the session ran and failed". (2026-08-27, M3)
+- Both M4 defects were reproduced before they were fixed. The multi-megabyte case
+  failed by its own bound —
+
+  ```text
+  a multi-megabyte event is assembled in linear time: FAIL (10.00s)
+    assembling one two-megabyte event did not finish within ten seconds
+  ```
+
+  — and passes in 0.03 s afterwards. The TOML defect was confirmed against the system
+  Python's parser: the old `"""` form of a body containing `\d+` raises
+  `TOMLDecodeError: Unescaped '\' in a string (at line 2, column 9)`, while the new
+  literal form round-trips the body byte for byte
+  (`'Match \\d+ then \\ and stop.\nDone.\n'`). (2026-08-27, M4)
 
 
 ## Decision Log

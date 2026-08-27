@@ -87,7 +87,6 @@ import Numeric.Natural (Natural)
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
-import Streamly.Data.Unfold qualified as Unfold
 import System.Directory qualified as Directory
 import System.Exit (ExitCode (..))
 import System.FilePath (isPathSeparator)
@@ -242,16 +241,26 @@ emptyCodexAccumulator =
 -- A line that is not valid JSON is skipped rather than failing the run:
 -- codex writes progress chatter to stderr, but a future version writing
 -- a non-JSON line to stdout must not turn a completed model call into a
--- decode error.
+-- decode error. A last line with no trailing newline is still parsed.
+--
+-- Lines are cut out of each chunk with 'BS.elemIndex' and 'BS.splitAt',
+-- which are a scan and a constant-time slice, and the pieces of a line
+-- that spans a chunk boundary are carried as a reversed list and joined
+-- once, when its newline arrives. Every byte is therefore copied a
+-- bounded number of times however long the line is. The obvious
+-- alternative — unpacking each chunk into a stream of bytes and
+-- appending them one at a time with 'BS.snoc' — copies the whole
+-- accumulator per byte, which is quadratic in line length: a codex event
+-- carrying a two-million-character message cost on the order of a
+-- trillion byte moves and in practice never finished.
 parseCodexJsonlStream :: Stream IO ByteString -> IO CodexRunReport
 parseCodexJsonlStream chunks = do
-  let bytes :: Stream IO Word8
-      bytes = Stream.unfoldEach Unfold.fromList (fmap BS.unpack chunks)
-      lineFold = Fold.takeEndBy_ (== newlineByte) (Fold.foldl' BS.snoc BS.empty)
-  acc <-
-    Stream.foldMany lineFold bytes
-      & Stream.mapMaybe Aeson.decodeStrict
-      & Stream.fold (Fold.foldl' absorbCodexEvent emptyCodexAccumulator)
+  (folded, pending) <-
+    Stream.fold (Fold.foldl' absorbChunk (emptyCodexAccumulator, [])) chunks
+  -- Whatever follows the last newline. An empty remainder — the ordinary
+  -- case, because codex terminates every line — decodes to Nothing and
+  -- is skipped, exactly as a non-JSON line is.
+  let acc = absorbLine folded (joinPieces pending)
   pure
     CodexRunReport
       { message = Text.concat (reverse (acc ^. #messages)),
@@ -259,6 +268,15 @@ parseCodexJsonlStream chunks = do
         reportedModel = acc ^. #reportedModel,
         usage = acc ^. #usage
       }
+  where
+    absorbChunk (acc, pending) chunk = case BS.elemIndex newlineByte chunk of
+      Nothing -> (acc, chunk : pending)
+      Just at ->
+        let (piece, rest) = BS.splitAt at chunk
+            acc' = absorbLine acc (joinPieces (piece : pending))
+         in absorbChunk (acc', []) (BS.drop 1 rest)
+    absorbLine acc line = maybe acc (absorbCodexEvent acc) (Aeson.decodeStrict line)
+    joinPieces = BS.concat . reverse
 
 -- | Fold one decoded codex event into the accumulator.
 --

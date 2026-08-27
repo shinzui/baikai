@@ -1,7 +1,7 @@
 ---
 title: "Provider-native agent-asset layouts"
 type: Capability
-description: "Ask where Claude Code or Codex discovers a skill or a custom agent, at project or user scope, and get the answer as pure path rules plus the provider-native file format — including Codex's TOML rendering — with no filesystem access and no opinion about who writes the files."
+description: "Ask where Claude Code or Codex discovers a skill or a custom agent, at project or user scope, and get the answer as pure path rules plus the provider-native file format — including Codex's TOML rendering, whose instructions body is a literal string so a backslash in it is a backslash — with no filesystem access and no opinion about who writes the files."
 generated:
   by: claude-code/opus-5
   at: "2026-08-10T00:00:00Z"
@@ -17,7 +17,7 @@ interface:
 evidence:
   - kind: test
     resource: baikai/test/AgentAssetsSpec.hs
-    proves: "The concrete path rules for both providers at both scopes — Claude Code project and user paths, and Codex's split of .agents for skills and .codex for agents plus its home discovery roots — that skills are directory assets while custom agents use provider-native file formats, that a layout carries provider, scope, kind, format, and path together, and that Codex custom-agent TOML escapes strings while preserving instructions."
+    proves: "The concrete path rules for both providers at both scopes — Claude Code project and user paths, and Codex's split of .agents for skills and .codex for agents plus its home discovery roots — that skills are directory assets while custom agents use provider-native file formats, that a layout carries provider, scope, kind, format, and path together, and and that Codex custom-agent TOML escapes basic strings and every control character while rendering the instructions body as a literal multi-line string that keeps backslashes verbatim, falling back to an escaped basic string only for a body a literal string cannot hold."
   - kind: guide
     resource: docs/user/agent-assets.md
     proves: "What the module answers, what it deliberately leaves to the caller, and how the layout values are meant to be consumed."
