@@ -1,3 +1,14 @@
+---
+type: Reference
+title: Models & Providers
+description: Reference model records, the generated catalog, provider registries, and compatibility.
+docId: DOC-7
+tags: [models, providers, catalog, registry, compatibility]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T23:10:08Z
+---
+
 # Models & Providers
 
 A `Model` record is everything baikai needs to dispatch a request:

@@ -1,3 +1,14 @@
+---
+type: Reference
+title: Streaming
+description: Reference the streaming event algebra, fold patterns, and failure semantics.
+docId: DOC-9
+tags: [streaming, events, folds, errors, streamly]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T23:29:56Z
+---
+
 # Streaming
 
 baikai's primary entry point is a stream of typed events.

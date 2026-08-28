@@ -1,3 +1,14 @@
+---
+type: Guide
+title: Tools
+description: Define tools and implement blocking and streaming tool-call round trips.
+docId: DOC-10
+tags: [tools, tool-calling, context, streaming, providers]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T17:42:25Z
+---
+
 # Tools
 
 baikai supports tool calling against Anthropic and OpenAI APIs.

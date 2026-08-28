@@ -1,3 +1,14 @@
+---
+type: Guide
+title: Kit Packages
+description: Integrate the shared kit installer lifecycle for agent skills and subagents.
+docId: DOC-5
+tags: [kits, skills, agents, installation, lifecycle]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T20:05:09Z
+---
+
 # Kit Packages
 
 `baikai-kit` is the shared installer for command-line tools that ship a

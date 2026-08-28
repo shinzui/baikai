@@ -1,3 +1,14 @@
+---
+type: Tutorial
+title: Getting Started
+description: Install Baikai, register providers, and make first blocking and streaming calls.
+docId: DOC-3
+tags: [getting-started, installation, providers, requests, streaming]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T15:16:26Z
+---
+
 # Getting Started
 
 baikai is a unified Haskell interface for AI providers. The same

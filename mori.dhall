@@ -1,6 +1,6 @@
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/a3c59033a08c2eaef2cfba4a3c99fc9c192ca6d7/package.dhall
-        sha256:18258ef583580a897f4af3e7c86db0342afb42fb40efc535b217ba1089230141
+      https://raw.githubusercontent.com/shinzui/mori-schema/9899d4544790da7120e8150c73e56cb53fe35191/package.dhall
+        sha256:4024df757a0178e37fb0b5f04d7deb284dc3ee9bfea89a6610b793338101e284
 
 in  Schema.Project::{
     , project = Schema.ProjectIdentity::{
@@ -223,6 +223,25 @@ in  Schema.Project::{
         , okfVersion = "0.2"
         , description = Some
             "Commit-pinned records of what was reviewed, by whom, and what came of it"
+        }
+      , Schema.OkfBundle::{
+        , name = "user-documentation"
+        , path = "docs/user"
+        , profile = Some "mori/user-documentation-profile.dhall"
+        , profileBinding = Some
+            ( Schema.ProfileBinding.Published
+                Schema.PinnedImport::{
+                , publisher = "shinzui/okf-profiles"
+                , publisherRef = Some
+                    Schema.MoriRef::{ namespace = "shinzui", name = "okf-profiles" }
+                , export = Some "documentation.userDocumentation"
+                , version = Some "v0.13.1"
+                , pin = Some
+                    "sha256:3be4c39d128ef8a21e39d7ae4eaef29097801b343ab5672caaf7e30186a8f91a"
+                }
+            )
+        , okfVersion = "0.2"
+        , description = Some "Reader-facing Baikai product documentation"
         }
       ]
     }

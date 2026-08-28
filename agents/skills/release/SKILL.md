@@ -382,7 +382,11 @@ okf validate docs/improvement-requests \
   --profile mori/improvement-requests-profile.dhall --profile-enforce
 okf validate docs/reviews --strict --profile docs/reviews/profile.dhall \
   --profile-enforce --log-enforce
+okf validate docs/user --strict \
+  --profile mori/user-documentation-profile.dhall \
+  --profile-enforce --log-enforce
 okf graph docs/capabilities
+okf graph docs/user
 ```
 
 `okf graph` must show an edge for every `requires` entry in the catalog. `okf`

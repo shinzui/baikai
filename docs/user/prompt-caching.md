@@ -1,3 +1,14 @@
+---
+type: Guide
+title: Prompt Caching
+description: Configure cache retention and inspect cache token and cost accounting.
+docId: DOC-8
+tags: [prompt-caching, cache-retention, usage, cost, providers]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T16:45:37Z
+---
+
 # Prompt Caching
 
 Prompt caching lets a provider store a stable prefix of your request —

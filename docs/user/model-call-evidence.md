@@ -1,3 +1,14 @@
+---
+type: Explanation
+title: Model-Call Evidence
+description: Explain model-call evidence, provenance strength, strict mode, and limitations.
+docId: DOC-6
+tags: [evidence, provenance, tracing, verification, providers]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T21:59:56Z
+---
+
 # Model-Call Evidence
 
 A trace event answers "what did this call cost?". Evidence answers a

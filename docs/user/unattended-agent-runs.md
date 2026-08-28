@@ -1,3 +1,14 @@
+---
+type: Runbook
+title: Unattended Agent Runs
+description: Configure, inspect, and run unattended coding-agent jobs safely.
+docId: DOC-11
+tags: [agents, unattended, cli, configuration, safety, operations]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T19:37:34Z
+---
+
 # Unattended Agent Runs
 
 An **unattended run** starts a local coding agent — Claude Code or Codex —

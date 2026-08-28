@@ -1,3 +1,14 @@
+---
+type: Guide
+title: CLI Providers
+description: Configure and use Claude and Codex batch subprocess providers.
+docId: DOC-2
+tags: [providers, cli, claude, codex, subprocess]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T23:10:08Z
+---
+
 # CLI Providers
 
 baikai ships two CLI-backed providers that drive `claude -p` and

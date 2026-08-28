@@ -1,3 +1,14 @@
+---
+type: Guide
+title: Interactive Launches
+description: Launch Claude Code or Codex interactive sessions with explicit safety settings.
+docId: DOC-4
+tags: [interactive, agents, claude, codex, safety]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T19:37:34Z
+---
+
 # Interactive Launches
 
 `Baikai.Interactive` is the surface for launching a local interactive

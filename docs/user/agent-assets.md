@@ -1,3 +1,14 @@
+---
+type: Reference
+title: Agent Assets
+description: Reference provider-native path rules and rendering for local agent assets.
+docId: DOC-1
+tags: [agents, assets, paths, codex, claude]
+generated:
+  by: human:nadeem
+  at: 2026-08-27T14:09:55Z
+---
+
 # Agent Assets
 
 `Baikai.AgentAssets` describes provider-native locations for local
