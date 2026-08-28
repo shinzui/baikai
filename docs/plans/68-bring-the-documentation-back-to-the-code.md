@@ -61,22 +61,22 @@ This section must always reflect the actual current state of the work.
 
 Before Milestone 1 — reconciliation:
 
-- [ ] Read the Outcomes & Retrospective and Decision Log of `docs/plans/58-…` through
+- [x] Read the Outcomes & Retrospective and Decision Log of `docs/plans/58-…` through
       `docs/plans/67-…`; resolve every angle-bracket placeholder in this plan and record
       each resolution in the Decision Log.
-- [ ] Run the starting-state greps in Concrete Steps and paste the output into Surprises
+- [x] Run the starting-state greps in Concrete Steps and paste the output into Surprises
       & Discoveries.
 
 Milestone 1 — every capability `Shape` compiles under a test:
 
-- [ ] Add the `doc-shapes` test-suite stanza to `baikai-smoke/baikai-smoke.cabal`.
-- [ ] Create `baikai-smoke/doc-shapes/DocShapes.hs`, `Shape/Fixtures.hs`, and one
+- [x] Add the `doc-shapes` test-suite stanza to `baikai-smoke/baikai-smoke.cabal`.
+- [x] Create `baikai-smoke/doc-shapes/DocShapes.hs`, `Shape/Fixtures.hs`, and one
       `Shape/CapN.hs` per record with a `haskell` fence (twenty modules).
-- [ ] Rewrite the twelve failing Shape blocks (CAP-4, 5, 9, 12, 13, 16, 17, 18, 19, 20,
+- [x] Rewrite the twelve failing Shape blocks (CAP-4, 5, 9, 12, 13, 16, 17, 18, 19, 20,
       22 and the `import Baikai` + `withTrace` fix), plus CAP-7 and CAP-14.
-- [ ] Resolve the CAP-18 KDL block through `Baikai.Agent.Config` in the same test.
-- [ ] State the Shape convention in `docs/capabilities/index.md`.
-- [ ] `cabal test baikai-smoke:test:doc-shapes` green; keyless `cabal test all` green.
+- [x] Resolve the CAP-18 KDL block through `Baikai.Agent.Config` in the same test.
+- [x] State the Shape convention in `docs/capabilities/index.md`.
+- [x] `cabal test baikai-smoke:test:doc-shapes` green; keyless `cabal test all` green.
 
 Milestone 2 — README and guides teach the supported registration path and the helpers
 that exist:
@@ -123,6 +123,73 @@ implementation. Provide concise evidence.
   provider transports over `servant-client` and classifies `ClientError`; the transport
   has been baikai's own SSE reader over `http-client` since July. CAP-8's evidence line
   30 says the same. Both fixed in Milestone 4.
+
+Starting-state greps, run at `ff5fa08` before any edit (the plan predicted nine
+`registerWith` hits, two `EP-` hits in the guides and twenty-eight in the sources):
+
+```text
+$ git grep -n "registerWith" -- README.md docs/user docs/capabilities baikai-effectful/README.md
+(no output)
+$ git grep -n "assistantContent\|zero usage\|report zeros\|24h" -- README.md docs/user docs/capabilities
+README.md:151:  text out, zero usage, synthetic one-shot streams. See
+docs/capabilities/openai-chat-completions-backend.md:86:  anything that exists only there — including the 24h prompt-cache bucket
+docs/capabilities/prompt-cache-retention.md:72:- `CacheRetentionLong` is documented as 24h on the OpenAI Responses API, but
+docs/capabilities/subscription-cli-backends.md:81:- Before 0.5.0.0 both providers hardcoded zero usage, so every such call looked
+docs/capabilities/usage-and-cost-accounting.md:77:- Before 0.5.0.0 both subprocess providers hardcoded zero usage. Totals over
+docs/user/getting-started.md:190:EventStart   { partial = AssistantMessage {…, assistantContent = []} }
+docs/user/prompt-caching.md:23:  | CacheRetentionLong   -- Long bucket (Anthropic: ttl "1h"; OpenAI Responses: 24h).
+docs/user/prompt-caching.md:30:| `CacheRetentionLong` | `cache_control.ttl: "1h"` | 24h |
+docs/user/prompt-caching.md:126:- **CLI providers report zeros.** `claude -p` and `codex exec` don't
+$ git grep -n "EP-[0-9]" -- README.md 'docs/user/*.md' 'docs/capabilities/*.md'
+docs/user/tools.md:260:  of the context is cached. See the EP-5 retrospective in the
+$ git grep -n "EP-[0-9]" -- '*.hs' | wc -l
+22
+```
+
+The four plan-43 greps (`OPENAI_KEY`, `ProviderError`, `0.1 API`, the underscore-prefixed
+field names) all come back empty, so those residuals stayed fixed.
+
+Two of the three predictions were high: EP-10 had already removed every `registerWith`
+mention from the guides and records, and six of the twenty-eight `EP-n` source comments
+had already gone with the modules EP-4, EP-5 and EP-10 rewrote. Both the remaining
+`24h` claims and the `zero usage` / `report zeros` claims are exactly where the review
+put them.
+
+Milestone 1, three things the plan did not predict.
+
+*The formatter is the arbiter of a Shape block.* `nix fmt` runs `ormolu` over the new
+`Shape/CapN.hs` modules, so the moment the first commit was formatted, twenty blocks
+that had agreed began to differ: aligned `let` columns collapsed, `Baikai :> es =>`
+gained parentheses, a two-space comment gap became one, and a record construction moved
+onto its own line. Two changes settled it. The checker now trims blank lines from both
+edges of the marked region, because the formatter puts one before a closing `-- END`
+comment and that is layout, not content. And every record's block was regenerated from
+its formatted module rather than the other way round, so what a consumer copies is
+canonically formatted Haskell. That is a better outcome than the plan's: a record can no
+longer show a block the repository's own formatter would rewrite.
+
+*A fixture can be shadowed by a selector.* `Shape.Fixtures.model` is ambiguous against
+`Baikai.Response.model` under `DuplicateRecordFields` in every module that imports both,
+which is ten of the twenty. The modules resolve it with `import Baikai hiding (model)`;
+the records are untouched, because the ambiguity is an artifact of supplying fixtures,
+not something a consumer with a real `model` in scope would meet. This is the same
+hazard EP-10's Outcomes flagged for guide prose, from the other direction.
+
+*Deleting a module cannot be the drift proof the plan wanted.* `Shape.Cap12` is listed
+in `other-modules`, so removing the file fails the build before the checker runs. The
+completeness check was proven from the other side instead, which is also the drift that
+actually happens: adding a `haskell` fence to CAP-3's record, which has none, printed
+`doc-shapes: no module for a record with a haskell Shape block: Cap3.hs` and exited 1.
+The record-versus-module proof ran as the plan wrote it — one character changed inside
+`prompt-cache-retention.md` printed `DIFFERS` with both lines and exited 1.
+
+*One block is compiled and one is not.* `docs/capabilities/opentelemetry-span-export.md`
+shows two `haskell` fences under `## Shape`: `otelSink`, and `otelSinkWith` under a
+caller's parent context. The checker reads the first, as the plan specifies, so the
+second is unchecked. It was read against
+`baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs` by hand and is correct;
+covering it would need either a second marker pair per module or a second module per
+record, and neither is worth the shape of the rule.
 
 
 ## Decision Log
@@ -209,6 +276,45 @@ Record every decision made while working on the plan.
   bundle's own machine-validated contract; nothing here changes an architectural
   boundary, interface ownership or a constraint on code. Revisit at the distillation
   pass if the convention turns out to constrain code authors.
+  Date: 2026-08-27
+- Decision: The nine angle-bracket placeholders are resolved as follows, each read from
+  the owning plan's Outcomes & Retrospective and then confirmed against the code.
+  `<apiProviderBase>` — EP-10 exports no base *value*; it exports the smart constructors
+  `Baikai.Provider.apiProvider tag producer` and `apiProviderWith tag producer complete`
+  (`baikai/src/Baikai/Provider.hs:14-15,68-74`), and `ApiProvider` exports its five
+  selectors and no constructor, so a custom provider is a record update on
+  `apiProviderWith …`. `<aborted>` — retired: `Aborted` is gone from `StopReason`
+  (`git grep -n "Aborted" -- '*.hs'` matches only the unrelated evidence status
+  `CallAborted`), so every guide mention is deleted rather than rewritten.
+  `<baseUrlRule>` — deduplication: one trailing `/v1` is folded, segment-wise, so
+  `/v10` and `/v1beta` are ordinary segments (`baikai/src/Baikai/Url.hs:186-196`); EP-2
+  already wrote the rule into `docs/user/models-and-providers.md:180-190`, so Milestone 2
+  verifies rather than writes it. `<cutOffArguments>` — one rule,
+  `Baikai.Content.toolArgumentsFromText`, keeps the raw partial text as a JSON string and
+  `Baikai.Content.isCutOffToolCall` names the state
+  (`baikai/src/Baikai/Content.hs:97-132`). `<responseFormatShape>` — `JsonSchema` now
+  carries a `JsonSchemaFormat` payload built by `jsonSchemaFormat name schema` with
+  `strict = False`, the constructor unexported
+  (`baikai/src/Baikai/ResponseFormat.hs:11-51`); CAP-5 already shows it.
+  `<kitConfigBase>` — unchanged: `KitConfig`'s constructor is still exported
+  (`baikai-kit/src/Baikai/Kit/Config.hs:2,22`), so CAP-21's `KitConfig {…}` stands.
+  `<callLogConfigBase>` — `callLogConfig "/tmp/baikai.jsonl"`, which defaults
+  `enabled = True` (`baikai/src/Baikai/Cost/Log.hs:29-30,89-98`); CAP-7 already shows it.
+  `<codexRefusedApprovals>` — `CodexApprovalUntrusted` and `CodexApprovalOnFailure`,
+  refused as `SafetyNotExpressible`
+  (`baikai-openai/src/Baikai/Provider/OpenAI/Interactive.hs:14-15,148,163,192-193`).
+  `<unsupportedModelAdjustment>` — the OpenAI side records
+  `thinking_dropped_unsupported_model`, and EP-3 added two sampling kinds,
+  `sampling_dropped_unsupported_model` and `sampling_dropped_unsupported_api`
+  (`baikai/src/Baikai/Evidence.hs:340-383`), which the adjustment table must also list.
+  Date: 2026-08-27
+- Decision: Four of this plan's prescribed edits are already done by the plan that owned
+  the behaviour, and are verified rather than rewritten: `registerWith` is gone from every
+  guide and record (grep 1 is empty at the start), the base-URL composition rule is in
+  `models-and-providers.md`, CAP-5's, CAP-7's, CAP-10's and CAP-18's `Shape` blocks were
+  already updated, and `Trace/Event.hs`'s Haddock was corrected in `1717694` (EP-9's
+  Outcomes say so). Where a sibling has already landed a sentence this plan prescribes,
+  this plan leaves it alone and says so here rather than rewording it.
   Date: 2026-08-27
 
 

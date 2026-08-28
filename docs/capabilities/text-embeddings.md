@@ -55,7 +55,7 @@ transport: policy belongs a layer up.
 ```haskell
 import Baikai.Embedding (embedOne, openAIEmbeddingModel)
 
-vec <- embedOne (openAIEmbeddingModel "text-embedding-3-small") "some text"
+embedOne (openAIEmbeddingModel "text-embedding-3-small") "some text"
 ```
 
 ## Limits

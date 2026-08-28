@@ -97,11 +97,18 @@ hanging off the `Right` would be unreachable exactly there. See
 ## Shape
 
 ```haskell
-(cmd, thinking) <- either throwIO pure (claudeAgentCommand config request)
-outcome <- runAgentCommand Nothing thinking request cmd
-case outcome ^. #outcome of
-  Right result -> exitWith (result ^. #exitCode)
-  Left failure -> reportFailure failure
+import Baikai.Agent
+import Baikai.Agent.Run (runAgentCommand)
+import Baikai.Provider.Claude.Agent (claudeAgentCommand)
+import System.Exit (exitWith)
+
+case claudeAgentCommand config request of
+  Left refusal -> reportRefusal (renderAgentRenderError refusal) -- nothing was started
+  Right (cmd, thinking) -> do
+    outcome <- runAgentCommand Nothing thinking request cmd
+    case outcome ^. #outcome of
+      Right result -> exitWith (result ^. #exitCode)
+      Left failure -> reportFailure (renderAgentRunFailure failure)
 ```
 
 ## Limits

@@ -69,7 +69,7 @@ main :: IO ()
 main = do
   OpenAIApi.register
   prompt <- userNow "Say hi."
-  let ctx  = emptyContext & #messages .~ V.singleton prompt
+  let ctx = emptyContext & #messages .~ V.singleton prompt
       opts = emptyOptions & #maxTokens .~ Just 32
   resp <- completeRequest Models.openai_gpt_4o_mini ctx opts
   print (flattenAssistantText (flattenAssistantBlocks resp))

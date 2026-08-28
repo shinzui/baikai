@@ -70,7 +70,10 @@ dispatch](unified-provider-calls.md).
 ```haskell
 import Baikai.Provider.Claude.Api qualified as ClaudeApi
 
-ClaudeApi.register   -- or registerApiProviderWith reg ClaudeApi.claudeMessagesProvider
+ClaudeApi.register
+-- or, keeping registration out of global state:
+registry <- newProviderRegistryFrom [ClaudeApi.claudeMessagesProvider]
+assertRegistered registry [AnthropicMessages]
 ```
 
 ## Limits

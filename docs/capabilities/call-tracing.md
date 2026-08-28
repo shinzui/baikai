@@ -69,7 +69,11 @@ dispatch](unified-provider-calls.md).
 ## Shape
 
 ```haskell
-resp <- withTrace (fileSink "/tmp/baikai-trace.jsonl") model ctx opts
+import Baikai.Trace (withTrace)
+import Baikai.Trace.Sink (fileSink)
+
+sink <- fileSink "/tmp/baikai-trace.jsonl"
+withTrace sink model ctx opts
 ```
 
 ## Limits

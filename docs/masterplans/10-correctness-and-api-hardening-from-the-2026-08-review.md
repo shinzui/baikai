@@ -153,7 +153,7 @@ states the version (EP-10).
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Complete |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Complete |
 | 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Complete |
-| 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | Not Started |
+| 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | In Progress |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).

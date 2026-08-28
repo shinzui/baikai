@@ -46,9 +46,10 @@ TraceSink](call-tracing.md), which defines the events it consumes.
 ## Shape
 
 ```haskell
+import Baikai.Trace (withTrace)
 import Baikai.Trace.Sink.OpenTelemetry (otelSink)
 
-resp <- withTrace (otelSink tracer) model ctx opts
+withTrace (otelSink tracer) model ctx opts
 ```
 
 Nested under the caller's own span:

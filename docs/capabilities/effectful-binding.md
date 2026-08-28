@@ -59,11 +59,10 @@ dispatch](unified-provider-calls.md) and
 
 ```haskell
 import Baikai.Effectful
+import Effectful (Eff, (:>))
 
-program :: Baikai :> es => Eff es Text
+program :: (Baikai :> es) => Eff es Response
 program = complete model ctx opts
-
--- run it against a real registry, or against a stub one in tests
 ```
 
 ## Limits

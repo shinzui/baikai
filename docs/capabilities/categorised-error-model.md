@@ -78,10 +78,10 @@ dispatch](unified-provider-calls.md).
 
 ```haskell
 resp <- completeRequest model ctx opts
-case resp ^. #errorInfo of
+case responseError resp of
   Just err | isRetryable err -> backOff (retryAfterSeconds err) >> retry
-  Just err                   -> giveUp err
-  Nothing                    -> use resp
+  Just _ -> giveUp
+  Nothing -> use resp
 ```
 
 ## Limits

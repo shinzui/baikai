@@ -54,9 +54,13 @@ same registry and the same `Api` tag.
 ## Shape
 
 ```haskell
-Stream.fold (Fold.foldl' step initial) (streamRequest model ctx opts)
+import Streamly.Data.Fold qualified as Fold
+import Streamly.Data.Stream qualified as Stream
+
+total <- Stream.fold (Fold.foldl' step initial) (streamRequest model ctx opts)
 -- or, without importing streamly:
 events <- streamRequestListWith registry model ctx opts
+print (total, length events)
 ```
 
 `streamRequestEachWith` and `streamRequestListWith` expose the same stream to

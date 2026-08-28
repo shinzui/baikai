@@ -97,8 +97,12 @@ whose translations it records.
 ## Shape
 
 ```haskell
+import Baikai.Trace (withTrace)
+import Baikai.Trace.Sink (fileSink)
+
 let opts = emptyOptions & #evidence .~ Just (evidenceRequest "nightly-review-2026-08-10")
-resp <- withTrace (fileSink "/tmp/evidence.jsonl") model ctx opts
+sink <- fileSink "/tmp/evidence.jsonl"
+withTrace sink model ctx opts
 ```
 
 ```console

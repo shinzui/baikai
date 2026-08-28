@@ -85,6 +85,7 @@ jobs {
   review {
     provider      "claude"
     working-dir   "."
+    model         "claude-opus-5"
     output        "capture"
     output-format "json"
     safety { capability "read-only" }

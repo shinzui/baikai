@@ -50,9 +50,12 @@ that launches sessions and installs assets uses one set of names for both.
 
 ```haskell
 import Baikai.AgentAssets
+import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (..))
 
-layout = agentAssetLayout InteractiveClaude ProjectScope (skillAsset "reviewer")
--- layout ^. #path is where Claude Code will look for it
+layout :: AgentAssetLayout
+layout = skillAsset InteractiveClaude InteractiveProjectScope "reviewer"
+
+-- layout ^. #path is ".claude/skills/reviewer"
 ```
 
 ## Limits

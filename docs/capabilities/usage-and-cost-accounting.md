@@ -56,6 +56,8 @@ dispatch](unified-provider-calls.md).
 ## Shape
 
 ```haskell
+import Baikai.Cost.Log (callLogConfig, runRequestWithLog, withCallLog)
+
 withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h ->
   runRequestWithLog h model ctx opts
 ```

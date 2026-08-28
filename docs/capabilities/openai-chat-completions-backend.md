@@ -76,8 +76,8 @@ import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
 
 OpenAIApi.register
 -- a non-OpenAI host is just a Model with a different baseUrl:
-let m = emptyModel & #api .~ OpenAIChatCompletions
-                   & #baseUrl .~ "https://api.deepseek.com/v1"
+let m = mkModel OpenAIChatCompletions "deepseek-chat" "https://api.deepseek.com"
+completeRequest m ctx opts
 ```
 
 ## Limits

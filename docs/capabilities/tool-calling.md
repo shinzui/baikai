@@ -64,10 +64,12 @@ dispatch](unified-provider-calls.md).
 ## Shape
 
 ```haskell
-let opts = emptyOptions
-      & #tools .~ V.fromList [getTimeTool]
-      & #toolChoice .~ Just ToolChoiceAuto
-(finalCtx, resp) <- runToolLoop dispatcher 8 model ctx opts
+let ctx =
+      contextOf [user "What time is it? Use the tool."]
+        & #tools .~ V.singleton getTimeTool
+    opts = emptyOptions & #toolChoice .~ Just ToolChoiceAuto
+(finalCtx, resp) <- runToolLoop 8 dispatcher model ctx opts
+print (responseError resp, length (finalCtx ^. #messages))
 ```
 
 ## Limits

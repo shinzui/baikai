@@ -67,7 +67,7 @@ dispatch](unified-provider-calls.md).
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 
 ClaudeCli.register
-resp <- completeRequest modelWithCliTag ctx opts   -- spawns `claude -p`
+completeRequest modelWithCliTag ctx opts -- spawns `claude -p`
 ```
 
 ## Limits

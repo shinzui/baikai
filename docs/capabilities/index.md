@@ -102,3 +102,30 @@ that own them:
 - **CAP-6 (text embeddings) is the weakest record here.** One hermetic
   request-mapping test, a live test that does not run by default, no smoke case,
   and no user guide — the module header is its documentation. The record says so.
+
+
+## Shape blocks
+
+A record's `## Shape` block is the shortest thing a consumer copies to adopt the
+capability: the call, not a program. It refers to free names — `model`, `ctx`,
+`opts`, `registry`, a tool dispatcher — without defining them, because a reader
+who has the capability already has those, and fixture noise would bury the one
+line that matters.
+
+A block is either a sequence of top-level declarations or the body of an `IO`
+`do` block. It may begin with a preamble of `import` lines followed by one blank
+line; those are the imports a reader actually needs. `&`, `.~` and `^.`
+(`Control.Lens`), the `#field` labels (`Data.Generics.Labels ()`) and
+`Data.Vector qualified as V` are assumed in scope, as in the README's quick
+taste, and are not repeated in every record.
+
+Every `haskell` Shape is compiled by `cabal test baikai-smoke:test:doc-shapes`,
+which also fails when a record and its `baikai-smoke/doc-shapes/Shape/CapN.hs`
+twin diverge — edit both together. The suite compares the block with the region
+between `-- BEGIN CAP-N` and `-- END CAP-N` in that module, stripping a uniform
+two-space indent, and requires each preamble import to appear verbatim in the
+module, which may import more. Blocks are compiled, never executed: every
+fixture in `Shape/Fixtures.hs` is an `error` thunk that says so. CAP-18's Shape
+is `kdl` rather than Haskell, so the suite resolves it through
+`Baikai.Agent.Config` instead — configuration is data, and resolving it is the
+honest equivalent of compiling it.

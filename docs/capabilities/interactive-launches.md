@@ -71,14 +71,20 @@ no safety flag and are never refused.
 ## Shape
 
 ```haskell
-import Baikai.Provider.Claude.Interactive (launchClaudeInteractive)
+import Baikai.Agent (renderAgentRenderError)
+import Baikai.Provider.Claude.Interactive (defaultClaudeInteractiveConfig, launchClaudeInteractive)
+import System.Exit (exitWith)
 
-result <- launchClaudeInteractive config
-  (interactiveLaunchRequest & #modelId .~ "claude-opus-5"
-                            & #safety  .~ ClaudeAllowedTools ["Read", "Grep"])
+result <-
+  launchClaudeInteractive
+    defaultClaudeInteractiveConfig
+    ( interactiveLaunchRequest "Inspect this project and suggest next steps."
+        & #modelId .~ Just "claude-opus-5"
+        & #safety .~ ClaudeAllowedTools ["Read", "Grep"]
+    )
 case result of
-  Left refusal -> reportRefusal refusal   -- nothing was started
-  Right done   -> exitWith (done ^. #exitCode)
+  Left refusal -> reportRefusal (renderAgentRenderError refusal) -- nothing was started
+  Right done -> exitWith (done ^. #exitCode)
 ```
 
 ## Limits

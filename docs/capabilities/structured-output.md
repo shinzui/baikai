@@ -51,8 +51,10 @@ dispatch](unified-provider-calls.md).
 ## Shape
 
 ```haskell
-let opts = emptyOptions
-      & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "person" personSchema))
+let opts =
+      emptyOptions
+        & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "person" personSchema))
+completeRequest model ctx opts
 ```
 
 ## Limits

@@ -62,6 +62,7 @@ dispatch](unified-provider-calls.md).
 
 ```haskell
 let opts = emptyOptions & #thinking .~ Just ThinkingHigh
+completeRequest model ctx opts
 ```
 
 ## Limits

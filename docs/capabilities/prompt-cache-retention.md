@@ -56,8 +56,8 @@ dispatch](unified-provider-calls.md) and reports through
 
 ```haskell
 let opts = emptyOptions & #cacheRetention .~ Just CacheRetentionLong
--- then, after the call:
-resp ^. #usage . #cacheReadTokens
+resp <- completeRequest model ctx opts
+print (resp ^. #message . #usage . #cacheReadTokens)
 ```
 
 ## Limits

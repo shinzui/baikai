@@ -77,14 +77,16 @@ needs those rules should depend on `baikai` alone.
 ## Shape
 
 ```haskell
+import Baikai.Interactive (InteractiveProvider (..))
 import Baikai.Kit
 
 myKitConfig :: KitConfig
-myKitConfig = KitConfig
-  { toolName  = "mytool"
-  , repoUrl   = "https://github.com/example/mytool-kit.git"
-  , providers = [InteractiveClaude, InteractiveCodex]
-  }
+myKitConfig =
+  KitConfig
+    { toolName = "mytool",
+      repoUrl = "https://github.com/example/mytool-kit.git",
+      providers = [InteractiveClaude, InteractiveCodex]
+    }
 ```
 
 ## Limits

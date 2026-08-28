@@ -78,3 +78,56 @@ test-suite baikai-smoke
     , streamly-core      ^>=0.3
     , text               ^>=2.1
     , vector
+
+-- Compiles every fenced `haskell` block under docs/capabilities/ and, when run,
+-- checks each block still matches the marked region of its Shape.CapN module.
+-- Never contacts a provider; every fixture is an error thunk.
+test-suite doc-shapes
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: doc-shapes
+  main-is:        DocShapes.hs
+  other-modules:
+    Shape.Cap1
+    Shape.Cap10
+    Shape.Cap11
+    Shape.Cap12
+    Shape.Cap13
+    Shape.Cap14
+    Shape.Cap15
+    Shape.Cap16
+    Shape.Cap17
+    Shape.Cap19
+    Shape.Cap2
+    Shape.Cap20
+    Shape.Cap21
+    Shape.Cap22
+    Shape.Cap4
+    Shape.Cap5
+    Shape.Cap6
+    Shape.Cap7
+    Shape.Cap8
+    Shape.Cap9
+    Shape.Fixtures
+
+  build-depends:
+    , aeson
+    , baikai
+    , baikai-agent
+    , baikai-claude
+    , baikai-effectful
+    , baikai-kit
+    , baikai-openai
+    , baikai-trace-otel
+    , base                  >=4.20 && <5
+    , containers
+    , directory
+    , effectful-core        ^>=2.6
+    , filepath
+    , generic-lens
+    , hs-opentelemetry-api  >=1.0  && <1.1
+    , lens                  ^>=5.3
+    , settei-env            ^>=0.2
+    , streamly-core         ^>=0.3
+    , text                  ^>=2.1
+    , vector
