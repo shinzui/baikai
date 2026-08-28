@@ -41,13 +41,19 @@ in  Schema.Automation::{
           [ Schema.ReactionAction.Signal Schema.SignalAction::{
             , signalType = "BaikaiReleased"
             ,
-              -- Twelve projects depend on baikai; only kioku has an automation
-              -- that consumes BaikaiReleased. An empty targets list broadcasts
-              -- to dependents, and a target with no registered automation
-              -- dead-letters the delivery -- `mori doctor` still carries two
-              -- such failures against shinzui/mori. Name the consumer, and add
-              -- the next one when it has a reaction ready to receive this.
-              targets = [ "shinzui/kioku" ]
+              -- Twelve projects depend on baikai; these two have a reaction
+              -- that consumes BaikaiReleased. `*dependents*` would resolve all
+              -- twelve, and a target with no registered automation dead-letters
+              -- its delivery -- `mori doctor` still carries two such failures
+              -- against shinzui/mori. Name the consumers, and add the next one
+              -- when it has a reaction ready to receive this.
+              --
+              -- Both are named even though shikumi sits between baikai and
+              -- kioku, because the edge is real in both cases: kioku depends on
+              -- baikai directly, so a baikai patch its shikumi bounds already
+              -- admit must reach it without waiting for a shikumi release.
+              -- `mori workflow explain shinzui/baikai` renders the result.
+              targets = [ "shinzui/shikumi", "shinzui/kioku" ]
             ,
               -- Assembled from the three release scalars rather than written
               -- as the whole-value `{{release.payloadJson}}` that mori's own
