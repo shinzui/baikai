@@ -36,9 +36,28 @@ flow regardless of which provider is on the other side.
 - **Typed content blocks & tools.** Structured user/assistant content
   (text, images), tool definitions, and the two-turn tool round-trip on
   the API providers.
+- **Provider-neutral call-time options.** One `Options` record carries
+  structured output (`responseFormat`: JSON-object mode or a named JSON
+  schema), reasoning effort (`thinking`), and prompt-cache retention
+  (`cacheRetention`), and each transport maps them onto its vendor's own
+  primitive — Anthropic's `output_config` and `cache_control`, OpenAI's
+  `response_format` and `reasoning_effort`. A host that cannot honour
+  long cache retention is downgraded to short rather than rejected, and
+  a reasoning level a backend cannot express — clamped, collapsed, or
+  dropped because its budget will not fit — is surfaced as a
+  `ThinkingTranslation` rather than silently lost.
 - **Usage & cost accounting.** Every successful call returns a `Usage`
-  with input/output/cache/reasoning token counts and a `Cost` computed
-  from the model's rates.
+  with disjoint input / output / cache-read / cache-write / reasoning
+  token counts and a `Cost` computed from the model's rates. `Usage` and
+  `Cost` are monoids, so per-call values roll up to a session without a
+  hand-written fold, and `Baikai.Cost.Log` adds an opt-in JSONL sink
+  whose worker thread drains to disk, so logging never pads the latency
+  of the call it records.
+- **Categorised errors.** A failure arrives as an error-shaped
+  `Response` or a terminal `EventError` carrying an `ErrorCategory`
+  (`AuthError`, `RateLimited`, `ContextOverflow`, `ContentFiltered`,
+  `ProviderUnavailable`, …). `isRetryable` decides from the category, so
+  nobody has to match on message text.
 - **Subscription-backed CLI providers.** Drive `claude -p` and
   `codex exec` as subprocesses through the same surface — useful when you
   pay a flat-rate Claude Max / ChatGPT subscription instead of per token.
@@ -68,6 +87,15 @@ flow regardless of which provider is on the other side.
   nowhere else, so an untrusted checkout cannot raise it.
 - **Pluggable observability.** A `TraceSink` interface with an optional
   OpenTelemetry adapter that emits one span per provider call.
+- **Verifiable model-call evidence.** Opt a call in and get one record
+  of what actually crossed the boundary: the model the provider said it
+  ran, the correlation identifier, what the reasoning request became on
+  the wire, and two canonical digests — with an honest strength that a
+  2xx or a zero exit status never raises on its own. Experimental.
+- **Text embeddings.** `Baikai.Embedding` is a small policy-free client
+  for the OpenAI-shaped `/v1/embeddings` endpoint that resolves its key
+  through the same per-host table as chat calls and shares their
+  connection cache.
 - **Custom providers.** Register your own handler under a `Custom` tag
   for any API baikai doesn't ship.
 
@@ -84,7 +112,7 @@ dependents.
 
 | Package              | Hackage    | What's inside |
 |----------------------|------------|---------------|
-| **`baikai`**         | [0.6.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
+| **`baikai`**         | [0.6.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; opt-in subsystems with their own vocabularies — tracing (`Baikai.Trace`), embeddings (`Baikai.Embedding`), the JSONL call log (`Baikai.Cost.Log`), pricing lookup, and the catalog — are imported directly. `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
 | **`baikai-claude`**  | [0.6.0.0](https://hackage.haskell.org/package/baikai-claude) | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
 | **`baikai-openai`**  | [0.6.0.0](https://hackage.haskell.org/package/baikai-openai) | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
 | **`baikai-trace-otel`** | [0.4.0.0](https://hackage.haskell.org/package/baikai-trace-otel) | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
@@ -110,8 +138,10 @@ main :: IO ()
 main = do
   OpenAIApi.register                       -- install the handler once
   prompt <- userNow "Say hi."
-  let ctx  = emptyContext & #systemPrompt .~ Just "You are terse."
-                      & #messages .~ V.singleton prompt
+  let ctx =
+        emptyContext
+          & #systemPrompt .~ Just "You are terse."
+          & #messages .~ V.singleton prompt
       opts = emptyOptions & #maxTokens .~ Just 32
   resp <- completeRequest Models.openai_gpt_4o_mini ctx opts
   print (flattenAssistantText (flattenAssistantBlocks resp))
@@ -235,6 +265,9 @@ source-repository-package
   recovery.
 - [Tools](docs/user/tools.md) — declaring tools, tool-choice options,
   and the two-turn tool-result round trip.
+- [Prompt Caching](docs/user/prompt-caching.md) — the `CacheRetention`
+  preference, the host-aware long/short downgrade, and reading the cache
+  token and cost split back off `Usage`.
 - [CLI Providers](docs/user/cli-providers.md) — driving `claude -p` and
   `codex exec` as subprocess providers.
 - [Interactive Launches](docs/user/interactive-launches.md) — opening
@@ -245,10 +278,18 @@ source-repository-package
   embeds provider flags today.
 - [Agent Assets](docs/user/agent-assets.md) — provider-native skill and
   custom-agent layout helpers.
+- [Kit Packages](docs/user/kit.md) — the shared installer lifecycle for a
+  git-hosted kit of agent skills and subagents.
 - [Model-Call Evidence](docs/user/model-call-evidence.md) — what
   actually crossed the boundary to the provider: the
   requested/translated/observed split, the two digests, how much a
   record proves, strict mode, and what this deliberately is not.
+
+For what the family provides today rather than how to use it, the
+[capability records](docs/capabilities/index.md) list each shipped
+capability with its stability, the packages that carry it, the release it
+landed in, and the tests or examples that prove it. Design decisions live
+in [`docs/adr/`](docs/adr/README.md).
 
 ## Develop
 
