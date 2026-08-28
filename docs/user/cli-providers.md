@@ -123,9 +123,10 @@ extra flags. To override:
 
 Each package exports a provider value — `claudeCliProvider cfg` and
 `codexCliProvider cfg` — so one path covers both registries:
-`registerApiProvider (claudeCliProvider cfg)` for the process-global one
-and `registerApiProviderWith reg (claudeCliProvider cfg)` for an explicit
-`ProviderRegistry`.
+`registerApiProvider (claudeCliProvider cfg)` for the process-global one,
+and for an explicit `ProviderRegistry` either
+`registerApiProviderWith reg (claudeCliProvider cfg)` or listing the same
+value in `newProviderRegistryFrom`.
 
 ### `claude -p`
 

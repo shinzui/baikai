@@ -81,12 +81,12 @@ Milestone 1 — every capability `Shape` compiles under a test:
 Milestone 2 — README and guides teach the supported registration path and the helpers
 that exist:
 
-- [ ] Registration rewrite in `README.md`, `docs/user/cli-providers.md`,
+- [x] Registration rewrite in `README.md`, `docs/user/cli-providers.md`,
       `docs/user/models-and-providers.md`, `docs/user/getting-started.md`.
-- [ ] New sections: `responseError`; `streamRequestEach` / `streamRequestList` and the
+- [x] New sections: `responseError`; `streamRequestEach` / `streamRequestList` and the
       streamly paragraph; `ApiKeyEnvChain`; `mkModel`; the sampling options; the
       base-URL composition rule; the `ApiProvider` base value from EP-10.
-- [ ] `git grep registerWith` over `README.md docs/user docs/capabilities` is empty.
+- [x] `git grep registerWith` over `README.md docs/user docs/capabilities` is empty.
 
 Milestone 3 — stale claims and Haddock swept:
 
@@ -190,6 +190,66 @@ second is unchecked. It was read against
 `baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs` by hand and is correct;
 covering it would need either a second marker pair per module or a second module per
 record, and neither is worth the shape of the rule.
+
+Milestone 2: four of the seven prescribed edits were already in the tree, done by the
+plan that owned the behaviour, and the greps say so. `registerWith` is gone from every
+guide and record; `docs/user/models-and-providers.md`'s "Base URLs" section already
+states the `/v1` folding rule EP-2 chose, segment-wise, with the `/v10` and `/v1beta`
+exceptions; its "Sampling parameters" section already carries the five-field table and
+both `sampling_dropped_*` adjustment kinds EP-3 added; and `getting-started.md` already
+teaches `ApiKeyEnvChain`, the empty-variable `AuthError` and header redaction. What was
+left was the registration prose in `README.md` and the guide's own "The registry"
+section, the two helper sections (`responseError`, `streamRequestEach` /
+`streamRequestList`), `mkModel` at the head of "Hand-rolled models", and the custom
+provider.
+
+The custom-provider example was the one that could not have compiled: it imported
+`ApiProvider (..)` and built the record positionally, and EP-10 unexported the
+constructor. It is now `apiProviderWith tag stream complete` with `describeThinking` and
+`strengthCeiling` shown as record updates over the builder's defaults, and the two
+"Changed in …" callouts are gone — the builder is the fix for the hazard they described,
+so a release note about the break they caused is no longer the thing a reader needs.
+
+Transcript of the Milestone 2 acceptance check. Every name each new or changed fence
+uses was resolved in `cabal repl baikai-smoke:test:doc-shapes`, which has all seven
+packages in scope:
+
+```text
+newProviderRegistryFrom [ClaudeApi.claudeMessagesProvider, …] :: IO ProviderRegistry
+\reg -> assertRegistered reg [AnthropicMessages, OpenAIChatCompletions]
+  :: ProviderRegistry -> IO ()
+mkModel OpenAIChatCompletions "deepseek-chat" "https://api.deepseek.com" :: Model
+\str cmp -> apiProviderWith (Custom "my-llm-host") str cmp
+  & #describeThinking .~ (\_model _opts -> noThinkingRequested)
+  & #strengthCeiling .~ EvidenceRequestedOnly
+  :: (Model -> Context -> Options -> Stream IO AssistantMessageEvent)
+     -> (Model -> Context -> Options -> IO Response) -> ApiProvider
+\p -> apiProviderWith (Custom "x") (liftCompleteToStream p) p
+  :: (Model -> Context -> Options -> IO Response) -> ApiProvider
+streamRequestEach :: (AssistantMessageEvent -> IO ())
+                  -> Model -> Context -> Options -> IO Response
+streamRequestList :: Model -> Context -> Options -> IO [AssistantMessageEvent]
+\resp -> (responseError resp, resp ^. #message . #usage)
+  :: Response -> (Maybe BaikaiError, Usage)
+\err -> (isRetryable err, retryAfterSeconds err) :: BaikaiError -> (Bool, Maybe Int)
+\(ApiKeyEnvChain ns) -> ns :: ApiKeySource -> [String]
+```
+
+The last line is worth keeping: `ApiKeyEnv` and `ApiKeyEnvChain` carry `String`, not
+`Text`, because `lookupEnv` takes one. The guide's new table names the sources without
+claiming a type, so it is right either way, but a reader who assumed `Text` would be
+wrong.
+
+While the guide work was in progress another change landed in this repository as commit
+`dc25860`, "docs(user): adopt shared OKF documentation profile": it converts
+`docs/user/` into a fourth OKF bundle, prepending eleven lines of frontmatter to each of
+the eleven guides and adding `docs/user/index.md`, `docs/user/log.md`,
+`mori/user-documentation-profile.dhall` and a `user-documentation` bundle entry in
+`mori.dhall`. It changed nothing else in any guide — every file is `11 insertions(+), 0
+deletions(-)`. Two consequences for this plan, both in Milestone 4: the Decision Log's
+"`mori.dhall`'s `docs` list is unchanged" now holds only for this plan's own edits, and
+the validator list gains `okf validate docs/user`. A guide this plan edits is now also a
+concept whose `generated.at` the bundle's log enforces.
 
 
 ## Decision Log

@@ -127,15 +127,31 @@ walkthrough.
 ## How it fits together
 
 - **Registry.** `Baikai.Provider.Registry` maps each `Api` tag to a
-  handler. Simple programs can use the process-global convenience
-  registry through each vendor package's `register :: IO ()` (or
-  `registerApiProvider (claudeCliProvider cfg)` for configuration). Tests
-  and larger apps can instead create a `ProviderRegistry` with
-  `newProviderRegistry`, register into it with `registerApiProviderWith`,
-  and call
-  `completeRequestWith` / `streamRequestWith`. Dispatch looks the handler
-  up by `Model.api`; an unregistered tag returns an error-shaped
-  `Response` or terminal `EventError` with category `ProviderUnavailable`.
+  handler. A simple program calls each vendor package's
+  `register :: IO ()`, which installs that handler into the process-global
+  registry. Tests and larger applications build their own
+  `ProviderRegistry` from the provider values instead —
+
+  ```haskell
+  registry <-
+    newProviderRegistryFrom
+      [ ClaudeApi.claudeMessagesProvider
+      , OpenAIApi.openaiChatProvider
+      , ClaudeCli.claudeCliProvider defaultClaudeCliConfig
+      , CodexCli.codexCliProvider defaultCodexCliConfig
+      ]
+  assertRegistered registry [AnthropicMessages, OpenAIChatCompletions]
+  ```
+
+  — and dispatch with `completeRequestWith` / `streamRequestWith`. A
+  configured provider goes into the global registry with
+  `registerApiProvider (claudeCliProvider cfg)`, or into an explicit one
+  with `registerApiProviderWith reg`. `assertRegistered` throws once, at
+  startup, when an expected tag has no handler; without it, an
+  unregistered tag returns an error-shaped `Response` or terminal
+  `EventError` with category `ProviderUnavailable` at call time, which is
+  later and quieter than you want. Dispatch looks the handler up by
+  `Model.api`.
 
   | `Api` tag                | Registered by                  | Backend |
   |--------------------------|--------------------------------|---------|

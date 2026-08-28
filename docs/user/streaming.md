@@ -23,12 +23,30 @@ completeRequest :: Model -> Context -> Options -> IO Response
 completeRequestWith :: ProviderRegistry -> Model -> Context -> Options -> IO Response
 ```
 
-The stream comes from `streamly`. Everything in this guide assumes:
+The stream is a `streamly` `Stream IO AssistantMessageEvent`, and the
+fold patterns below assume:
 
 ```haskell
 import qualified Streamly.Data.Stream as Stream
 import qualified Streamly.Data.Fold as Fold
 ```
+
+You do not have to depend on `streamly` to stream. Two helpers give you
+the same events without naming the type:
+
+```haskell
+streamRequestEach :: (AssistantMessageEvent -> IO ()) -> Model -> Context -> Options -> IO Response
+streamRequestList :: Model -> Context -> Options -> IO [AssistantMessageEvent]
+```
+
+`streamRequestEach` invokes the callback once per event, in order, as
+each arrives — incrementality is preserved — and returns the same
+reassembled `Response` `completeRequest` would have returned, so you get
+the deltas *and* the final usage, stop reason and evidence from one call.
+`streamRequestList` collects the events into a list, which is the
+`Stream.toList` pattern without the import. Both have `…With` variants
+taking a `ProviderRegistry` first: `streamRequestEachWith`,
+`streamRequestListWith`.
 
 ## The event algebra
 
@@ -95,6 +113,27 @@ events <- Stream.toList $
     (streamRequest model ctx opts)
 ```
 
+### Print deltas as they arrive, without streamly
+
+The same thing, for a program that would rather not depend on `streamly`.
+The callback runs on each event as it arrives, and the `Response` you get
+back is the one `completeRequest` would have returned:
+
+```haskell
+import Data.Text.IO qualified as TIO
+
+resp <-
+  streamRequestEach
+    ( \e -> case e of
+        TextDelta DeltaPayload {delta = d} -> TIO.putStr d
+        _ -> pure ()
+    )
+    model
+    ctx
+    opts
+print (responseError resp, resp ^. #message . #usage)
+```
+
 ### Extract just the final message
 
 ```haskell
@@ -141,7 +180,11 @@ This is the inverse of how most SDKs handle streaming errors
 (throwing mid-stream and losing partial state). `completeRequest`
 wraps the same flow into a single `Response` whose `stopReason` is
 `ErrorReason` on failure; the partial content is on the response's
-message.
+message. On that `Response`, `responseError` is the one question to ask —
+it is `Just` exactly when the call failed, and it synthesises an
+`OtherError` from `errorMessage` when a nonconforming provider set
+`ErrorReason` without the structured detail. See
+[Getting Started](getting-started.md#did-it-fail).
 
 ### Stopping early
 

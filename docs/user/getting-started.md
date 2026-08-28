@@ -91,11 +91,13 @@ blocking calls, or a terminal `EventError` for streams, with
 `errorInfo.category = ProviderUnavailable`.
 
 For isolated tests or applications with more than one handler set,
-construct a `ProviderRegistry` with `newProviderRegistryFrom` and
-provider values such as `OpenAIApi.openaiChatProvider`, then dispatch
-with `completeRequestWith` or `streamRequestWith`. Use
-`assertRegistered` at startup to fail fast when an expected `Api` tag
-has no handler.
+construct a `ProviderRegistry` with `newProviderRegistryFrom` and the
+provider values — `ClaudeApi.claudeMessagesProvider`,
+`OpenAIApi.openaiChatProvider`,
+`ClaudeCli.claudeCliProvider defaultClaudeCliConfig` and
+`CodexCli.codexCliProvider defaultCodexCliConfig` — then dispatch with
+`completeRequestWith` or `streamRequestWith`. Use `assertRegistered` at
+startup to fail fast when an expected `Api` tag has no handler.
 
 ## Your first call (text)
 
@@ -167,6 +169,38 @@ documented place to put a gateway's own credential, and because this
 guide tells you to `print resp`. Only the rendering changes: the field
 still holds what you put there, and the header is still sent exactly as
 written.
+
+### Did it fail?
+
+`completeRequest` does not throw on a provider failure; it returns a
+`Response` shaped like one. `responseError` is the one question to ask:
+
+```haskell
+responseError :: Response -> Maybe BaikaiError
+```
+
+It is `Just` exactly when the response's `stopReason` is `ErrorReason`,
+and it carries the provider's classified `errorInfo` — the category, the
+HTTP status, any `Retry-After` hint. A provider that sets `ErrorReason`
+but omits the structured detail does not become a silent success:
+`responseError` synthesises an `OtherError` from the response's own
+`errorMessage`. That is why it, rather than `resp ^. #errorInfo`, is what
+to branch on. `completeText` and `runToolLoop` use it themselves.
+
+```haskell
+case responseError resp of
+  Just err | isRetryable err -> backOff (retryAfterSeconds err) >> retry
+  Just err -> giveUp err
+  Nothing -> use resp
+```
+
+The categories — `RateLimited`, `AuthError`, `TransientError`,
+`ContextOverflow`, `InvalidRequest`, `ProviderUnavailable`,
+`ContentFiltered`, `ProcessFailure`, `DecodeError`, `OtherError` — are
+documented on `Baikai.Error.ErrorCategory`; `isRetryable` is derived from
+the category, so you do not classify by hand. See
+[Streaming](streaming.md#failure-modes) for the terminal event that carries
+the same failure on a stream.
 
 The result is a `Response`. `resp ^. #message` is the assistant
 payload. Use `responseMessage resp` when you need it wrapped as a

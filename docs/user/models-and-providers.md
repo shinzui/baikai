@@ -130,8 +130,20 @@ the JSON change and the regenerated `Baikai.Models.Generated.hs`.
 
 ## Hand-rolled models
 
-You don't need a catalog entry to dispatch against a host. `emptyModel`
-is an empty base; fill in the fields and pass it directly:
+You don't need a catalog entry to dispatch against a host. A model needs
+three things to dispatch — the `Api` tag the registry looks up, the model
+id the host knows, and the base URL — and `mkModel` takes exactly those:
+
+```haskell
+mkModel :: Api -> Text -> Text -> Model
+
+deepseek :: Model
+deepseek = mkModel OpenAIChatCompletions "deepseek-chat" "https://api.deepseek.com"
+```
+
+`name` defaults to the model id and `provider` to `renderApi` of the tag.
+For prices, context and output caps, or an explicit `compat`, start from
+`emptyModel` and fill in the fields:
 
 ```haskell
 import Baikai
@@ -147,6 +159,11 @@ llama =
     , maxOutputTokens = 64
     }
 ```
+
+Whichever you start from, set `api`: `emptyModel.api` is `Custom ""`,
+which is registered to nothing and dispatches nowhere. That is the one
+mistake a blank base makes easy, and the failure says so by name rather
+than reporting an empty tag.
 
 The OpenAI provider auto-detects the compat record from the
 `baseUrl` (the `api.together.xyz` host name maps to
@@ -373,6 +390,24 @@ main = do
 The `MultiHostSmoke` module under `baikai-smoke/test/` is a working
 example.
 
+Each host wants its own credential, and `Options.apiKey` is an
+`ApiKeySource` rather than a bare string so you can say where the
+credential comes from without reading it yourself:
+
+| `ApiKeySource` | Means |
+|---|---|
+| `ApiKeyLiteral key` | this exact credential |
+| `ApiKeyEnv name` | read the named environment variable |
+| `ApiKeyEnvChain names` | read the first variable in the list that is set |
+
+`ApiKeyEnvChain` is what a program that must accept both `OPENAI_API_KEY`
+and a house-specific spelling wants. A variable that is set but empty is
+not a key: it fails as an `AuthError` naming the variable, rather than
+sending a blank credential and reporting the host's 401. Leaving `apiKey`
+unset falls back to the per-host default variable for the model's
+`baseUrl`. `Show` and `ToJSON` on `Options` render `ApiKeyLiteral` as
+`<redacted>`, so a key does not reach your logs by being printed.
+
 ## The registry
 
 `Baikai.Provider.Registry` maps an `Api` tag to an `ApiProvider`.
@@ -381,13 +416,32 @@ vendor package's `register :: IO ()` installs itself under a specific
 `Api` tag, and `completeRequest` / `streamRequest` dispatch through
 that global registry.
 
-Applications and tests that need isolated handler sets can construct an
-explicit registry with `newProviderRegistry`, register handlers with
-`registerApiProviderWith` and a provider package's exported provider value
-(`claudeMessagesProvider`, `codexCliProvider cfg`, …), and dispatch through `completeRequestWith` / `streamRequestWith`.
-Within one registry, registering a second handler for the same `Api` tag
-replaces the first. Keep multiple configured handler sets alive by using
-multiple `ProviderRegistry` values and selecting the registry at call time.
+Applications and tests that need isolated handler sets build the registry
+from the provider values each vendor package exports —
+`claudeMessagesProvider`, `openaiChatProvider`, `claudeCliProvider cfg`,
+`codexCliProvider cfg` — and dispatch through
+`completeRequestWith` / `streamRequestWith`:
+
+```haskell
+registry <-
+  newProviderRegistryFrom
+    [ ClaudeApi.claudeMessagesProvider
+    , OpenAIApi.openaiChatProvider
+    ]
+assertRegistered registry [AnthropicMessages, OpenAIChatCompletions]
+```
+
+`newProviderRegistry` builds an empty one and `registerApiProviderWith reg`
+adds a handler to it later, which is what a test that swaps a provider
+mid-run wants. Within one registry, registering a second handler for the
+same `Api` tag replaces the first. Keep multiple configured handler sets
+alive by using multiple `ProviderRegistry` values and selecting the
+registry at call time.
+
+`assertRegistered reg tags` throws once, at startup, naming every tag with
+no handler. Without it the same mistake surfaces per call, as the
+`ProviderUnavailable` response described below — later, and inside
+whatever error handling the call site happens to have.
 
 | `Api` tag                  | Registered by                       |
 |----------------------------|-------------------------------------|
@@ -415,7 +469,8 @@ ship:
 ```haskell
 import Baikai
 import Baikai.Provider.Registry
-  ( ApiProvider (..)
+  ( ApiProvider
+  , apiProviderWith
   , completeRequestWith
   , newProviderRegistry
   , registerApiProvider
@@ -425,18 +480,31 @@ import qualified Streamly.Data.Stream as Stream
 
 myProvider :: ApiProvider
 myProvider =
-  ApiProvider
-    { apiTag = Custom "my-llm-host"
-    , stream = \model ctx opts -> Stream.fromList (myStreamProducer model ctx opts)
-    , complete = \model ctx opts -> myCompleteProducer model ctx opts
+  apiProviderWith
+    (Custom "my-llm-host")
+    (\model ctx opts -> Stream.fromList (myStreamProducer model ctx opts))
+    (\model ctx opts -> myCompleteProducer model ctx opts)
+```
+
+`ApiProvider` exports its field selectors and no constructor, so you
+start from `apiProviderWith` — the tag, the streaming producer, the
+synchronous completer — and override the rest by record update. That is
+what keeps a field added in a later release from breaking your build.
+The two fields it fills in for you:
+
+```haskell
+myProvider :: ApiProvider
+myProvider =
+  apiProviderWith (Custom "my-llm-host") myStream myComplete
     -- What this provider would do with Options.thinking, asked before
     -- any request is built. Only the strict-evidence gate calls it; a
-    -- provider with no reasoning controls answers honestly like this.
-    , describeThinking = \_model _opts -> noThinkingRequested
+    -- provider with no reasoning controls answers honestly with the
+    -- default, which is this.
+    & #describeThinking .~ (\_model _opts -> noThinkingRequested)
     -- The highest strength this provider's evidence can reach. Declaring
-    -- more than you deliver is the one way to make strict mode lie.
-    , strengthCeiling = EvidenceRequestedOnly
-    }
+    -- more than you deliver is the one way to make strict mode lie, so
+    -- the default is the weakest answer.
+    & #strengthCeiling .~ EvidenceRequestedOnly
 
 myModel :: Model
 myModel = emptyModel
@@ -469,39 +537,33 @@ to write a synchronous `complete` and lift it with
 
 ```haskell
 myProvider =
-  ApiProvider
-    { apiTag = Custom "my-llm-host"
-    , stream = liftCompleteToStream myCompleteProducer
-    , complete = myCompleteProducer
-    , describeThinking = \_model _opts -> noThinkingRequested
-    , strengthCeiling = EvidenceRequestedOnly
-    }
+  apiProviderWith
+    (Custom "my-llm-host")
+    (liftCompleteToStream myCompleteProducer)
+    myCompleteProducer
 ```
 
 This produces a synthetic one-shot stream (one `TextDelta` with
 the whole response, then `EventDone`), matching how the CLI
 providers work.
 
-> **Changed in `baikai` 0.5.0.0.** `ApiProvider` gained a fourth
-> field, `describeThinking :: Model -> Options -> ThinkingTranslation`.
-> It is called only by the pre-dispatch strict-evidence gate, never on
-> an ordinary call, so `\_ _ -> noThinkingRequested` is correct and
-> honest for a provider that has no reasoning controls. If yours does
-> translate `Options.thinking` onto a wire field, return a
-> `ThinkingTranslation` describing what it becomes — built by the same
-> function that builds the request, so the two cannot drift apart. See
-> [Model-Call Evidence](model-call-evidence.md).
->
-> **Changed in the next release.** `ApiProvider` gained a fifth field,
-> `strengthCeiling :: EvidenceStrength`, and the strict-evidence gate
-> compares a caller's requirement against it instead of against a table
-> keyed by `Api`. That table answered `EvidenceRequestedOnly` for every
-> `Custom` tag, so a transport that genuinely observes a model could
-> never satisfy a caller who required that it did; only you know what
-> your evidence reaches. `EvidenceRequestedOnly` is the honest answer for
-> a provider that attaches no record or a minimal one, and such a
-> provider will still fail a strict caller at the terminal. Declare more
-> only with a test that drives the provider to it.
+Both fields exist because a provider can lie about itself in exactly two
+ways, and each is answered by a field the builder defaults to the honest
+value. `describeThinking :: Model -> Options -> ThinkingTranslation` says
+what this provider would do with `Options.thinking`; it is called only by
+the pre-dispatch strict-evidence gate, never on an ordinary call. If your
+provider does translate `Options.thinking` onto a wire field, return a
+`ThinkingTranslation` describing what it becomes — built by the same
+function that builds the request, so the two cannot drift apart.
+`strengthCeiling :: EvidenceStrength` is the highest evidence strength
+your transport can reach; the strict gate compares a caller's requirement
+against it rather than against a table keyed by `Api`, which is what used
+to answer `EvidenceRequestedOnly` for every `Custom` tag whatever the
+transport actually observed. `EvidenceRequestedOnly` is the honest answer
+for a provider that attaches no record or a minimal one, and such a
+provider will still fail a strict caller at the terminal. Declare more
+only with a test that drives the provider to it. See
+[Model-Call Evidence](model-call-evidence.md).
 
 ## Cost & usage
 
