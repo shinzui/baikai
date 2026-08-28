@@ -33,6 +33,9 @@ evidence:
   - kind: test
     resource: baikai-claude/test/Main.hs
     proves: "The provider-level contract, including that an image tool-result block is rejected rather than dropped and that responseFormat maps onto Anthropic's native output_config."
+  - kind: test
+    resource: baikai-claude/test/ThinkingSpec.hs
+    proves: "The counts and stop reasons claude 1.5 reports: a thinking-token breakdown at message_start reaches Usage.reasoningTokens, a message_delta's prompt-side counts replace the message_start figures while an absent field keeps them, and a paused turn ends the stream as a stop rather than an error."
   - kind: module
     resource: baikai-claude/src/Baikai/Provider/Claude/Api.hs
     proves: "The three public entry points: register, claudeMessagesProvider and claudeMessagesStream."
@@ -62,6 +65,16 @@ Anthropic reports in `message_start`, are what let this transport reach
 `model_observed` in [CAP-19 — verifiable model-call
 evidence](model-call-evidence.md).
 
+From baikai-claude 0.6.0.0 the SDK bound is `claude ^>=1.5`, which makes two
+response facts readable that 1.4 did not expose. A thinking-token breakdown on
+`message_start` now fills `Usage.reasoningTokens`, which this provider used to
+hard-code to `Nothing` for want of anything to read; it is an informational
+subset of the output tokens, so no total and no cost moves. And the final
+`message_delta` carries the prompt-side counts, so a call whose prompt grew
+mid-stream under a server-side tool is accounted for from the counts that ended
+the call rather than the ones that started it. An absent field still keeps the
+`message_start` figure rather than zeroing it.
+
 This builds on [CAP-1 — provider-neutral model calls with registry
 dispatch](unified-provider-calls.md).
 
@@ -78,6 +91,13 @@ assertRegistered registry [AnthropicMessages]
 
 ## Limits
 
+- **A paused turn is reported as an ordinary stop.** Anthropic suspends a turn
+  mid-flight for a long-running server-side tool and expects the message back to
+  continue it. `Baikai.StopReason` has no constructor that says "resume me", and
+  `ErrorReason` would claim a failure where nothing failed, so `Pause_Turn` maps
+  to `Stop` and a caller cannot tell a paused turn from a finished one. The rule
+  and its cost are recorded in
+  [ADR 0018](../adr/0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md).
 - Image blocks inside a **tool result** are rejected rather than silently
   dropped. The refusal is deliberate; the consequence is that multimodal tool
   results are not expressible.

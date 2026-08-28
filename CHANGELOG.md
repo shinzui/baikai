@@ -7,13 +7,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-This cycle ships as **baikai 0.6.0.0**, **baikai-claude 0.6.0.0**,
-**baikai-openai 0.6.0.0**, **baikai-trace-otel 0.4.0.0**, **baikai-effectful
-0.3.0.4**, **baikai-kit 0.2.0.0** and **baikai-agent 0.2.0.0**. The versions are
-already in the `.cabal` files; the release procedure dates these entries and
-splits them into per-package sections. Every removal below names the release
-that takes the name away, per
-[ADR 0016](docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md).
+## [baikai 0.6.0.0] - 2026-08-28
 
 ### Added
 
@@ -28,10 +22,6 @@ that takes the name away, per
   `exitCode`, `stdout`, `stderr`, `duration`). It exported neither them nor its
   constructor, so a consumer without generic-lens could not read a run's exit
   code at all. (REV-2 G.6.)
-
-- `baikai-trace-otel`: `OtelSinkOptions` derives `Generic`, so `#spanName`
-  resolves on it. No `Eq` or `Show`: `OpenTelemetry.Context.Context` has neither,
-  and an instance that ignored `parentContext` would be a lie. (REV-2 G.6.)
 
 - `baikai`: `Baikai.Api.normaliseApi :: Api -> Api`, which collapses a `Custom`
   tag that spells a built-in API onto that constructor. The registry applies it
@@ -82,17 +72,6 @@ that takes the name away, per
   Schema. A tool built from `emptyTool` and sent unchanged reaches the wire with
   `input_schema: null`; `mkTool` has no such shape.
 
-- `baikai-trace-otel`: `OtelSinkOptions.parentContext :: Maybe Context`, default
-  `Nothing`. When set, every span the sink opens becomes a child of the span in
-  that context instead of a root, so a call can be nested under the caller's own
-  request span. It is a value fixed when the sink is built rather than an action
-  run per call, because the fold runs on baikai's trace worker thread where the
-  caller's thread-local context is invisible: capture the context on your own
-  thread (`ctx <- getContext`, or `Context.insertSpan mySpan Context.empty`) and
-  build the sink for that request. __Breaking for positional construction__ of
-  `OtelSinkOptions`; the documented path is a record update on
-  `defaultOtelSinkOptions`. (REV-2 D.9.)
-
 - `baikai`: `Baikai.Agent.AgentOutputFormat` (`TextFormat`, `JsonFormat`) with
   `renderAgentOutputFormat` and `parseAgentOutputFormat`, and
   `AgentRunRequest.outputFormat`, defaulting to `TextFormat`. `baikai-claude`
@@ -113,17 +92,6 @@ that takes the name away, per
   mebibytes). `Baikai.Agent.ceilingViolations` is `applyAgentCeiling`'s violation
   list on its own, so a caller can concatenate it with violations of its own.
   (REV-2 F.3.)
-
-- `baikai-agent`: three operator-only `policy` keys — `policy.allowed-tools`,
-  `policy.max-timeout` (a duration or `"unlimited"`) and
-  `policy.max-output-limit` (a byte count or `"unlimited"`) — each defaulting
-  from `defaultAgentCeiling`, and all six ceiling fields now printed by
-  `agent show` and carried in its `--json` object.
-
-- `baikai-agent`: `Baikai.Agent.Config.repositoryScopeViolations`, which reads
-  the resolution report to say which values the untrusted repository file was
-  not allowed to supply at all. `Baikai.Agent.Cli` concatenates its answer with
-  the pure ceiling's, so an operator sees one refusal naming every problem.
 
 - `baikai`: `Baikai.Content.toolArgumentsFromText` and
   `Baikai.Content.isCutOffToolCall`. The first is the single rule that turns a
@@ -168,11 +136,6 @@ that takes the name away, per
   sampling parameter is recorded without refusing the call — the documented contract is
   refusing a call that would weaken the requested *thinking level*.
 
-- `baikai-claude`: `Baikai.Provider.Claude.Internal.Request` exports `planRequest`,
-  `SamplingPlan`, `uncappedMaxTokensFloor` and `normalizeToolCallId` as test seams.
-  `planThinking` and `describeThinkingFor` are now projections of `planRequest`, so the
-  strict gate, the request builder and the evidence record read one answer.
-
 - `baikai`: new exposed module `Baikai.Url` — the one place baikai turns a URL
   into a host name. `parseUrl` yields a `UrlParts` record with the scheme, host,
   port and path, plus flags saying whether userinfo, a query string or a
@@ -206,36 +169,12 @@ that takes the name away, per
   `parseRetryAfterSeconds` keeps its integer-only contract, now a deliberate
   division of labour rather than a limitation.
 
-- `baikai-openai`: `Baikai.Provider.OpenAI.Internal.ErrorClass.classifyErrorFrame`
-  and `Baikai.Provider.OpenAI.Api.parseFrame`, which sort a decoded SSE payload
-  into a classified in-band error or a completion chunk.
-
 - `baikai`: new exposed module `Baikai.Http` — `canonicalBaseUrl`,
   `getClientEnvCached` and `cachedClientEnvCount`, the process-global
   `ClientEnv` cache that both HTTP provider packages now share instead of each
   keeping its own. Core gains direct `build-depends` on `servant-client`,
   `http-client` and `http-client-tls`, which were already in its install plan
   through the `openai` SDK.
-
-- `baikai-kit`: `Baikai.Kit.Error` with the closed `KitError` sum, its
-  `Exception` instance and `renderKitError`; `Baikai.Kit.Path.safeSourcePath`,
-  which resolves an untrusted relative source below the kit checkout and refuses
-  a symbolic link in any component or a canonical path outside the checkout;
-  `Baikai.Kit.Manifest.itemSources`/`ItemSources`, the one pure derivation of an
-  item's source list, and `supportedManifestVersions`;
-  `Baikai.Kit.Sidecar.hashEntries`; `Baikai.Kit.Repo.KitRepo`/`RepoRefresh`;
-  `Baikai.Kit.Install.installFrom`, `renderAvailable` and `UpdateReport`;
-  `Baikai.Kit.Status.StatusReport`, `UpstreamAvailability` and the now-pure
-  `renderStatusTable`; `Baikai.Kit.Command.runKitCommand`. `KitState` gains
-  `KitUpstreamRefused`, rendered `refused`. (REV-2 E.5, F.10, F.11.)
-
-- `baikai-kit`: `Baikai.Kit.Install.OverwritePolicy` (`KeepLocalEdits`,
-  `OverwriteLocalEdits`), `reinstallPresent` (the network-free half of
-  `updateKit`), and `PlannedWrite`/`WriteContent`/`executePlan`/`executePlanWith`
-  as a test seam. `SidecarMeta` gains `installedFiles` and `installedHash`,
-  which record what this tool wrote for one provider and the hash of exactly
-  those bytes; `newSidecarMeta` takes both. `kit update` gains `--force`.
-  (REV-2 F.12, Theme 8.2.)
 
 - `baikai`: `Baikai.Evidence.ThinkingModeNotTranslated`, encoded as
   `"not_translated"`, and `Baikai.Evidence.untranslatedThinking`; and
@@ -329,37 +268,10 @@ that takes the name away, per
   stops cancels the producer, so no consumer is left to receive such a terminal
   either. (REV-2 B.6.)
 
-- `baikai-agent` (breaking): `AgentConfigScope`'s constructors are
-  `AgentUserScope` and `AgentRepositoryScope`. `UserScope` collided with
-  `baikai-kit`'s `KitScope` constructor of the same name, the one clash between
-  two baikai-family packages. (REV-2 G.5.)
-
 - `baikai`: dispatching a model whose `api` is still `emptyModel`'s
   `Custom ""` says so — `No provider registered for API: <blank Custom tag —
   emptyModel.api was never set>` — where the message used to end after the
   colon. `emptyModel`'s Haddock says the same thing. (REV-2 G.4.)
-
-- `baikai-claude`, `baikai-openai` (breaking): each provider's streaming
-  machinery moved from `Baikai.Provider.<P>.Api` to
-  `Baikai.Provider.<P>.Internal.Stream` — the `SseDriver` seam, `liveSseDriver`,
-  `<p>StreamWith`, `Assembler`, `emptyAssembler`, `translate`, and on the OpenAI
-  side `RawChunk`, `RawToolDelta`, `parseChunk`, `parseFrame`, `TagScanState`,
-  `scanThinkTags`, `closeOpenStream`, `RawUsage`, `parseUsage` and
-  `rawUsageToUsage`. `Api` now exports exactly `register`, the provider value
-  and the live stream function. The `.Internal` module is exposed for the test
-  suites and sibling packages and, like every `.Internal` module, may change in
-  any release without a major bump — so changing the assembler stops being a
-  documented break. `Shape`, `Sse` and `Transport` keep their names and gain the
-  same no-guarantees header. `_TagScanState` is renamed `emptyTagScanState`.
-  (REV-2 G.1.)
-
-- `baikai-effectful`: no longer depends on `streamly`. Both stanzas listed it
-  while every module imports only `Streamly.Data.Fold` and
-  `Streamly.Data.Stream`, which are `streamly-core`. (REV-2 minor.)
-
-- `baikai-trace-otel`: the `baikai.evidence.strength` span attribute is rendered
-  by `Baikai.Evidence.renderEvidenceStrength`, the function the JSON encoding
-  uses, instead of a second spelling local to the sink that could drift from it.
 
 - `baikai`: `withTrace` and `withTraceStream` wait at most one second for the
   trace sink after writing the shutdown sentinel. On expiry the worker is
@@ -418,6 +330,733 @@ that takes the name away, per
   maximum exists to refuse. Jobs resolved through `baikai-agent` are unaffected:
   that layer's own default supplies a finite limit, and only an explicit
   `output-limit "unlimited"` reaches the ceiling as `Nothing`.
+
+- `baikai`: a tool call cut off by the output cap is no longer executed.
+  `runToolLoop` stops with the response and its tool calls intact when any call
+  is cut off, and `appendToolResult` appends a `ToolResultMessage` with
+  `isError = True` explaining why instead of calling the dispatcher. Previously
+  both assemblers replaced truncated arguments with `{}` and a tool loop
+  happily ran the call with no arguments at all. (REV-2 B.2.)
+
+- `baikai`: `Baikai.Model.anthropicMessagesCompatFor` no longer overlays a
+  thinking style guessed from the model id onto a model whose `compat` is
+  `CompatNone`. `CompatNone` now means host auto-detection alone — the budget
+  thinking shape, sampling parameters supported. Every catalog model carries an
+  explicit record, so this changes nothing for them; a **hand-rolled** model
+  naming an adaptive-era id (`claude-sonnet-5`, `claude-opus-4-7`,
+  `claude-opus-4-8`, `claude-fable-5`) must now carry
+  `CompatAnthropicMessages (defaultAnthropicMessagesCompat {thinkingStyle = AnthropicThinkingAdaptive, supportsSamplingParameters = False})`
+  or start from the catalog value.
+
+- `baikai`: `Baikai.Evidence.evidenceSchemaVersion` is now
+  `baikai.model-call-evidence/1.1`. A minor bump: the two sampling adjustment kinds are a
+  compatible addition, and no previously recorded digest changes.
+
+- `baikai`: HTTP 413 classifies as `ContextOverflow` rather than `OtherError`,
+  from the status alone and whatever the body says. 413 *is* the size-limit
+  status and the caller's remedy — shrink the input — is the same either way;
+  making the category depend on body wording would recreate for 413 the
+  inconsistency this release fixes for connection resets. (REV-2 A.7.)
+
+- `baikai`, `baikai-claude`, `baikai-openai`: an HTTP-date `Retry-After` is
+  converted to seconds instead of ignored. Both transports use the response's own
+  `Date` header as the reference instant, falling back to the local clock, so a
+  CDN-fronted `429` — the common case for a date-valued `Retry-After` — now
+  carries a hint rather than leaving the caller to guess. (REV-2 A.9.)
+
+- `baikai`: **breaking.** `Baikai.Embedding.EmbeddingModel.apiKey` is now
+  `Maybe ApiKeySource` rather than `ApiKeySource`. `Nothing` means the
+  conventional environment variable for the model's host, from
+  `defaultApiKeyEnvForBaseUrl` — the same table the chat providers use — and a
+  host that table does not know refuses with an `AuthError` naming
+  `EmbeddingModel.apiKey`. Migration: `apiKey = source` becomes
+  `apiKey = Just source`. `EmbeddingModel` also derives `Eq` and `Generic`, so
+  the `#field .~ value` idiom works on it as it does on every other record.
+  (REV-2 E.3.)
+
+- `baikai`: **breaking.** `AgentRunFailure`'s `RunTimedOut` constructor now
+  carries a new record `AgentTimedOut` — the configured `limit` plus the
+  `stdout` and `stderr` a timed-out run drained before its process group was
+  killed — instead of a bare `NominalDiffTime`. A caller matching
+  `RunTimedOut limit` becomes `RunTimedOut timedOut` and reads `timedOut ^.
+  #limit`; `renderAgentRunFailure` is unchanged in what it says. The bytes were
+  always there, drained from the moment the child was spawned, and were simply
+  dropped on the timeout path — which is the run an operator most wants an
+  account of, because the tool started, may have consumed tokens, and may
+  already have changed the working tree.
+
+- `baikai`: under `EvidenceRequired`, a successful terminal that carries no
+  evidence record fails the call with `missingEvidenceError` rather than
+  returning a silent success with zero `call_evidence` lines. Strict mode
+  guaranteed that a record which was built and then lost fails the call; it did
+  not guarantee that one was built. The rule is applied at both dispatch points,
+  so `completeRequest` with no sink gets the same guarantee as a streaming call;
+  a failed call keeps the provider's own error, and best effort is unchanged.
+  See `docs/adr/0014-strict-evidence-means-a-record-exists.md`. (REV-2 D.3.)
+
+- `baikai`: a caller's thinking level is recorded on every evidence path — the
+  consumer abort, an unregistered provider, a `complete` handler that threw, and
+  each provider's `immediateError`. The abort path asks the registered adapter's
+  own `describeThinking`; the others record `not_translated`. All four used to
+  record the caller's request as `absent`, which
+  `docs/adr/0002-requested-translated-observed-are-never-collapsed.md` forbids.
+  (REV-2 D.2.)
+
+- **`baikai.model-call-evidence/2.0`.** Two digests cover different bytes, so a
+  verifier must now select its rules by `schema_version`. `response_commitment`
+  covers the provider-reported token counts and never baikai's computed cost:
+  the cost comes from the caller's catalog rates rather than from the response,
+  so the digest used to change whenever a price was edited and a verifier
+  holding only the response could not recompute it. `request_configuration`
+  summarises `output_config` and `response_format` as it already summarised
+  `tools`, because a structured-output JSON schema carries author-written
+  `description` strings and is content wherever it appears — the same schema was
+  stripped from `tools[].input_schema` and survived verbatim through the other
+  two keys. `thinking.mode` may also now be `"not_translated"`, which is a
+  compatible addition. (REV-2 D.7, D.11.)
+
+- **Breaking.** `baikai`: `Baikai.Provider.Registry.ApiProvider` gains a fifth
+  field, `strengthCeiling :: EvidenceStrength`, and
+  `Baikai.Evidence.Build.checkEvidenceRequirements` takes that ceiling where it
+  took an `Api`. The gate compared against `declaredStrength`, a table keyed by
+  the API tag, which necessarily answered `EvidenceRequestedOnly` for every
+  `Custom` transport — so a gateway that genuinely observes a model could never
+  satisfy a strict caller who required that it did. Only a provider knows what
+  its evidence reaches. `EvidenceRequestedOnly` reproduces the old behaviour for
+  any custom provider; the four built-in providers fill the field from
+  `declaredStrength`, which is unchanged in value and still used by the
+  unattended-agent surface. (REV-2 D.10, G.1.)
+
+- `baikai`, `baikai-claude`, `baikai-openai`: one strength derivation replaces
+  three. An observed **response id** now counts as correlation alongside a
+  captured request-id header, so a host that names its model and its response id
+  on every chunk but sends no header reaches `model_observed` instead of
+  `requested_only` — which had put it *below* a host that sent only a header and
+  named nothing. `anthropicStrength` and `openaiStrength` are removed;
+  `Baikai.Provider.Cli.Internal.subprocessStrength` keeps its signature and
+  delegates. (REV-2 D.10.)
+
+### Removed
+
+- `baikai` **0.6.0.0** (breaking): the sixteen `_Type` base-value aliases deprecated in
+  0.3.0.0 — `_Options`, `_Context`, `_Model`, `_ModelCost`, `_Response`,
+  `_Usage`, `_Cost`, `_CostBreakdown`, `_Tool`, `_TextContent`,
+  `_ThinkingContent`, `_ToolCall`, `_ImageContent`, `_EmbeddingModel`,
+  `_InteractiveLaunchRequest` and `_InteractiveLaunchResult`. Each has an
+  `empty…` or `zero…` replacement of the same value, named in the pragma that
+  has been on it since 0.3.0.0. The 0.3.0.0 entry said they remained "for this
+  release"; 0.4.0.0 and 0.5.0.0 shipped without removing them because no entry
+  named a version.
+  `docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md` now fixes
+  the rule: a name deprecated in `A.B.0.0` is removed in `A.(B+1).0.0`, and
+  every pragma says so. (REV-2 G.3.)
+
+- `baikai` **0.6.0.0** (breaking): `Baikai.Trace.newEventId`. It has delegated to
+  `Baikai.Evidence.newCallId` since 0.5.0.0; call that. (REV-2 G.3.)
+
+- `baikai` **0.6.0.0** (breaking): `Baikai.Compat.defaultAnthropicThinkingStyle`, deprecated
+  earlier in this cycle. Nothing in baikai consults it — the thinking style of a
+  first-party Anthropic model is a field of its generated catalog record
+  (`Baikai.Models.Generated`); start from that value, or set
+  `CompatAnthropicMessages` explicitly.
+
+- `baikai` (breaking): `AgentRunRequest.envPassthrough` is renamed `envRequires`.
+  The field is a list of variables the job declares it requires, checked as a
+  precondition; it has never passed anything through, and the KDL key has said
+  `env-requires` since the setting existed.
+
+- `baikai` (breaking): `AgentRunFailure.OutputMalformed`, and with it
+  `baikai-agent`'s exit code 70 and its `internalExitCode` export. Nothing ever
+  constructed the constructor, and giving it a producer would have been wrong:
+  the runner treats the tool's output as best-effort observation and its
+  deliverable is the changed working tree, so a run that edited files correctly
+  and then printed an unparseable final line would have been reported as a
+  failure with its exit code and output discarded. A record's `strength` and
+  `unobserved` fields already say when output could not be read. (REV-2 F.13.)
+
+### Fixed
+
+- `baikai`: the terminal event and its evidence record are pushed to the trace
+  sink exactly once under asynchronous exceptions. The terminal path pushed the
+  evidence record, pushed the terminal event and only then set the
+  already-sent flag; an exception delivered between the last two made the
+  stream finaliser read the flag as unset and push a second `CallEvidence` and
+  an `aborted` `CallFailed` after the real `CallFinished`, so a sink saw two
+  records and two contradictory terminals for one call. All three writes now
+  run inside one `uninterruptibleMask_` with the flag first. (REV-2 D.4.)
+
+- `baikai`: `Baikai.Cost.Log.closeCallLog` is idempotent. The first caller
+  claims the handle and waits for the worker; a second returns at once instead
+  of blocking forever on an `MVar` the worker had already emptied — a shape
+  `withCallLog` makes easy to reach, since its bracket closes a handle the body
+  may also have closed. An `appendEntry` after the close enqueues nothing.
+
+- `baikai`: `reassembleResponse` is total under duplicated, late and
+  timestamp-less input. The first `EventStart` wins the skeleton and
+  `responseId` merges with `<|>`, so a later `Nothing` cannot erase an id an
+  earlier event supplied; events after the first terminal are ignored, so a
+  producer that keeps talking cannot rewrite the answer; and `latencyMs` falls
+  back to the reassembler's own wall clock when neither the skeleton nor the
+  terminal carries a provider timestamp, instead of reporting a zero that reads
+  as "instant". (REV-2 B.7.)
+
+- `baikai`: an `EmbeddingModel` pointed at a non-OpenAI host no longer sends
+  `OPENAI_API_KEY` to it. The default key source was that variable whatever the
+  base URL said, so pointing the client at DeepSeek handed DeepSeek an OpenAI
+  credential. It now resolves per host, and refuses an unknown one. New
+  `resolveEmbeddingKey` and `embeddingClientEnv` expose both decisions without
+  making a request. (REV-2 E.3.)
+
+- `baikai`: `Baikai.Embedding.embed` no longer allocates a TLS manager per call.
+  It used the `openai` SDK's own `getClientEnv`, which builds a fresh manager
+  every time; it now takes one from `Baikai.Http`'s process-global cache, the
+  same one the chat providers use, so an embedding call and a chat call to one
+  host share a connection pool.
+
+- `baikai`: **a credential in a header is no longer printed.** `Options.headers`
+  and `Model.headers` went through derived `Show` and `ToJSON` instances that
+  rendered every value verbatim — while `Baikai.Options`' own documentation
+  invites callers to put a gateway's `Authorization` header there and the
+  getting-started guide tells them to `print resp`, which renders the embedded
+  `Model`. Both types now have hand-written instances that render exactly what
+  the derived ones did, except that the value of a header whose name looks
+  credential-carrying (`authorization`, `api-key`, `apikey`, `token`, `secret`,
+  `cookie`, `password`, or any name ending in `-key`, case-insensitively) prints
+  as `<redacted>`. `Baikai.Auth` exports the three pieces — `redactedMarker`,
+  `isCredentialHeader`, `redactHeaderValues` — so a caller can apply the same
+  rule to its own logging. Only the rendering changes: the field is untouched,
+  `Eq` is untouched, and the header is still sent as written. A JSON round trip
+  of a `Model` is deliberately lossy, since a serialised `Model` is exactly the
+  thing that should not carry a key. (REV-2 E.2.)
+
+- `baikai`: an API-key environment variable set to the empty string, or to
+  nothing but whitespace, now counts as **unset**. `ApiKeyEnv` fails with an
+  `AuthError` naming the variable and saying it is not set or is empty;
+  `ApiKeyEnvChain` skips it and continues, and reports every name when none
+  yields a key. Previously an empty variable resolved to an empty key, which
+  short-circuited a chain and produced `Authorization: Bearer ` and a provider
+  401 that said nothing about the cause. A key with real content is still passed
+  through untrimmed. (REV-2 E.6.)
+
+- `baikai`: **the host parse no longer lets a base URL choose which key baikai
+  sends.** `urlHost` took the text after the *last* `@` anywhere in a URL, so
+  `https://proxy.example.com/v1?u=@api.openai.com` named the host
+  `api.openai.com`: `defaultApiKeyEnvForBaseUrl` resolved `OPENAI_API_KEY`,
+  `autoDetectOpenAICompletions` returned OpenAI's own compatibility record, and
+  the bearer token went to `proxy.example.com`. Anyone who could set `baseUrl` —
+  a `Model` decoded from JSON, a proxy override — could pick which provider's
+  credential to be handed. The same defect broke the benign direction:
+  `https://api.openai.com/v1/@x` named the host `x` and resolved no key at all.
+  The authority now ends at the first `/`, `?` or `#`, and userinfo is only ever
+  the last `@` inside it. (REV-2 A.1 / E.1.)
+
+- `baikai`: `Baikai.Evidence.Build.sanitizeEndpoint` was a second, separately
+  written parser that bounded the authority at the first `/` only, so a URL with
+  a query and no path recorded the wrong host. It is now `renderEndpoint <$>
+  parseUrl`, which also means a recorded endpoint has a lower-cased scheme and
+  host; the path keeps its case and trailing slash.
+
+- `baikai`: `parseCodexJsonlStream` assembles lines in **linear time**. It
+  previously unpacked every chunk into a stream of bytes and appended them one
+  at a time with `BS.snoc`, copying the whole accumulator per byte — quadratic
+  in line length, so one codex event carrying a two-million-character message
+  cost on the order of a trillion byte moves and in practice never finished.
+  Lines are now cut out of each chunk with `BS.elemIndex` and `BS.splitAt`, and
+  the pieces of a line that spans a chunk boundary are joined once. Behaviour is
+  unchanged: a non-JSON line is still skipped, and a last line without a
+  trailing newline is still parsed.
+
+- `baikai`: a Codex custom agent's instructions body renders as a TOML
+  **literal** multi-line string (`'''`), which interprets nothing, instead of a
+  basic one (`"""`), which interprets backslash escapes. As a basic string an
+  instruction as ordinary as "match `\d+`" made Codex refuse to load the file;
+  `tomllib` rejects the old output with `Unescaped '\' in a string`. A body a
+  literal string cannot hold — one containing three apostrophes, a bare carriage
+  return, or a control character other than tab and newline — falls back to a
+  fully escaped basic string. `tomlString`, which renders `name` and
+  `description`, now escapes every control character as TOML 1.0 requires
+  instead of only the five it happened to name.
+
+- Documentation: `baikai`'s Haddock no longer describes behaviour the code left
+  behind. The trace event's token counts are `Maybe` because a non-assistant
+  terminal has no usage, not because the CLI providers report nothing — since
+  0.5.0.0 both carry what the tool reported. `EventStart`'s `partial` is a
+  message skeleton with empty content, zero usage and no stop reason; the api,
+  provider and model id live on the `Response`. A lifted stream's `EventStart`
+  carries the final usage and stop reason already filled in, because the
+  response is complete before the stream begins. `Baikai.CacheRetention` no
+  longer mentions an OpenAI Responses 24-hour bucket no code emits. System
+  prompts are documented as living on `Context.systemPrompt` rather than on a
+  `Baikai.Request` module that no longer exists, `emptyModel`'s `compat` is
+  described as auto-detection rather than a placeholder, tool dispatch says
+  calls run one at a time in order, and every reference to a plan number is
+  gone. (REV-2 H.4.)
+
+## [baikai-claude 0.6.0.0] - 2026-08-28
+
+### Added
+
+- `baikai-claude`: `Baikai.Provider.Claude.Internal.Request` exports `planRequest`,
+  `SamplingPlan`, `uncappedMaxTokensFloor` and `normalizeToolCallId` as test seams.
+  `planThinking` and `describeThinkingFor` are now projections of `planRequest`, so the
+  strict gate, the request builder and the evidence record read one answer.
+
+### Changed
+
+- `baikai-claude`, `baikai-openai` (breaking): each provider's streaming
+  machinery moved from `Baikai.Provider.<P>.Api` to
+  `Baikai.Provider.<P>.Internal.Stream` — the `SseDriver` seam, `liveSseDriver`,
+  `<p>StreamWith`, `Assembler`, `emptyAssembler`, `translate`, and on the OpenAI
+  side `RawChunk`, `RawToolDelta`, `parseChunk`, `parseFrame`, `TagScanState`,
+  `scanThinkTags`, `closeOpenStream`, `RawUsage`, `parseUsage` and
+  `rawUsageToUsage`. `Api` now exports exactly `register`, the provider value
+  and the live stream function. The `.Internal` module is exposed for the test
+  suites and sibling packages and, like every `.Internal` module, may change in
+  any release without a major bump — so changing the assembler stops being a
+  documented break. `Shape`, `Sse` and `Transport` keep their names and gain the
+  same no-guarantees header. `_TagScanState` is renamed `emptyTagScanState`.
+  (REV-2 G.1.)
+
+- `baikai-claude`, `baikai-openai`: a consumer that stops reading now stops the
+  provider. Both packages fork their SSE worker under `Stream.bracketIO` and
+  hand frames through the bounded `FrameQueue` above instead of an unbounded
+  `Chan`. A consumer that cancels — `Ctrl-C`, `System.Timeout.timeout`,
+  `cancel` — releases the HTTP connection immediately; a consumer that abandons
+  the stream (`Stream.take 3`) stops the socket read within 64 further frames
+  and releases the connection at the next major garbage collection. Previously
+  the worker read the entire generation into memory for a consumer that would
+  never look at it, and the provider billed all of it. The three cleanup
+  strengths are stated in
+  [docs/adr/0010](docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md)
+  and in caller terms in `docs/user/streaming.md`.
+
+- `baikai-claude`: `anthropic_claude_sonnet_4_6` now sends the adaptive
+  thinking shape rather than `budget_tokens`. The budget shape is deprecated
+  for that generation; baikai sends the shape Anthropic documents as current.
+
+- `baikai-claude`, `baikai-openai`: **behaviour change.** `Options.timeoutMs` of
+  `Just n` with `n <= 0` is refused as `InvalidRequest` before the action runs, so
+  no connection is opened. `System.Timeout.timeout` returns immediately at zero
+  and runs unbounded below it, and the previous `max 0` clamp made both spellings
+  fail instantly as a *retryable* `TransientError` — a classification a caller's
+  retry loop re-issues forever for what is a configuration mistake. `Nothing`
+  remains the only spelling of "no bound". (REV-2 A.10.)
+
+- `baikai-claude`, `baikai-openai`: an evidence record's `endpoint` names the
+  host the call actually went to. Both adapters substitute a vendor default for
+  an empty `Model.baseUrl` inside `prepareCall`, so a call with a perfectly
+  definite destination recorded `endpoint: null`. Where no adapter ran, `null`
+  remains the truthful answer. (REV-2 D.8.)
+
+- `baikai-claude`: the `claude` dependency moves from `^>=1.4` to `^>=1.5`.
+  1.5.0 adds a `Pause_Turn` constructor to `Claude.V1.Messages.StopReason`, and
+  `mapStopReason` matches that type with no wildcard under
+  `-Werror=incomplete-patterns`, so the bump forced a decision. A paused turn
+  maps to `Stop`: Anthropic suspends the turn mid-flight for a long-running
+  server-side tool and expects the caller to send the message back to continue
+  it, so nothing failed, and `Baikai.StopReason` has no constructor that says
+  "resume me". Widening that public sum is a breaking change for every consumer
+  who matches on it exhaustively, and it is not this bump's to make. The general
+  rule is
+  [ADR 0018](docs/adr/0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md):
+  a provider stop reason with no baikai equivalent maps to the constructor that
+  is truthful about whether the call failed, and the sum widens only when baikai
+  would behave differently for it.
+
+- `baikai-claude`: `Messages.StreamUsage` lost its `Generic` instance in `claude`
+  1.5.0, so the `message_delta` usage is read through `OverloadedRecordDot`
+  rather than a generic-lens label. `Messages.max_tokens` and
+  `Messages.output_config` became ambiguous selectors — `Messages.Fallback`
+  carries both names — so the provider's tests read them through `^. #max_tokens`
+  and `^. #output_config` instead.
+
+### Removed
+
+- `baikai-claude`, `baikai-openai` **0.6.0.0** (breaking): the eight registration shims —
+  `registerWith`, `registerWithRegistry` and `registerWithRegistryAndConfig` in
+  both `Cli` modules, and `registerWithRegistry` in both `Api` modules. Register
+  the exported provider value instead:
+  `registerApiProvider (claudeCliProvider cfg)`,
+  `registerApiProviderWith reg (codexCliProvider cfg)`,
+  `registerApiProviderWith reg claudeMessagesProvider`. The batch-mode note that
+  had accumulated on `registerWith` — why `complete` stays on the direct path
+  rather than going through `streamingComplete` — moves to the provider value it
+  describes. (REV-2 G.3.)
+
+- `baikai-claude`, `baikai-openai`: `responseToError` and `classifyErrorText`
+  (and its private `classifySdkHttpText` half) from both
+  `.Internal.ErrorClass` modules. Neither package runs a `servant-client` client
+  on the chat path any more, so the `ClientError` branch was unreachable, and the
+  text classifiers parsed a string shape the local SSE transports stopped
+  producing in July. The phrase table `classifyErrorText` held survives as the
+  message fallback inside `classifyErrorFrame`, pinned through the entry point the
+  runtime actually uses. Both modules are documented as outside the PVP-stable
+  surface, so this is not a major bump; version bumps are recorded once, later.
+
+- **Breaking.** `baikai-claude`: `Baikai.Provider.Claude.Api.anthropicStrength`
+  and `baikai-openai`: `Baikai.Provider.OpenAI.Api.openaiStrength`, both replaced
+  by `Baikai.Evidence.deriveStrength`.
+
+### Fixed
+
+- `baikai-claude`, `baikai-openai`: a failure that lands while the response body
+  is streaming is classified as the transient failure it is. A connection reset,
+  a server closing the socket mid-chunk, a body shorter than its declared length
+  and a TLS session torn down after the handshake all now terminate the stream
+  with `TransientError` and `isRetryable = True`, carrying whatever text had
+  already been drained. Every one of them used to be `OtherError` with
+  `isRetryable = False`, while the identical failure at connect time was
+  transient — because `http-client` wraps the connect phase with the manager's
+  exception wrapper and the body reader with nothing that converts a socket
+  `IOException` or a `TLSException`, so those reached the worker raw and missed
+  the `HttpException` branch entirely. (REV-2 A.2.)
+
+- `baikai-claude`, `baikai-openai`: a transport failure mid-stream now closes
+  the blocks that were open when it arrived, on both providers, so a consumer
+  reading raw events and a consumer reassembling them see the same partial
+  output. Both providers built their terminal from the closed blocks alone and
+  silently dropped open text, thinking and tool arguments. On the Claude side
+  this covers `translate (Left …)`, the in-band `error` frame, and the
+  unexpected end of stream. (REV-2 B.3.)
+
+- `baikai-claude`: an SSE frame whose event `type` — or whose
+  `content_block_delta` `delta.type` — the SDK has no constructor for is now
+  skipped instead of ending the stream with a decode error. The SDK decodes both
+  with no unknown-tag fallback, so a new frame type from Anthropic used to be a
+  terminal fault. A frame of a *known* type that still fails to decode remains
+  one. `Baikai.Provider.Claude.Sse` exports the new `decodeFrame`. (REV-2 B.5.)
+
+- `baikai-claude`, `baikai-openai`: an empty `data:` heartbeat is ignored, and
+  on the OpenAI side `[DONE]` is compared after trailing whitespace is trimmed,
+  so `data: [DONE] ` and `data: [DONE]\r` end the stream rather than failing to
+  decode. (REV-2 A.8.)
+
+- `baikai-claude`: every failing stream now begins with `EventStart`. The
+  producer pre-seeds the start event before the first wire read, exactly as the
+  OpenAI producer already did, and `message_start` updates the assembler without
+  emitting a second one. Previously a 401, a rate limit, an in-band `error`
+  frame or an EOF arriving before `message_start` produced a lone `EventError`,
+  breaking the protocol `Baikai.Stream.Event` documents. `StartPayload.responseId`
+  is consequently `Nothing` on both HTTP providers; the provider's message id
+  rides `TerminalPayload.responseId`, which `reassembleResponse` already prefers.
+  (REV-2 A.4, REV-1 Theme 1.1.)
+
+- `baikai-claude`, `baikai-openai`: an asynchronous exception delivered to the
+  stream worker can no longer strand its consumer. End-of-frames is a flag set
+  by the worker fork's own `finally` rather than a sentinel value pushed onto
+  the channel, so a worker that dies without running its normal exit path still
+  ends the stream in an `EventError`. Previously the consumer blocked until the
+  runtime's deadlock detector noticed.
+
+- `baikai-smoke`: two keyed cases against `claude-sonnet-5` — one asking for
+  thinking (which is a 400 before this release) and one setting `temperature` — plus
+  `deepseek-chat` and `openrouter/openai/gpt-4o-mini` in `apiCases`, so the tool and
+  structured-output smokes run against a compatible host that is not OpenAI.
+  `CompatSmoke` now asserts DeepSeek honoured the output cap rather than only that it
+  answered, and `CacheSmoke` asserts the cached token classes cost something.
+
+- `baikai-claude`: a thinking request on `claude-sonnet-5` no longer 400s. It sends
+  `"thinking":{"type":"adaptive"}` and no `budget_tokens`, because the shape is read off
+  the model's catalog record rather than guessed from its id. (REV-2 C.1.)
+
+- `baikai-claude`: `temperature` and `top_p` are no longer sent to a model generation that
+  rejects them with a 400. They are omitted and the omission is recorded as
+  `sampling_dropped_unsupported_model` in the call's evidence. `seed`, `frequencyPenalty`
+  and `presencePenalty`, which the Anthropic Messages API has no field for on any
+  generation, are recorded as `sampling_dropped_unsupported_api`. (REV-2 C.1, C.5.)
+
+- `baikai-claude`: a model whose `maxOutputTokens` is `0` no longer sends
+  `"max_tokens":0`, which Anthropic rejects — and, with thinking set, no longer had its
+  whole thinking plan discarded for not fitting inside a ceiling of zero. It sends
+  `uncappedMaxTokensFloor` (1024, the SDK's own default) instead. An explicit
+  `maxTokens = Just 0` is still forwarded as written. (REV-2 C.2.)
+
+- `baikai-claude`: replay no longer sends an empty text block or an empty `content` array,
+  both of which Anthropic rejects. An empty text block is dropped; an assistant turn left
+  with nothing is dropped whole (it is baikai's own artifact — a block that closed with no
+  deltas, or only unsigned thinking, which replay already omits); a user turn left with
+  nothing is refused locally with a message naming the turn. (REV-2 C.3.)
+
+- `baikai-claude`: tool-call ids that differ only in characters the alphabet forbids, or
+  only past character 64, no longer normalise onto the same id and misroute a tool result.
+  A conforming id passes through unchanged — every id Anthropic and OpenAI actually mint
+  does — and any other is truncated to 51 characters and suffixed with twelve hex
+  characters of its SHA-256. Two `tool_use` blocks in one turn that still collide are
+  refused rather than sent. (REV-2 C.7.)
+
+- Documentation: `baikai-claude`'s and `baikai-openai`'s Haddock point at the
+  functions that exist. `Baikai.Compat` named
+  `Baikai.Provider.OpenAI.Api.mkOpenAIResponseFormat`,
+  `…Api.applyThinkingFormat` and `…Api.translateTextLikeDelta`; the first two
+  moved to `…Internal.Request` and the third is
+  `…Internal.Stream.scanThinkTags`. `ThinkingFormat`'s note said the six
+  non-native shapes all clamp through `compatibleEffort`; three do, Z.ai and
+  Qwen send a bare toggle, and `ThinkingFormatNone` drops the control.
+  `immediateError` carried two `-- |` headers where one was intended.
+  (REV-2 H.4.)
+
+- `baikai-claude`: an Anthropic call reports its thinking tokens. `Usage.reasoningTokens`
+  was hard-coded to `Nothing` on this provider because `claude` 1.4.0's
+  `Messages.Usage` had no breakdown to read; 1.5.0 adds
+  `output_tokens_details.thinking_tokens`, and both `message_start` and
+  `message_delta` now fill the field from it. `reasoningTokens` is an
+  informational subset of `outputTokens`, so no total and no cost moves.
+
+- `baikai-claude`: the prompt-side token counts survive a server-side tool run.
+  The final `message_delta` used to contribute only `output_tokens`, and
+  `inputTokens`, `cacheReadTokens` and `cacheWriteTokens` kept whatever
+  `message_start` had reported — which is wrong for a call whose prompt grew
+  mid-stream. `claude` 1.5.0 exposes those three on `Messages.StreamUsage`, and
+  each is now taken when present. An absent field still keeps the
+  `message_start` figure rather than zeroing it, so a model that sends only
+  `output_tokens` is accounted for exactly as before.
+
+## [baikai-openai 0.6.0.0] - 2026-08-28
+
+### Added
+
+- `baikai-openai`: `Baikai.Provider.OpenAI.Internal.ErrorClass.classifyErrorFrame`
+  and `Baikai.Provider.OpenAI.Api.parseFrame`, which sort a decoded SSE payload
+  into a classified in-band error or a completion chunk.
+
+### Changed
+
+- `baikai-openai`: **breaking.** `Baikai.Provider.OpenAI.Shape`'s
+  `injectThinkingShape`, `describeThinkingShape`, `shapeRequestBody` and
+  `streamRequestBody` take a `Bool` after the compat record — whether the model
+  advertises reasoning support (`Model.reasoning`). A level on a `reasoning = False`
+  model now sends no `reasoning_effort`, `reasoning`, `thinking` or `enable_thinking`
+  key on any host, and records `thinking_dropped_unsupported_model` instead. The model
+  check runs before the host-format check. This is what stops `gpt-4o-mini` plus a
+  level from 400ing. (REV-2 C.4.)
+
+### Fixed
+
+- `baikai-openai`: an in-band `{"error": …}` frame on a `2xx` stream terminates
+  the call with the frame's own classification, status and message. Compatible
+  hosts (OpenRouter, DeepSeek, Together) report an upstream failure they only
+  learned about after committing to a `200` this way, and `parseChunk` never
+  looked at `error`. The pre-fix behaviour was worse than a bad category:
+  OpenRouter's frame carries `choices[0].finish_reason = "error"`, which mapped
+  to `Stop`, so the call ended as `EventDone` with `errorInfo = Nothing` — a
+  consumer switching on the terminal saw a *completed* call. A frame with no
+  `choices` beside the error ended as
+  `OtherError "openai stream ended without finish_reason"`. (REV-2 A.3.)
+
+- `baikai-openai`: reasoning that arrives after visible text closes the open
+  text block before opening the thinking block, so at most one of the two is
+  open at a time, every `_End` precedes the next `_Start`, and no `contentIndex`
+  is revisited after a later one. (REV-2 B.4.)
+
+- `baikai-openai`, `baikai-claude`: **a provider POST no longer follows
+  redirects.** `http-client`'s default is to follow up to ten with every header
+  intact, so a 3xx would have re-sent the bearer token (or `x-api-key`) to
+  whatever host the `Location` header named. `redirectCount` is now zero and the
+  3xx is delivered as the one in-band terminal error carrying its status. Each
+  transport's request builder is exported as `buildRequest`, so the method, the
+  composed path and the redirect policy are assertable without a connection.
+  (REV-2 A.5 / E.4.)
+
+- `baikai-openai`, `baikai-claude`, `baikai`: **the base-URL convention is
+  stated and enforced.** `Model.baseUrl` and `EmbeddingModel.baseUrl` are the
+  API *root* — the host, or the prefix a host mounts the API under — because
+  baikai appends `/v1/chat/completions`, `/v1/messages` or `/v1/embeddings`
+  itself. A trailing `/v1` is accepted and removed rather than doubled, so
+  `https://api.deepseek.com/v1` now requests `/v1/chat/completions` instead of
+  `/v1/v1/chat/completions`. A base URL with no scheme, a scheme other than
+  `http`/`https`, credentials, a query string, a fragment, or a path that is
+  already an endpoint is refused as an `InvalidRequest` naming the problem —
+  and refused *before* a key is read, so an unusable base URL never causes a
+  credential to be looked up. The message renders the URL without its userinfo
+  or query, so it is safe to log. `docs/user/models-and-providers.md` gains a
+  **Base URLs** section stating all of it. (REV-2 A.6.)
+
+- `baikai-openai`, `baikai-claude`: the `ClientEnv` cache was duplicated in each
+  package and keyed on the raw base-URL text, so `https://h` and `https://h/`
+  were two TLS managers and two connection pools to one host. There is now one
+  cache, in `Baikai.Http`, keyed on the canonical rendering of the parsed base
+  URL. `Transport.getClientEnvCached` and `Transport.cachedClientEnvCount` are
+  re-exports of the core functions and keep their signatures.
+
+- `baikai-openai`: the Codex interactive launcher now **refuses the two approval
+  policies the installed CLI rejects**. `codex --help` at `codex-cli 0.149.1`
+  lists exactly `on-request` and `never` for `--ask-for-approval`;
+  `CodexApprovalUntrusted` and `CodexApprovalOnFailure` are older spellings the
+  CLI answers with `error: invalid value 'untrusted' for
+  '--ask-for-approval'`. Rendering them made a launch return `Right` carrying a
+  non-zero exit code — a session that ran and failed — instead of the `Left
+  SafetyNotExpressible` this module promises for a policy that cannot be
+  honoured. They are refused before any process is created, and refused rather
+  than quietly mapped onto `on-request`, because substituting a different
+  approval policy would change what the caller asked for. The constructors and
+  their spellings are unchanged, so code that matches on `CodexApprovalPolicy`
+  keeps compiling.
+
+## [baikai-trace-otel 0.4.0.0] - 2026-08-28
+
+### Added
+
+- `baikai-trace-otel`: `OtelSinkOptions` derives `Generic`, so `#spanName`
+  resolves on it. No `Eq` or `Show`: `OpenTelemetry.Context.Context` has neither,
+  and an instance that ignored `parentContext` would be a lie. (REV-2 G.6.)
+
+- `baikai-trace-otel`: `OtelSinkOptions.parentContext :: Maybe Context`, default
+  `Nothing`. When set, every span the sink opens becomes a child of the span in
+  that context instead of a root, so a call can be nested under the caller's own
+  request span. It is a value fixed when the sink is built rather than an action
+  run per call, because the fold runs on baikai's trace worker thread where the
+  caller's thread-local context is invisible: capture the context on your own
+  thread (`ctx <- getContext`, or `Context.insertSpan mySpan Context.empty`) and
+  build the sink for that request. __Breaking for positional construction__ of
+  `OtelSinkOptions`; the documented path is a record update on
+  `defaultOtelSinkOptions`. (REV-2 D.9.)
+
+### Changed
+
+- `baikai-trace-otel`: the `baikai.evidence.strength` span attribute is rendered
+  by `Baikai.Evidence.renderEvidenceStrength`, the function the JSON encoding
+  uses, instead of a second spelling local to the sink that could drift from it.
+
+- `baikai-trace-otel`: `gen_ai.response.model` is set only by the evidence
+  branch, from the model the provider reported. The terminal branch set it from
+  the *requested* id, and since evidence is pushed before the terminal and
+  `addAttributes` replaces a key, that both labelled a request as an observation
+  on every call without evidence and overwrote the genuinely observed value on
+  every call with one. (REV-2 D.1.)
+
+## [baikai-effectful 0.4.0.0] - 2026-08-28
+
+### Changed
+
+- `baikai-effectful` (breaking): the version is a **major** bump although this
+  package's own exports are unchanged. Its `baikai` bound moves to `^>=0.6.0`,
+  and the `Baikai` effect's three operations are typed in `Model`, `Context`,
+  `Options` and `Response` — every one of which baikai 0.6.0.0 changes
+  breakingly. A consumer therefore meets a break through this package even
+  though nothing in it was renamed, so the number says so rather than making
+  `0.3.0.4` look like a safe upgrade.
+
+- `baikai-effectful`: no longer depends on `streamly`. Both stanzas listed it
+  while every module imports only `Streamly.Data.Fold` and
+  `Streamly.Data.Stream`, which are `streamly-core`. (REV-2 minor.)
+
+## [baikai-kit 0.2.0.0] - 2026-08-28
+
+### Added
+
+- `baikai-kit`: `Baikai.Kit.Error` with the closed `KitError` sum, its
+  `Exception` instance and `renderKitError`; `Baikai.Kit.Path.safeSourcePath`,
+  which resolves an untrusted relative source below the kit checkout and refuses
+  a symbolic link in any component or a canonical path outside the checkout;
+  `Baikai.Kit.Manifest.itemSources`/`ItemSources`, the one pure derivation of an
+  item's source list, and `supportedManifestVersions`;
+  `Baikai.Kit.Sidecar.hashEntries`; `Baikai.Kit.Repo.KitRepo`/`RepoRefresh`;
+  `Baikai.Kit.Install.installFrom`, `renderAvailable` and `UpdateReport`;
+  `Baikai.Kit.Status.StatusReport`, `UpstreamAvailability` and the now-pure
+  `renderStatusTable`; `Baikai.Kit.Command.runKitCommand`. `KitState` gains
+  `KitUpstreamRefused`, rendered `refused`. (REV-2 E.5, F.10, F.11.)
+
+- `baikai-kit`: `Baikai.Kit.Install.OverwritePolicy` (`KeepLocalEdits`,
+  `OverwriteLocalEdits`), `reinstallPresent` (the network-free half of
+  `updateKit`), and `PlannedWrite`/`WriteContent`/`executePlan`/`executePlanWith`
+  as a test seam. `SidecarMeta` gains `installedFiles` and `installedHash`,
+  which record what this tool wrote for one provider and the hash of exactly
+  those bytes; `newSidecarMeta` takes both. `kit update` gains `--force`.
+  (REV-2 F.12, Theme 8.2.)
+
+### Changed
+
+- **Breaking.** `baikai-kit`: every library function returns
+  `Either KitError a` and prints nothing; only
+  `Baikai.Kit.Command.runKit` prints `Error: …` and exits 1. `loadManifest`,
+  `loadManifestMaybe`, `installItem`, `listAvailable`, `uninstallItem`,
+  `updateKit` and `ensureKitRepo` change shape accordingly, `computeKitHash`
+  takes the kit root, a base and relative file names, `kitStatus` returns a
+  `StatusReport` instead of printing, and `KitUpdate`'s report is rendered by
+  the caller. See `docs/adr/0013-library-code-never-calls-exitfailure.md`. A
+  consumer that only calls `runKit` and `kitCommandParser` needs no change; one
+  that calls the library directly binds `Right`. (REV-2 F.11.)
+
+- `baikai-kit`: a kit is plain files. Install, the content hash and `kit status`
+  resolve every listed source through `safeSourcePath`, so a kit repository that
+  commits a symbolic link can no longer have a file read through it and copied
+  into a provider directory. `kit status` shows such an item as `refused`.
+  (REV-2 E.5 = F.10.)
+
+- `baikai-kit`: a manifest whose `version` is not 1 or 2 is refused with
+  `KitManifestVersionUnsupported` instead of being decoded and installed.
+  (REV-2 F.12.)
+
+- `baikai-kit`: an agent that lists several `files` installs all of them. The
+  first becomes the provider's agent file as before, and each remaining file
+  goes into a resource directory named after the agent beside it
+  (`<agents dir>/<name>/<file>`), which uninstall removes with the agent. Only
+  the first file used to be installed. (REV-2 F.12.)
+
+- `baikai-kit`: `kit update` skips an item whose installed files no longer hash
+  to what its sidecar recorded, printing the `--force` invocation that would
+  overwrite them; `kit update --force` reinstalls anyway. Sidecars written
+  before this release carry no such hash and are updated without the check.
+  (REV-2 Theme 8.2.)
+
+### Removed
+
+- **Breaking.** `baikai-kit`: `Baikai.Kit.Path.safeUnder` (exported and unused),
+  `Baikai.Kit.Manifest.agentSources` (replaced by `itemSources`) and
+  `Baikai.Kit.Install.uninstallOutcomes` (absorbed by `uninstallItem`, which now
+  returns the outcomes for the caller to render). The internal `requireSafe` and
+  `Baikai.Kit.Status.resolveCacheOrEmpty` are gone with the exits they wrapped.
+
+### Fixed
+
+- `baikai-kit`: `kit status` with no cache and no network prints
+  `No kit items installed.` and exits 0. It used to exit 1: the guard around
+  `ensureKitRepo` caught `IOException`, which is not what `exitFailure` throws.
+  (REV-2 F.11.)
+
+- `baikai-kit`: `Baikai.Kit.Status.upstreamHash` joined the manifest `path`
+  without validating it, a second unsanitised join that grew after the July
+  hardening pass validated the first. Both now go through `itemSources` and
+  `safeSourcePath`. (REV-2 Theme 8.1.)
+
+- `baikai-kit`: an install that fails while renaming files into place now
+  restores what was there before, or names the paths it could not restore.
+  Phase two was a bare loop of renames, so a failure part-way left earlier
+  renames in place while the message said "no changes were made". Temporary
+  files are also created with `openTempFile`, so two concurrent installs of one
+  item no longer clobber each other's staging file, and a destination that is a
+  directory is refused before anything is written. (REV-2 F.12.)
+
+- `baikai-kit`: `Baikai.Kit.Install.stripYamlFrontmatter` normalises line
+  endings to LF on every branch. Input without frontmatter, and input whose
+  frontmatter is never closed, used to keep their `\r` characters and leak them
+  into the Codex agent TOML. (REV-2 Theme 8.7.)
+
+- `baikai-kit`: an `IOException` raised while reinstalling during `kit update`
+  is returned as `KitWriteFailed` instead of escaping as an uncaught exception.
+  (REV-2 Theme 8.4.)
+
+## [baikai-agent 0.2.0.0] - 2026-08-28
+
+### Added
+
+- `baikai-agent`: three operator-only `policy` keys — `policy.allowed-tools`,
+  `policy.max-timeout` (a duration or `"unlimited"`) and
+  `policy.max-output-limit` (a byte count or `"unlimited"`) — each defaulting
+  from `defaultAgentCeiling`, and all six ceiling fields now printed by
+  `agent show` and carried in its `--json` object.
+
+- `baikai-agent`: `Baikai.Agent.Config.repositoryScopeViolations`, which reads
+  the resolution report to say which values the untrusted repository file was
+  not allowed to supply at all. `Baikai.Agent.Cli` concatenates its answer with
+  the pure ceiling's, so an operator sees one refusal naming every problem.
+
+### Changed
+
+- `baikai-agent` (breaking): `AgentConfigScope`'s constructors are
+  `AgentUserScope` and `AgentRepositoryScope`. `UserScope` collided with
+  `baikai-kit`'s `KitScope` constructor of the same name, the one clash between
+  two baikai-family packages. (REV-2 G.5.)
 
 - `baikai-agent` (breaking): a relative `working-dir` resolves against the
   repository root rather than the process's own directory, so `working-dir "."`
@@ -502,262 +1141,7 @@ that takes the name away, per
   already give, so the only ones a checkout would ask for are outside it.
   (REV-2 F.3.)
 
-- `baikai`: a tool call cut off by the output cap is no longer executed.
-  `runToolLoop` stops with the response and its tool calls intact when any call
-  is cut off, and `appendToolResult` appends a `ToolResultMessage` with
-  `isError = True` explaining why instead of calling the dispatcher. Previously
-  both assemblers replaced truncated arguments with `{}` and a tool loop
-  happily ran the call with no arguments at all. (REV-2 B.2.)
-
-- `baikai-claude`, `baikai-openai`: a consumer that stops reading now stops the
-  provider. Both packages fork their SSE worker under `Stream.bracketIO` and
-  hand frames through the bounded `FrameQueue` above instead of an unbounded
-  `Chan`. A consumer that cancels — `Ctrl-C`, `System.Timeout.timeout`,
-  `cancel` — releases the HTTP connection immediately; a consumer that abandons
-  the stream (`Stream.take 3`) stops the socket read within 64 further frames
-  and releases the connection at the next major garbage collection. Previously
-  the worker read the entire generation into memory for a consumer that would
-  never look at it, and the provider billed all of it. The three cleanup
-  strengths are stated in
-  [docs/adr/0010](docs/adr/0010-a-stream-consumer-that-stops-owns-cancelling-the-producer.md)
-  and in caller terms in `docs/user/streaming.md`.
-
-- `baikai`: `Baikai.Model.anthropicMessagesCompatFor` no longer overlays a
-  thinking style guessed from the model id onto a model whose `compat` is
-  `CompatNone`. `CompatNone` now means host auto-detection alone — the budget
-  thinking shape, sampling parameters supported. Every catalog model carries an
-  explicit record, so this changes nothing for them; a **hand-rolled** model
-  naming an adaptive-era id (`claude-sonnet-5`, `claude-opus-4-7`,
-  `claude-opus-4-8`, `claude-fable-5`) must now carry
-  `CompatAnthropicMessages (defaultAnthropicMessagesCompat {thinkingStyle = AnthropicThinkingAdaptive, supportsSamplingParameters = False})`
-  or start from the catalog value.
-
-- `baikai-openai`: **breaking.** `Baikai.Provider.OpenAI.Shape`'s
-  `injectThinkingShape`, `describeThinkingShape`, `shapeRequestBody` and
-  `streamRequestBody` take a `Bool` after the compat record — whether the model
-  advertises reasoning support (`Model.reasoning`). A level on a `reasoning = False`
-  model now sends no `reasoning_effort`, `reasoning`, `thinking` or `enable_thinking`
-  key on any host, and records `thinking_dropped_unsupported_model` instead. The model
-  check runs before the host-format check. This is what stops `gpt-4o-mini` plus a
-  level from 400ing. (REV-2 C.4.)
-
-- `baikai-claude`: `anthropic_claude_sonnet_4_6` now sends the adaptive
-  thinking shape rather than `budget_tokens`. The budget shape is deprecated
-  for that generation; baikai sends the shape Anthropic documents as current.
-
-- `baikai`: `Baikai.Evidence.evidenceSchemaVersion` is now
-  `baikai.model-call-evidence/1.1`. A minor bump: the two sampling adjustment kinds are a
-  compatible addition, and no previously recorded digest changes.
-
-
-- `baikai`: HTTP 413 classifies as `ContextOverflow` rather than `OtherError`,
-  from the status alone and whatever the body says. 413 *is* the size-limit
-  status and the caller's remedy — shrink the input — is the same either way;
-  making the category depend on body wording would recreate for 413 the
-  inconsistency this release fixes for connection resets. (REV-2 A.7.)
-
-- `baikai`, `baikai-claude`, `baikai-openai`: an HTTP-date `Retry-After` is
-  converted to seconds instead of ignored. Both transports use the response's own
-  `Date` header as the reference instant, falling back to the local clock, so a
-  CDN-fronted `429` — the common case for a date-valued `Retry-After` — now
-  carries a hint rather than leaving the caller to guess. (REV-2 A.9.)
-
-- `baikai-claude`, `baikai-openai`: **behaviour change.** `Options.timeoutMs` of
-  `Just n` with `n <= 0` is refused as `InvalidRequest` before the action runs, so
-  no connection is opened. `System.Timeout.timeout` returns immediately at zero
-  and runs unbounded below it, and the previous `max 0` clamp made both spellings
-  fail instantly as a *retryable* `TransientError` — a classification a caller's
-  retry loop re-issues forever for what is a configuration mistake. `Nothing`
-  remains the only spelling of "no bound". (REV-2 A.10.)
-
-- `baikai`: **breaking.** `Baikai.Embedding.EmbeddingModel.apiKey` is now
-  `Maybe ApiKeySource` rather than `ApiKeySource`. `Nothing` means the
-  conventional environment variable for the model's host, from
-  `defaultApiKeyEnvForBaseUrl` — the same table the chat providers use — and a
-  host that table does not know refuses with an `AuthError` naming
-  `EmbeddingModel.apiKey`. Migration: `apiKey = source` becomes
-  `apiKey = Just source`. `EmbeddingModel` also derives `Eq` and `Generic`, so
-  the `#field .~ value` idiom works on it as it does on every other record.
-  (REV-2 E.3.)
-
-- `baikai`: **breaking.** `AgentRunFailure`'s `RunTimedOut` constructor now
-  carries a new record `AgentTimedOut` — the configured `limit` plus the
-  `stdout` and `stderr` a timed-out run drained before its process group was
-  killed — instead of a bare `NominalDiffTime`. A caller matching
-  `RunTimedOut limit` becomes `RunTimedOut timedOut` and reads `timedOut ^.
-  #limit`; `renderAgentRunFailure` is unchanged in what it says. The bytes were
-  always there, drained from the moment the child was spawned, and were simply
-  dropped on the timeout path — which is the run an operator most wants an
-  account of, because the tool started, may have consumed tokens, and may
-  already have changed the working tree.
-
-- **Breaking.** `baikai-kit`: every library function returns
-  `Either KitError a` and prints nothing; only
-  `Baikai.Kit.Command.runKit` prints `Error: …` and exits 1. `loadManifest`,
-  `loadManifestMaybe`, `installItem`, `listAvailable`, `uninstallItem`,
-  `updateKit` and `ensureKitRepo` change shape accordingly, `computeKitHash`
-  takes the kit root, a base and relative file names, `kitStatus` returns a
-  `StatusReport` instead of printing, and `KitUpdate`'s report is rendered by
-  the caller. See `docs/adr/0013-library-code-never-calls-exitfailure.md`. A
-  consumer that only calls `runKit` and `kitCommandParser` needs no change; one
-  that calls the library directly binds `Right`. (REV-2 F.11.)
-
-- `baikai-kit`: a kit is plain files. Install, the content hash and `kit status`
-  resolve every listed source through `safeSourcePath`, so a kit repository that
-  commits a symbolic link can no longer have a file read through it and copied
-  into a provider directory. `kit status` shows such an item as `refused`.
-  (REV-2 E.5 = F.10.)
-
-- `baikai-kit`: a manifest whose `version` is not 1 or 2 is refused with
-  `KitManifestVersionUnsupported` instead of being decoded and installed.
-  (REV-2 F.12.)
-
-- `baikai-kit`: an agent that lists several `files` installs all of them. The
-  first becomes the provider's agent file as before, and each remaining file
-  goes into a resource directory named after the agent beside it
-  (`<agents dir>/<name>/<file>`), which uninstall removes with the agent. Only
-  the first file used to be installed. (REV-2 F.12.)
-
-- `baikai-kit`: `kit update` skips an item whose installed files no longer hash
-  to what its sidecar recorded, printing the `--force` invocation that would
-  overwrite them; `kit update --force` reinstalls anyway. Sidecars written
-  before this release carry no such hash and are updated without the check.
-  (REV-2 Theme 8.2.)
-
-- `baikai`: under `EvidenceRequired`, a successful terminal that carries no
-  evidence record fails the call with `missingEvidenceError` rather than
-  returning a silent success with zero `call_evidence` lines. Strict mode
-  guaranteed that a record which was built and then lost fails the call; it did
-  not guarantee that one was built. The rule is applied at both dispatch points,
-  so `completeRequest` with no sink gets the same guarantee as a streaming call;
-  a failed call keeps the provider's own error, and best effort is unchanged.
-  See `docs/adr/0014-strict-evidence-means-a-record-exists.md`. (REV-2 D.3.)
-
-- `baikai`: a caller's thinking level is recorded on every evidence path — the
-  consumer abort, an unregistered provider, a `complete` handler that threw, and
-  each provider's `immediateError`. The abort path asks the registered adapter's
-  own `describeThinking`; the others record `not_translated`. All four used to
-  record the caller's request as `absent`, which
-  `docs/adr/0002-requested-translated-observed-are-never-collapsed.md` forbids.
-  (REV-2 D.2.)
-
-- **`baikai.model-call-evidence/2.0`.** Two digests cover different bytes, so a
-  verifier must now select its rules by `schema_version`. `response_commitment`
-  covers the provider-reported token counts and never baikai's computed cost:
-  the cost comes from the caller's catalog rates rather than from the response,
-  so the digest used to change whenever a price was edited and a verifier
-  holding only the response could not recompute it. `request_configuration`
-  summarises `output_config` and `response_format` as it already summarised
-  `tools`, because a structured-output JSON schema carries author-written
-  `description` strings and is content wherever it appears — the same schema was
-  stripped from `tools[].input_schema` and survived verbatim through the other
-  two keys. `thinking.mode` may also now be `"not_translated"`, which is a
-  compatible addition. (REV-2 D.7, D.11.)
-
-- `baikai-trace-otel`: `gen_ai.response.model` is set only by the evidence
-  branch, from the model the provider reported. The terminal branch set it from
-  the *requested* id, and since evidence is pushed before the terminal and
-  `addAttributes` replaces a key, that both labelled a request as an observation
-  on every call without evidence and overwrote the genuinely observed value on
-  every call with one. (REV-2 D.1.)
-
-- `baikai-claude`, `baikai-openai`: an evidence record's `endpoint` names the
-  host the call actually went to. Both adapters substitute a vendor default for
-  an empty `Model.baseUrl` inside `prepareCall`, so a call with a perfectly
-  definite destination recorded `endpoint: null`. Where no adapter ran, `null`
-  remains the truthful answer. (REV-2 D.8.)
-
-- **Breaking.** `baikai`: `Baikai.Provider.Registry.ApiProvider` gains a fifth
-  field, `strengthCeiling :: EvidenceStrength`, and
-  `Baikai.Evidence.Build.checkEvidenceRequirements` takes that ceiling where it
-  took an `Api`. The gate compared against `declaredStrength`, a table keyed by
-  the API tag, which necessarily answered `EvidenceRequestedOnly` for every
-  `Custom` transport — so a gateway that genuinely observes a model could never
-  satisfy a strict caller who required that it did. Only a provider knows what
-  its evidence reaches. `EvidenceRequestedOnly` reproduces the old behaviour for
-  any custom provider; the four built-in providers fill the field from
-  `declaredStrength`, which is unchanged in value and still used by the
-  unattended-agent surface. (REV-2 D.10, G.1.)
-
-- `baikai`, `baikai-claude`, `baikai-openai`: one strength derivation replaces
-  three. An observed **response id** now counts as correlation alongside a
-  captured request-id header, so a host that names its model and its response id
-  on every chunk but sends no header reaches `model_observed` instead of
-  `requested_only` — which had put it *below* a host that sent only a header and
-  named nothing. `anthropicStrength` and `openaiStrength` are removed;
-  `Baikai.Provider.Cli.Internal.subprocessStrength` keeps its signature and
-  delegates. (REV-2 D.10.)
-
-- `baikai-claude`: the `claude` dependency moves from `^>=1.4` to `^>=1.5`.
-  1.5.0 adds a `Pause_Turn` constructor to `Claude.V1.Messages.StopReason`, and
-  `mapStopReason` matches that type with no wildcard under
-  `-Werror=incomplete-patterns`, so the bump forced a decision. A paused turn
-  maps to `Stop`: Anthropic suspends the turn mid-flight for a long-running
-  server-side tool and expects the caller to send the message back to continue
-  it, so nothing failed, and `Baikai.StopReason` has no constructor that says
-  "resume me". Widening that public sum is a breaking change for every consumer
-  who matches on it exhaustively, and it is not this bump's to make. The general
-  rule is
-  [ADR 0018](docs/adr/0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md):
-  a provider stop reason with no baikai equivalent maps to the constructor that
-  is truthful about whether the call failed, and the sum widens only when baikai
-  would behave differently for it.
-
-- `baikai-claude`: `Messages.StreamUsage` lost its `Generic` instance in `claude`
-  1.5.0, so the `message_delta` usage is read through `OverloadedRecordDot`
-  rather than a generic-lens label. `Messages.max_tokens` and
-  `Messages.output_config` became ambiguous selectors — `Messages.Fallback`
-  carries both names — so the provider's tests read them through `^. #max_tokens`
-  and `^. #output_config` instead.
-
 ### Removed
-
-- `baikai` **0.6.0.0** (breaking): the sixteen `_Type` base-value aliases deprecated in
-  0.3.0.0 — `_Options`, `_Context`, `_Model`, `_ModelCost`, `_Response`,
-  `_Usage`, `_Cost`, `_CostBreakdown`, `_Tool`, `_TextContent`,
-  `_ThinkingContent`, `_ToolCall`, `_ImageContent`, `_EmbeddingModel`,
-  `_InteractiveLaunchRequest` and `_InteractiveLaunchResult`. Each has an
-  `empty…` or `zero…` replacement of the same value, named in the pragma that
-  has been on it since 0.3.0.0. The 0.3.0.0 entry said they remained "for this
-  release"; 0.4.0.0 and 0.5.0.0 shipped without removing them because no entry
-  named a version.
-  `docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md` now fixes
-  the rule: a name deprecated in `A.B.0.0` is removed in `A.(B+1).0.0`, and
-  every pragma says so. (REV-2 G.3.)
-
-- `baikai-claude`, `baikai-openai` **0.6.0.0** (breaking): the eight registration shims —
-  `registerWith`, `registerWithRegistry` and `registerWithRegistryAndConfig` in
-  both `Cli` modules, and `registerWithRegistry` in both `Api` modules. Register
-  the exported provider value instead:
-  `registerApiProvider (claudeCliProvider cfg)`,
-  `registerApiProviderWith reg (codexCliProvider cfg)`,
-  `registerApiProviderWith reg claudeMessagesProvider`. The batch-mode note that
-  had accumulated on `registerWith` — why `complete` stays on the direct path
-  rather than going through `streamingComplete` — moves to the provider value it
-  describes. (REV-2 G.3.)
-
-- `baikai` **0.6.0.0** (breaking): `Baikai.Trace.newEventId`. It has delegated to
-  `Baikai.Evidence.newCallId` since 0.5.0.0; call that. (REV-2 G.3.)
-
-- `baikai` **0.6.0.0** (breaking): `Baikai.Compat.defaultAnthropicThinkingStyle`, deprecated
-  earlier in this cycle. Nothing in baikai consults it — the thinking style of a
-  first-party Anthropic model is a field of its generated catalog record
-  (`Baikai.Models.Generated`); start from that value, or set
-  `CompatAnthropicMessages` explicitly.
-
-- `baikai` (breaking): `AgentRunRequest.envPassthrough` is renamed `envRequires`.
-  The field is a list of variables the job declares it requires, checked as a
-  precondition; it has never passed anything through, and the KDL key has said
-  `env-requires` since the setting existed.
-
-- `baikai` (breaking): `AgentRunFailure.OutputMalformed`, and with it
-  `baikai-agent`'s exit code 70 and its `internalExitCode` export. Nothing ever
-  constructed the constructor, and giving it a producer would have been wrong:
-  the runner treats the tool's output as best-effort observation and its
-  deliverable is the changed working tree, so a run that edited files correctly
-  and then printed an unparseable final line would have been reported as a
-  failure with its exit code and output discarded. A record's `strength` and
-  `unobserved` fields already say when output could not be read. (REV-2 F.13.)
 
 - `baikai-agent` (breaking): the `BAIKAI_AGENT_EXECUTABLE` environment binding.
   An environment variable is inherited by every child process and is easy to set
@@ -765,238 +1149,7 @@ that takes the name away, per
   An operator whose installation is not on `PATH` writes `executable` in their
   own configuration file or passes `--set`.
 
-- `baikai-claude`, `baikai-openai`: `responseToError` and `classifyErrorText`
-  (and its private `classifySdkHttpText` half) from both
-  `.Internal.ErrorClass` modules. Neither package runs a `servant-client` client
-  on the chat path any more, so the `ClientError` branch was unreachable, and the
-  text classifiers parsed a string shape the local SSE transports stopped
-  producing in July. The phrase table `classifyErrorText` held survives as the
-  message fallback inside `classifyErrorFrame`, pinned through the entry point the
-  runtime actually uses. Both modules are documented as outside the PVP-stable
-  surface, so this is not a major bump; version bumps are recorded once, later.
-
-- **Breaking.** `baikai-kit`: `Baikai.Kit.Path.safeUnder` (exported and unused),
-  `Baikai.Kit.Manifest.agentSources` (replaced by `itemSources`) and
-  `Baikai.Kit.Install.uninstallOutcomes` (absorbed by `uninstallItem`, which now
-  returns the outcomes for the caller to render). The internal `requireSafe` and
-  `Baikai.Kit.Status.resolveCacheOrEmpty` are gone with the exits they wrapped.
-
-- **Breaking.** `baikai-claude`: `Baikai.Provider.Claude.Api.anthropicStrength`
-  and `baikai-openai`: `Baikai.Provider.OpenAI.Api.openaiStrength`, both replaced
-  by `Baikai.Evidence.deriveStrength`.
-
 ### Fixed
-
-- `baikai`: the terminal event and its evidence record are pushed to the trace
-  sink exactly once under asynchronous exceptions. The terminal path pushed the
-  evidence record, pushed the terminal event and only then set the
-  already-sent flag; an exception delivered between the last two made the
-  stream finaliser read the flag as unset and push a second `CallEvidence` and
-  an `aborted` `CallFailed` after the real `CallFinished`, so a sink saw two
-  records and two contradictory terminals for one call. All three writes now
-  run inside one `uninterruptibleMask_` with the flag first. (REV-2 D.4.)
-
-- `baikai`: `Baikai.Cost.Log.closeCallLog` is idempotent. The first caller
-  claims the handle and waits for the worker; a second returns at once instead
-  of blocking forever on an `MVar` the worker had already emptied — a shape
-  `withCallLog` makes easy to reach, since its bracket closes a handle the body
-  may also have closed. An `appendEntry` after the close enqueues nothing.
-
-- `baikai-claude`, `baikai-openai`: a failure that lands while the response body
-  is streaming is classified as the transient failure it is. A connection reset,
-  a server closing the socket mid-chunk, a body shorter than its declared length
-  and a TLS session torn down after the handshake all now terminate the stream
-  with `TransientError` and `isRetryable = True`, carrying whatever text had
-  already been drained. Every one of them used to be `OtherError` with
-  `isRetryable = False`, while the identical failure at connect time was
-  transient — because `http-client` wraps the connect phase with the manager's
-  exception wrapper and the body reader with nothing that converts a socket
-  `IOException` or a `TLSException`, so those reached the worker raw and missed
-  the `HttpException` branch entirely. (REV-2 A.2.)
-
-- `baikai-openai`: an in-band `{"error": …}` frame on a `2xx` stream terminates
-  the call with the frame's own classification, status and message. Compatible
-  hosts (OpenRouter, DeepSeek, Together) report an upstream failure they only
-  learned about after committing to a `200` this way, and `parseChunk` never
-  looked at `error`. The pre-fix behaviour was worse than a bad category:
-  OpenRouter's frame carries `choices[0].finish_reason = "error"`, which mapped
-  to `Stop`, so the call ended as `EventDone` with `errorInfo = Nothing` — a
-  consumer switching on the terminal saw a *completed* call. A frame with no
-  `choices` beside the error ended as
-  `OtherError "openai stream ended without finish_reason"`. (REV-2 A.3.)
-
-- `baikai`: `reassembleResponse` is total under duplicated, late and
-  timestamp-less input. The first `EventStart` wins the skeleton and
-  `responseId` merges with `<|>`, so a later `Nothing` cannot erase an id an
-  earlier event supplied; events after the first terminal are ignored, so a
-  producer that keeps talking cannot rewrite the answer; and `latencyMs` falls
-  back to the reassembler's own wall clock when neither the skeleton nor the
-  terminal carries a provider timestamp, instead of reporting a zero that reads
-  as "instant". (REV-2 B.7.)
-
-- `baikai-claude`, `baikai-openai`: a transport failure mid-stream now closes
-  the blocks that were open when it arrived, on both providers, so a consumer
-  reading raw events and a consumer reassembling them see the same partial
-  output. Both providers built their terminal from the closed blocks alone and
-  silently dropped open text, thinking and tool arguments. On the Claude side
-  this covers `translate (Left …)`, the in-band `error` frame, and the
-  unexpected end of stream. (REV-2 B.3.)
-
-- `baikai-openai`: reasoning that arrives after visible text closes the open
-  text block before opening the thinking block, so at most one of the two is
-  open at a time, every `_End` precedes the next `_Start`, and no `contentIndex`
-  is revisited after a later one. (REV-2 B.4.)
-
-- `baikai-claude`: an SSE frame whose event `type` — or whose
-  `content_block_delta` `delta.type` — the SDK has no constructor for is now
-  skipped instead of ending the stream with a decode error. The SDK decodes both
-  with no unknown-tag fallback, so a new frame type from Anthropic used to be a
-  terminal fault. A frame of a *known* type that still fails to decode remains
-  one. `Baikai.Provider.Claude.Sse` exports the new `decodeFrame`. (REV-2 B.5.)
-
-- `baikai-claude`, `baikai-openai`: an empty `data:` heartbeat is ignored, and
-  on the OpenAI side `[DONE]` is compared after trailing whitespace is trimmed,
-  so `data: [DONE] ` and `data: [DONE]\r` end the stream rather than failing to
-  decode. (REV-2 A.8.)
-
-- `baikai-claude`: every failing stream now begins with `EventStart`. The
-  producer pre-seeds the start event before the first wire read, exactly as the
-  OpenAI producer already did, and `message_start` updates the assembler without
-  emitting a second one. Previously a 401, a rate limit, an in-band `error`
-  frame or an EOF arriving before `message_start` produced a lone `EventError`,
-  breaking the protocol `Baikai.Stream.Event` documents. `StartPayload.responseId`
-  is consequently `Nothing` on both HTTP providers; the provider's message id
-  rides `TerminalPayload.responseId`, which `reassembleResponse` already prefers.
-  (REV-2 A.4, REV-1 Theme 1.1.)
-
-- `baikai-claude`, `baikai-openai`: an asynchronous exception delivered to the
-  stream worker can no longer strand its consumer. End-of-frames is a flag set
-  by the worker fork's own `finally` rather than a sentinel value pushed onto
-  the channel, so a worker that dies without running its normal exit path still
-  ends the stream in an `EventError`. Previously the consumer blocked until the
-  runtime's deadlock detector noticed.
-
-- `baikai-smoke`: two keyed cases against `claude-sonnet-5` — one asking for
-  thinking (which is a 400 before this release) and one setting `temperature` — plus
-  `deepseek-chat` and `openrouter/openai/gpt-4o-mini` in `apiCases`, so the tool and
-  structured-output smokes run against a compatible host that is not OpenAI.
-  `CompatSmoke` now asserts DeepSeek honoured the output cap rather than only that it
-  answered, and `CacheSmoke` asserts the cached token classes cost something.
-
-- `baikai-claude`: a thinking request on `claude-sonnet-5` no longer 400s. It sends
-  `"thinking":{"type":"adaptive"}` and no `budget_tokens`, because the shape is read off
-  the model's catalog record rather than guessed from its id. (REV-2 C.1.)
-
-- `baikai-claude`: `temperature` and `top_p` are no longer sent to a model generation that
-  rejects them with a 400. They are omitted and the omission is recorded as
-  `sampling_dropped_unsupported_model` in the call's evidence. `seed`, `frequencyPenalty`
-  and `presencePenalty`, which the Anthropic Messages API has no field for on any
-  generation, are recorded as `sampling_dropped_unsupported_api`. (REV-2 C.1, C.5.)
-
-- `baikai-claude`: a model whose `maxOutputTokens` is `0` no longer sends
-  `"max_tokens":0`, which Anthropic rejects — and, with thinking set, no longer had its
-  whole thinking plan discarded for not fitting inside a ceiling of zero. It sends
-  `uncappedMaxTokensFloor` (1024, the SDK's own default) instead. An explicit
-  `maxTokens = Just 0` is still forwarded as written. (REV-2 C.2.)
-
-- `baikai-claude`: replay no longer sends an empty text block or an empty `content` array,
-  both of which Anthropic rejects. An empty text block is dropped; an assistant turn left
-  with nothing is dropped whole (it is baikai's own artifact — a block that closed with no
-  deltas, or only unsigned thinking, which replay already omits); a user turn left with
-  nothing is refused locally with a message naming the turn. (REV-2 C.3.)
-
-- `baikai-claude`: tool-call ids that differ only in characters the alphabet forbids, or
-  only past character 64, no longer normalise onto the same id and misroute a tool result.
-  A conforming id passes through unchanged — every id Anthropic and OpenAI actually mint
-  does — and any other is truncated to 51 characters and suffixed with twelve hex
-  characters of its SHA-256. Two `tool_use` blocks in one turn that still collide are
-  refused rather than sent. (REV-2 C.7.)
-
-- `baikai`: an `EmbeddingModel` pointed at a non-OpenAI host no longer sends
-  `OPENAI_API_KEY` to it. The default key source was that variable whatever the
-  base URL said, so pointing the client at DeepSeek handed DeepSeek an OpenAI
-  credential. It now resolves per host, and refuses an unknown one. New
-  `resolveEmbeddingKey` and `embeddingClientEnv` expose both decisions without
-  making a request. (REV-2 E.3.)
-
-- `baikai`: `Baikai.Embedding.embed` no longer allocates a TLS manager per call.
-  It used the `openai` SDK's own `getClientEnv`, which builds a fresh manager
-  every time; it now takes one from `Baikai.Http`'s process-global cache, the
-  same one the chat providers use, so an embedding call and a chat call to one
-  host share a connection pool.
-
-- `baikai`: **a credential in a header is no longer printed.** `Options.headers`
-  and `Model.headers` went through derived `Show` and `ToJSON` instances that
-  rendered every value verbatim — while `Baikai.Options`' own documentation
-  invites callers to put a gateway's `Authorization` header there and the
-  getting-started guide tells them to `print resp`, which renders the embedded
-  `Model`. Both types now have hand-written instances that render exactly what
-  the derived ones did, except that the value of a header whose name looks
-  credential-carrying (`authorization`, `api-key`, `apikey`, `token`, `secret`,
-  `cookie`, `password`, or any name ending in `-key`, case-insensitively) prints
-  as `<redacted>`. `Baikai.Auth` exports the three pieces — `redactedMarker`,
-  `isCredentialHeader`, `redactHeaderValues` — so a caller can apply the same
-  rule to its own logging. Only the rendering changes: the field is untouched,
-  `Eq` is untouched, and the header is still sent as written. A JSON round trip
-  of a `Model` is deliberately lossy, since a serialised `Model` is exactly the
-  thing that should not carry a key. (REV-2 E.2.)
-
-- `baikai`: an API-key environment variable set to the empty string, or to
-  nothing but whitespace, now counts as **unset**. `ApiKeyEnv` fails with an
-  `AuthError` naming the variable and saying it is not set or is empty;
-  `ApiKeyEnvChain` skips it and continues, and reports every name when none
-  yields a key. Previously an empty variable resolved to an empty key, which
-  short-circuited a chain and produced `Authorization: Bearer ` and a provider
-  401 that said nothing about the cause. A key with real content is still passed
-  through untrimmed. (REV-2 E.6.)
-
-- `baikai-openai`, `baikai-claude`: **a provider POST no longer follows
-  redirects.** `http-client`'s default is to follow up to ten with every header
-  intact, so a 3xx would have re-sent the bearer token (or `x-api-key`) to
-  whatever host the `Location` header named. `redirectCount` is now zero and the
-  3xx is delivered as the one in-band terminal error carrying its status. Each
-  transport's request builder is exported as `buildRequest`, so the method, the
-  composed path and the redirect policy are assertable without a connection.
-  (REV-2 A.5 / E.4.)
-
-- `baikai-openai`, `baikai-claude`, `baikai`: **the base-URL convention is
-  stated and enforced.** `Model.baseUrl` and `EmbeddingModel.baseUrl` are the
-  API *root* — the host, or the prefix a host mounts the API under — because
-  baikai appends `/v1/chat/completions`, `/v1/messages` or `/v1/embeddings`
-  itself. A trailing `/v1` is accepted and removed rather than doubled, so
-  `https://api.deepseek.com/v1` now requests `/v1/chat/completions` instead of
-  `/v1/v1/chat/completions`. A base URL with no scheme, a scheme other than
-  `http`/`https`, credentials, a query string, a fragment, or a path that is
-  already an endpoint is refused as an `InvalidRequest` naming the problem —
-  and refused *before* a key is read, so an unusable base URL never causes a
-  credential to be looked up. The message renders the URL without its userinfo
-  or query, so it is safe to log. `docs/user/models-and-providers.md` gains a
-  **Base URLs** section stating all of it. (REV-2 A.6.)
-
-- `baikai`: **the host parse no longer lets a base URL choose which key baikai
-  sends.** `urlHost` took the text after the *last* `@` anywhere in a URL, so
-  `https://proxy.example.com/v1?u=@api.openai.com` named the host
-  `api.openai.com`: `defaultApiKeyEnvForBaseUrl` resolved `OPENAI_API_KEY`,
-  `autoDetectOpenAICompletions` returned OpenAI's own compatibility record, and
-  the bearer token went to `proxy.example.com`. Anyone who could set `baseUrl` —
-  a `Model` decoded from JSON, a proxy override — could pick which provider's
-  credential to be handed. The same defect broke the benign direction:
-  `https://api.openai.com/v1/@x` named the host `x` and resolved no key at all.
-  The authority now ends at the first `/`, `?` or `#`, and userinfo is only ever
-  the last `@` inside it. (REV-2 A.1 / E.1.)
-
-- `baikai`: `Baikai.Evidence.Build.sanitizeEndpoint` was a second, separately
-  written parser that bounded the authority at the first `/` only, so a URL with
-  a query and no path recorded the wrong host. It is now `renderEndpoint <$>
-  parseUrl`, which also means a recorded endpoint has a lower-cased scheme and
-  host; the path keeps its case and trailing slash.
-
-- `baikai-openai`, `baikai-claude`: the `ClientEnv` cache was duplicated in each
-  package and keyed on the raw base-URL text, so `https://h` and `https://h/`
-  were two TLS managers and two connection pools to one host. There is now one
-  cache, in `Baikai.Http`, keyed on the canonical rendering of the parsed base
-  URL. `Transport.getClientEnvCached` and `Transport.cachedClientEnvCount` are
-  re-exports of the core functions and keep their signatures.
 
 - `baikai-agent`: a timed-out run now **escalates to `SIGKILL`**. The runner
   interrupts the child's whole process group, then terminates it, then kills it,
@@ -1024,41 +1177,6 @@ that takes the name away, per
   exit 1, answer lost. This mirrors what the prompt read and the prompt write
   have always done.
 
-- `baikai`: `parseCodexJsonlStream` assembles lines in **linear time**. It
-  previously unpacked every chunk into a stream of bytes and appended them one
-  at a time with `BS.snoc`, copying the whole accumulator per byte — quadratic
-  in line length, so one codex event carrying a two-million-character message
-  cost on the order of a trillion byte moves and in practice never finished.
-  Lines are now cut out of each chunk with `BS.elemIndex` and `BS.splitAt`, and
-  the pieces of a line that spans a chunk boundary are joined once. Behaviour is
-  unchanged: a non-JSON line is still skipped, and a last line without a
-  trailing newline is still parsed.
-
-- `baikai`: a Codex custom agent's instructions body renders as a TOML
-  **literal** multi-line string (`'''`), which interprets nothing, instead of a
-  basic one (`"""`), which interprets backslash escapes. As a basic string an
-  instruction as ordinary as "match `\d+`" made Codex refuse to load the file;
-  `tomllib` rejects the old output with `Unescaped '\' in a string`. A body a
-  literal string cannot hold — one containing three apostrophes, a bare carriage
-  return, or a control character other than tab and newline — falls back to a
-  fully escaped basic string. `tomlString`, which renders `name` and
-  `description`, now escapes every control character as TOML 1.0 requires
-  instead of only the five it happened to name.
-
-- `baikai-openai`: the Codex interactive launcher now **refuses the two approval
-  policies the installed CLI rejects**. `codex --help` at `codex-cli 0.149.1`
-  lists exactly `on-request` and `never` for `--ask-for-approval`;
-  `CodexApprovalUntrusted` and `CodexApprovalOnFailure` are older spellings the
-  CLI answers with `error: invalid value 'untrusted' for
-  '--ask-for-approval'`. Rendering them made a launch return `Right` carrying a
-  non-zero exit code — a session that ran and failed — instead of the `Left
-  SafetyNotExpressible` this module promises for a policy that cannot be
-  honoured. They are refused before any process is created, and refused rather
-  than quietly mapped onto `on-request`, because substituting a different
-  approval policy would change what the caller asked for. The constructors and
-  their spellings are unchanged, so code that matches on `CodexApprovalPolicy`
-  keeps compiling.
-
 - `baikai-agent`: the `baikai` executable now links the **threaded runtime**
   (`ghc-options: -threaded` on the `executable baikai` stanza). Without it a
   blocking operating-system call — the `waitpid` inside
@@ -1077,75 +1195,6 @@ that takes the name away, per
   outlives its deadline, requiring exit 75 within seconds and the whole process
   group gone. See
   [docs/adr/0006](docs/adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md).
-
-- `baikai-kit`: `kit status` with no cache and no network prints
-  `No kit items installed.` and exits 0. It used to exit 1: the guard around
-  `ensureKitRepo` caught `IOException`, which is not what `exitFailure` throws.
-  (REV-2 F.11.)
-
-- `baikai-kit`: `Baikai.Kit.Status.upstreamHash` joined the manifest `path`
-  without validating it, a second unsanitised join that grew after the July
-  hardening pass validated the first. Both now go through `itemSources` and
-  `safeSourcePath`. (REV-2 Theme 8.1.)
-
-- `baikai-kit`: an install that fails while renaming files into place now
-  restores what was there before, or names the paths it could not restore.
-  Phase two was a bare loop of renames, so a failure part-way left earlier
-  renames in place while the message said "no changes were made". Temporary
-  files are also created with `openTempFile`, so two concurrent installs of one
-  item no longer clobber each other's staging file, and a destination that is a
-  directory is refused before anything is written. (REV-2 F.12.)
-
-- `baikai-kit`: `Baikai.Kit.Install.stripYamlFrontmatter` normalises line
-  endings to LF on every branch. Input without frontmatter, and input whose
-  frontmatter is never closed, used to keep their `\r` characters and leak them
-  into the Codex agent TOML. (REV-2 Theme 8.7.)
-
-- `baikai-kit`: an `IOException` raised while reinstalling during `kit update`
-  is returned as `KitWriteFailed` instead of escaping as an uncaught exception.
-  (REV-2 Theme 8.4.)
-
-- Documentation: `baikai`'s Haddock no longer describes behaviour the code left
-  behind. The trace event's token counts are `Maybe` because a non-assistant
-  terminal has no usage, not because the CLI providers report nothing — since
-  0.5.0.0 both carry what the tool reported. `EventStart`'s `partial` is a
-  message skeleton with empty content, zero usage and no stop reason; the api,
-  provider and model id live on the `Response`. A lifted stream's `EventStart`
-  carries the final usage and stop reason already filled in, because the
-  response is complete before the stream begins. `Baikai.CacheRetention` no
-  longer mentions an OpenAI Responses 24-hour bucket no code emits. System
-  prompts are documented as living on `Context.systemPrompt` rather than on a
-  `Baikai.Request` module that no longer exists, `emptyModel`'s `compat` is
-  described as auto-detection rather than a placeholder, tool dispatch says
-  calls run one at a time in order, and every reference to a plan number is
-  gone. (REV-2 H.4.)
-
-- Documentation: `baikai-claude`'s and `baikai-openai`'s Haddock point at the
-  functions that exist. `Baikai.Compat` named
-  `Baikai.Provider.OpenAI.Api.mkOpenAIResponseFormat`,
-  `…Api.applyThinkingFormat` and `…Api.translateTextLikeDelta`; the first two
-  moved to `…Internal.Request` and the third is
-  `…Internal.Stream.scanThinkTags`. `ThinkingFormat`'s note said the six
-  non-native shapes all clamp through `compatibleEffort`; three do, Z.ai and
-  Qwen send a bare toggle, and `ThinkingFormatNone` drops the control.
-  `immediateError` carried two `-- |` headers where one was intended.
-  (REV-2 H.4.)
-
-- `baikai-claude`: an Anthropic call reports its thinking tokens. `Usage.reasoningTokens`
-  was hard-coded to `Nothing` on this provider because `claude` 1.4.0's
-  `Messages.Usage` had no breakdown to read; 1.5.0 adds
-  `output_tokens_details.thinking_tokens`, and both `message_start` and
-  `message_delta` now fill the field from it. `reasoningTokens` is an
-  informational subset of `outputTokens`, so no total and no cost moves.
-
-- `baikai-claude`: the prompt-side token counts survive a server-side tool run.
-  The final `message_delta` used to contribute only `output_tokens`, and
-  `inputTokens`, `cacheReadTokens` and `cacheWriteTokens` kept whatever
-  `message_start` had reported — which is wrong for a call whose prompt grew
-  mid-stream. `claude` 1.5.0 exposes those three on `Messages.StreamUsage`, and
-  each is now taken when present. An absent field still keeps the
-  `message_start` figure rather than zeroing it, so a model that sends only
-  `output_tokens` is accounted for exactly as before.
 
 ## [baikai 0.5.0.0] - 2026-08-05
 

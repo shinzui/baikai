@@ -79,5 +79,12 @@ withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h ->
 - Before 0.5.0.0 both subprocess providers hardcoded zero usage. Totals over
   historical data collected on an older release will not reconcile with totals
   over new data.
+- **`reasoningTokens` is reported where the host reports it, and is `Nothing`
+  otherwise** — an absent breakdown, not a claim that the model did no thinking.
+  The Anthropic Messages backend began filling it in `baikai-claude 0.6.0.0`,
+  when `claude 1.5` exposed `output_tokens_details.thinking_tokens`; before that
+  it was hard-coded to `Nothing` on that transport. It is an informational subset
+  of `outputTokens`, never a billed class of its own, so a total computed on
+  either release counts the same tokens once.
 - The log is append-only JSONL with no rotation, no size bound, and no schema
   version. Operating the file is the consumer's job.

@@ -715,6 +715,24 @@ plans named (each plan's implementer reads this section before its first commit)
 
 ## Decision Log
 
+- Decision: `baikai-effectful` ships as **0.4.0.0**, not the `0.3.0.4` this
+  MasterPlan's Integration Points and Retrospective both name. EP-9 dropped only
+  the `streamly` dependency, so a version scoped strictly to this package's own
+  exports is a patch — which is what those sections recorded, under the rule that
+  the number follows the package's own API.
+  Rationale: taken at release time, when the whole cycle was visible at once. The
+  `Baikai` effect's three operations are typed in `Model`, `Context`, `Options`
+  and `Response`, and baikai 0.6.0.0 changes all four breakingly, so a consumer
+  who upgrades this package meets a break through it. `0.3.0.4` would advertise a
+  safe upgrade that is not one; the re-exported surface is part of what a
+  consumer of this package actually compiles against. The prose at
+  `docs/plans/67-freeze-the-public-surface.md:940` left the choice open
+  ("`0.3.0.4` (or `0.4.0.0`, per the Decision Log rule)"); this is that entry.
+  The Retrospective's "frozen at … `baikai-effectful` 0.3.0.4" is left as
+  written, per the rule in Integration Points that a completed record is not
+  rewritten in place.
+  Date: 2026-08-28
+
 - Decision: EP-9's ADR is
   `docs/adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md`, so the
   next plan to promote a record takes `0016`.

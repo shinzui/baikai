@@ -2,6 +2,24 @@
 
 ## 2026-08-27
 
+* **Update**: CAP-13 (Anthropic Messages backend) and CAP-7 (usage and cost
+  accounting) record what `claude 1.5` makes readable. `baikai-claude 0.6.0.0`
+  moves its SDK bound to `^>=1.5` and adopts two response facts 1.4 did not
+  expose: a thinking-token breakdown on `message_start` now fills
+  `Usage.reasoningTokens`, which this provider hard-coded to `Nothing` for want
+  of anything to read, and the final `message_delta` carries the prompt-side
+  counts, so a call whose prompt grew mid-stream under a server-side tool is
+  accounted for from the counts that ended it. Neither moves a total or a cost —
+  reasoning tokens are an informational subset of the output tokens. The same
+  bump added `Pause_Turn` to Anthropic's stop reasons, which
+  `-Werror=incomplete-patterns` turned into a decision rather than a default: it
+  maps to `Stop`, because `ErrorReason` would claim a failure where nothing
+  failed and `Baikai.StopReason` has no constructor that says "resume me", so a
+  caller cannot distinguish a paused turn from a finished one. CAP-13 carries
+  that cost as a limit and
+  `docs/adr/0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md`
+  generalises the rule to every future provider stop reason.
+
 * **Update**: CAP-5 (structured output) records that `ResponseFormat`'s schema
   fields moved onto a `JsonSchemaFormat` record inside the `JsonSchema`
   constructor, built with `jsonSchemaFormat`. As fields of a sum they were
