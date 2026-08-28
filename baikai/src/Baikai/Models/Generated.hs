@@ -239,6 +239,37 @@ anthropic_claude_opus_4_8 =
             }
     }
 
+anthropic_claude_opus_5 :: Model
+anthropic_claude_opus_5 =
+  emptyModel
+    { modelId = "claude-opus-5",
+      name = "Claude Opus 5",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 5 % 1,
+            outputCost = 25 % 1,
+            cacheReadCost = 1 % 2,
+            cacheWriteCost = 25 % 4
+          },
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False
+            }
+    }
+
 anthropic_claude_sonnet_4_5 :: Model
 anthropic_claude_sonnet_4_5 =
   emptyModel
@@ -666,10 +697,10 @@ openai_gpt_5_6 =
       input = [InputText, InputImage],
       cost =
         ModelCost
-          { inputCost = 5 % 1,
-            outputCost = 30 % 1,
-            cacheReadCost = 1 % 2,
-            cacheWriteCost = 25 % 4
+          { inputCost = 4 % 1,
+            outputCost = 20 % 1,
+            cacheReadCost = 2 % 5,
+            cacheWriteCost = 5 % 1
           },
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -689,10 +720,10 @@ openai_gpt_5_6_luna =
       input = [InputText, InputImage],
       cost =
         ModelCost
-          { inputCost = 1 % 1,
-            outputCost = 6 % 1,
-            cacheReadCost = 1 % 10,
-            cacheWriteCost = 5 % 4
+          { inputCost = 1 % 5,
+            outputCost = 6 % 5,
+            cacheReadCost = 1 % 50,
+            cacheWriteCost = 1 % 4
           },
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -712,10 +743,10 @@ openai_gpt_5_6_sol =
       input = [InputText, InputImage],
       cost =
         ModelCost
-          { inputCost = 5 % 1,
-            outputCost = 30 % 1,
-            cacheReadCost = 1 % 2,
-            cacheWriteCost = 25 % 4
+          { inputCost = 4 % 1,
+            outputCost = 20 % 1,
+            cacheReadCost = 2 % 5,
+            cacheWriteCost = 5 % 1
           },
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -735,10 +766,10 @@ openai_gpt_5_6_terra =
       input = [InputText, InputImage],
       cost =
         ModelCost
-          { inputCost = 5 % 2,
-            outputCost = 15 % 1,
-            cacheReadCost = 1 % 4,
-            cacheWriteCost = 25 % 8
+          { inputCost = 2 % 1,
+            outputCost = 12 % 1,
+            cacheReadCost = 1 % 5,
+            cacheWriteCost = 5 % 2
           },
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -939,6 +970,7 @@ allModels =
     anthropic_claude_opus_4_6,
     anthropic_claude_opus_4_7,
     anthropic_claude_opus_4_8,
+    anthropic_claude_opus_5,
     anthropic_claude_sonnet_4_5,
     anthropic_claude_sonnet_4_6,
     anthropic_claude_sonnet_5,

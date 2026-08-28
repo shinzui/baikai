@@ -125,6 +125,26 @@
       "enabled": true
     },
     {
+      "id": "claude-opus-5",
+      "name": "Claude Opus 5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 5.0,
+        "output": 25.0,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
+      "enabled": true
+    },
+    {
       "id": "claude-sonnet-4-5",
       "name": "Claude Sonnet 4.5",
       "reasoning": true,

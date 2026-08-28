@@ -86,6 +86,7 @@ expectedAnthropicFacts =
     ("claude-opus-4-6", (AnthropicThinkingAdaptive, True)),
     ("claude-opus-4-7", (AnthropicThinkingAdaptive, False)),
     ("claude-opus-4-8", (AnthropicThinkingAdaptive, False)),
+    ("claude-opus-5", (AnthropicThinkingAdaptive, False)),
     ("claude-sonnet-4-5", (AnthropicThinkingBudget, True)),
     ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True)),
     ("claude-sonnet-5", (AnthropicThinkingAdaptive, False))

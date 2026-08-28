@@ -65,6 +65,7 @@ anthropicModels =
     ("claude-opus-4-6", anthropic_claude_opus_4_6, AnthropicThinkingAdaptive, True),
     ("claude-opus-4-7", anthropic_claude_opus_4_7, AnthropicThinkingAdaptive, False),
     ("claude-opus-4-8", anthropic_claude_opus_4_8, AnthropicThinkingAdaptive, False),
+    ("claude-opus-5", anthropic_claude_opus_5, AnthropicThinkingAdaptive, False),
     ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget, True),
     ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive, True),
     ("claude-sonnet-5", anthropic_claude_sonnet_5, AnthropicThinkingAdaptive, False)

@@ -260,6 +260,17 @@ that takes the name away, per
 
 ### Changed
 
+- `baikai`: catalog refresh. `claude-opus-5` joins the curated Anthropic include
+  set (adaptive thinking, sampling parameters rejected — the facts
+  `docs/plans/60-make-anthropic-thinking-style-and-sampling-support-catalog-driven.md`
+  said whoever curated it in would have to state), and the `gpt-5.6` family
+  picks up its price cut: `gpt-5.6` and `gpt-5.6-sol` to $4.00/$20.00,
+  `gpt-5.6-terra` to $2.00/$12.00, `gpt-5.6-luna` to $0.20/$1.20 per Mtok, cache
+  rates in step. `Baikai.Models.Generated` gains `anthropic_claude_opus_5` and
+  now carries 36 enabled models. No OpenAI id was added: the `gpt-5.6` family is
+  still the newest one models.dev reports that speaks
+  `openai-chat-completions`.
+
 - `baikai` (breaking): `ResponseFormat`'s `JsonSchema` carries a
   `JsonSchemaFormat` record — `name`, `schema`, `strict`, exported
   selector-only with the base `jsonSchemaFormat name schema` — instead of

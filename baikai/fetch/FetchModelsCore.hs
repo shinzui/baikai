@@ -297,6 +297,11 @@ anthropicInclude =
     [ -- 2026-08-27: adaptive-only, sampling parameters rejected with a
       -- 400 — Anthropic API reference cached 2026-06-24, as consulted
       -- by REV-2 C.1 (docs/reviews/correctness-and-api-review-follow-up.md).
+      -- docs/plans/60-... named this id as the one the include set did not
+      -- yet carry, and stated the facts it would have to arrive with.
+      ("claude-opus-5", adaptiveNoSampling),
+      -- 2026-08-27: adaptive-only, sampling parameters rejected with a
+      -- 400 — same source.
       ("claude-opus-4-8", adaptiveNoSampling),
       -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
       ("claude-opus-4-7", adaptiveNoSampling),

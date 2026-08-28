@@ -189,7 +189,7 @@ Two things auto-detection cannot know, because they are facts about the
   compat record.** `CompatNone` means the budget thinking shape with
   sampling parameters supported, which every generation before Opus 4.7
   accepts. If your `modelId` is `claude-sonnet-5`, `claude-opus-4-7`,
-  `claude-opus-4-8` or `claude-fable-5`, write:
+  `claude-opus-4-8`, `claude-opus-5` or `claude-fable-5`, write:
 
   ```haskell
   compat =
@@ -343,7 +343,7 @@ recorded in the call's evidence rather than being silent:
 | `presencePenalty` | sent | **no such field**, same |
 
 Anthropic's adaptive-era generations — `claude-sonnet-5`,
-`claude-opus-4-7`, `claude-opus-4-8`, `claude-fable-5` — return a 400 for
+`claude-opus-4-7`, `claude-opus-4-8`, `claude-opus-5`, `claude-fable-5` — return a 400 for
 `temperature`, `top_p` and `top_k`. baikai reads
 `AnthropicMessagesCompat.supportsSamplingParameters` off the model's
 catalog record, omits the parameters rather than sending a request it
