@@ -15,9 +15,10 @@
 --   answers, the tool's name, the result 'content' (text or image), an
 --   'isError' flag, and an optional timestamp).
 --
--- The 'system' constructor from prior versions is removed: system
--- prompts live on 'Baikai.Request.Request.systemPrompt'. The 'Role'
--- enum is also removed — pattern-match on the constructor instead.
+-- There is no 'system' constructor: a system prompt lives on
+-- 'Baikai.Context.Context.systemPrompt', not in the message vector.
+-- There is no 'Role' enum either — pattern-match on the constructor
+-- instead.
 --
 -- Each constructor wraps a dedicated single-constructor payload record
 -- ('UserPayload', 'AssistantPayload', 'ToolResultPayload') rather than

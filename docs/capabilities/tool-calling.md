@@ -17,6 +17,8 @@ packages:
 interface:
   - Baikai.Tool
   - Baikai.Content
+  - Baikai.Context
+  - Baikai.Provider.Registry
 requires:
   - CAP-1
 evidence:

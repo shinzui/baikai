@@ -74,21 +74,23 @@ flow regardless of which provider is on the other side.
 ## Packages
 
 This is a multi-package project. Depend on `baikai` plus whichever vendor
-packages you need; each vendor package registers its handlers into the
-shared registry and re-exports nothing of its own.
+packages you need. A vendor package adds nothing to the core vocabulary —
+the types you call with come from `baikai` — and exports its own provider
+values, configuration records and launchers, plus a `register :: IO ()`
+that installs its handlers into the shared registry.
 
 The table is in publish order — a dependency reaches Hackage before its
 dependents.
 
 | Package              | Hackage    | What's inside |
 |----------------------|------------|---------------|
-| **`baikai`**         | [0.5.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
-| **`baikai-claude`**  | [0.5.0.0](https://hackage.haskell.org/package/baikai-claude) | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
-| **`baikai-openai`**  | [0.5.0.0](https://hackage.haskell.org/package/baikai-openai) | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
-| **`baikai-trace-otel`** | [0.3.0.3](https://hackage.haskell.org/package/baikai-trace-otel) | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
-| **`baikai-effectful`** | [0.3.0.3](https://hackage.haskell.org/package/baikai-effectful) | A thin, policy-free [`effectful`](https://hackage.haskell.org/package/effectful) binding over baikai's transport: the dynamic `Baikai` effect (`Complete` / `StreamCollect` / `StreamEach`) and interpreters over a real or fake provider. |
-| **`baikai-kit`**     | [0.1.0.4](https://hackage.haskell.org/package/baikai-kit) | Shared kit installer for command-line tools that ship a git-hosted kit of local AI-agent skills and subagents: listing, install, update, uninstall, status, and the discovery helpers an interactive session mounts. |
-| **`baikai-agent`**   | [0.1.0.0](https://hackage.haskell.org/package/baikai-agent) | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
+| **`baikai`**         | [0.6.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
+| **`baikai-claude`**  | [0.6.0.0](https://hackage.haskell.org/package/baikai-claude) | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
+| **`baikai-openai`**  | [0.6.0.0](https://hackage.haskell.org/package/baikai-openai) | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host) and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
+| **`baikai-trace-otel`** | [0.4.0.0](https://hackage.haskell.org/package/baikai-trace-otel) | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
+| **`baikai-effectful`** | [0.3.0.4](https://hackage.haskell.org/package/baikai-effectful) | A thin, policy-free [`effectful`](https://hackage.haskell.org/package/effectful) binding over baikai's transport: the dynamic `Baikai` effect (`Complete` / `StreamCollect` / `StreamEach`) and interpreters over a real or fake provider. |
+| **`baikai-kit`**     | [0.2.0.0](https://hackage.haskell.org/package/baikai-kit) | Shared kit installer for command-line tools that ship a git-hosted kit of local AI-agent skills and subagents: listing, install, update, uninstall, status, and the discovery helpers an interactive session mounts. |
+| **`baikai-agent`**   | [0.2.0.0](https://hackage.haskell.org/package/baikai-agent) | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
 | `baikai-smoke`       | internal   | Live smoke tests across every shipped provider. API cases skip when their keys are absent; batch CLI cases run whenever `claude` or `codex` is on `PATH`. Not published — useful as worked examples. |
 
 Packages version independently, so the numbers above move at different
@@ -164,7 +166,9 @@ walkthrough.
 - **API vs CLI providers.** API providers give you tokens, tools,
   images, true incremental streaming, and per-call cost. CLI providers
   trade those for running against a flat-rate subscription: text in,
-  text out, zero usage, synthetic one-shot streams. See
+  text out, synthetic one-shot streams. Both tools do report token
+  counts and baikai carries them, so a zero in `Usage` means the tool
+  said nothing rather than that the call was free. See
   [CLI Providers](docs/user/cli-providers.md).
 
 - **Batch vs interactive.** Batch providers return a single `Response`.

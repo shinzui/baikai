@@ -1,4 +1,4 @@
--- | Tests for the embeddings client (EP-15, M1).
+-- | Tests for the embeddings client.
 --
 -- The request-mapping test is hermetic: it asserts on the pure
 -- 'mkEmbeddingRequest' (no network), proving the input text, model id, and

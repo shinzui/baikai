@@ -44,10 +44,16 @@ be a real and unjustifiable cost.
 
 ```haskell
 import Baikai
+import Baikai.Trace (withTrace)
+import Baikai.Trace.Sink (fileSink)
 
 let opts = emptyOptions & #evidence .~ Just (evidenceRequest "nightly-2026-08-05")
+sink <- fileSink "/tmp/evidence.jsonl"
 resp <- withTrace sink model ctx opts
 ```
+
+The umbrella `Baikai` module deliberately omits the tracing vocabulary,
+so `withTrace` and the sinks are imported from their own modules.
 
 `evidenceRequest` takes your own identifier for the logical unit of work
 this call belongs to. Baikai treats it as opaque text and never parses
@@ -79,7 +85,7 @@ plain `Value` and match on its `schema_version`.
 |---|---|
 | `schema_version` | the string consumers pin against |
 | `run_id`, `call_id`, `attempt`, `supersedes` | your identifier, baikai's globally unique one, and the retry provenance you supplied |
-| `endpoint` | provider, api, transport, sanitized endpoint, baikai's version, the implementation's version |
+| `endpoint` | provider, api, transport, the endpoint itself — the sanitized URL on the HTTP transports, the resolved executable path on the subprocess ones — baikai's version, the implementation's version |
 | `requested_model`, `thinking` | what you asked for, and what it became on the wire |
 | `observed_model`, `observed_thinking`, `response_id`, `provider_request_id`, `usage` | what the provider reported, or `"unobserved"` |
 | `started_at`, `ended_at`, `latency_ms`, `status`, `error_info` | how it went |

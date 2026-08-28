@@ -2,7 +2,7 @@
 
 -- | The 'withTrace' wrapper and supporting helpers.
 --
--- After EP-3, the trace bridge is stream-shaped at the core:
+-- The trace bridge is stream-shaped at the core:
 -- 'withTraceStream' returns a 'Stream IO AssistantMessageEvent'
 -- that side-effects 'CallStarted' / 'CallFinished' / 'CallFailed'
 -- events to a user-supplied 'TraceSink' as the stream's lifecycle
@@ -178,14 +178,11 @@ withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
 -- | Synchronous trace wrapper. Drains 'withTraceStream' into a
 -- 'Response' through 'reassembleResponse'.
 --
--- Unlike the EP-2 'withTrace' (which re-threw the producer's
--- exception), this implementation never throws for producer-side
--- failures: errors flow through the stream as a terminal
--- 'EventError' and the drained 'Response' carries
--- @stopReason = ErrorReason@ plus 'errorMessage'. The masterplan's
--- Vision & Scope section commits to "partial output is always
--- recoverable" and the plan's Decision Log records that producer
--- failures must surface as response data, not exceptions.
+-- This never throws for producer-side failures: errors flow through
+-- the stream as a terminal 'EventError' and the drained 'Response'
+-- carries @stopReason = ErrorReason@ plus 'errorMessage'. Partial
+-- output must always be recoverable, so a producer failure surfaces as
+-- response data rather than as an exception.
 -- Downstream-of-the-fold exceptions (e.g. an 'appendEntry' that
 -- fails) still propagate unchanged.
 withTrace ::

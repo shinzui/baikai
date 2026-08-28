@@ -83,8 +83,11 @@ completeRequest m ctx opts
 ## Limits
 
 - **Chat Completions only.** The OpenAI Responses API is not implemented, so
-  anything that exists only there — including the 24h prompt-cache bucket
-  `CacheRetention` describes — is out of reach.
+  anything that exists only there is out of reach. On `api.openai.com` that
+  includes prompt-cache control: Chat Completions caches automatically and
+  accepts no retention marker, so `Options.cacheRetention` reaches the wire only
+  on a compatible host whose compat record sets `cacheControlFormat` —
+  OpenRouter, in the shipped table.
 - Compat auto-detection is a lookup over known hosts. A host baikai has not seen
   falls back to defaults, and getting it wrong shows up as a rejected request or
   a silently ignored field, not as a typed error.

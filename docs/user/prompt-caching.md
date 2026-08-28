@@ -31,14 +31,21 @@ bucket to its own wire primitive.
 data CacheRetention
   = CacheRetentionNone   -- Do not request caching (the default when unset).
   | CacheRetentionShort  -- Provider-default ephemeral retention (Anthropic: ~5 min).
-  | CacheRetentionLong   -- Long bucket (Anthropic: ttl "1h"; OpenAI Responses: 24h).
+  | CacheRetentionLong   -- Long bucket (Anthropic: ttl "1h").
 ```
 
-| Value | Anthropic | OpenAI-compatible |
-|---|---|---|
-| `CacheRetentionNone` (or unset) | no `cache_control` | no marker |
-| `CacheRetentionShort` | `cache_control: {type: ephemeral}` | `{type: ephemeral}` |
-| `CacheRetentionLong` | `cache_control.ttl: "1h"` | 24h |
+What each bucket becomes depends on the host, not on the API family. The
+OpenAI-compatible provider emits Anthropic-style markers only where the
+host's compat record sets `cacheControlFormat = Just
+CacheControlFormatAnthropic` — OpenRouter, in the shipped table. On
+`api.openai.com` it emits nothing at all, because Chat Completions caches
+automatically and offers no retention control.
+
+| Value | Anthropic | OpenRouter | Other OpenAI-compatible hosts |
+|---|---|---|---|
+| `CacheRetentionNone` (or unset) | no `cache_control` | no marker | no marker |
+| `CacheRetentionShort` | `cache_control: {type: ephemeral}` | `{type: ephemeral}` | no marker |
+| `CacheRetentionLong` | `cache_control.ttl: "1h"` | `{type: ephemeral, ttl: "1h"}` | no marker |
 
 `CacheRetentionLong` **downgrades to short automatically** on hosts that
 don't advertise long retention (`supportsLongCacheRetention = False` in
@@ -134,9 +141,10 @@ much cheaper — on the calls that follow.
 - **Preference, not placement.** On Claude, baikai places the top-level
   `cache_control` marker and per-tool markers for you. There is no API
   here for hand-placing cache breakpoints on individual messages.
-- **CLI providers report zeros.** `claude -p` and `codex exec` don't
-  expose token usage, so every `Usage` counter (cache included) is zero
-  through the CLI providers — use the API providers to measure caching.
+- **CLI providers carry what the tool reports, which is no cache split.**
+  Both tools do report token counts and baikai carries them, but neither
+  breaks out cache reads or writes, so the cache counters stay zero
+  through the CLI providers — measure caching on the API providers.
 - **A one-hour cache write is priced at the five-minute rate.** Anthropic
   bills a `CacheRetentionLong` write at roughly twice the short-retention
   rate, but its API reports one `cache_creation_input_tokens` count with

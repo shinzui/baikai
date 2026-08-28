@@ -133,7 +133,7 @@ main = do
 tests :: TestTree
 tests =
   testGroup
-    "baikai EP-2"
+    "baikai core"
     [ testCase "emptyContext defaults are zero-y" $ do
         emptyContext ^. #systemPrompt @?= Nothing
         V.length (emptyContext ^. #messages) @?= 0,

@@ -67,7 +67,7 @@ data Response = Response
   }
   deriving stock (Eq, Show, Generic)
 
--- | A blank assistant turn at epoch start. Useful as a fixture base
+-- | A blank assistant turn with no timestamp. Useful as a fixture base
 -- for tests and as the default in error paths where no message was
 -- received.
 emptyResponse :: Response

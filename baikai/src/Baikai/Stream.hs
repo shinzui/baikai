@@ -494,9 +494,12 @@ trySync action = do
     Right a -> pure (Right a)
 
 -- | Build the synthetic event list for a fully resolved 'Response'.
--- The 'EventStart' carries the supplied @startTs@ on its message
--- skeleton so 'reassembleResponse' can recover 'latencyMs' from the
--- start/end timestamps.
+--
+-- The 'EventStart' carries the response's message skeleton — empty
+-- content, but the final usage, stop reason and error text already
+-- filled in, because the lifted response is complete before the stream
+-- begins — and the supplied @startTs@, so 'reassembleResponse' can
+-- recover 'latencyMs' from the start/end timestamps.
 eventsFor :: UTCTime -> Response -> [AssistantMessageEvent]
 eventsFor startTs resp =
   let payload = resp ^. #message

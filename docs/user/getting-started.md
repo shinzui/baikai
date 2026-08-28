@@ -24,14 +24,17 @@ record you pass.
 | `baikai`        | The core surface: `Model`, `Context`, `Options`, `Tool`, the event stream, the registry, the generated model catalog. |
 | `baikai-claude` | Anthropic Messages API + `claude -p` CLI providers. Exposes `register :: IO ()` per provider. |
 | `baikai-openai` | OpenAI Chat Completions API + `codex exec` CLI providers. Same `register` shape. |
+| `baikai-trace-otel` | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`): one OTel span per provider call, with GenAI semantic-convention attributes plus baikai's cost and latency. |
+| `baikai-effectful` | A thin, policy-free `effectful` binding: the dynamic `Baikai` effect and interpreters over a real or fake provider. |
 | `baikai-kit`    | Shared kit installer for tools that install local AI-agent skills and subagents from a git repository. |
 | `baikai-agent`  | Unattended coding-agent runs, and the `baikai` executable you install rather than depend on. |
 | `baikai-smoke`  | Internal live test suite — useful as worked examples.                         |
 
-You depend on `baikai` plus whichever vendor packages you need. The
-vendor packages re-export nothing of their own; they just register
-handlers into the central `Baikai.Provider.Registry` when their
-`register` action runs.
+You depend on `baikai` plus whichever vendor packages you need. A vendor
+package adds nothing to the core vocabulary — the types you call with all
+come from `baikai` — and exports its own provider values, configuration
+records and launchers, plus a `register :: IO ()` that installs its
+handlers into the central `Baikai.Provider.Registry`.
 
 ## Install
 
@@ -232,7 +235,7 @@ main = do
 You'll see something like:
 
 ```text
-EventStart   { partial = AssistantMessage {…, assistantContent = []} }
+EventStart   { partial = AssistantMessage {…, content = []} }
 TextStart    { contentIndex = 0 }
 TextDelta    { contentIndex = 0, delta = "Hi" }
 TextDelta    { contentIndex = 0, delta = " there" }

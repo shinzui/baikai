@@ -3,12 +3,13 @@
 -- front to talk to a provider: the 'Api' tag (used to look up the
 -- registered handler), the provider name, the base URL, the
 -- per-million-token pricing rates, the context window and max output
--- cap, default per-call headers, and a per-API 'Compat' record (a
--- placeholder until EP-5 populates the real shims).
+-- cap, default per-call headers, and a per-API 'Compat' record
+-- ('CompatNone' lets the provider auto-detect the record from the base
+-- URL; see "Baikai.Compat").
 --
--- The previous newtype @Model = Model Text@ — a thin tag for the
--- model id — is retired. Use 'modelId' to read the selected upstream
--- model identifier, or 'mkModel' to build a dispatchable record.
+-- Use 'modelId' to read the selected upstream model identifier, or
+-- 'mkModel' to build a dispatchable record from the three
+-- discriminators.
 module Baikai.Model
   ( -- * Model
     Model,
@@ -63,9 +64,8 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
--- | What kinds of input a model accepts. EP-1 introduced the typed
--- content blocks; this field documents which of them the chosen
--- 'Model' is allowed to consume.
+-- | What kinds of input a model accepts: which typed content blocks
+-- ("Baikai.Content") the chosen 'Model' may be given.
 data InputModality
   = InputText
   | InputImage

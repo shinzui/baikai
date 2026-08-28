@@ -245,6 +245,7 @@ provider and a CLI provider. The CLI providers wrap `claude -p` and
 
 ```text
 EventStart   { partial = … }
+TextStart    { contentIndex = 0 }
 TextDelta    { contentIndex = 0, delta = "<entire response>" }
 TextEnd      { contentIndex = 0, content = "<entire response>" }
 EventDone    { reason = Stop, message = … }
@@ -273,8 +274,9 @@ across every `Api` tag. For the full CLI provider surface
   `DeltaPayload` and `TerminalPayload`; terminal payloads use the
   field name `message` for both success and failure.
 - Block ordering. The stream guarantees `_Start` < `_Delta`* <
-  `_End` per `contentIndex`, but indices can interleave: a
-  `ThinkingStart` for index 0 can be followed by a `TextStart` for
-  index 1 before `ThinkingEnd 0` arrives.
+  `_End` per `contentIndex`, and an index is never revisited once its
+  `_End` has been sent. Reasoning that arrives after visible text closes
+  the open text block first, so on the shipped providers at most one text
+  or thinking block is open at a time.
 - One terminal. Exactly one `EventDone` or `EventError` is emitted
   per call. There is no other way for the stream to end.

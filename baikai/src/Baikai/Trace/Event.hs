@@ -39,9 +39,10 @@ import Numeric.Natural (Natural)
 --
 -- Every event carries an 'eventId' that correlates the @started@ event
 -- with its matching @finished@, @failed@, or @evidence@ event within a
--- single process run. Token counts are 'Maybe' because subscription-based
--- providers (the CLIs) do not report them; 'omitNothingFields' keeps the
--- absent fields out of the rendered JSON.
+-- single process run. Token counts are 'Maybe' because a non-assistant
+-- terminal has no usage and a subprocess tool may report nothing; since
+-- 0.5.0.0 both CLI providers carry the counts the tool reported.
+-- 'omitNothingFields' keeps the absent fields out of the rendered JSON.
 --
 -- 'usd' is deliberately /not/ 'Maybe'-shaped as an "unknown" marker: it
 -- was until this release, and a computed cost of zero was suppressed, so

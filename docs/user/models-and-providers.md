@@ -38,6 +38,10 @@ Models.openrouter_anthropic_claude_sonnet_4
 Models.openrouter_openai_gpt_4o_mini
 ```
 
+That list is a sample, not the catalog: `Models.allModels` is the whole
+of it — thirty-five entries — including every `deepseek_*` and
+`openrouter_*` binding.
+
 The identifiers are `<provider>_<modelId>` with non-identifier
 characters (slashes, dashes, dots) replaced by underscores. Each
 value is a fully populated `Model` carrying the right `Api` tag,
@@ -358,7 +362,7 @@ model_reasoning_effort=<level>` for all six levels. Leaving `thinking =
 Nothing` emits no effort flag. Interactive Claude Code and Codex
 launches carry the same preference through
 `InteractiveLaunchRequest.effort`; see
-[Interactive Launches](interactive-launches.md#model-and-reasoning-effort).
+[Interactive Launches](interactive-launches.md#reasoning-effort).
 
 ## Multi-host on `openai-completions`
 
@@ -543,9 +547,12 @@ myProvider =
     myCompleteProducer
 ```
 
-This produces a synthetic one-shot stream (one `TextDelta` with
-the whole response, then `EventDone`), matching how the CLI
-providers work.
+This produces a synthetic one-shot stream — `EventStart`, then
+`TextStart`, `TextDelta` carrying the whole response, `TextEnd`, then
+`EventDone` — matching how the CLI providers work. The `EventStart` of a
+lifted stream carries the response's message skeleton with empty content
+but the final usage, stop reason and error text already filled in,
+because the response is complete before the stream begins.
 
 Both fields exist because a provider can lie about itself in exactly two
 ways, and each is answered by a field the builder defaults to the honest

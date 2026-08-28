@@ -5,11 +5,10 @@
 -- in the environment) and asserting both come back with non-empty
 -- assistant text.
 --
--- The test is the user-visible artifact for EP-5
--- (`docs/plans/11-compat-shims-cache-retention-and-multi-host-providers.md`):
--- it demonstrates that the compat-record-driven request shaping
--- introduced by M3 actually lets one provider implementation cover
--- multiple hosts.
+-- The test is the user-visible artifact for the compat-record work in
+-- @docs\/plans\/11-compat-shims-cache-retention-and-multi-host-providers.md@:
+-- it demonstrates that compat-record-driven request shaping actually
+-- lets one provider implementation cover multiple hosts.
 --
 -- Skip rules — the test prints a message and returns 'False' (no
 -- failure) when:

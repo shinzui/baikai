@@ -77,8 +77,9 @@ instance FromJSON CatalogFile where
       <*> o .: "compat"
       <*> o .: "models"
 
--- | A compat directive in the catalog. @"auto"@ defers to EP-5's
--- @baseUrl@-driven auto-detection (rendered as 'CompatNone'). The two
+-- | A compat directive in the catalog. @"auto"@ defers to the
+-- provider's @baseUrl@-driven auto-detection (rendered as
+-- 'CompatNone'). The two
 -- structured constructors carry a full override record.
 data CatalogCompat
   = CatalogCompatAuto

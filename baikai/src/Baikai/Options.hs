@@ -33,12 +33,10 @@
 -- whose name looks credential-carrying. The field itself is untouched
 -- and the header is still sent exactly as written.
 --
--- EP-4 added @toolChoice@. EP-5 adds @cacheRetention@ and @thinking@
--- (provider-agnostic preferences that each provider maps to its own
--- primitive — see 'Baikai.CacheRetention' and 'Baikai.ThinkingLevel'
--- for the mappings). EP-2 (shikumi) adds @responseFormat@, the
--- provider-agnostic structured-output preference — see
--- 'Baikai.ResponseFormat'.
+-- @cacheRetention@, @thinking@ and @responseFormat@ are
+-- provider-agnostic preferences that each provider maps onto its own
+-- primitive — see 'Baikai.CacheRetention', 'Baikai.ThinkingLevel' and
+-- 'Baikai.ResponseFormat' for the mappings.
 --
 -- 'evidence' is the per-call request for verifiable model-call
 -- evidence — see 'Baikai.Evidence.EvidenceRequest'. It carries the

@@ -69,9 +69,11 @@ print (resp ^. #message . #usage . #cacheReadTokens)
 - The Anthropic path is the fully realised one — cache markers on content and on
   the last tool definition, gated by `supportsCacheControlOnTools`. Elsewhere the
   capability is mostly the *accounting* half.
-- `CacheRetentionLong` is documented as 24h on the OpenAI Responses API, but
-  baikai's OpenAI transport speaks Chat Completions, so that mapping is
-  descriptive rather than exercised.
+- On the OpenAI-compatible transport a marker is emitted only where the host's
+  compat record sets `cacheControlFormat = Just CacheControlFormatAnthropic` —
+  OpenRouter in the shipped table. `api.openai.com` gets no marker at all,
+  because Chat Completions caches automatically and exposes no retention
+  control, so on that host the capability is the accounting half only.
 - Whether a cache hit actually occurs depends on prefix stability, host policy,
   and timing. baikai reports what the host said it did; it cannot make a hit
   happen.

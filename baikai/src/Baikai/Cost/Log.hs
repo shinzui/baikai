@@ -97,9 +97,8 @@ data CallLogConfig = CallLogConfig
 callLogConfig :: FilePath -> CallLogConfig
 callLogConfig logPath = CallLogConfig {path = logPath, enabled = True}
 
--- | One line of the JSONL call log. Wire shape preserved from EP-0:
--- @cachedInputTokens@ keeps its name so existing log readers keep
--- parsing.
+-- | One line of the JSONL call log. @cachedInputTokens@ keeps the name
+-- it has always had on the wire, so existing log readers keep parsing.
 data CallLogEntry = CallLogEntry
   { timestamp :: !UTCTime,
     provider :: !Text,

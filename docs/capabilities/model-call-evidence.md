@@ -32,7 +32,7 @@ evidence:
     proves: "Strict mode's pre-dispatch gate, and that a strict call whose provider attached no record fails after the call rather than succeeding silently, with the provider's content kept."
   - kind: test
     resource: baikai/test/TraceSpec.hs
-    proves: "Exactly one evidence record per call under every way a call can end — success, provider failure, consumer abort, unregistered provider — that each of those paths records the thinking level the caller asked for rather than collapsing it into absent, and that a strict call whose provider attached no record fails and emits no record."
+    proves: "Exactly one evidence record per call under every way a call can end — success, provider failure, consumer abort, unregistered provider — that each of those paths records the thinking level the caller asked for rather than collapsing it into absent, that a strict call whose provider attached no record fails and emits no record, and, through assertEvidencePrecedesTerminal on every one of those paths, that the record reaches the sink before the terminal event does."
   - kind: test
     resource: baikai-claude/test/EvidenceSpec.hs
     proves: "The Anthropic transport records the model Anthropic reported running, the request-id correlation header, and reaches model_observed only when both arrived — never from a 2xx alone."
@@ -156,8 +156,10 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   that threw, so the record did not survive; and a successful terminal that
   carried no record at all, so none was ever built
   (`docs/adr/0014-strict-evidence-means-a-record-exists.md`). Both are reported
-  through `providerError` until the surface freeze decides whether the closed
-  `ErrorCategory` should gain a case. On the error path the provider's own error
-  is kept, because it is the more useful of the two.
+  through `providerError`: the 0.6.0.0 surface freeze reviewed `ErrorCategory`
+  and added `ContentFiltered` but no evidence case, because a failure to account
+  for a call is a property of baikai's own bookkeeping rather than a category a
+  caller would branch on. On the error path the provider's own error is kept,
+  because it is the more useful of the two.
 - Much of the supporting machinery lives in `Baikai.Provider.Cli.Internal`, which
   is outside the PVP contract — hence `experimental`.

@@ -3,10 +3,10 @@
 -- | The provider registry — the dispatch surface that replaces the
 -- prior 'Baikai.Provider' typeclass and 'SomeProvider' existential.
 --
--- An 'ApiProvider' is the per-API handler. EP-3 promotes 'stream' to
--- the primary method: every handler exposes a streaming producer
--- that emits 'AssistantMessageEvent' values, and 'complete' is the
--- synchronous draining wrapper (typically @streamingComplete . stream@).
+-- An 'ApiProvider' is the per-API handler, and 'stream' is its primary
+-- method: every handler exposes a streaming producer that emits
+-- 'AssistantMessageEvent' values, and 'complete' is the synchronous
+-- draining wrapper (typically @streamingComplete . stream@).
 -- Callers can use an explicit 'ProviderRegistry' handle to isolate handler
 -- sets, or use the global convenience registry for simple scripts.
 --

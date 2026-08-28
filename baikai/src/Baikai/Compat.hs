@@ -82,12 +82,15 @@ data ThinkingFormat
   = -- | OpenAI-native: top-level @reasoning_effort: "minimal" | "low"
     --   | "medium" | "high" | "xhigh" | "max"@.
     --
-    --   This shape sends the canonical baikai level verbatim. The other
-    --   six route through @Baikai.Provider.OpenAI.Shape.compatibleEffort@,
-    --   which clamps @minimal@ to @low@ and both @xhigh@ and @max@ to
-    --   @high@ — a lowest-common-denominator vocabulary for hosts that
-    --   do not accept the full one. The exclusion is deliberate and
-    --   guarded by @nativeHigherEffortTests@ in
+    --   This shape sends the canonical baikai level verbatim. Three of
+    --   the other six — OpenRouter, DeepSeek and Together — route
+    --   through @Baikai.Provider.OpenAI.Shape.compatibleEffort@, which
+    --   clamps @minimal@ to @low@ and both @xhigh@ and @max@ to @high@ —
+    --   a lowest-common-denominator vocabulary for hosts that do not
+    --   accept the full one. Z.ai and Qwen send a bare toggle with no
+    --   depth, and 'ThinkingFormatNone' drops the control. Excluding
+    --   this shape from the clamp is deliberate and is guarded by
+    --   @nativeHigherEffortTests@ in
     --   @baikai-openai/test/ShapeSpec.hs@: clamping here would silently
     --   weaken every high-effort request against a current OpenAI model.
     ThinkingFormatOpenAI
@@ -141,7 +144,7 @@ data OpenAICompletionsCompat = OpenAICompletionsCompat
     maxTokensField :: !MaxTokensField,
     -- | Whether the host accepts @strict: true@ on function tool
     --   definitions. Consumed by
-    --   @Baikai.Provider.OpenAI.Api.mkOpenAIResponseFormat@ and
+    --   @Baikai.Provider.OpenAI.Internal.Request.mkOpenAIResponseFormat@ and
     --   @Baikai.Provider.OpenAI.Shape.dropUnsupportedStrict@ to
     --   omit JSON-schema @strict@ on hosts that reject it.
     supportsStrictMode :: !Bool,
@@ -150,12 +153,12 @@ data OpenAICompletionsCompat = OpenAICompletionsCompat
     --   @\<thinking\>...\</thinking\>@ markers. Field-based reasoning
     --   extraction (for @reasoning_content@ / @reasoning@ deltas) is
     --   unconditional; this flag enables the incremental tag scanner
-    --   in @Baikai.Provider.OpenAI.Api.translateTextLikeDelta@ for
+    --   in @Baikai.Provider.OpenAI.Internal.Stream.scanThinkTags@ for
     --   hosts that do not split reasoning into a separate field.
     requiresThinkingAsText :: !Bool,
     -- | The wire shape the host accepts for reasoning-effort
     --   preferences. Consumed by
-    --   @Baikai.Provider.OpenAI.Api.applyThinkingFormat@ for the
+    --   @Baikai.Provider.OpenAI.Internal.Request.applyThinkingFormat@ for the
     --   OpenAI-native field and by
     --   @Baikai.Provider.OpenAI.Shape.injectThinkingShape@ for
     --   OpenAI-compatible host-specific JSON keys.
@@ -197,7 +200,7 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
   { -- | Whether the host honours Anthropic's
     --   @cache_control.ttl: "1h"@ long-retention marker. When 'False',
     --   long-retention preferences silently downgrade to ephemeral.
-    --   Consumed by @Baikai.Provider.Claude.Api.computeCacheControl@
+    --   Consumed by @Baikai.Provider.Claude.Internal.Request.computeCacheControl@
     --   for top-level cache markers and by
     --   @Baikai.Provider.Claude.Shape.injectToolCacheControl@ for
     --   tool cache markers.

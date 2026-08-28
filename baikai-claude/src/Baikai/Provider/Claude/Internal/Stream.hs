@@ -559,7 +559,8 @@ data Assembler = Assembler
     observedModel :: !(Ev.Observed Text),
     -- | The response's HTTP status. Recorded because the transport has
     -- it; 'Baikai.Evidence.ModelCallEvidence' has no field for it, and
-    -- inventing one is EP-1's decision to make, not this module's.
+    -- adding one to the evidence schema is a core decision, not this
+    -- module's.
     httpStatus :: !(Maybe Int),
     -- | Whether Anthropic actually reported token counts, as opposed to
     -- 'usage' still holding the zeroes it was initialised with. Without
@@ -861,10 +862,9 @@ finalMessageOnError ass now reason =
 blocksInOrder :: Assembler -> Vector Content.AssistantContent
 blocksInOrder ass = Vector.fromList (IntMap.elems (ass ^. #closed))
 
--- | The immediate "request invalid" stream — emitted when
--- 'mapRequest' fails or 'prepareCall' is otherwise unable to build
--- a valid SDK request.
--- | The immediate "request invalid" stream.
+-- | The immediate "request invalid" stream, emitted when 'mapRequest'
+-- fails or 'prepareCall' is otherwise unable to build a valid SDK
+-- request.
 --
 -- Nothing was sent, so there is no wire body to digest and the evidence
 -- commits to 'Build.dispatchEnvelope' instead — see its documentation.

@@ -40,7 +40,7 @@ import OpenAI.V1.Tool qualified as OpenAITool
 import OpenAI.V1.ToolCall qualified as ToolCall
 
 -- ============================================================
--- Request mapping (preserved from EP-2 with minor refactoring)
+-- Request mapping: Context and Options onto the SDK's request record.
 -- ============================================================
 
 mapRequest ::
@@ -161,9 +161,8 @@ toReasoningEffort = \case
 -- The default ('defaultOpenAICompletionsCompat') leaves strict
 -- unset, which OpenAI treats as the default-permissive behaviour;
 -- callers that want @strict: true@ on every tool can flip the field
--- on their compat record (a future enhancement; currently we pass
--- 'Nothing' even when 'supportsStrictMode' is 'True', matching the
--- pre-EP-5 behaviour).
+-- on their compat record (a future enhancement; this function passes
+-- 'Nothing' even when 'supportsStrictMode' is 'True').
 mkOpenAITool :: OpenAICompletionsCompat -> Tool.Tool -> OpenAITool.Tool
 mkOpenAITool _compat t =
   OpenAITool.Tool_Function

@@ -54,8 +54,7 @@ import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
 -- ============================================================
--- Request mapping (preserved from EP-2 with minor refactoring to
--- accept Context/Options directly).
+-- Request mapping: Context and Options onto the SDK's request record.
 -- ============================================================
 
 -- | The wire wants an absent field for "no stop sequences", and

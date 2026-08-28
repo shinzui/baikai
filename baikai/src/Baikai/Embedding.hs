@@ -1,5 +1,5 @@
 -- | A small, provider-neutral embeddings client over an OpenAI-compatible
--- @\/v1\/embeddings@ endpoint (EP-15).
+-- @\/v1\/embeddings@ endpoint.
 --
 -- baikai shipped no embeddings client; this is the first. It reuses the
 -- @openai@ SDK's 'OpenAI.V1.makeMethods' and the sibling

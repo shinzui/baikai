@@ -135,10 +135,9 @@ assemblyTests =
               AssistantText (TextContent "answer")
             ],
       -- The honest statement of the transport's limitation: an SSE
-      -- transport decodes frames, so a bare JSON body reaches nothing at
-      -- all. EP-4 owns the transport's frame handling and may change
-      -- this; until then, pretending 'parseMessageObject' is reachable
-      -- for such a body would be pretending.
+      -- transport decodes frames, so a bare JSON body with no @data:@
+      -- prefix reaches nothing at all. Pretending 'parseMessageObject'
+      -- is reachable for such a body would be pretending.
       testCase "a bare JSON body with no data prefix is not decoded" $ do
         chunks <- transportChunks [LBS.toStrict (Aeson.encode wholeMessageObject)]
         length chunks @?= 0

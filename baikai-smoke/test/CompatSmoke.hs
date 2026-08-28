@@ -1,4 +1,4 @@
--- | Live checks for EP-8 compatibility request shaping.
+-- | Live checks for per-host compatibility request shaping.
 --
 -- These cases prove provider-specific wire shapes against real hosts
 -- when keys are available. They intentionally do not try to prove

@@ -9,8 +9,7 @@
 -- invocation. For tool-result messages (a caller-supplied reply to a
 -- model-issued tool call) blocks can be text or image.
 --
--- EP-1 introduces the types; EP-3 streams them, and EP-4 wires tool
--- round-tripping through the providers. Image content is restricted to
+-- Image content is restricted to
 -- inline base64 with an explicit @mimeType@: the caller is responsible
 -- for the (small, reversible) work of base64-encoding bytes once, and
 -- every provider can consume the same shape without a URL-fetch path

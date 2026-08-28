@@ -78,7 +78,7 @@ the model picks a tool:
 |---------------------------|---------------------------------------------------------------------------|
 | `Nothing` (default)       | Provider default (typically `auto`).                                      |
 | `Just ToolChoiceAuto`     | Model decides whether to call a tool. Same as `Nothing` at most providers.|
-| `Just ToolChoiceNone`     | Disable tool calling for this request. Anthropic: suppresses `tools` entirely. |
+| `Just ToolChoiceNone`     | Disable tool calling for this request. Anthropic: sends `tool_choice: {"type":"none"}` and keeps `tools`. |
 | `Just ToolChoiceRequired` | Model must call some tool.                                                |
 | `Just (ToolChoiceSpecific "name")` | Model must call this specific tool.                              |
 
@@ -252,9 +252,17 @@ wherever you make it.
 When you call `streamRequest`, tool calls show up as
 `ToolCallStart` → `ToolCallDelta`* → `ToolCallEnd`. The argument
 JSON arrives in chunks; concatenating every `ToolCallDelta.delta`
-for a given `contentIndex` yields a syntactically valid JSON
-value. The `ToolCallEnd.toolCall` field already has it parsed,
-which is usually all you need.
+for a given `contentIndex` yields the argument text. The
+`ToolCallEnd.toolCall` field already has it parsed, which is usually all
+you need.
+
+Usually, but not always: if the output cap cut the arguments off, the
+concatenation is not valid JSON, and `ToolCallEnd.toolCall` then carries
+`arguments` as a bare JSON **string** holding the raw partial text —
+never an empty object, which would look like a call with no arguments and
+dispatch cleanly into the wrong behaviour. Check the response's
+`stopReason` for `Length`, or the call itself with `isCutOffToolCall`,
+before dispatching anything a stream handed you.
 
 ## Caveats
 
@@ -263,10 +271,8 @@ which is usually all you need.
   into the final answer — `gpt-4o-mini`, for example, may render
   it as "May 14, 2026 at 15:09 UTC". Assert on substring fragments
   if you need correctness checks.
-- `ToolChoiceNone` is not a first-class Anthropic value; the
-  Anthropic provider realises it by suppressing both `tools` and
-  `tool_choice` in the upstream request.
-- Tool-side `cache_control` for Anthropic is not currently wired
-  through. Tool definitions are sent uncached even when the rest
-  of the context is cached. See the EP-5 retrospective in the
-  masterplan for the scope.
+- Tool-side `cache_control` is wired through on Anthropic. With
+  `Options.cacheRetention` set, the provider marks the last tool
+  definition — the breakpoint that covers the whole tool block — on hosts
+  whose compat record sets `supportsCacheControlOnTools`. There is no API
+  for marking individual tools.

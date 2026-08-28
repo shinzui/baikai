@@ -90,10 +90,10 @@ that exist:
 
 Milestone 3 — stale claims and Haddock swept:
 
-- [ ] Every enumerated guide and record claim fixed (list in Plan of Work).
-- [ ] Every H.4 Haddock sentence rewritten; `git grep -n "EP-[0-9]" -- '*.hs'` hits only
+- [x] Every enumerated guide and record claim fixed (list in Plan of Work).
+- [x] Every H.4 Haddock sentence rewritten; `git grep -n "EP-[0-9]" -- '*.hs'` hits only
       the survivors recorded in the Decision Log.
-- [ ] `cabal haddock` succeeds for all seven packages.
+- [x] `cabal haddock` succeeds for all seven packages.
 
 Milestone 4 — changelog, capability log and bundle validation:
 
@@ -250,6 +250,50 @@ deletions(-)`. Two consequences for this plan, both in Milestone 4: the Decision
 "`mori.dhall`'s `docs` list is unchanged" now holds only for this plan's own edits, and
 the validator list gains `okf validate docs/user`. A guide this plan edits is now also a
 concept whose `generated.at` the bundle's log enforces.
+
+Milestone 3. Roughly two-thirds of the enumerated items were already fixed by the plan
+that changed the behaviour, which is what the MasterPlan's Integration Points asked of
+them: `unattended-agent-runs.md` carries EP-6's ceiling-file provenance, grant model and
+refusal wording; `interactive-launches.md` carries EP-1's `CodexSandbox` rows and its
+`codex 0.149.1` refusal quote; `kit.md` carries EP-7's typed-error surface and the
+symlink refusal; `streaming.md`'s "Stopping early" carries EP-4's three cancellation
+strengths; `model-call-evidence.md` carries EP-8's strict-mode sentence and EP-9's
+garbage-collection caveat; and `baikai-effectful/README.md` needed nothing, as the plan
+predicted. In the sources, `Trace/Event.hs`'s ordering sentence and the OpenTelemetry
+test comment were already right — EP-9's Outcomes said so, and re-reading confirmed it.
+
+Four items the plan did not list, found by reading the surrounding section as the plan
+asks. `README.md`'s package table still advertised the pre-freeze versions on Hackage
+(0.5.0.0 core and providers, 0.3.0.3, 0.1.0.4, 0.1.0.0); EP-10 bumped all seven and the
+table now names 0.6.0.0, 0.4.0.0, 0.3.0.4 and 0.2.0.0. `streaming.md`'s "Block ordering"
+note still said a `ThinkingStart` for index 0 can be followed by a `TextStart` for index
+1 before `ThinkingEnd 0` — EP-4 closes the text block before reasoning opens, so at most
+one is open at a time. `getting-started.md` gained a cross-reference to a section that
+does not exist while Milestone 2 was being written, and now names the categories and
+points at `streaming.md#failure-modes` instead. And CAP-19's "until the surface freeze
+decides whether the closed `ErrorCategory` should gain a case" was a question EP-10
+answered: it added `ContentFiltered` and no evidence case.
+
+Two of the H.4 sentences pointed at functions that had moved rather than at functions
+that never existed. `Compat.hs` named `Baikai.Provider.OpenAI.Api.mkOpenAIResponseFormat`
+and `…Api.applyThinkingFormat`, both now in `…Internal.Request`, and
+`…Api.translateTextLikeDelta`, which is `…Internal.Stream.scanThinkTags` and always had
+a different name. `computeCacheControl` had already been re-pointed; `computeThinking`
+was already right.
+
+The `EP-n` sweep of the sources ended at zero survivors rather than the "a test comment
+may keep the number" the plan allowed for. Of the five remaining after the module
+rewrites, four were labels rather than pointers — a test group literally named
+`"baikai EP-2"`, `(EP-15, M1)` on the embeddings spec, `EP-8` on a smoke module, and an
+`EP-4 owns this` caveat on a limitation EP-4 has since left standing — and the fifth,
+`MultiHostSmoke.hs`, cites the plan by *path*, which keeps working when the number
+does not, so it kept the citation and lost the number.
+
+`cabal haddock` prints "Documentation created" for all seven packages, and the four
+drift greps and four plan-43 greps are clean, with two exceptions that are correct as
+they stand: `subscription-cli-backends.md:81` and `usage-and-cost-accounting.md:79` say
+"Before 0.5.0.0 both providers hardcoded zero usage", which is history a reader
+comparing old and new totals needs, not a claim about current behaviour.
 
 
 ## Decision Log

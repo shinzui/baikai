@@ -2,14 +2,14 @@
 -- conversation: the optional system prompt, the message vector, and
 -- the declared tools the model may invoke.
 --
--- 'Context' replaces the prior 'Baikai.Request.Request' record's
--- conversation-related fields. The per-call knobs that previously
--- lived alongside the messages (max tokens, temperature, API key)
--- now live on 'Baikai.Options.Options' instead.
+-- The per-call knobs — max tokens, temperature, API key — live on
+-- 'Baikai.Options.Options' instead, so a conversation and the settings
+-- it is dispatched with are separate values.
 --
--- EP-4 adds the @tools@ field and the 'appendToolResult' helper
--- that builds the follow-up request after the model invoked one or
--- more tools. The helper lives here rather than in 'Baikai.Tool' so
+-- The @tools@ field is on the context because the same tool set applies
+-- to every turn, and so is 'appendToolResult', which builds the
+-- follow-up request after the model invoked one or more tools. The
+-- helper lives here rather than in 'Baikai.Tool' so
 -- that 'Baikai.Tool' can stay imports-light (the 'Tool' type is
 -- referenced by the @tools@ field, so 'Baikai.Tool' cannot itself
 -- depend on 'Context').
@@ -101,11 +101,10 @@ addResponse resp = addMessage (responseMessage resp)
 -- returned 'Context' is ready to drive the follow-up request that
 -- gives the model the tool results.
 --
--- The dispatcher is invoked once per call, sequentially, and returns a
--- rich 'ToolResult' carrying text blocks, image blocks, and an error
--- flag. Error handling — timeouts, sandboxing — lives in the
--- dispatcher; running several calls concurrently does not, because this
--- function traverses them in order.
+-- Calls are dispatched one at a time, in the order they appear, and the
+-- dispatcher returns a rich 'ToolResult' carrying text blocks, image
+-- blocks, and an error flag. Any timeout or sandboxing lives in the
+-- dispatcher.
 --
 -- An __error-shaped response__ (one whose 'Baikai.Response.responseError'
 -- is 'Just') appends nothing and dispatches nothing: the context comes

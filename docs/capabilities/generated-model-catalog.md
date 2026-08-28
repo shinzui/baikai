@@ -39,7 +39,7 @@ evidence:
 # Generated model catalog and its refresh pipeline
 
 `Baikai.Models.Generated` exports one `Model` value per curated model —
-`Models.openai_gpt_4o_mini`, `Models.claude_sonnet_5`, and so on — plus
+`Models.openai_gpt_4o_mini`, `Models.anthropic_claude_sonnet_5`, and so on — plus
 `allModels`. Each value carries everything dispatch and cost accounting need, so
 a consumer naming a model gets correct pricing and a correct context window
 without maintaining a table.
@@ -75,10 +75,13 @@ $ cabal test baikai               # CatalogSpec proves the two agree
   than falling back to host auto-detection. They are curated in
   `anthropicInclude` (`baikai/fetch/FetchModelsCore.hs`), so a refresh cannot
   lose them, and pinned in `CatalogSpec`.
-- Coverage is deliberately curated: tool-capable Anthropic and OpenAI models
-  only. Other providers reachable through the OpenAI-compatible transport
-  (DeepSeek, OpenRouter, Together, …) have JSON under `baikai/data/models/` but
-  are not part of the generated Haskell surface.
+- Coverage is curated per file, not per provider: every JSON file under
+  `baikai/data/models/` is generated into the Haskell surface, and which models
+  each file carries is the curation. `deepseek.json` and `openrouter.json` are
+  generated like the rest, so `Models.deepseek_deepseek_chat` and
+  `Models.openrouter_openai_gpt_4o_mini` exist; a host with no file under
+  `baikai/data/models/` has no bindings and is reached by hand-rolling a
+  `Model`.
 - Prices are what models.dev reported plus a small hand-maintained override
   layer. They are an accounting input, not a billing source of truth; the
   authority is the provider's invoice.

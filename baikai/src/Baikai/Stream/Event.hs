@@ -4,8 +4,9 @@
 --
 -- A provider call exposes its progress as a 'Streamly.Data.Stream.Stream
 -- IO AssistantMessageEvent'. The stream begins with a single
--- 'EventStart' carrying an empty 'AssistantMessage' skeleton (api,
--- provider, model id), interleaves per-content-block lifecycle events
+-- 'EventStart' carrying an 'AssistantMessage' skeleton — empty content,
+-- zero usage, no stop reason yet — interleaves per-content-block
+-- lifecycle events
 -- (@_Start@ / @_Delta@ / @_End@) keyed by 'contentIndex', and
 -- terminates with exactly one 'EventDone' (success) or 'EventError'
 -- (any failure that bubbled out of the producer). This EventStart-first
@@ -71,9 +72,9 @@ import GHC.Generics (Generic)
 -- constructors.
 data AssistantMessageEvent
   = -- | The first event in every stream. The payload's 'partial' is an
-    -- 'AssistantMessage' with empty content; downstream consumers that
-    -- care only about the message skeleton (api, provider, model id)
-    -- can read it here.
+    -- 'AssistantMessage' skeleton: empty content, zero usage, and no
+    -- stop reason yet. The api, provider and model id live on the
+    -- 'Baikai.Response.Response', not on the message.
     EventStart StartPayload
   | -- | A text content block is about to receive deltas.
     TextStart IndexPayload
