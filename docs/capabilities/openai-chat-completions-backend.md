@@ -4,7 +4,7 @@ type: Capability
 description: "One handler serves OpenAI and every host that speaks its Chat Completions shape — DeepSeek, OpenRouter, Together, Z.ai, Qwen — with per-host request-shaping quirks auto-detected from the Model rather than configured by hand, and a longer response-header allow-list for the gateways commonly in front of them."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-14
 provider: mori://shinzui/baikai
 status: shipped

@@ -153,7 +153,7 @@ states the version (EP-10).
 | 8 | Make evidence records truthful and strict mode strict | docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md | None | EP-3, EP-4 | Complete |
 | 9 | Make trace sinks unable to hang or corrupt a call | docs/plans/66-make-trace-sinks-unable-to-hang-or-corrupt-a-call.md | None | EP-8 | Complete |
 | 10 | Freeze the public surface | docs/plans/67-freeze-the-public-surface.md | None | EP-1..EP-9 | Complete |
-| 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | In Progress |
+| 11 | Bring the documentation back to the code | docs/plans/68-bring-the-documentation-back-to-the-code.md | EP-10 | EP-1..EP-9 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -410,10 +410,10 @@ plans named (each plan's implementer reads this section before its first commit)
 - [x] EP-10 M2: deprecated shims removed; versions bumped; changelog states removals
 - [x] EP-10 M3: `Api` key normalisation, `Aborted` decision, naming and type consistency decisions recorded and applied
 - [x] EP-10 M4: accessors, parsers and deriving gaps closed; release metadata complete
-- [ ] EP-11 M1: every capability `Shape` compiles under a test
-- [ ] EP-11 M2: README and guides teach the supported registration path and the helpers that exist
-- [ ] EP-11 M3: stale claims and Haddock swept
-- [ ] EP-11 M4: changelog, capability log and bundle validation
+- [x] EP-11 M1: every capability `Shape` compiles under a test
+- [x] EP-11 M2: README and guides teach the supported registration path and the helpers that exist
+- [x] EP-11 M3: stale claims and Haddock swept
+- [x] EP-11 M4: changelog, capability log and bundle validation
 
 
 ## Surprises & Discoveries
@@ -438,6 +438,25 @@ plans named (each plan's implementer reads this section before its first commit)
   `http-client` rests on a false premise — core already links it through the `openai`
   SDK — so EP-2 and EP-5 both add the dependency directly; the Integration Points section
   makes it one stanza. (2026-08-27, drafting)
+- The documentation plan (EP-11) found roughly a third of its enumerated items already
+  fixed by the plan that owned the behaviour: `registerWith` was gone from every guide
+  and record before it ran, and the base-URL rule, the sampling table, the ceiling
+  provenance, the codex refusal quote, the kit's typed-error surface, the strict-mode
+  sentence and the garbage-collection caveat were each written by the plan that changed
+  them, as this MasterPlan's Integration Points required. What was left was the residue
+  no single plan owned — prose in one file about another plan's subject, a package table
+  nobody's plan touched, and the twelve non-compiling `Shape` blocks, which is exactly
+  the class of drift nothing checked. A wave-4 documentation plan should be written to
+  reconcile rather than to discover. (2026-08-27, EP-11)
+- A drift check whose two sides are maintained by different tools fails first on the
+  tools' disagreement. `doc-shapes` compared each capability record's block with a
+  compiled twin module, and the first formatted commit made twenty agreeing blocks
+  disagree at once, because `ormolu` collapsed aligned `let` columns, parenthesised a
+  constraint and closed a two-space comment gap. Deciding which side is authoritative —
+  here, the compiler and the formatter, so every record's block is regenerated from its
+  formatted module — is part of building such a check, not a detail of it. Any later
+  check that pairs a document with code should settle that first.
+  (2026-08-27, EP-11)
 - EP-3 found that the catalog generator's compat-rendering path has never been compiled
   (every shipped entry is `CompatNone`) and its module header lacks the selector imports;
   the first regeneration after EP-3's change will fail to build until that is fixed,
@@ -845,7 +864,69 @@ plans named (each plan's implementer reads this section before its first commit)
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**The initiative is complete on 2026-08-27.** All eleven child plans landed, in four
+waves, forty-four milestones and forty-five commits. Every REV-2 finding — one critical,
+twenty-three major, twenty-eight minor and sixteen design — is closed, and the public
+surface is frozen at `baikai` / `baikai-claude` / `baikai-openai` 0.6.0.0,
+`baikai-trace-otel` 0.4.0.0, `baikai-effectful` 0.3.0.4, and `baikai-kit` /
+`baikai-agent` 0.2.0.0.
+
+Every user-visible behaviour the Vision & Scope section promised holds, and each is
+pinned by a named test in the keyless gate. The shipped `baikai` executable runs threaded,
+so a job's `timeout` stops a hung agent, escalates INT → TERM → KILL across the process
+group, keeps what it drained, and writes UTF-8 whatever the locale says. A `baseUrl` with
+an `@` after the authority selects no other host's key or compat record, and a
+credential-carrying header is redacted wherever baikai prints or serialises. Anthropic
+thinking style and sampling support are catalog facts rather than a prefix table that did
+not know `claude-sonnet-5`. A consumer that stops reading stops the provider; every stream
+begins with `EventStart`; a cut-off tool call keeps its raw text and is never dispatched.
+A failure mid-body is classified as the transient failure it is, on both providers,
+through one rule. The unattended ceiling gates every repository-settable field and
+`allowedTools` is a grant. `baikai-kit` refuses symlinked sources and returns typed errors
+instead of exiting. Strict evidence means a record exists. A blocking or throwing sink
+cannot hang a call or starve its siblings. And every documented example compiles.
+
+The keyless `cabal test all` gate passes nine suites: 677 `baikai`, 283 `baikai-claude`,
+203 `baikai-openai`, 116 `baikai-agent`, 44 `baikai-kit`, 9 `baikai-trace-otel`, 4
+`baikai-effectful`, `baikai-smoke` skipping its live cases, and `doc-shapes` reporting
+every capability Shape in agreement with its compiled twin. `nix fmt` is a fixpoint,
+`nix flake check` passes, `cabal haddock` builds all seven packages, and the four OKF
+bundles validate.
+
+Twelve ADRs were promoted, `0006` through `0017`, one more than the decomposition
+predicted: the eight the Decomposition Strategy assigned, plus `0007` (text crossing a
+process boundary is encoded explicitly), `0011` (core owns transport failure
+classification, keyed on phase), `0015` (trace cleanup is bounded and abort cleanup is
+garbage-collection-eventual), and `0017` (a documented example compiles in the test
+suite). The last is the one the initiative did not foresee: EP-11's Decision Log had
+concluded no ADR was needed and set a test for revisiting — whether the Shape convention
+turned out to constrain code authors — and it did, because a change that moves a
+documented name now fails a test until the record moves with it.
+
+Three lessons the initiative as a whole taught.
+
+*Integration Points earned their length.* The single most load-bearing decision here was
+telling every code plan to update the Haddock, the capability record and the changelog in
+the same commit as the behaviour. EP-11 was budgeted as a sweep of everything eleven plans
+had changed; roughly a third of its enumerated items were already done when it ran, and
+what remained was the residue no single plan owned. A documentation plan at the end of a
+wave should expect to *reconcile*, and should be written so that finding an item already
+fixed is a recorded outcome rather than a surprise.
+
+*Placeholders beat guesses across parallel drafts.* EP-11 was drafted against ten sibling
+skeletons and named nine decisions it could not know, writing both readings of each. All
+nine resolved cleanly at implementation time, and two of them — EP-10 exporting smart
+constructors rather than a base value, and `Aborted` being retired rather than reshaped —
+would have been guessed wrong. The cost was nine paragraphs; the alternative was a plan
+that had to be rewritten after its dependencies landed.
+
+*A fixture can hide the defect it exists to expose.* EP-8 found this twice in one plan —
+every stub provider's `describeThinking` answered `noThinkingRequested` whatever the
+caller set, so the paths that kept the caller's level and the paths that lost it produced
+identical records — and EP-11 met the same shape from the other side, where supplying
+fixtures introduced a name collision no real consumer would meet. A test whose fixture
+cannot distinguish the two outcomes is not testing the rule, and it is worth asking of a
+suite that covers a path well and still missed a defect on it.
 
 EP-6 complete (2026-08-27), four milestones in four commits `c629195`, `bb5113a`,
 `a039ba9` and the completion commit. The unattended policy ceiling now gates every
@@ -1054,3 +1135,14 @@ field set, the changelog-correction rule, and EP-10's version plan) and in the D
 Log. One child plan (EP-8, `docs/plans/65-…`) was edited in the same pass so its changelog
 step follows the correction rule. The Progress section's milestone titles are the ones the
 child plans use verbatim.
+
+Revision note (2026-08-27, EP-11 complete, initiative complete): EP-11's registry row is
+Complete and its four Progress lines are ticked, which completes the registry. The
+Outcomes & Retrospective section above is written for the initiative as a whole. Two
+cross-plan discoveries were added to Surprises & Discoveries: the documentation plan
+found roughly a third of its enumerated items already fixed by the plan that owned the
+behaviour, and the drift check it built began by failing on a disagreement between the
+compiler and the formatter rather than on any real drift. The ADR distillation pass ran
+across all eleven child plans and promoted one further record, `0017`, revising EP-11's
+own "no new ADR" decision; the corpus now runs `0001` through `0017`, so the next plan to
+promote a record takes `0018`.

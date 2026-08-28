@@ -4,7 +4,7 @@ type: Capability
 description: "Declare tools once as provider-neutral Tool values with verbatim JSON Schema, constrain the model with ToolChoice, and either drive the request/result round trip by hand or hand the whole loop to runToolLoop, which bounds the turn budget and turns a dispatcher exception into a tool-result error rather than a crash."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-4
 provider: mori://shinzui/baikai
 status: shipped

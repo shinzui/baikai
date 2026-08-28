@@ -4,7 +4,7 @@ type: Capability
 description: "Run Claude Code or Codex with no terminal and no human from Haskell: a provider-neutral capability profile, a pure operator ceiling that refuses an over-broad request instead of quietly weakening it, and a runner that delivers the prompt on stdin, bounds captured output, and on timeout interrupts, terminates, then kills the whole process group while keeping what it drained."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-17
 provider: mori://shinzui/baikai
 status: shipped
@@ -73,6 +73,15 @@ nobody answers is denied. `toolGrantsImpliedBy` says which grants a capability
 implies on its own; anything else needs the operator's `policy.allowed-tools`.
 See [docs/adr/0012](../adr/0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md).
 
+The shipped `baikai` executable links the **threaded runtime**, which is what
+makes the rest of this true: on the single-threaded runtime a job's `timeout`
+never fired and a chatty agent could deadlock the run on a full pipe, because
+the concurrent drain and the timer had no capability to run on. A
+process-spawning executable ships threaded — see
+[docs/adr/0006](../adr/0006-a-process-spawning-executable-ships-on-the-threaded-runtime.md).
+It also writes its output as UTF-8 bytes rather than encoding through the
+locale, so a run under `LANG=C` does not mangle an agent's answer.
+
 The runner is deliberately blind to vendors. `runAgentCommand` consumes an
 already-rendered `AgentCommand` and imports no vendor renderer, which is why it
 can be exercised entirely with hand-written argument vectors. It delivers the
@@ -140,6 +149,6 @@ case claudeAgentCommand config request of
 - POSIX signal escalation on timeout is conditional on a non-Windows build.
   Without POSIX signals only the leader can be reached, so a survivor that
   ignored the interrupt is missed, as it always was on such a platform.
-- `baikai-agent` is at 0.1.0.0. Its surface has not been through a compatibility
+- `baikai-agent` is at 0.2.0.0. Its surface has not been through a compatibility
   cycle yet, which is why this capability is marked `experimental` while the core
   library's are not.

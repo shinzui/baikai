@@ -4,7 +4,7 @@ type: Capability
 description: "Run claude -p and codex exec as subprocess providers behind the same completeRequest surface, so a program billed against a flat-rate Claude Max or ChatGPT subscription uses the same call sites as a per-token API caller — now carrying the token counts and session identifiers each tool reports about itself."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-15
 provider: mori://shinzui/baikai
 status: shipped
@@ -84,7 +84,7 @@ completeRequest modelWithCliTag ctx opts -- spawns `claude -p`
   cached tokens out. `claude` also reports a real `total_cost_usd`. **Historical
   cost reports will not reconcile with new ones.**
 - The tools must be on `PATH` and already authenticated. baikai does not install
-  them, log them in, or check their version compatibility beyond a two-second
+  them, log them in, or check their version compatibility beyond a five-second
   `--version` probe used for evidence.
 - `codex-cli 0.146.0` names no model anywhere in its event stream, so a Codex CLI
   run can never exceed `correlated` evidence strength. A zero exit status never

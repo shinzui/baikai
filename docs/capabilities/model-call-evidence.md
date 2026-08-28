@@ -4,7 +4,7 @@ type: Capability
 description: "Opt one call in and get one record of what actually crossed the boundary to the provider — the model the provider said it ran, the correlation identifier, what the reasoning request became on the wire, two canonical digests, and an honest strength that a zero exit status and a 2xx never raise."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-19
 provider: mori://shinzui/baikai
 status: shipped

@@ -4,7 +4,7 @@ type: Capability
 description: "Call /v1/embeddings against OpenAI or any host that speaks its shape through a small policy-free IO client that resolves its key per host through the same table as chat calls and shares their connection cache, with a total accessor for the common single-vector case."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-6
 provider: mori://shinzui/baikai
 status: shipped

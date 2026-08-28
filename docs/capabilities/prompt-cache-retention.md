@@ -4,7 +4,7 @@ type: Capability
 description: "Ask for short or long prompt-cache retention with one provider-agnostic preference that maps onto each host's own primitive, downgrades transparently where long retention is unsupported, and reports cache-read and cache-write tokens back as disjoint billed classes."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-12
 provider: mori://shinzui/baikai
 status: shipped

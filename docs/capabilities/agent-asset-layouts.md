@@ -4,7 +4,7 @@ type: Capability
 description: "Ask where Claude Code or Codex discovers a skill or a custom agent, at project or user scope, and get the answer as pure path rules plus the provider-native file format — including Codex's TOML rendering, whose instructions body is a literal string so a backslash in it is a backslash — with no filesystem access and no opinion about who writes the files."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-22
 provider: mori://shinzui/baikai
 status: shipped

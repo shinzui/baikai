@@ -4,7 +4,7 @@ type: Capability
 description: "Depend on a ready-made Model value for every shipped Anthropic and OpenAI model — context window, output cap, per-million-token prices, modalities, compat quirks — regenerated from models.dev by two committed executables and pinned byte-for-byte by a round-trip test."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-3
 provider: mori://shinzui/baikai
 status: shipped

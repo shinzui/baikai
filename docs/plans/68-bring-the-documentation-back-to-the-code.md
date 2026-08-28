@@ -97,11 +97,11 @@ Milestone 3 — stale claims and Haddock swept:
 
 Milestone 4 — changelog, capability log and bundle validation:
 
-- [ ] `CHANGELOG.md`: the four 0.5.0.0 gaps filled; the `[Unreleased]` entries EP-1..EP-10
+- [x] `CHANGELOG.md`: the four 0.5.0.0 gaps filled; the `[Unreleased]` entries EP-1..EP-10
       should have added verified or added; the three wrong 0.5.0.0 sentences corrected.
-- [ ] Twelve capability records updated in the body (never `since`), `generated.at`
+- [x] Twelve capability records updated in the body (never `since`), `generated.at`
       advanced, one dated `docs/capabilities/log.md` entry.
-- [ ] `okf validate` (capabilities, reviews, improvement-requests), `okf graph`,
+- [x] `okf validate` (capabilities, reviews, improvement-requests), `okf graph`,
       `mori validate`, `mori register`, keyless `cabal test all` pass; master plan updated.
 
 
@@ -381,6 +381,19 @@ Record every decision made while working on the plan.
   boundary, interface ownership or a constraint on code. Revisit at the distillation
   pass if the convention turns out to constrain code authors.
   Date: 2026-08-27
+- Decision (revising the entry above, at the distillation pass): one ADR,
+  `docs/adr/0017-a-documented-example-compiles-in-the-test-suite.md`. The convention did
+  turn out to constrain code authors, in exactly the way the entry above set as the test:
+  a change that moves a name a record documents now fails
+  `cabal test baikai-smoke:test:doc-shapes` until the record moves with it, and that
+  obligation is a property of the repository rather than of this plan. The ADR records
+  the mechanism, why `doctest` cannot serve, the three consequences the build taught
+  (the formatter is the arbiter of a documented example, fixtures introduce a
+  `DuplicateRecordFields` ambiguity a real consumer would not meet, and only the first
+  `haskell` fence per record is compiled), and the deliberate exclusion of `docs/user/`,
+  whose fragments are held to the weaker REPL check instead. The convention itself stays
+  in `index.md`, because how a record *reads* is the bundle's business.
+  Date: 2026-08-27
 - Decision: The nine angle-bracket placeholders are resolved as follows, each read from
   the owning plan's Outcomes & Retrospective and then confirmed against the code.
   `<apiProviderBase>` — EP-10 exports no base *value*; it exports the smart constructors
@@ -424,12 +437,73 @@ Record every decision made while working on the plan.
 
 ## Outcomes & Retrospective
 
-Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose. Before marking the plan complete,
-distill durable project context from the Decision Log, Surprises & Discoveries, and
-this section into docs/adr/. Keep task-local execution details here.
+Complete on 2026-08-27, four milestones in four commits (`78a0cd9`, `63ceac0`, `6f4b0d0`,
+and this one).
 
-(To be filled during and after implementation.)
+All four things the Purpose promised a reader hold. Every fenced `haskell` block under
+`docs/capabilities/` is compiled by `cabal test baikai-smoke:test:doc-shapes`, which runs
+under the ordinary `cabal test all` and reports `20 haskell blocks agree, 1 kdl block
+resolves, 1 skipped`; changing one character inside a record prints `DIFFERS` with both
+lines and exits 1, and adding a `haskell` fence to a record with no module prints
+`no module for a record with a haskell Shape block: Cap3.hs` and exits 1. `README.md` and
+the guides teach `register`, `newProviderRegistryFrom` over the four provider values, and
+`assertRegistered`; `git grep registerWith` over the README, the guides and the records is
+empty. The five July helpers and the sampling options each have a home, and the
+custom-provider example is built on `apiProviderWith` rather than on a constructor EP-10
+unexported — the one guide fence in the repository that could not have compiled. The
+stale claims are gone: `cabal haddock` builds all seven packages, the eight drift greps
+come back as the plan predicted, and `git grep "EP-[0-9]" -- '*.hs'` is empty.
+
+The gates: `okf validate` reports `OK: 22 concepts` for the capabilities bundle, `OK: 2`
+for reviews, `OK: 5` for improvement-requests and `OK: 11` for the `docs/user` bundle a
+concurrent change added mid-plan; `okf graph` shows the same thirty-three edges;
+`okf log --check-stale` exits 0 on both logged bundles; `mori validate` prints
+"Configuration is valid." and `mori register` lists twenty-two concepts and eleven guides;
+`nix fmt` is a fixpoint and `nix flake check` passes; and the keyless `cabal test all`
+passes every suite — 677 `baikai`, 283 `baikai-claude`, 203 `baikai-openai`, 116
+`baikai-agent`, 44 `baikai-kit`, 9 `baikai-trace-otel`, 4 `baikai-effectful`, plus
+`baikai-smoke` skipping its live cases and `doc-shapes` reporting agreement.
+
+Three things worth carrying.
+
+*The plan over-estimated its own scope by about a third, and that is the decomposition
+working.* The MasterPlan's Integration Points told every code plan to update the Haddock
+of what it changed, the record that names the behaviour, and the changelog, in the same
+commit. They did. `registerWith` was already gone from every guide; the base-URL rule,
+the sampling table, the ceiling provenance, the `codex 0.149.1` refusal quote, the
+kit's typed errors, the strict-mode sentence and the garbage-collection caveat were all
+already written by the plan that changed the behaviour; EP-8 had already added the three
+0.5.0.0 changelog entries with their dated parentheticals. What was left for a sweep was
+the residue no single plan owned: prose about *other* plans' subjects (the CLI usage
+claims in three files), a README package table nobody's plan touched, and the twelve
+Shape blocks, which is precisely the class of drift the review found because nothing
+checked it.
+
+*A mechanism that checks documentation immediately starts checking the mechanism.* The
+formatter reformatted the twin modules on the first commit and made twenty agreeing
+blocks disagree at once. Regenerating the records from the formatted modules is the right
+answer and a better outcome than the plan's, but the general lesson is that a drift check
+whose two sides are maintained by different tools will fail on the tools' disagreement
+before it ever fails on a real drift. Deciding which side is authoritative — here, the
+compiler and the formatter — is part of building the check, not a detail of it.
+
+*The plan's own line references were three weeks stale, and it said so.* Every line
+number in this plan is as of `5411947`; by the time it ran, `CHANGELOG.md` had grown a
+thousand lines and half the guides had been rewritten. The instruction to "use them to
+find a sentence, not to edit blind" is what made that harmless. A plan written against a
+moving tree should quote the sentence it wants changed, which this one did throughout,
+and the one place it did not — the four `CHANGELOG.md` line numbers — is the one place
+the sentences had to be found by content.
+
+Two things left undone, deliberately. `docs/capabilities/opentelemetry-span-export.md`'s
+second `haskell` fence is not compiled; the checker reads the first, as the plan
+specifies, and the second was verified by hand against
+`baikai-trace-otel/src/Baikai/Trace/Sink/OpenTelemetry.hs`. And `docs/user/` fences are
+not compiled: guides carry deliberately elided fragments, and the standard they are held
+to is the REPL resolution recorded in Surprises & Discoveries. Both exclusions are
+recorded in `docs/adr/0017-a-documented-example-compiles-in-the-test-suite.md`, which is
+this plan's one ADR — a revision of the Decision Log's original "no new ADR", made at the
+distillation pass because the convention turned out to constrain code authors after all.
 
 
 ## Context and Orientation

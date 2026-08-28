@@ -1072,6 +1072,32 @@ that takes the name away, per
   is returned as `KitWriteFailed` instead of escaping as an uncaught exception.
   (REV-2 Theme 8.4.)
 
+- Documentation: `baikai`'s Haddock no longer describes behaviour the code left
+  behind. The trace event's token counts are `Maybe` because a non-assistant
+  terminal has no usage, not because the CLI providers report nothing — since
+  0.5.0.0 both carry what the tool reported. `EventStart`'s `partial` is a
+  message skeleton with empty content, zero usage and no stop reason; the api,
+  provider and model id live on the `Response`. A lifted stream's `EventStart`
+  carries the final usage and stop reason already filled in, because the
+  response is complete before the stream begins. `Baikai.CacheRetention` no
+  longer mentions an OpenAI Responses 24-hour bucket no code emits. System
+  prompts are documented as living on `Context.systemPrompt` rather than on a
+  `Baikai.Request` module that no longer exists, `emptyModel`'s `compat` is
+  described as auto-detection rather than a placeholder, tool dispatch says
+  calls run one at a time in order, and every reference to a plan number is
+  gone. (REV-2 H.4.)
+
+- Documentation: `baikai-claude`'s and `baikai-openai`'s Haddock point at the
+  functions that exist. `Baikai.Compat` named
+  `Baikai.Provider.OpenAI.Api.mkOpenAIResponseFormat`,
+  `…Api.applyThinkingFormat` and `…Api.translateTextLikeDelta`; the first two
+  moved to `…Internal.Request` and the third is
+  `…Internal.Stream.scanThinkTags`. `ThinkingFormat`'s note said the six
+  non-native shapes all clamp through `compatibleEffort`; three do, Z.ai and
+  Qwen send a bare toggle, and `ThinkingFormatNone` drops the control.
+  `immediateError` carried two `-- |` headers where one was intended.
+  (REV-2 H.4.)
+
 ## [baikai 0.5.0.0] - 2026-08-05
 
 ### Added
@@ -1226,8 +1252,9 @@ that takes the name away, per
   absolute path and read the tool's own `--version` line. The probe is cached
   per resolved name for the lifetime of the process, because spawning it per
   model call would roughly double the process cost of the cheapest possible
-  call, and it is bounded by a two-second timeout so a tool that hangs on
-  `--version` cannot wedge a model call. A probe that fails records the version
+  call, and it is bounded by a five-second timeout so a tool that hangs on
+  `--version` cannot wedge a model call. (Corrected 2026-08-27: the entry said
+  two seconds; `versionProbeMicros` has always been five.) A probe that fails records the version
   as absent rather than failing the call. It is only ever called from inside
   the evidence branch: a caller who asked for no evidence must not pay for a
   process whose only purpose is to describe a tool they were about to run

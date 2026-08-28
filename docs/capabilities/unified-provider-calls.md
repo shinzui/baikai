@@ -4,7 +4,7 @@ type: Capability
 description: "Write one blocking call — completeRequest — and dispatch it against Anthropic, OpenAI, any OpenAI-compatible host, a local coding-agent CLI, or a handler you registered yourself, chosen by the Model value rather than by a different code path."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-1
 provider: mori://shinzui/baikai
 status: shipped

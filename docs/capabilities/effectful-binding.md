@@ -4,7 +4,7 @@ type: Capability
 description: "Call baikai from effectful code through a dynamic Baikai effect with three operations — Complete, StreamCollect, StreamEach — and swap a real provider for a fake one by changing which interpreter runs, without a class, a monad transformer, or a policy decision baked into the binding."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-20
 provider: mori://shinzui/baikai
 status: shipped

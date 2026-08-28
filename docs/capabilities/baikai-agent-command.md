@@ -4,7 +4,7 @@ type: Capability
 description: "Give a shell script one stable command — printf '%s' \"$prompt\" | baikai agent run <job> --prompt-stdin — and move the choice of Claude Code or Codex, its permissions, paths, and limits into KDL configuration resolved across five layers, with the operator's safety ceiling read from the operator's own file and nowhere else."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-18
 provider: mori://shinzui/baikai
 status: shipped
@@ -114,5 +114,5 @@ jobs {
   change the exit code, since the agent's own status is what a script branches on.
 - `settei-formats` is deliberately excluded from the dependency set, because it
   bundles Dhall loading and repository configuration is untrusted input here.
-- `baikai-agent` is at 0.1.0.0 and has not been through a compatibility cycle, so
+- `baikai-agent` is at 0.2.0.0 and has not been through a compatibility cycle, so
   this capability is `experimental`.

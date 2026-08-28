@@ -4,7 +4,7 @@ type: Capability
 description: "Set one ResponseFormat on Options — plain JSON-object mode or a named JSON schema — and have it map onto Anthropic's output_config and OpenAI's response_format, so a caller gets schema-constrained JSON back from either vendor without writing per-provider request shaping."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-5
 provider: mori://shinzui/baikai
 status: shipped

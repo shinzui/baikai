@@ -195,6 +195,57 @@
   process-global cache in `Baikai.Http`, shared by both backends and the
   embeddings client and keyed per normalised base URL.
 
+* **Change**: every `## Shape` block is now compiled. `baikai-smoke` gained a
+  second test-suite, `doc-shapes`, whose twenty `Shape.CapN` modules hold each
+  record's fenced `haskell` block between `-- BEGIN CAP-N` / `-- END CAP-N`
+  markers, and whose checker compares the two and fails naming the record, the
+  module and the first differing line. The review found twelve blocks that did
+  not compile; all twelve were rewritten against the current exports — CAP-4's
+  `#tools` on `Context` and `runToolLoop`'s budget-first argument order, CAP-9's
+  and CAP-19's missing `Baikai.Trace` / `Baikai.Trace.Sink` imports and
+  `fileSink`'s `IO`, CAP-12's usage under `#message`, CAP-13's unexported
+  `registerWith`, CAP-14's `mkModel` and host-root base URL, CAP-16's and
+  CAP-17's refusal branches (neither `AgentRenderError` nor `AgentRunFailure` has
+  an `Exception` instance), CAP-20's `Eff es Response`, CAP-22's
+  `InteractiveProjectScope`, and CAP-18's KDL, which the same suite resolves
+  through `Baikai.Agent.Config` because configuration is data. CAP-3's Shape is a
+  `console` transcript and is skipped. Every block was then regenerated from its
+  formatted module, so no record shows Haskell the repository's formatter would
+  rewrite. The convention is stated in `index.md` under "Shape blocks".
+
+* **Update**: CAP-17 (unattended coding-agent runs) records that the shipped
+  `baikai` executable links the threaded runtime — without it a job's `timeout`
+  never fired and a chatty agent could deadlock the run on a full pipe — and that
+  the command writes UTF-8 bytes rather than encoding through the locale. CAP-17
+  and CAP-18 both move to `baikai-agent 0.2.0.0`.
+
+* **Update**: CAP-2 (typed incremental streaming) records that `EventStart` is
+  first without exception: both HTTP providers pre-seed the skeleton before their
+  first wire read, so a 401, a rate limit, an in-band error frame and an EOF
+  before the first frame each produce `EventStart` then `EventError`.
+
+* **Update**: CAP-3 (generated model catalog) no longer says DeepSeek,
+  OpenRouter and Together have JSON but no generated bindings. Every file under
+  `baikai/data/models/` is generated; the curation is which models each file
+  carries. Its prose also named `Models.claude_sonnet_5`, which is
+  `Models.anthropic_claude_sonnet_5`.
+
+* **Update**: CAP-12 (prompt-cache retention) and CAP-14 (OpenAI Chat
+  Completions backend) drop the OpenAI Responses 24-hour bucket, which no code
+  emits. The OpenAI-compatible provider marks a request only where the host's
+  compat record sets `cacheControlFormat` — OpenRouter in the shipped table —
+  and `api.openai.com` gets no marker, because Chat Completions caches
+  automatically and offers no retention control.
+
+* **Update**: CAP-15 (subscription CLI backends) corrects the `--version` probe
+  bound from two seconds to five, which is what `versionProbeMicros` has always
+  been. CAP-4 (typed tool calling) adds `Baikai.Context` and
+  `Baikai.Provider.Registry` to its `interface` list, without which the Shape
+  block names modules the record does not declare. CAP-19 (model-call evidence)
+  names `assertEvidencePrecedesTerminal` as the ordering assertion its evidence
+  line claimed, and records that the surface freeze reviewed `ErrorCategory` and
+  added no evidence case.
+
 ## 2026-08-10
 
 * **Add**: Adopt the shared OKF capability profile (okf-profiles

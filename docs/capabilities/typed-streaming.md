@@ -4,7 +4,7 @@ type: Capability
 description: "Fold a provider's response as a stream of typed AssistantMessageEvent values — start, text and thinking deltas, tool-call assembly, and exactly one terminal — so a consumer renders tokens as they arrive and still recovers structured partial output when a stream fails midway."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-2
 provider: mori://shinzui/baikai
 status: shipped
@@ -38,8 +38,12 @@ evidence:
 stream of `AssistantMessageEvent` instead of a single `Response`: `EventStart`,
 `TextStart` / `TextDelta` / `TextEnd`, the thinking and tool-call equivalents,
 and exactly one `EventDone` or `EventError` at the end. Every provider — API or
-subprocess — terminates the same way, so a fold written once works against all
-of them.
+subprocess — begins and terminates the same way, so a fold written once works
+against all of them. `EventStart` is first without exception: both HTTP
+providers pre-seed the skeleton before their first wire read, so a 401, a rate
+limit, an in-band error frame or an EOF before the first frame each produce
+`EventStart` then `EventError` rather than a stream that starts with its own
+failure.
 
 The terminal is not merely a marker. It carries the authoritative assembled
 message, so a consumer that accumulated deltas for display can discard its own

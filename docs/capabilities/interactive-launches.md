@@ -4,7 +4,7 @@ type: Capability
 description: "Hand the terminal to a real Claude Code or Codex session from Haskell with provider-neutral model, reasoning-effort, directory, and safety settings — where a safety policy the chosen tool cannot express is refused before launch instead of being silently dropped."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-16
 provider: mori://shinzui/baikai
 status: shipped

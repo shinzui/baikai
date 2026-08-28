@@ -4,7 +4,7 @@ type: Capability
 description: "Read a disjoint token breakdown and a computed USD cost off every successful call, total them with Monoid instances, and optionally append one JSONL record per call to disk through a background writer that never pads the apparent latency of the call itself."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-7
 provider: mori://shinzui/baikai
 status: shipped

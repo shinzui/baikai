@@ -4,7 +4,7 @@ type: Capability
 description: "Set one canonical ThinkingLevel — minimal through max — and have each transport translate it into its own primitive: an Anthropic thinking budget, one of seven OpenAI-compatible wire shapes, a claude --effort flag, or a codex model_reasoning_effort override, with every clamp and drop recorded rather than silent."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-10T00:00:00Z"
+  at: "2026-08-27T00:00:00Z"
 capabilityId: CAP-11
 provider: mori://shinzui/baikai
 status: shipped
