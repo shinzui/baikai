@@ -164,7 +164,7 @@ rather than a decision record.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Send Anthropic fast mode as a catalog-gated request option | docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md | None | None | Not Started |
-| EP-2 | Upgrade the claude SDK to 1.5 and decide what a paused turn means | docs/plans/70-upgrade-the-claude-sdk-to-1-5-and-decide-what-a-paused-turn-means.md | None | EP-1 | Not Started |
+| EP-2 | Upgrade the claude SDK to 1.5 and decide what a paused turn means | docs/plans/70-upgrade-the-claude-sdk-to-1-5-and-decide-what-a-paused-turn-means.md | None | EP-1 | Complete |
 | EP-3 | Ask Anthropic for summarized thinking instead of silently empty blocks | docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md | EP-2 | EP-1 | Not Started |
 | EP-4 | Carry the refusal category into the error and settle server-side fallbacks | docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md | EP-2 | EP-3 | Not Started |
 
@@ -272,8 +272,8 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [ ] EP-1: Fast mode support is a catalog fact carried by the compat record
 - [ ] EP-1: `Options.speed` reaches the wire, is refused on unsupporting models, and is recorded in evidence
 - [ ] EP-1: Fast-mode pricing is reported truthfully rather than at the standard rate
-- [ ] EP-2: `claude` moves to `^>=1.5` and the package builds
-- [ ] EP-2: A paused turn has a decided, tested representation
+- [x] EP-2: `claude` moves to `^>=1.5` and the package builds
+- [x] EP-2: A paused turn has a decided, tested representation
 - [ ] EP-3: Reasoning summaries are requested and arrive non-empty
 - [ ] EP-3: A model that returns no summary says so in the evidence record
 - [ ] EP-4: A refusal carries the provider's category and explanation
@@ -314,6 +314,27 @@ rescoped from "handle refusals" to "carry the refusal's category", which
 is a much smaller change, because the surrounding behaviour is a decision
 somebody already made and tested.
 
+The third is that the bump invalidates a premise this MasterPlan states
+for EP-1, and EP-1 was scheduled to run before it. The Decomposition
+Strategy says fast mode is "requestable and translatable but not
+observable" because `Claude.V1.Messages.Usage` has no field reporting
+which speed actually ran. That is true of 1.4.0 and false of 1.5.0:
+`Usage` there gains `speed :: Maybe Speed`, alongside `inference_geo`
+and `service_tier`. Fast mode is therefore observable after EP-2, and
+EP-1's evidence design must not bake in the requested-and-translated-only
+shape that ADR 0002 would otherwise force on it. Whichever of the two
+runs second should read this paragraph before designing the evidence.
+
+The fourth is that EP-2 closed two gaps the MasterPlan never scoped,
+because they are the same dependency's doing. `Usage` in 1.5.0 also
+gains `output_tokens_details.thinking_tokens`, so `Usage.reasoningTokens`
+— hard-coded to `Nothing` on this provider for want of anything to read
+— is now populated; and `Messages.StreamUsage` gains the prompt-side
+counts, so a call whose prompt grew mid-stream under a server-side tool
+is accounted for correctly instead of keeping the `message_start`
+figures. Both are in `baikai-claude/src/Baikai/Provider/Claude/Internal/Stream.hs`
+with named tests under "the counts and stop reasons claude 1.5 reports".
+
 
 ## Decision Log
 
@@ -326,6 +347,15 @@ somebody already made and tested.
   rather than buried in a feature diff. Fast mode needs no bump at all,
   so serializing it behind one would delay deliverable work for nothing.
   Date: 2026-08-28
+
+- Decision: A paused turn is a `Stop`, and `Baikai.StopReason` does not
+  grow a fifth constructor for it. Rationale: `ErrorReason` would say a
+  call failed when nothing failed, and a constructor meaning "send this
+  back to continue" asks for a continuation loop ADR 0005 has already
+  declined. Recorded durably as
+  [ADR 0018](../adr/0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md),
+  which generalizes the rule to every future provider stop reason.
+  Date: 2026-08-27
 
 - Decision: EP-4 owns the question of whether baikai forwards Anthropic's
   server-side `fallbacks` parameter, and owns amending

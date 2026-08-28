@@ -688,6 +688,28 @@ that takes the name away, per
   `Baikai.Provider.Cli.Internal.subprocessStrength` keeps its signature and
   delegates. (REV-2 D.10.)
 
+- `baikai-claude`: the `claude` dependency moves from `^>=1.4` to `^>=1.5`.
+  1.5.0 adds a `Pause_Turn` constructor to `Claude.V1.Messages.StopReason`, and
+  `mapStopReason` matches that type with no wildcard under
+  `-Werror=incomplete-patterns`, so the bump forced a decision. A paused turn
+  maps to `Stop`: Anthropic suspends the turn mid-flight for a long-running
+  server-side tool and expects the caller to send the message back to continue
+  it, so nothing failed, and `Baikai.StopReason` has no constructor that says
+  "resume me". Widening that public sum is a breaking change for every consumer
+  who matches on it exhaustively, and it is not this bump's to make. The general
+  rule is
+  [ADR 0018](docs/adr/0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md):
+  a provider stop reason with no baikai equivalent maps to the constructor that
+  is truthful about whether the call failed, and the sum widens only when baikai
+  would behave differently for it.
+
+- `baikai-claude`: `Messages.StreamUsage` lost its `Generic` instance in `claude`
+  1.5.0, so the `message_delta` usage is read through `OverloadedRecordDot`
+  rather than a generic-lens label. `Messages.max_tokens` and
+  `Messages.output_config` became ambiguous selectors — `Messages.Fallback`
+  carries both names — so the provider's tests read them through `^. #max_tokens`
+  and `^. #output_config` instead.
+
 ### Removed
 
 - `baikai` **0.6.0.0** (breaking): the sixteen `_Type` base-value aliases deprecated in
@@ -1108,6 +1130,22 @@ that takes the name away, per
   Qwen send a bare toggle, and `ThinkingFormatNone` drops the control.
   `immediateError` carried two `-- |` headers where one was intended.
   (REV-2 H.4.)
+
+- `baikai-claude`: an Anthropic call reports its thinking tokens. `Usage.reasoningTokens`
+  was hard-coded to `Nothing` on this provider because `claude` 1.4.0's
+  `Messages.Usage` had no breakdown to read; 1.5.0 adds
+  `output_tokens_details.thinking_tokens`, and both `message_start` and
+  `message_delta` now fill the field from it. `reasoningTokens` is an
+  informational subset of `outputTokens`, so no total and no cost moves.
+
+- `baikai-claude`: the prompt-side token counts survive a server-side tool run.
+  The final `message_delta` used to contribute only `output_tokens`, and
+  `inputTokens`, `cacheReadTokens` and `cacheWriteTokens` kept whatever
+  `message_start` had reported — which is wrong for a call whose prompt grew
+  mid-stream. `claude` 1.5.0 exposes those three on `Messages.StreamUsage`, and
+  each is now taken when present. An absent field still keeps the
+  `message_start` figure rather than zeroing it, so a model that sends only
+  `output_tokens` is accounted for exactly as before.
 
 ## [baikai 0.5.0.0] - 2026-08-05
 

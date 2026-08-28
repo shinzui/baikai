@@ -117,7 +117,7 @@ responseFormatMappingTest =
     case mapRequest model ctx opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right (req, _) ->
-        Messages.output_config req
+        req ^. #output_config
           @?= Just (Messages.jsonSchemaConfig personSchema)
 
 optionsMappingTest :: TestTree

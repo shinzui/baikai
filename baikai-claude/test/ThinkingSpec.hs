@@ -42,6 +42,7 @@ tests =
       explicitCompatOverridesDefaultTest,
       anthropicModelsCoverCatalogTest,
       samplingTests,
+      claude15UsageTests,
       zeroCapFloorTests,
       replaySanitationTests,
       toolIdTests,
@@ -85,7 +86,7 @@ neverExceedsCapTests :: [TestTree]
 neverExceedsCapTests =
   [ testCase (name <> " " <> levelName <> " stays within catalog cap") $ do
       req <- requestFor model (emptyOptions & #thinking .~ Just level)
-      Messages.max_tokens req <= model ^. #maxOutputTokens
+      req ^. #max_tokens <= model ^. #maxOutputTokens
         @?= True
   | (name, model, _, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
@@ -102,11 +103,11 @@ styleTests =
             @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = expectedBudget}
           assertBool
             "max_tokens leaves visible-output room beyond budget"
-            (Messages.max_tokens req > expectedBudget)
+            (req ^. #max_tokens > expectedBudget)
         AnthropicThinkingAdaptive -> do
           requestThinking req @?= Just Messages.ThinkingAdaptive
-          Messages.max_tokens req @?= model ^. #maxOutputTokens
-          (Messages.output_config req >>= Messages.effort)
+          req ^. #max_tokens @?= model ^. #maxOutputTokens
+          (req ^. #output_config >>= Messages.effort)
             @?= adaptiveEffort level
   | (name, model, style, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
@@ -205,7 +206,7 @@ conditionalDowngradeTests =
             opts = emptyOptions & #thinking .~ Just ThinkingMinimal
         req <- requestFor model opts
         requestThinking req @?= Nothing
-        Messages.max_tokens req @?= 1000
+        req ^. #max_tokens @?= 1000
         t <- translationFor model opts
         t ^. #requested @?= Just ThinkingMinimal
         t ^. #mode @?= ThinkingModeUnsupported
@@ -226,7 +227,7 @@ adaptiveHigherEffortTests =
             anthropic_claude_opus_4_7
             (emptyOptions & #thinking .~ Just level)
         requestThinking req @?= Just Messages.ThinkingAdaptive
-        (Messages.output_config req >>= Messages.effort) @?= Just expected
+        (req ^. #output_config >>= Messages.effort) @?= Just expected
     | (name, level, expected) <-
         [ ("xhigh is preserved", ThinkingXHigh, "xhigh"),
           ("max is preserved", ThinkingMax, "max")
@@ -244,7 +245,7 @@ maxBudgetTest =
       @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = 32768}
     assertBool
       "max_tokens leaves visible-output room beyond the max thinking budget"
-      (Messages.max_tokens req > 32768)
+      (req ^. #max_tokens > 32768)
 
 explicitMaxTokensTest :: TestTree
 explicitMaxTokensTest =
@@ -257,7 +258,7 @@ explicitMaxTokensTest =
     req <- requestFor anthropic_claude_haiku_4_5 opts
     requestThinking req
       @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = budget}
-    Messages.max_tokens req @?= anthropic_claude_haiku_4_5 ^. #maxOutputTokens
+    req ^. #max_tokens @?= anthropic_claude_haiku_4_5 ^. #maxOutputTokens
 
 handRolledUnclampedTest :: TestTree
 handRolledUnclampedTest =
@@ -275,7 +276,7 @@ handRolledUnclampedTest =
             & #maxTokens .~ Just 100
         expected = 100 + thinkingTokenBudget ThinkingLow
     req <- requestFor model opts
-    Messages.max_tokens req @?= expected
+    req ^. #max_tokens @?= expected
 
 tooSmallCapDropsThinkingTest :: TestTree
 tooSmallCapDropsThinkingTest =
@@ -286,7 +287,7 @@ tooSmallCapDropsThinkingTest =
         opts = emptyOptions & #thinking .~ Just ThinkingMinimal
     req <- requestFor model opts
     requestThinking req @?= Nothing
-    Messages.max_tokens req @?= 1000
+    req ^. #max_tokens @?= 1000
 
 mergedOutputConfigTest :: TestTree
 mergedOutputConfigTest =
@@ -300,7 +301,7 @@ mergedOutputConfigTest =
         expected = (Messages.jsonSchemaConfig schema) {Messages.effort = Just "medium"}
     req <- requestFor anthropic_claude_opus_4_6 opts
     requestThinking req @?= Just Messages.ThinkingAdaptive
-    Messages.output_config req @?= Just expected
+    req ^. #output_config @?= Just expected
 
 explicitCompatOverridesDefaultTest :: TestTree
 explicitCompatOverridesDefaultTest =
@@ -315,7 +316,7 @@ explicitCompatOverridesDefaultTest =
         opts = emptyOptions & #thinking .~ Just ThinkingLow
     req <- requestFor model opts
     requestThinking req @?= Just Messages.ThinkingAdaptive
-    (Messages.output_config req >>= Messages.effort) @?= Just "low"
+    (req ^. #output_config >>= Messages.effort) @?= Just "low"
 
 requestFor :: Model -> Options -> IO Messages.CreateMessage
 requestFor model opts = fst <$> mappedFor model emptyContext opts
@@ -433,12 +434,12 @@ zeroCapFloorTests =
     "a model with an unknown output cap sends the documented floor"
     [ testCase "hand-rolled model with unknown cap sends the 1024 floor" $ do
         req <- requestFor uncappedModel emptyOptions
-        Messages.max_tokens req @?= uncappedMaxTokensFloor,
+        req ^. #max_tokens @?= uncappedMaxTokensFloor,
       testCase "the floor leaves room for a thinking budget" $ do
         let opts = emptyOptions & #thinking .~ Just ThinkingLow
         req <- requestFor uncappedModel opts
         t <- translationFor uncappedModel opts
-        Messages.max_tokens req @?= uncappedMaxTokensFloor + thinkingTokenBudget ThinkingLow
+        req ^. #max_tokens @?= uncappedMaxTokensFloor + thinkingTokenBudget ThinkingLow
         requestThinking req
           @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = thinkingTokenBudget ThinkingLow}
         t ^. #adjustments @?= [],
@@ -446,7 +447,7 @@ zeroCapFloorTests =
         -- The floor stands in for an unknown cap, not for a caller's
         -- own choice. Someone who wrote Just 0 gets 0.
         req <- requestFor uncappedModel (emptyOptions & #maxTokens .~ Just 0)
-        Messages.max_tokens req @?= 0
+        req ^. #max_tokens @?= 0
     ]
   where
     uncappedModel =
@@ -588,6 +589,88 @@ mappedMessages msgs =
 messageRole :: Messages.Message -> Messages.Role
 messageRole Messages.Message {Messages.role = r} = r
 
+-- | What @claude@ 1.5.0 added to the Messages response and what baikai
+-- now reads off it. Each of these was unreadable before the bump:
+-- 'Messages.Usage' had no thinking-token breakdown,
+-- 'Messages.StreamUsage' carried only @output_tokens@, and
+-- 'Messages.StopReason' had no @pause_turn@.
+claude15UsageTests :: TestTree
+claude15UsageTests =
+  testGroup
+    "the counts and stop reasons claude 1.5 reports"
+    [ testCase "thinking tokens at message_start reach reasoningTokens" $ do
+        let (_, ass) =
+              runClaudeEvents
+                [ messageStartWith
+                    (startUsage 10)
+                      { Messages.output_tokens_details =
+                          Just Messages.OutputTokensDetails {Messages.thinking_tokens = 7}
+                      }
+                ]
+        ass ^. #usage . #reasoningTokens @?= Just 7,
+      testCase "no thinking-token breakdown leaves reasoningTokens unset" $ do
+        let (_, ass) = runClaudeEvents [messageStart]
+        ass ^. #usage . #reasoningTokens @?= Nothing,
+      testCase "a message_delta's prompt-side counts replace the message_start figures" $ do
+        -- A server-side tool run grows the prompt after message_start,
+        -- and the final delta is the only place that says by how much.
+        let (_, ass) =
+              runClaudeEvents
+                [ messageStartWith (startUsage 10),
+                  messageDelta
+                    (Just Messages.End_Turn)
+                    (outputOnlyStreamUsage 12)
+                      { Messages.stream_input_tokens = Just 40,
+                        Messages.stream_cache_read_input_tokens = Just 5,
+                        Messages.stream_cache_creation_input_tokens = Just 3,
+                        Messages.stream_output_tokens_details =
+                          Just Messages.OutputTokensDetails {Messages.thinking_tokens = 9}
+                      }
+                ]
+            u = ass ^. #usage
+        u ^. #inputTokens @?= 40
+        u ^. #outputTokens @?= 12
+        u ^. #cacheReadTokens @?= 5
+        u ^. #cacheWriteTokens @?= 3
+        u ^. #reasoningTokens @?= Just 9
+        u ^. #totalTokens @?= 60,
+      testCase "a message_delta that omits them keeps the message_start figures" $ do
+        -- The pre-1.5 wire shape. Absent is not zero.
+        let (_, ass) =
+              runClaudeEvents
+                [ messageStartWith
+                    (startUsage 10)
+                      { Messages.cache_read_input_tokens = Just 5,
+                        Messages.cache_creation_input_tokens = Just 3
+                      },
+                  messageDelta (Just Messages.End_Turn) (outputOnlyStreamUsage 12)
+                ]
+            u = ass ^. #usage
+        u ^. #inputTokens @?= 10
+        u ^. #outputTokens @?= 12
+        u ^. #cacheReadTokens @?= 5
+        u ^. #cacheWriteTokens @?= 3
+        u ^. #totalTokens @?= 30,
+      testCase "a paused turn ends the stream as a stop, not an error" $ do
+        -- Anthropic suspends the turn for a long-running server-side
+        -- tool and expects the message back to continue it. Nothing
+        -- failed, so the caller must not be handed an error.
+        let (events, ass) =
+              runClaudeEvents
+                [ messageStart,
+                  messageDelta (Just Messages.Pause_Turn) (outputOnlyStreamUsage 12),
+                  Messages.Message_Stop
+                ]
+        ass ^. #stopReason @?= Stop
+        case last events of
+          EventDone TerminalPayload {reason = r, message = msg} -> do
+            r @?= Stop
+            case msg of
+              AssistantMessage AssistantPayload {errorMessage = err} -> err @?= Nothing
+              _ -> assertFailure "terminal message was not an assistant message"
+          _ -> assertFailure "a paused turn produced a terminal error"
+    ]
+
 streamFidelityTests :: TestTree
 streamFidelityTests =
   testGroup
@@ -726,9 +809,10 @@ signedAndRedactedStream =
       { Messages.message_delta =
           Messages.MessageDelta
             { Messages.stop_reason = Just Messages.End_Turn,
-              Messages.stop_sequence = Nothing
+              Messages.stop_sequence = Nothing,
+              Messages.stop_details = Nothing
             },
-        Messages.usage = Messages.StreamUsage {Messages.output_tokens = 12}
+        Messages.usage = outputOnlyStreamUsage 12
       },
     Messages.Message_Stop
   ]
@@ -745,14 +829,78 @@ messageStart =
             Messages.model = "claude-haiku-4-5",
             Messages.stop_reason = Nothing,
             Messages.stop_sequence = Nothing,
-            Messages.usage =
-              Messages.Usage
-                { Messages.input_tokens = 10,
-                  Messages.output_tokens = 0,
-                  Messages.cache_creation_input_tokens = Nothing,
-                  Messages.cache_read_input_tokens = Nothing,
-                  Messages.server_tool_use = Nothing
-                },
+            Messages.stop_details = Nothing,
+            Messages.usage = startUsage 10,
+            Messages.container = Nothing
+          }
+    }
+
+-- | A @message_start@ usage reporting the given prompt tokens and
+-- nothing else. Refine it by record update rather than respelling ten
+-- fields; the ones this provider never reads — @inference_geo@,
+-- @service_tier@, @speed@, @iterations@ — stay 'Nothing' so a test says
+-- only what it means to say. The prompt count is an argument rather
+-- than an update because @input_tokens@ alone does not name one record
+-- in @claude@ 1.5.0, and a single-field update on it is ambiguous.
+startUsage :: Natural -> Messages.Usage
+startUsage inputTokens =
+  Messages.Usage
+    { Messages.input_tokens = inputTokens,
+      Messages.output_tokens = 0,
+      Messages.cache_creation_input_tokens = Nothing,
+      Messages.cache_read_input_tokens = Nothing,
+      Messages.server_tool_use = Nothing,
+      Messages.inference_geo = Nothing,
+      Messages.output_tokens_details = Nothing,
+      Messages.service_tier = Nothing,
+      Messages.speed = Nothing,
+      Messages.iterations = Nothing
+    }
+
+-- | A @message_delta@ usage reporting output tokens and nothing else,
+-- which is everything a pre-Claude-5 generation sends. Refine it by
+-- record update to model a generation that also repeats the
+-- prompt-side counts.
+outputOnlyStreamUsage :: Natural -> Messages.StreamUsage
+outputOnlyStreamUsage n =
+  Messages.StreamUsage
+    { Messages.stream_input_tokens = Nothing,
+      Messages.output_tokens = n,
+      Messages.stream_cache_creation_input_tokens = Nothing,
+      Messages.stream_cache_read_input_tokens = Nothing,
+      Messages.stream_server_tool_use = Nothing,
+      Messages.stream_output_tokens_details = Nothing,
+      Messages.stream_iterations = Nothing
+    }
+
+-- | A @message_delta@ event carrying a stop reason and a usage.
+messageDelta :: Maybe Messages.StopReason -> Messages.StreamUsage -> Messages.MessageStreamEvent
+messageDelta reason su =
+  Messages.Message_Delta
+    { Messages.message_delta =
+        Messages.MessageDelta
+          { Messages.stop_reason = reason,
+            Messages.stop_sequence = Nothing,
+            Messages.stop_details = Nothing
+          },
+      Messages.usage = su
+    }
+
+-- | A @message_start@ event whose usage is the caller's.
+messageStartWith :: Messages.Usage -> Messages.MessageStreamEvent
+messageStartWith u =
+  Messages.Message_Start
+    { Messages.message =
+        Messages.MessageResponse
+          { Messages.id = "msg_test",
+            Messages.type_ = "message",
+            Messages.role = Messages.Assistant,
+            Messages.content = Vector.empty,
+            Messages.model = "claude-haiku-4-5",
+            Messages.stop_reason = Nothing,
+            Messages.stop_sequence = Nothing,
+            Messages.stop_details = Nothing,
+            Messages.usage = u,
             Messages.container = Nothing
           }
     }

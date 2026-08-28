@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 -- | __Internal module — no stability guarantees.__ This module is
 -- exposed so baikai's own test suites and sibling packages can reach
@@ -640,12 +641,30 @@ translateEvent raw ass now = case raw of
   Messages.Message_Delta {Messages.message_delta = md, Messages.usage = su} ->
     let stopR = mapStopReason (md ^. #stop_reason)
         u = ass ^. #usage
-        outputTokensFinal = fromMaybe (u ^. #outputTokens) (Just (su ^. #output_tokens))
+        -- @message_delta@ carries the call's final counts. Older models
+        -- send only @output_tokens@; Claude 5 repeats the prompt-side
+        -- classes too, which matters because a server-side tool run
+        -- grows them after @message_start@. An absent field keeps what
+        -- @message_start@ reported rather than zeroing it.
+        --
+        -- 'Messages.StreamUsage' has no 'GHC.Generics.Generic' instance,
+        -- so these are record dots rather than the generic-lens labels
+        -- used for 'Messages.Usage'.
+        inputFinal = fromMaybe (u ^. #inputTokens) su.stream_input_tokens
+        outputFinal = su.output_tokens
+        cacheReadFinal = fromMaybe (u ^. #cacheReadTokens) su.stream_cache_read_input_tokens
+        cacheWriteFinal = fromMaybe (u ^. #cacheWriteTokens) su.stream_cache_creation_input_tokens
+        reasoningFinal = case su.stream_output_tokens_details of
+          Just d -> Just d.thinking_tokens
+          Nothing -> u ^. #reasoningTokens
         u' =
           u
-            & #outputTokens .~ outputTokensFinal
-            & #totalTokens
-              .~ ((u ^. #inputTokens) + outputTokensFinal + (u ^. #cacheReadTokens) + (u ^. #cacheWriteTokens))
+            & #inputTokens .~ inputFinal
+            & #outputTokens .~ outputFinal
+            & #cacheReadTokens .~ cacheReadFinal
+            & #cacheWriteTokens .~ cacheWriteFinal
+            & #reasoningTokens .~ reasoningFinal
+            & #totalTokens .~ (inputFinal + outputFinal + cacheReadFinal + cacheWriteFinal)
      in ([], ass & #stopReason .~ stopR & #usage .~ u' & #usageReported .~ True)
   Messages.Message_Stop ->
     let reason = ass ^. #stopReason
@@ -923,7 +942,10 @@ renderAnthropicError v = case v of
 -- | Map the Anthropic streaming 'Message_Start.message.usage' value
 -- into baikai's 'Usage' shape. Cache-related counters are populated
 -- where present; cost is left at zero (the terminal event
--- recomputes it).
+-- recomputes it). A thinking-token breakdown, when Anthropic reports
+-- one, becomes 'Usage.reasoningTokens' — an informational subset of the
+-- output tokens rather than a billed class of its own, so it moves no
+-- total.
 --
 -- @cache_creation_input_tokens@ is one number covering both cache-write
 -- TTLs. The SDK's 'Messages.Usage' has no per-TTL breakdown, so baikai
@@ -941,7 +963,7 @@ anthroUsageToBaikai u =
           Usage.outputTokens = o,
           Usage.cacheReadTokens = cr,
           Usage.cacheWriteTokens = cw,
-          Usage.reasoningTokens = Nothing,
+          Usage.reasoningTokens = fmap (^. #thinking_tokens) (u ^. #output_tokens_details),
           Usage.totalTokens = i + o + cr + cw,
           Usage.cost = zeroCost
         }
@@ -952,6 +974,11 @@ mapStopReason = \case
   Just Messages.Max_Tokens -> Stop.Length
   Just Messages.Stop_Sequence -> Stop.Stop
   Just Messages.Tool_Use -> Stop.ToolUse
+  -- The turn was suspended mid-flight (a long-running server-side tool)
+  -- and Anthropic expects the caller to send the message back to
+  -- continue it. Nothing failed, so this is a stop, not an error;
+  -- baikai's 'Stop.StopReason' has no constructor that says "resume me".
+  Just Messages.Pause_Turn -> Stop.Stop
   Just Messages.Refusal -> Stop.ErrorReason
   Just Messages.Model_Context_Window_Exceeded -> Stop.Length
   Nothing -> Stop.Stop
