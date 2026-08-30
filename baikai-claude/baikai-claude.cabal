@@ -78,7 +78,7 @@ library
     , crypton            >=1.0    && <1.2
     , generic-lens       ^>=2.3
     , http-client        ^>=0.7
-    , http-client-tls    ^>=0.3
+    , http-client-tls    >=0.3    && <0.5
     , http-types         ^>=0.12
     , lens               ^>=5.3
     , servant-client     ^>=0.20
