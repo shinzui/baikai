@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            baikai-openai
-version:         0.6.0.0
+version:         0.6.0.1
 synopsis:        OpenAI providers for the baikai abstraction
 description:
   OpenAI-compatible backends for baikai: Chat Completions over SSE against OpenAI and

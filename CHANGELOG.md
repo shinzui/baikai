@@ -7,13 +7,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.6.0.1] - 2026-08-30
+
 ### Fixed
 
-- `baikai`, `baikai-claude`, and `baikai-openai`: widened the
-  `http-client-tls` bound to admit 0.4. The 0.4 API retains the manager
-  functions these packages use and belongs to the same TLS 2.x / Crypton 1.1
-  dependency cohort as baikai 0.6; the old `^>=0.3` cap made baikai 0.6
+- widened the `http-client-tls` bound to admit 0.4. The 0.4 API retains the
+  manager functions this package uses and belongs to the same TLS 2.x / Crypton
+  1.1 dependency cohort as baikai 0.6; the old `^>=0.3` cap made baikai 0.6
   impossible to solve in applications that require Crypton 1.1.
+
+## [baikai-claude 0.6.0.1] - 2026-08-30
+
+### Fixed
+
+- widened the `http-client-tls` bound to admit 0.4, allowing applications that
+  require Crypton 1.1 to solve the dependency set.
+
+## [baikai-openai 0.6.0.1] - 2026-08-30
+
+### Fixed
+
+- widened the `http-client-tls` bound to admit 0.4, allowing applications that
+  require Crypton 1.1 to solve the dependency set.
 
 ## [baikai 0.6.0.0] - 2026-08-28
 

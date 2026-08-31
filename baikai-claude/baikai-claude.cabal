@@ -1,6 +1,6 @@
 cabal-version:   3.4
 name:            baikai-claude
-version:         0.6.0.0
+version:         0.6.0.1
 synopsis:        Anthropic Claude providers for the baikai abstraction
 description:
   Anthropic backends for baikai: the Messages API over SSE, the claude -p batch
