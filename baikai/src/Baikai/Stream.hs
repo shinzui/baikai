@@ -370,7 +370,7 @@ danglingBlocks s =
     thinkingBlock t
       | Text.null t = Nothing
       | otherwise =
-          Just (AssistantThinking ThinkingContent {thinking = t, signature = Nothing, redacted = False})
+          Just (AssistantThinking ThinkingContent {thinking = t, signature = Nothing, redacted = False, replayState = Nothing})
 
     toolBlock raw
       | Text.null raw = Nothing

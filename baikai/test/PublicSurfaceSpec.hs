@@ -21,6 +21,7 @@ import Baikai
 import Baikai.Cost.Log (CallLogConfig (enabled, path), callLogConfig)
 import Baikai.Embedding qualified as Embedding
 import Data.Aeson (Value (Null))
+import Data.Aeson qualified as Aeson
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Vector qualified as V
@@ -32,7 +33,17 @@ tests :: TestTree
 tests =
   testGroup
     "public surface"
-    [ testCase "every hidden record is buildable with record update alone" $ do
+    [ testCase "Responses API and compatibility are public and serializable" $ do
+        parseApi "openai-responses" @?= OpenAIResponses
+        renderApi OpenAIResponses @?= "openai-responses"
+        normaliseApi (Custom "openai-responses") @?= OpenAIResponses
+        let model =
+              (mkModel OpenAIResponses "probe" "https://api.openai.com")
+                { compat = CompatOpenAIResponses defaultOpenAIResponsesCompat {supportsPromptCacheOptions = True}
+                }
+        (openaiResponsesCompatFor model).supportsPromptCacheOptions @?= True
+        Aeson.fromJSON (Aeson.toJSON model) @?= Aeson.Success model,
+      testCase "every hidden record is buildable with record update alone" $ do
         probeTool.name @?= "probe"
         probeLog.path @?= "/dev/null"
         probeLog.enabled @?= True

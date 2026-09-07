@@ -181,8 +181,11 @@ the caller's own catalog rates rather than from the response, so
 including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
-Both of those changes are why records now say
-`baikai.model-call-evidence/2.0`. A verifier selects its rules by
+Those changes introduced version 2.0. Records now say
+`baikai.model-call-evidence/2.1`, which adds optional provider-scoped
+`replay_state` to thinking content and includes it in the response commitment.
+Absent replay state is omitted, so earlier content encodings and digests
+remain unchanged. A verifier selects its rules by
 `schema_version`: under `1.x`, `response_commitment` also covered the
 cost and `request_configuration` carried both structured-output schemas
 verbatim.

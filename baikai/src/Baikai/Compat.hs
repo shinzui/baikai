@@ -44,6 +44,10 @@ module Baikai.Compat
     ThinkingFormat (..),
     CacheControlFormat (..),
 
+    -- * OpenAI Responses compat
+    OpenAIResponsesCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsLongCacheRetention, supportsPromptCacheOptions),
+    defaultOpenAIResponsesCompat,
+
     -- * Anthropic Messages compat
     AnthropicMessagesCompat
       ( supportsLongCacheRetention,
@@ -207,6 +211,27 @@ defaultOpenAICompletionsCompat =
       supportsSamplingParameters = True,
       supportedReasoningEfforts = Nothing,
       supportsLongCacheRetention = True
+    }
+
+-- | Model and endpoint facts for native Responses. This is separate
+-- from Chat Completions: a host implementing one need not implement both.
+data OpenAIResponsesCompat = OpenAIResponsesCompat
+  { supportedReasoningEfforts :: !(Maybe [ThinkingLevel]),
+    supportsSamplingParameters :: !Bool,
+    supportsLongCacheRetention :: !Bool,
+    -- | Use prompt_cache_options rather than legacy prompt_cache_retention.
+    supportsPromptCacheOptions :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+defaultOpenAIResponsesCompat :: OpenAIResponsesCompat
+defaultOpenAIResponsesCompat =
+  OpenAIResponsesCompat
+    { supportedReasoningEfforts = Nothing,
+      supportsSamplingParameters = True,
+      supportsLongCacheRetention = True,
+      supportsPromptCacheOptions = False
     }
 
 -- | Feature flags for one Anthropic Messages-compatible host.

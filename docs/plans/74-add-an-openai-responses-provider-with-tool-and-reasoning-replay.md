@@ -24,13 +24,21 @@ A caller can register a native OpenAI Responses provider, select GPT-6 Astra, st
 ## Progress
 
 
-No implementation started.
+- [x] (2026-09-07) Reverify Hackage preferred release 2.5.4, upstream tags (none), and local SDK through Mori; streaming driver and high-effort/current usage gaps remain.
+- [x] (2026-09-07) Add API tag, Responses compat and optional `ThinkingReplay`/`replayState`; preserve legacy JSON and commitments, hide opaque payloads in Show, and reject replay at Chat/Claude boundaries. Full workspace builds.
+- [x] (2026-09-07) Core (684), OpenAI (212), Claude (315) and doc-shapes suites pass; five public-surface tests re-run after adding Model serialization coverage.
+- [ ] Complete milestone 1 with Responses request validation and a next-request fixture preserving empty summary/encrypted items.
+- [ ] Implement request mapping and streaming state machine.
+- [ ] Attach evidence, support per-model API overrides and activate Astra.
+- [ ] Prove two-turn tool loop, lifecycle and documentation examples.
 
 
 ## Surprises & Discoveries
 
 
-None recorded during implementation.
+The published SDK remains 2.5.4 with no upstream tags. Its reasoning input retains id/encrypted_content/summary, but its effort enum stops at high and its module explicitly lacks streaming transport. The source is available via mori://MercuryTechnologies/openai/packages/openai.
+
+The full Claude suite exposed a pre-existing missing Fable 5.1 row in the provider test table; adding it activates the existing effort/cap/sampling regressions for the new model. The generic name `replay` collided with existing helpers, so the optional content field is `replayState` (JSON `replay_state`).
 
 
 ## Decision Log
@@ -44,7 +52,7 @@ None recorded during implementation.
 ## Outcomes & Retrospective
 
 
-To be filled during implementation.
+The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. A Responses provider is not registered or activated yet; the request mapper, wire replay fixture, streaming assembler, evidence integration and tool-loop acceptance remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
 
 
 ## Context and Orientation
@@ -139,3 +147,5 @@ Use deterministic fixtures and temporary output for generation. Keep Chat Comple
 The public additions are Api.OpenAIResponses and Baikai.Provider.OpenAI.Responses.register :: IO () plus openaiResponsesProvider :: ApiProvider. The new mapper has the conceptual signature Model -> Context -> Options -> Either Text (request body, ThinkingTranslation); use a named prepared-request record when headers and evidence inputs must travel together. This plan owns provider-scoped reasoning replay fields and per-model API override support. The pricing child owns rate policy and usage availability semantics, integrating at the prepared request and terminal usage boundary.
 
 Commits carry this file's ExecPlan trailer, the parent MasterPlan trailer and intention intention_01m1z34288e5p9f6d5am62qmes.
+
+2026-09-07 implementation revision: separate the verified shared-type foundation from next-request proof, which depends on milestone 2's mapper. Evidence schema 2.1 adds optional replay state without changing existing content digests. No dependency pin or application default changed.

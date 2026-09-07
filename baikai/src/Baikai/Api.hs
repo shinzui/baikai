@@ -28,6 +28,7 @@ import GHC.Generics (Generic)
 -- | The supported upstream API surfaces, plus an open escape hatch.
 data Api
   = OpenAIChatCompletions
+  | OpenAIResponses
   | AnthropicMessages
   | OpenAICompletionsCli
   | AnthropicMessagesCli
@@ -37,6 +38,7 @@ data Api
 -- | Render an 'Api' tag as its canonical kebab-cased wire string.
 renderApi :: Api -> Text
 renderApi = \case
+  OpenAIResponses -> "openai-responses"
   OpenAIChatCompletions -> "openai-chat-completions"
   AnthropicMessages -> "anthropic-messages"
   OpenAICompletionsCli -> "openai-completions-cli"
@@ -47,6 +49,7 @@ renderApi = \case
 -- 'Custom' values so callers can use the same tag space.
 parseApi :: Text -> Api
 parseApi = \case
+  "openai-responses" -> OpenAIResponses
   "openai-chat-completions" -> OpenAIChatCompletions
   "anthropic-messages" -> AnthropicMessages
   "openai-completions-cli" -> OpenAICompletionsCli

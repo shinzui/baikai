@@ -3,16 +3,18 @@ module ContextSpec (tests) where
 import Baikai
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
+import Data.Text qualified as Text
 import Data.Time (UTCTime)
 import Data.Vector qualified as V
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 tests :: TestTree
 tests =
   testGroup
     "Context helpers"
-    [ monoidTests,
+    [ replayStateTests,
+      monoidTests,
       constructorTests,
       timestampTests,
       flattenTextTests,
@@ -129,7 +131,8 @@ flattenTextTests =
                   ThinkingContent
                     { thinking = "hidden",
                       signature = Nothing,
-                      redacted = False
+                      redacted = False,
+                      replayState = Nothing
                     },
                 AssistantToolCall emptyToolCall {name = "lookup", arguments = Aeson.object []},
                 AssistantText (TextContent " world")
@@ -153,3 +156,35 @@ payloadTimestamp (ToolResultMessage ToolResultPayload {timestamp = ts}) = ts
 
 (|>) :: a -> (a -> b) -> b
 (|>) x f = f x
+
+replayStateTests :: TestTree
+replayStateTests =
+  testGroup
+    "provider-scoped reasoning replay"
+    [ testCase "legacy JSON remains valid and byte-compatible" $ do
+        let old = Aeson.object ["thinking" Aeson..= ("" :: Text.Text), "signature" Aeson..= Aeson.Null, "redacted" Aeson..= False]
+        Aeson.fromJSON old @?= Aeson.Success emptyThinkingContent
+        Aeson.toJSON emptyThinkingContent @?= old,
+      testCase "empty summary and ordered encrypted items survive content persistence and context appending" $ do
+        let saved = Aeson.eitherDecode (Aeson.encode thought)
+        saved @?= Right thought
+        let resp = emptyResponse & #message . #content .~ V.singleton (AssistantThinking thought)
+            context = addResponse resp (contextOf [user "go"])
+        context ^. #messages @?= V.fromList [user "go", responseMessage resp]
+        flattenAssistantText (resp ^. #message . #content) @?= ""
+        assertBool "Show omits encrypted content" (not ("encrypted-secret" `Text.isInfixOf` Text.pack (show resp))),
+      testCase "response content commitment binds replay scope, identity, payload and order" $ do
+        let digest t = commitmentDigest (Aeson.object ["content" Aeson..= V.singleton (AssistantThinking t)])
+            changed r = thought & #replayState .~ Just r
+        mapM_
+          (\r -> assertBool "replay mutation must change commitment" (digest thought /= digest (changed r)))
+          [ state & #replayApi .~ AnthropicMessages,
+            state & #replayModel .~ "other-model",
+            state & #replayItems .~ V.reverse items,
+            state & #replayItems .~ V.singleton (Aeson.object ["id" Aeson..= ("different" :: Text.Text)])
+          ]
+    ]
+  where
+    items = V.fromList [Aeson.object ["type" Aeson..= ("reasoning" :: Text.Text), "id" Aeson..= ("rs_1" :: Text.Text), "summary" Aeson..= ([] :: [Aeson.Value]), "encrypted_content" Aeson..= ("encrypted-secret" :: Text.Text)], Aeson.object ["id" Aeson..= ("rs_2" :: Text.Text)]]
+    state = ThinkingReplay OpenAIResponses "gpt-6-astra" items
+    thought = emptyThinkingContent & #replayState .~ Just state

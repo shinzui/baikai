@@ -37,7 +37,14 @@ tests :: TestTree
 tests =
   testGroup
     "ReasoningSpec"
-    [ testCase "minimal maps upward by catalog policy with adjustment evidence" $ do
+    [ testCase "foreign opaque reasoning cannot enter this endpoint" $ do
+        let thought = emptyThinkingContent & #replayState .~ Just (ThinkingReplay OpenAIResponses "gpt-6-astra" (Vector.singleton (Aeson.object [])))
+            response = emptyResponse & #message . #content .~ Vector.singleton (AssistantThinking thought)
+            ctx = addResponse response emptyContext
+        case mapRequest openai_gpt_4o_mini ctx emptyOptions of
+          Left _ -> pure ()
+          Right _ -> assertFailure "foreign state was silently accepted",
+      testCase "minimal maps upward by catalog policy with adjustment evidence" $ do
         let model = openai_gpt_6_astra & #modelId .~ "renamed-policy-test"
             opts = emptyOptions & #thinking .~ Just ThinkingMinimal
             described = describeThinkingShape (openaiCompletionsCompatFor model) True opts
@@ -94,7 +101,8 @@ assemblyTests =
                 ThinkingContent
                   { thinking = "because therefore",
                     signature = Nothing,
-                    redacted = False
+                    redacted = False,
+                    replayState = Nothing
                   },
               AssistantText (TextContent "answer done")
             ],
@@ -137,7 +145,8 @@ assemblyTests =
                 ThinkingContent
                   { thinking = "because",
                     signature = Nothing,
-                    redacted = False
+                    redacted = False,
+                    replayState = Nothing
                   },
               AssistantText (TextContent "answer")
             ],
@@ -243,7 +252,8 @@ taggedTextCompatTest =
             ThinkingContent
               { thinking = "reasoning",
                 signature = Nothing,
-                redacted = False
+                redacted = False,
+                replayState = Nothing
               },
           AssistantText (TextContent "answer")
         ]
@@ -262,7 +272,8 @@ replayDropsThinkingTest =
                         ThinkingContent
                           { thinking = "internal",
                             signature = Nothing,
-                            redacted = False
+                            redacted = False,
+                            replayState = Nothing
                           },
                       AssistantText (TextContent "visible")
                     ],

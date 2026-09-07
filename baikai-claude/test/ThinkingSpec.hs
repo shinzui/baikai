@@ -30,7 +30,14 @@ tests :: TestTree
 tests =
   testGroup
     "ThinkingSpec"
-    [ testGroup "mapRequest max_tokens" (neverExceedsCapTests <> styleTests),
+    [ testCase "foreign opaque reasoning cannot enter this endpoint" $ do
+        let thought = emptyThinkingContent & #replayState .~ Just (ThinkingReplay OpenAIResponses "gpt-6-astra" (Vector.singleton (Aeson.object [])))
+            response = emptyResponse & #message . #content .~ Vector.singleton (AssistantThinking thought)
+            ctx = addResponse response emptyContext
+        case mapRequest anthropic_claude_fable_5_1 ctx emptyOptions of
+          Left _ -> pure ()
+          Right _ -> assertFailure "foreign state was silently accepted",
+      testGroup "mapRequest max_tokens" (neverExceedsCapTests <> styleTests),
       translationTableTests,
       conditionalDowngradeTests,
       adaptiveHigherEffortTests,
@@ -61,6 +68,7 @@ tests =
 anthropicModels :: [(String, Model, AnthropicThinkingStyle, Bool)]
 anthropicModels =
   [ ("claude-fable-5", anthropic_claude_fable_5, AnthropicThinkingAdaptive, False),
+    ("claude-fable-5-1", anthropic_claude_fable_5_1, AnthropicThinkingAdaptive, False),
     ("claude-haiku-4-5", anthropic_claude_haiku_4_5, AnthropicThinkingBudget, True),
     ("claude-opus-4-5", anthropic_claude_opus_4_5, AnthropicThinkingBudget, True),
     ("claude-opus-4-6", anthropic_claude_opus_4_6, AnthropicThinkingAdaptive, True),
@@ -481,7 +489,7 @@ replaySanitationTests =
         msgs <-
           mappedMessages
             [ assistantBlocks
-                [AssistantThinking ThinkingContent {thinking = "hmm", signature = Nothing, redacted = False}],
+                [AssistantThinking ThinkingContent {thinking = "hmm", signature = Nothing, redacted = False, replayState = Nothing}],
               user "next"
             ]
         Vector.length msgs @?= 1,
@@ -681,13 +689,15 @@ streamFidelityTests =
               ThinkingContent
                 { thinking = "because therefore",
                   signature = Just "sig-final",
-                  redacted = False
+                  redacted = False,
+                  replayState = Nothing
                 }
             expectedRedacted =
               ThinkingContent
                 { thinking = "ENCRYPTED==",
                   signature = Nothing,
-                  redacted = True
+                  redacted = True,
+                  replayState = Nothing
                 }
         thinkingEnds events
           @?= [expectedSigned, expectedRedacted]
@@ -734,7 +744,8 @@ streamFidelityTests =
                             ThinkingContent
                               { thinking = "draft",
                                 signature = Nothing,
-                                redacted = False
+                                redacted = False,
+                                replayState = Nothing
                               },
                           AssistantText (TextContent "visible")
                         ],

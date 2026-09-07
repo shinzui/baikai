@@ -760,6 +760,7 @@ declaredStrength :: Api -> EvidenceStrength
 declaredStrength = \case
   AnthropicMessages -> EvidenceModelObserved
   OpenAIChatCompletions -> EvidenceModelObserved
+  OpenAIResponses -> EvidenceModelObserved
   AnthropicMessagesCli -> EvidenceModelObserved
   OpenAICompletionsCli -> EvidenceCorrelated
   Custom _ -> EvidenceRequestedOnly
@@ -876,7 +877,10 @@ evidenceRequest rid =
 -- further compatible addition rides along: @thinking.mode@ may now be
 -- @"not_translated"@.
 evidenceSchemaVersion :: Text
-evidenceSchemaVersion = "baikai.model-call-evidence/2.0"
+-- Version 2.1 adds optional provider-scoped replay_state to thinking
+-- content. It participates in content commitments, but is omitted when
+-- absent, preserving every pre-existing content encoding and digest.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.1"
 
 -- | Everything Baikai can say about one completed provider call.
 --

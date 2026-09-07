@@ -382,7 +382,7 @@ samplingEvidenceTest =
           testModel
             & #compat
               .~ CompatAnthropicMessages
-                (defaultAnthropicMessagesCompat {supportsSamplingParameters = False})
+                (defaultAnthropicMessagesCompat & #supportsSamplingParameters .~ False)
     ev <-
       oneEvidence
         =<< replayWith

@@ -18,6 +18,7 @@ module Baikai.Content
   ( -- * Block primitives
     TextContent (..),
     ThinkingContent (..),
+    ThinkingReplay (..),
     ToolCall (..),
     ImageContent (..),
 
@@ -38,6 +39,7 @@ module Baikai.Content
   )
 where
 
+import Baikai.Api (Api)
 import Data.Aeson
   ( FromJSON (parseJSON),
     Options (..),
@@ -51,6 +53,7 @@ import Data.Aeson
     object,
     withObject,
     (.:),
+    (.:?),
     (.=),
   )
 import Data.Aeson qualified as Aeson
@@ -60,6 +63,7 @@ import Data.ByteString.Base64 qualified as Base64
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Vector (Vector)
 import GHC.Generics (Generic)
 
 -- | A plain-text block. The wire form is @{"text": "..."}@.
@@ -80,9 +84,31 @@ newtype TextContent = TextContent
 data ThinkingContent = ThinkingContent
   { thinking :: !Text,
     signature :: !(Maybe Text),
-    redacted :: !Bool
+    redacted :: !Bool,
+    -- | Provider-owned continuation, persisted but never rendered as text.
+    replayState :: !(Maybe ThinkingReplay)
   }
   deriving stock (Eq, Show, Generic)
+
+-- | Ordered opaque provider items needed to continue a reasoning turn.
+-- The API and model identify where these items may be replayed. Providers
+-- validate that scope before sending them. JSON persistence is lossless;
+-- Show deliberately omits the opaque item payloads.
+data ThinkingReplay = ThinkingReplay
+  { replayApi :: !Api,
+    replayModel :: !Text,
+    replayItems :: !(Vector Value)
+  }
+  deriving stock (Eq, Generic)
+
+instance Show ThinkingReplay where
+  show _ = "ThinkingReplay <opaque>"
+
+instance FromJSON ThinkingReplay where
+  parseJSON = genericParseJSON snakeOptions
+
+instance ToJSON ThinkingReplay where
+  toJSON = genericToJSON snakeOptions
 
 -- | A model-issued tool invocation. @id_@ has a trailing underscore in
 -- Haskell to dodge a clash with @Prelude.id@; the JSON encoding strips
@@ -166,7 +192,8 @@ emptyThinkingContent =
   ThinkingContent
     { thinking = Text.empty,
       signature = Nothing,
-      redacted = False
+      redacted = False,
+      replayState = Nothing
     }
 
 emptyToolCall :: ToolCall
@@ -190,10 +217,14 @@ snakeOptions :: Options
 snakeOptions = defaultOptions {fieldLabelModifier = camelTo2 '_'}
 
 instance FromJSON ThinkingContent where
-  parseJSON = genericParseJSON snakeOptions
+  parseJSON = withObject "ThinkingContent" $ \o ->
+    ThinkingContent <$> o .: "thinking" <*> o .:? "signature" <*> o .: "redacted" <*> o .:? "replay_state"
 
 instance ToJSON ThinkingContent where
-  toJSON = genericToJSON snakeOptions
+  toJSON c =
+    object $
+      ["thinking" .= thinking c, "signature" .= signature c, "redacted" .= redacted c]
+        <> maybe [] (\r -> ["replay_state" .= r]) (replayState c)
 
 -- Strip the trailing underscore on @id_@ so the wire form is @id@; the
 -- other fields keep their natural names.

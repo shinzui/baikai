@@ -38,6 +38,7 @@ module Baikai.Model
     -- * Compatibility shim
     Compat (..),
     openaiCompletionsCompatFor,
+    openaiResponsesCompatFor,
     anthropicMessagesCompatFor,
   )
 where
@@ -47,8 +48,10 @@ import Baikai.Auth qualified as Auth
 import Baikai.Compat
   ( AnthropicMessagesCompat,
     OpenAICompletionsCompat,
+    OpenAIResponsesCompat,
     autoDetectAnthropicMessages,
     autoDetectOpenAICompletions,
+    defaultOpenAIResponsesCompat,
   )
 import Baikai.Header (HeaderName)
 import Data.Aeson
@@ -90,6 +93,7 @@ data ModelCost = ModelCost
 -- dependency.
 data Compat
   = CompatNone
+  | CompatOpenAIResponses !OpenAIResponsesCompat
   | CompatOpenAICompletions !OpenAICompletionsCompat
   | CompatAnthropicMessages !AnthropicMessagesCompat
   deriving stock (Eq, Show, Generic)
@@ -102,6 +106,12 @@ openaiCompletionsCompatFor :: Model -> OpenAICompletionsCompat
 openaiCompletionsCompatFor m = case compat m of
   CompatOpenAICompletions c -> c
   _ -> autoDetectOpenAICompletions (baseUrl m)
+
+-- | Explicit Responses facts or the native Responses defaults.
+openaiResponsesCompatFor :: Model -> OpenAIResponsesCompat
+openaiResponsesCompatFor m = case compat m of
+  CompatOpenAIResponses c -> c
+  _ -> defaultOpenAIResponsesCompat
 
 -- | Project the 'AnthropicMessagesCompat' that applies to a 'Model':
 -- the explicit one if 'compat' is 'CompatAnthropicMessages',

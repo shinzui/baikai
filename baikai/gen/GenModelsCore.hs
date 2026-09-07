@@ -513,6 +513,7 @@ renderInputList ms =
 renderApiCtor :: Api -> Text
 renderApiCtor = \case
   OpenAIChatCompletions -> "OpenAIChatCompletions"
+  OpenAIResponses -> "OpenAIResponses"
   AnthropicMessages -> "AnthropicMessages"
   OpenAICompletionsCli -> "OpenAICompletionsCli"
   AnthropicMessagesCli -> "AnthropicMessagesCli"

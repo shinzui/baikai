@@ -1168,7 +1168,8 @@ closeOpenReasoning ass = case ass ^. #reasoningOpen of
           Content.ThinkingContent
             { Content.thinking = body,
               Content.signature = Nothing,
-              Content.redacted = False
+              Content.redacted = False,
+              Content.replayState = Nothing
             }
         block = Content.AssistantThinking thinkingContent
      in ( [ThinkingEnd ThinkingEndPayload {contentIndex = i, content = thinkingContent}],

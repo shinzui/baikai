@@ -61,6 +61,20 @@ mapRequest m ctx opts = do
       | null levels || levels /= sort (nub levels) ->
           Left "supportedReasoningEfforts must be nonempty, unique and ordered"
     _ -> pure ()
+  mapM_
+    ( \msg -> case msg of
+        Msg.AssistantMessage payload ->
+          mapM_
+            ( \block -> case block of
+                Content.AssistantThinking th
+                  | Just _ <- Content.replayState th ->
+                      Left "This endpoint cannot replay provider-scoped reasoning state; use its originating API and model"
+                _ -> pure ()
+            )
+            (payload ^. #content)
+        _ -> pure ()
+    )
+    (ctx ^. #messages)
   body <- traverse mapMessage (Vector.toList (ctx ^. #messages))
   let compat = openaiCompletionsCompatFor m
       prefix = case ctx ^. #systemPrompt of

@@ -32,3 +32,4 @@ bundle.
 | [0016](0016-deprecated-names-are-removed-at-the-next-major.md) | A deprecated name is removed at the next major release after the one that deprecates it | accepted |
 | [0017](0017-a-documented-example-compiles-in-the-test-suite.md) | A documented example compiles in the test suite, and the record and its compiled twin are checked against each other | accepted |
 | [0018](0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md) | A provider stop reason with no baikai equivalent maps to the nearest truthful one, and the sum does not widen to hold it | accepted |
+| [0019](0019-reasoning-continuation-is-scoped-to-its-provider-and-model.md) | Reasoning continuation is scoped to its provider API and originating model | accepted |

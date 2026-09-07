@@ -76,7 +76,7 @@ doneEvent rid blocks =
 
 signedThinking :: ThinkingContent
 signedThinking =
-  ThinkingContent {thinking = "t", signature = Just "sig-abc", redacted = True}
+  ThinkingContent {thinking = "t", signature = Just "sig-abc", redacted = True, replayState = Nothing}
 
 tests :: TestTree
 tests =
@@ -133,7 +133,7 @@ tests =
         let expected =
               Vector.fromList
                 [ AssistantText (TextContent "first"),
-                  AssistantThinking ThinkingContent {thinking = "partial-think", signature = Nothing, redacted = False},
+                  AssistantThinking ThinkingContent {thinking = "partial-think", signature = Nothing, redacted = False, replayState = Nothing},
                   AssistantText (TextContent "last"),
                   AssistantToolCall ToolCall {id_ = "", name = "", arguments = Aeson.String "{\"a\":1"}
                 ]
@@ -339,7 +339,7 @@ failedTerminalAppendsDanglingTest =
     resp ^. #message ^. #content
       @?= Vector.fromList
         [ AssistantText (TextContent "closed"),
-          AssistantThinking ThinkingContent {thinking = "half a thought", signature = Nothing, redacted = False}
+          AssistantThinking ThinkingContent {thinking = "half a thought", signature = Nothing, redacted = False, replayState = Nothing}
         ]
 
 -- | A terminal that carries no content is not authoritative about

@@ -16,6 +16,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: separate `OpenAIResponses` dispatch and compatibility types, and
+  optional provider/model-scoped `ThinkingContent.replayState` with opaque
+  diagnostic output and backward-compatible JSON decoding. These public sum
+  and record additions require PVP review before release. Evidence schema 2.1
+  includes replay state in content commitments while preserving legacy digests.
+- Chat and Claude reject provider-scoped reasoning replay they cannot encode.
+
 - `baikai`: GPT-6 Astra and Claude Fable 5.1 catalog bindings, with verified
   pricing, token limits, and Anthropic thinking/sampling compatibility.
 - Repository `update-models` skill for verifying provider releases and refreshing

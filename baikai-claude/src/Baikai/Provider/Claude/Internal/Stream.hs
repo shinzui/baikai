@@ -772,7 +772,8 @@ handleBlockStop i ass
             Content.ThinkingContent
               { Content.thinking = payload,
                 Content.signature = Nothing,
-                Content.redacted = True
+                Content.redacted = True,
+                Content.replayState = Nothing
               }
           block = Content.AssistantThinking thinkingContent
        in ( [ThinkingEnd ThinkingEndPayload {contentIndex = i, content = thinkingContent}],
@@ -786,7 +787,8 @@ handleBlockStop i ass
             Content.ThinkingContent
               { Content.thinking = body,
                 Content.signature = if maybe True Text.null sig then Nothing else sig,
-                Content.redacted = False
+                Content.redacted = False,
+                Content.replayState = Nothing
               }
           block = Content.AssistantThinking thinkingContent
        in ( [ThinkingEnd ThinkingEndPayload {contentIndex = i, content = thinkingContent}],

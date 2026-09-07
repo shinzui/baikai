@@ -42,7 +42,7 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Make model capabilities and catalog refreshes endpoint-aware | docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md | None | None | Complete |
-| EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | Not Started |
+| EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | In Progress |
 | EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Not Started |
 | EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Not Started |
 | EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | Not Started |
@@ -88,6 +88,8 @@ Durable decisions expected during implementation are separate Responses dispatch
 
 ## Surprises & Discoveries
 
+
+EP-2 adds provider-scoped `ThinkingReplay` on `ThinkingContent.replayState` and a separate Responses tag. Chat and Claude reject this state before dispatch. Evidence schema 2.1 preserves legacy content encodings; ADR 0019 records the contract. The provider and Astra activation remain in progress.
 
 EP-1 confirms a fresh upstream catalog candidate preserves all endpoint restrictions. The native effort shaper now exposes a reusable pure policy resolver for EP-2; sampling changes share the adapter translation path so describeThinking agrees with the outgoing body.
 
