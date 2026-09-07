@@ -64,9 +64,10 @@ module FetchModelsCore
   )
 where
 
-import Baikai.Compat (AnthropicThinkingStyle (..))
+import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), defaultOpenAICompletionsCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
+import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Data.Aeson (Value (String), eitherDecode, encode, withObject, (.!=), (.:), (.:?))
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
@@ -78,7 +79,6 @@ import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Scientific (FPFormat (Fixed), Scientific, formatScientific)
-import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -204,11 +204,10 @@ data AnthropicGenerationFacts = AnthropicGenerationFacts
   }
   deriving stock (Eq, Show, Generic)
 
--- | A per-model @compat@ block in the catalog JSON. Only
--- @anthropic-messages@ needs one today; the OpenAI-compatible side is
--- fully covered by the file-level @"compat": "auto"@ directive and
--- 'Baikai.Compat.autoDetectOpenAICompletions'.
-data CatalogModelCompat = CatalogAnthropicCompat !AnthropicGenerationFacts
+-- | Per-model endpoint facts preserved through catalog refreshes.
+data CatalogModelCompat
+  = CatalogAnthropicCompat !AnthropicGenerationFacts
+  | CatalogOpenAICompat !OpenAICompletionsCompat
   deriving stock (Eq, Show, Generic)
 
 -- | One emitted catalog model. @enabled@ is always @true@ for emitted
@@ -254,35 +253,45 @@ data ProviderSpec = ProviderSpec
 -- | Curation include set for OpenAI: the chat-completions-compatible
 -- current line. Responses-API-only ids (@*-pro@, @*-codex@,
 -- @*-deep-research@) are deliberately absent.
-openaiInclude :: Set Text
+openaiInclude :: Map Text (Maybe OpenAICompletionsCompat)
 openaiInclude =
-  Set.fromList
-    [ -- 2026-09-07: Chat Completions, streaming and function calling supported:
-      -- https://developers.openai.com/api/docs/models/gpt-6-astra
-      "gpt-6-astra",
-      "gpt-5.6",
-      "gpt-5.6-luna",
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.5",
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "gpt-5.4-nano",
-      "gpt-5.2",
-      "gpt-5.1",
-      "gpt-5",
-      "gpt-5-mini",
-      "gpt-5-nano",
-      "gpt-4.1",
-      "gpt-4.1-mini",
-      "gpt-4.1-nano",
-      "gpt-4o",
-      "gpt-4o-mini",
-      "o3",
-      "o3-mini",
-      "o4-mini",
-      "o1"
-    ]
+  Map.insert "gpt-6-astra" (Just astraChatFacts) $
+    Map.fromList
+      [ (model, Nothing)
+      | model <-
+          [ "gpt-5.6",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.5",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.2",
+            "gpt-5.1",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o3",
+            "o3-mini",
+            "o4-mini",
+            "o1"
+          ]
+      ]
+  where
+    -- 2026-09-07: tools require Responses; Chat accepts text only.
+    -- https://developers.openai.com/api/docs/guides/latest-model
+    astraChatFacts =
+      defaultOpenAICompletionsCompat
+        { supportsToolCalls = False,
+          supportsSamplingParameters = False,
+          supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
+        }
 
 -- | Curation include set for Anthropic: the current generations, each
 -- keyed to the request-shaping facts of its generation.
@@ -345,8 +354,8 @@ openaiSpec =
     { provider = "openai",
       baseUrl = "https://api.openai.com",
       api = "openai-chat-completions",
-      include = (`Set.member` openaiInclude),
-      compatFor = const Nothing
+      include = (`Map.member` openaiInclude),
+      compatFor = fmap CatalogOpenAICompat . (\model -> Map.lookup model openaiInclude >>= id)
     }
 
 -- | Provider spec for Anthropic's first-party messages endpoint.
@@ -596,6 +605,14 @@ renderModelCompat (Just (CatalogAnthropicCompat facts)) =
       <> ",",
     "        \"supportsSamplingParameters\": "
       <> jsonBool (facts ^. #supportsSamplingParameters),
+    "      },"
+  ]
+renderModelCompat (Just (CatalogOpenAICompat facts)) =
+  [ "      \"compat\": {",
+    "        \"kind\": \"openai-completions\",",
+    "        \"supportsToolCalls\": " <> jsonBool (facts ^. #supportsToolCalls) <> ",",
+    "        \"supportsSamplingParameters\": " <> jsonBool (facts ^. #supportsSamplingParameters) <> ",",
+    "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
     "      },"
   ]
 

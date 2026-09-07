@@ -24,13 +24,17 @@ A caller selecting GPT-6 Astra through today's Chat Completions provider will re
 ## Progress
 
 
-No implementation started.
+- [x] (2026-09-07) Inspect current mapping, catalog pipeline, and ADR contract.
+- [x] (2026-09-07) Persist endpoint facts through curation, JSON and generation; pin Astra and reject malformed effort policies. Core suite: all 680 tests passed, including regeneration and refresh preservation. Claude library builds after selector disambiguation.
+- [ ] Review a live fetch candidate and verify restrictions persist.
+- [ ] Enforce request restrictions and test evidence through dispatch.
+- [ ] Update documentation, refresh skill, and ADR; run acceptance checks.
 
 
 ## Surprises & Discoveries
 
 
-None recorded during implementation.
+The sampling selector is shared by OpenAI and Anthropic compatibility records. GHC requires record-dot or lens access at the two previously unqualified call sites; both now use explicit record access. No public selector was renamed.
 
 
 ## Decision Log
@@ -44,7 +48,7 @@ None recorded during implementation.
 ## Outcomes & Retrospective
 
 
-To be filled during implementation.
+Catalog milestone implemented and verified with 680 core tests, a Claude library build, formatter checks and `git diff --check`. Request enforcement, provider dispatch tests and workflow documentation remain outstanding.
 
 
 ## Context and Orientation

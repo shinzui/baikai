@@ -22,8 +22,11 @@ import Baikai.Compat
       ( cacheControlFormat,
         maxTokensField,
         requiresThinkingAsText,
+        supportedReasoningEfforts,
         supportsLongCacheRetention,
+        supportsSamplingParameters,
         supportsStrictMode,
+        supportsToolCalls,
         supportsUsageInStreaming,
         thinkingFormat
       ),
@@ -50,6 +53,7 @@ import Baikai.Model
     provider,
     reasoning,
   )
+import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Data.Map.Strict qualified as Map
 import Data.Ratio ((%))
 
@@ -874,7 +878,20 @@ openai_gpt_6_astra =
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = False,
+              supportsSamplingParameters = False,
+              supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_o1 :: Model

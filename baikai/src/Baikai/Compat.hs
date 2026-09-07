@@ -33,6 +33,9 @@ module Baikai.Compat
         requiresThinkingAsText,
         thinkingFormat,
         cacheControlFormat,
+        supportsToolCalls,
+        supportsSamplingParameters,
+        supportedReasoningEfforts,
         supportsUsageInStreaming,
         supportsLongCacheRetention
       ),
@@ -60,6 +63,7 @@ module Baikai.Compat
   )
 where
 
+import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Url (hostMatchesSuffix, urlHost)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Text (Text)
@@ -173,6 +177,12 @@ data OpenAICompletionsCompat = OpenAICompletionsCompat
     --   @Baikai.Provider.OpenAI.Shape.streamRequestBody@ to include
     --   or omit @stream_options.include_usage@.
     supportsUsageInStreaming :: !Bool,
+    -- | Whether this endpoint accepts function tools for the model.
+    supportsToolCalls :: !Bool,
+    -- | Whether this model accepts sampling controls.
+    supportsSamplingParameters :: !Bool,
+    -- | Accepted effort levels in increasing order; Nothing is unconstrained.
+    supportedReasoningEfforts :: !(Maybe [ThinkingLevel]),
     -- | Whether the host honours long (1h) cache TTLs through the
     --   Anthropic-style cache_control marker. Consumed by
     --   @Baikai.Provider.OpenAI.Shape.injectCacheControl@ when
@@ -192,6 +202,9 @@ defaultOpenAICompletionsCompat =
       thinkingFormat = ThinkingFormatOpenAI,
       cacheControlFormat = Nothing,
       supportsUsageInStreaming = True,
+      supportsToolCalls = True,
+      supportsSamplingParameters = True,
+      supportedReasoningEfforts = Nothing,
       supportsLongCacheRetention = True
     }
 

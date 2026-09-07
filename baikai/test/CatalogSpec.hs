@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 -- | Regression test that locks down the contract between the JSON
 -- catalog files under @baikai\/data\/models\/@ and the auto-generated
 -- @baikai\/src\/Baikai\/Models\/Generated.hs@ module.
@@ -22,17 +24,19 @@ import Baikai.Api (Api (AnthropicMessages))
 import Baikai.Compat
   ( AnthropicMessagesCompat,
     AnthropicThinkingStyle (..),
+    OpenAICompletionsCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsToolCalls),
     supportsSamplingParameters,
     thinkingStyle,
   )
 import Baikai.Model
-  ( Compat (CompatAnthropicMessages),
+  ( Compat (CompatAnthropicMessages, CompatOpenAICompletions),
     Model,
     api,
     compat,
     modelId,
   )
 import Baikai.Models.Generated (allModels)
+import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Data.ByteString qualified as BS
 import Data.List (sort)
 import Data.Text (Text)
@@ -45,7 +49,14 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Models.Generated"
-    [ testCase "regenerating from data/models produces no diff" $
+    [ testCase "Astra Chat endpoint has explicit restrictions" $
+        case [compat m | m <- allModels, modelId m == "gpt-6-astra"] of
+          [CompatOpenAICompletions c] -> do
+            c.supportsToolCalls @?= False
+            c.supportsSamplingParameters @?= False
+            c.supportedReasoningEfforts @?= Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
+          _ -> assertFailure "Astra needs explicit OpenAI endpoint facts",
+      testCase "regenerating from data/models produces no diff" $
         withSystemTempDirectory "baikai-catalog-spec" $ \tmpDir -> do
           let regenPath = tmpDir <> "/Generated.hs"
               committedPath = "src/Baikai/Models/Generated.hs"
@@ -109,4 +120,4 @@ assertFacts m = case compat m of
       )
   where
     facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool)
-    facts c = (thinkingStyle c, supportsSamplingParameters c)
+    facts c = (thinkingStyle c, c.supportsSamplingParameters)

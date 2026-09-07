@@ -201,7 +201,7 @@ planRequest m opts =
             )
       _ -> (plan0, translation0)
 
-    gated = not (supportsSamplingParameters compat)
+    gated = not (compat ^. #supportsSamplingParameters)
     sampling
       | gated = SamplingPlan {temperature = Nothing, topP = Nothing}
       | otherwise =

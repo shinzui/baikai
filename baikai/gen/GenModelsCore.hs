@@ -37,8 +37,11 @@ import Baikai.Compat
       ( cacheControlFormat,
         maxTokensField,
         requiresThinkingAsText,
+        supportedReasoningEfforts,
         supportsLongCacheRetention,
+        supportsSamplingParameters,
         supportsStrictMode,
+        supportsToolCalls,
         supportsUsageInStreaming,
         thinkingFormat
       ),
@@ -47,9 +50,11 @@ import Baikai.Compat
     defaultOpenAICompletionsCompat,
   )
 import Baikai.Model (InputModality (..))
+import Baikai.ThinkingLevel (parseThinkingLevel)
 import Data.Aeson (FromJSON (..), (.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Types (Parser, typeMismatch)
+import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
 import Data.Ratio (denominator, numerator)
 import Data.Scientific (Scientific)
@@ -111,9 +116,19 @@ parseOpenAICompat o = do
   ccf <- optionalMaybeField o "cacheControlFormat" parseCacheControlFormat (cacheControlFormat d)
   sus <- o .:? "supportsUsageInStreaming" .!= d.supportsUsageInStreaming
   slcr <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
+  stc <- o .:? "supportsToolCalls" .!= d.supportsToolCalls
+  ssp <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
+  rawEfforts <- o .:? "supportedReasoningEfforts"
+  efforts <- traverse (traverse (\t -> maybe (fail "Unknown reasoning effort") pure (parseThinkingLevel t))) rawEfforts
+  case efforts of
+    Just xs | null xs || xs /= sort (nub xs) -> fail "supportedReasoningEfforts must be nonempty, unique and ordered"
+    _ -> pure ()
   pure
     d
-      { maxTokensField = mtf,
+      { supportsToolCalls = stc,
+        supportsSamplingParameters = ssp,
+        supportedReasoningEfforts = efforts,
+        maxTokensField = mtf,
         supportsStrictMode = sst,
         requiresThinkingAsText = rtat,
         thinkingFormat = tf,
@@ -399,8 +414,11 @@ renderModule entries =
         "      ( cacheControlFormat,",
         "        maxTokensField,",
         "        requiresThinkingAsText,",
+        "        supportedReasoningEfforts,",
         "        supportsLongCacheRetention,",
+        "        supportsSamplingParameters,",
         "        supportsStrictMode,",
+        "        supportsToolCalls,",
         "        supportsUsageInStreaming,",
         "        thinkingFormat",
         "      ),",
@@ -427,6 +445,7 @@ renderModule entries =
         "    provider,",
         "    reasoning,",
         "  )",
+        "import Baikai.ThinkingLevel (ThinkingLevel (..))",
         "import Data.Map.Strict qualified as Map",
         "import Data.Ratio ((%))",
         ""
@@ -534,6 +553,9 @@ renderCompat = \case
       "              requiresThinkingAsText = " <> renderBool c.requiresThinkingAsText <> ",",
       "              thinkingFormat = " <> renderThinkingFormat c.thinkingFormat <> ",",
       "              cacheControlFormat = " <> renderMaybeCacheControl c.cacheControlFormat <> ",",
+      "              supportsToolCalls = " <> renderBool c.supportsToolCalls <> ",",
+      "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
+      "              supportedReasoningEfforts = " <> maybe "Nothing" (\xs -> "Just [" <> Text.intercalate ", " (map (Text.pack . show) xs) <> "]") c.supportedReasoningEfforts <> ",",
       "              supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming <> ",",
       "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
       "            }"

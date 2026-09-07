@@ -109,7 +109,15 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.FetchModels"
-    [ testCase "OpenAI normalization filters, curates, and maps fields" $ do
+    [ testCase "refresh preserves Astra endpoint restrictions despite upstream tool support" $ do
+        upstream <- loadUpstream
+        let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
+            astra = sample & #modelId .~ "gpt-6-astra"
+            refreshed = normalizeProvider openaiSpec (Map.singleton "gpt-6-astra" astra)
+            expected = Map.lookup "gpt-6-astra" openaiInclude >>= id
+        map (^. #compat) (refreshed ^. #models) @?= [CatalogOpenAICompat <$> expected]
+        assertBool "explicit compat survives rendering" ("openai-completions" `Text.isInfixOf` decodeUtf8 (renderCatalog refreshed)),
+      testCase "OpenAI normalization filters, curates, and maps fields" $ do
         upstream <- loadUpstream
         catalogFor upstream openaiSpec @?= expectedOpenAI,
       testCase "tool_call: false model is excluded" $ do

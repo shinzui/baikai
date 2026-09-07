@@ -41,7 +41,7 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Make model capabilities and catalog refreshes endpoint-aware | docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md | None | None | Not Started |
+| EP-1 | Make model capabilities and catalog refreshes endpoint-aware | docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md | None | None | In Progress |
 | EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | Not Started |
 | EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Not Started |
 | EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Not Started |
@@ -79,7 +79,11 @@ Durable decisions expected during implementation are separate Responses dispatch
 ## Progress
 
 
-No implementation started.
+- [ ] EP-1: Persist endpoint facts, enforce request policy, and verify refresh preservation.
+- [ ] EP-2: Implement Responses and reasoning replay.
+- [ ] EP-3: Enforce Claude tool/history contracts.
+- [ ] EP-4: Implement truthful usage and pricing.
+- [ ] EP-5: Complete offline and live acceptance.
 
 
 ## Surprises & Discoveries

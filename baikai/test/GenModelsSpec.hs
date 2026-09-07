@@ -8,6 +8,7 @@ import Baikai.Compat
     thinkingStyle,
   )
 import Baikai.Model (InputModality (InputText))
+import Data.Aeson qualified as Aeson
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GenModelsCore
@@ -18,7 +19,15 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.GenModels"
-    [ testCase "checkIdentifierCollisions rejects sanitized binding duplicates" $ do
+    [ testCase "OpenAI effort policy rejects empty, duplicate, unordered and unknown levels" $
+        mapM_
+          ( \levels ->
+              case Aeson.fromJSON (Aeson.object ["kind" Aeson..= ("openai-completions" :: Text), "supportedReasoningEfforts" Aeson..= levels]) :: Aeson.Result CatalogCompat of
+                Aeson.Error _ -> pure ()
+                Aeson.Success _ -> assertFailure "invalid effort policy accepted"
+          )
+          ([[], ["low", "low"], ["high", "low"], ["unknown"]] :: [[Text]]),
+      testCase "checkIdentifierCollisions rejects sanitized binding duplicates" $ do
         let entries = flattenEntries collisionCatalog
         case checkIdentifierCollisions entries of
           Right () -> assertFailure "expected duplicate generated identifier to be rejected"

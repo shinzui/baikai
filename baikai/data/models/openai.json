@@ -276,6 +276,12 @@
     },
     {
       "id": "gpt-6-astra",
+      "compat": {
+        "kind": "openai-completions",
+        "supportsToolCalls": false,
+        "supportsSamplingParameters": false,
+        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+      },
       "name": "GPT-6 Astra",
       "reasoning": true,
       "input": ["text", "image"],

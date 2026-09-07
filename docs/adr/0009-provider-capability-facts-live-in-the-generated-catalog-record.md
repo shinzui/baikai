@@ -106,3 +106,16 @@ Where the facts themselves are wrong — the curated table is written from
 the Anthropic API reference, not from a live probe — the fix is one map
 entry, a regeneration and a Decision Log note. The keyed smoke cases in
 `baikai-smoke/test/ThinkingSmoke.hs` are where the table meets reality.
+
+## OpenAI endpoint facts (2026-09-07)
+
+The same contract now applies to OpenAI Chat Completions. Its compatibility
+record carries `supportsToolCalls`, `supportsSamplingParameters`, and
+`supportedReasoningEfforts`. Host defaults preserve unconstrained behavior;
+an explicit effort list must be nonempty, unique, and ascending in catalog
+JSON. The OpenAI curation map preserves per-model restrictions across refreshes,
+and the generator renders them into the model record. Endpoint availability
+and model-wide tool support are separate facts: Astra's Chat binding carries
+`supportsToolCalls = False` even when the upstream model advertises tools.
+Request enforcement is tracked by plan 73 and is not established by catalog
+generation alone.
