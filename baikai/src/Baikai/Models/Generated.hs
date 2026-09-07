@@ -84,6 +84,37 @@ anthropic_claude_fable_5 =
             }
     }
 
+anthropic_claude_fable_5_1 :: Model
+anthropic_claude_fable_5_1 =
+  emptyModel
+    { modelId = "claude-fable-5-1",
+      name = "Claude Fable 5.1",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 10 % 1,
+            outputCost = 50 % 1,
+            cacheReadCost = 1 % 4,
+            cacheWriteCost = 25 % 2
+          },
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False
+            }
+    }
+
 anthropic_claude_haiku_4_5 :: Model
 anthropic_claude_haiku_4_5 =
   emptyModel
@@ -823,6 +854,29 @@ openai_gpt_5_nano =
       compat = CompatNone
     }
 
+openai_gpt_6_astra :: Model
+openai_gpt_6_astra =
+  emptyModel
+    { modelId = "gpt-6-astra",
+      name = "GPT-6 Astra",
+      api = OpenAIChatCompletions,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 10 % 1,
+            outputCost = 50 % 1,
+            cacheReadCost = 1 % 1,
+            cacheWriteCost = 25 % 2
+          },
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat = CompatNone
+    }
+
 openai_o1 :: Model
 openai_o1 =
   emptyModel
@@ -965,6 +1019,7 @@ openrouter_openai_gpt_4o_mini =
 allModels :: [Model]
 allModels =
   [ anthropic_claude_fable_5,
+    anthropic_claude_fable_5_1,
     anthropic_claude_haiku_4_5,
     anthropic_claude_opus_4_5,
     anthropic_claude_opus_4_6,
@@ -994,6 +1049,7 @@ allModels =
     openai_gpt_5_6_terra,
     openai_gpt_5_mini,
     openai_gpt_5_nano,
+    openai_gpt_6_astra,
     openai_o1,
     openai_o3,
     openai_o3_mini,

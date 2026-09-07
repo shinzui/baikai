@@ -28,9 +28,11 @@ Models.anthropic_claude_opus_4_8
 Models.anthropic_claude_sonnet_4_6
 Models.anthropic_claude_haiku_4_5
 Models.anthropic_claude_fable_5
+Models.anthropic_claude_fable_5_1
 Models.deepseek_deepseek_chat
 Models.deepseek_deepseek_reasoner
 Models.openai_gpt_5_5
+Models.openai_gpt_6_astra
 Models.openai_gpt_5_mini
 Models.openai_gpt_4o_mini
 Models.openai_o3
@@ -39,7 +41,7 @@ Models.openrouter_openai_gpt_4o_mini
 ```
 
 That list is a sample, not the catalog: `Models.allModels` is the whole
-of it — thirty-five entries — including every `deepseek_*` and
+of it, including every `deepseek_*` and
 `openrouter_*` binding.
 
 The identifiers are `<provider>_<modelId>` with non-identifier
@@ -67,6 +69,22 @@ cabal run baikai-gen-models
 `baikai.cabal` by walking up from the current directory.) The
 `CatalogSpec` test in `cabal test all` catches drift between the
 JSON sources and the committed `Baikai.Models.Generated`.
+
+The September 2026 additions are `openai_gpt_6_astra` and
+`anthropic_claude_fable_5_1`. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
+supports Chat Completions, with a 1,050,000-token context and 128,000-token output
+limit. Its catalog prices are standard base rates; long-context and service-tier
+multipliers are not represented by the flat cost record.
+[Claude Fable 5.1](https://platform.claude.com/docs/en/models/fable-5-1/overview)
+has a 1,000,000-token context, 128,000-token output limit, and $0.25/M cached-input
+rate. The catalog uses its five-minute cache-write price.
+
+Fable 5.1 thinking is always on: leaving `Options.thinking` unset leaves the
+provider default in effect. Use automatic tool choice; forced `any` or named
+tool choice is rejected by the API. Preserve thinking blocks unchanged and
+keep conversation history append-only: editing earlier turns invalidates later
+thinking blocks. See the [migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
+before switching existing conversations to this model.
 
 ## Adding a model to the catalog
 

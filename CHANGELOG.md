@@ -7,6 +7,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai`: GPT-6 Astra and Claude Fable 5.1 catalog bindings, with verified
+  pricing, token limits, and Anthropic thinking/sampling compatibility.
+
 ## [baikai 0.6.0.1] - 2026-08-30
 
 ### Fixed

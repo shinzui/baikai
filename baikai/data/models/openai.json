@@ -275,6 +275,21 @@
       "enabled": true
     },
     {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 10.0,
+        "output": 50.0,
+        "cacheRead": 1.0,
+        "cacheWrite": 12.5
+      },
+      "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
+      "enabled": true
+    },
+    {
       "id": "o1",
       "name": "o1",
       "reasoning": true,

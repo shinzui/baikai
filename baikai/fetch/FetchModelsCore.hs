@@ -257,7 +257,10 @@ data ProviderSpec = ProviderSpec
 openaiInclude :: Set Text
 openaiInclude =
   Set.fromList
-    [ "gpt-5.6",
+    [ -- 2026-09-07: Chat Completions, streaming and function calling supported:
+      -- https://developers.openai.com/api/docs/models/gpt-6-astra
+      "gpt-6-astra",
+      "gpt-5.6",
       "gpt-5.6-luna",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -325,7 +328,10 @@ anthropicInclude =
       -- 2026-08-27: budget shape, sampling parameters accepted — same source.
       ("claude-haiku-4-5", budgetWithSampling),
       -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
-      ("claude-fable-5", adaptiveNoSampling)
+      ("claude-fable-5", adaptiveNoSampling),
+      -- 2026-09-07: always-on adaptive thinking; omit sampling parameters.
+      -- https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1
+      ("claude-fable-5-1", adaptiveNoSampling)
     ]
   where
     adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False

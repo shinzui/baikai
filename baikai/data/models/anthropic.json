@@ -25,6 +25,26 @@
       "enabled": true
     },
     {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 10.0,
+        "output": 50.0,
+        "cacheRead": 0.25,
+        "cacheWrite": 12.5
+      },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false
+      },
+      "enabled": true
+    },
+    {
       "id": "claude-haiku-4-5",
       "name": "Claude Haiku 4.5",
       "reasoning": true,

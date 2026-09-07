@@ -81,6 +81,7 @@ anthropicCatalogModels = [m | m <- allModels, api m == AnthropicMessages]
 expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool))]
 expectedAnthropicFacts =
   [ ("claude-fable-5", (AnthropicThinkingAdaptive, False)),
+    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False)),
     ("claude-haiku-4-5", (AnthropicThinkingBudget, True)),
     ("claude-opus-4-5", (AnthropicThinkingBudget, True)),
     ("claude-opus-4-6", (AnthropicThinkingAdaptive, True)),
