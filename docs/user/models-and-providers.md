@@ -70,6 +70,9 @@ cabal run baikai-gen-models
 `CatalogSpec` test in `cabal test all` catches drift between the
 JSON sources and the committed `Baikai.Models.Generated`.
 
+For a provider release refresh, use the repository's
+[update-models skill](../../agents/skills/update-models/SKILL.md).
+
 The September 2026 additions are `openai_gpt_6_astra` and
 `anthropic_claude_fable_5_1`. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
 supports Chat Completions, with a 1,050,000-token context and 128,000-token output
