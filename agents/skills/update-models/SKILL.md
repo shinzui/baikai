@@ -1,13 +1,16 @@
 ---
 name: update-models
-description: Refresh baikai's supported OpenAI and Anthropic model catalog after provider releases, verifying API compatibility, prices and limits, updating fetcher curation, and regenerating the Haskell bindings.
+description: Refresh baikai's OpenAI and Anthropic model catalog, audit provider implementation compatibility against new releases, and create intention-linked execution plans for necessary support changes.
 ---
 
 # Update supported models
 
 Run from the repository root. Read `docs/user/models-and-providers.md` and
-`baikai/fetch/FetchModelsCore.hs` for the catalog contract. This is a catalog
-update; changing application defaults or publishing packages is separate work.
+`baikai/fetch/FetchModelsCore.hs` for the catalog contract. Complete the catalog
+refresh and assess whether the new models need implementation changes. Create
+or update plans for those changes as part of the refresh; implement the planned
+features only when requested. Changing application defaults or publishing
+packages is separate work.
 
 ## Verify the release
 
@@ -22,17 +25,100 @@ limits, and standard USD prices per million tokens (input, output, cache read,
 and cache write). Distinguish base pricing from long-context, batch, service-tier,
 and cache-TTL rates; the catalog only represents one rate per token category.
 
-Confirm streaming and tool use on the API baikai actually implements: OpenAI
-Chat Completions or Anthropic Messages. Responses-only models do not belong in
-the OpenAI include set. Check migration notes for thinking modes, accepted
-effort levels, sampling parameters, forced tool choice and history constraints.
-Inspect the local request/shape code to establish compatibility. Use Mori to
-locate dependency sources if SDK API changes are needed; a new model ID alone
-usually needs no dependency update. Do not infer capabilities from model names.
+Confirm each capability on the exact endpoint selected by the catalog and
+implemented by the current provider. Read `baikai/src/Baikai/Api.hs` and the
+provider registrations rather than assuming the supported protocols are fixed.
+A model page listing both Chat Completions and function calling does not prove
+that function calling works on Chat Completions: migration guidance may require
+Responses for tools. Do not infer capabilities from model names or combine
+independent endpoint and feature lists into a compatibility claim.
+
+## Audit implementation compatibility
+
+Before enabling a new entry, trace the intended call through request shaping,
+stream assembly, conversation replay, and accounting. Compare the actual code
+and existing tests with the provider's migration requirements:
+
+- **Dispatch and requests:** Check the API tag, registration, streaming and
+  tool support, accepted effort levels, sampling fields, forced tool choice,
+  structured output, output caps and cache configuration. Inspect
+  `baikai-openai/src/Baikai/Provider/OpenAI/` and
+  `baikai-claude/src/Baikai/Provider/Claude/`, including their request and shape
+  modules. Check defaults as well as explicitly set options.
+- **Responses and replay:** Check new event types, terminal/error handling,
+  tool-call identities, empty signed thinking, opaque continuation data, and
+  what reaches the next tool turn. Follow `baikai/src/Baikai/Content.hs`,
+  `baikai/src/Baikai/Context.hs` and `baikai/src/Baikai/Provider/Registry.hs`.
+  Distinguish preserving Baikai-owned history from restrictions on caller edits.
+- **Usage, pricing and evidence:** Inspect `baikai/src/Baikai/Usage.hs`,
+  `baikai/src/Baikai/Cost/Pricing.hs`, `baikai/src/Baikai/Evidence.hs` and provider
+  usage extraction. Verify cache-write reporting, inclusive versus exclusive
+  token counts, pricing thresholds and cache durations. A new rate in JSON
+  does not implement the accounting rule, and missing usage is not observed zero.
+- **SDK and tests:** Use Mori to locate dependency sources before assuming an
+  SDK supports new fields or events. Verify Hackage releases and upstream tags
+  before choosing bounds or compatibility workarounds. Inspect provider tests
+  and `baikai-smoke/test/` for coverage of the actual endpoint and multi-turn
+  behavior, including hardcoded options incompatible with the new model.
+
+For each mismatch, record the official source and verification date, affected
+code, concrete failing configuration, necessary behavior and proposed proof.
+Separate confirmed gaps from unresolved questions; make uncertain protocol
+behavior an investigation milestone rather than an invented implementation fact.
+Follow `docs/adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md`:
+generation restrictions belong in catalog compatibility facts, not adapter
+tables keyed by model ID.
+
+Do not enable an entry on an incompatible route just because its metadata can
+be generated. A partially supported entry needs an explicit scope and effective
+guards; documentation alone does not prevent unsupported requests. If the
+required route or guards do not exist, leave a new entry unenabled and plan the
+support work. For an already shipped binding, plan a compatibility-preserving
+correction rather than silently deleting it. Report any current exposure clearly.
+
+## Plan necessary support changes
+
+Create plans when the audit finds necessary changes; do not stop at a list of
+caveats or ask whether the user wants plans. First search `docs/plans/` and
+`docs/masterplans/` for existing work. Reuse or update a matching plan, preserving
+its intention, and describe integration with related work rather than duplicating
+it. If the current implementation already covers the release, report that finding
+with its evidence and create no empty plans.
+
+Use the `exec-plan` skill in `agents/skills/exec-plan/SKILL.md` for a bounded
+change. For multiple independently verifiable work streams with shared interfaces
+or ordering constraints, also use `agents/skills/master-plan/SKILL.md` to create
+a master and coordinated children. Read their specifications and ADR workflow;
+use their init scripts instead of hand-authoring frontmatter or allocating numbers.
+
+The user has instructed this workflow to create intentions with Mina. For each
+new plan, including a master when needed, run:
+
+```sh
+mina ci --json "<plan title>"
+```
+
+Read `intentionId` from the result and pass it to the relevant initializer's
+`--intention` option. Create a distinct intention for each new child and pass
+`--master-plan` as well. This standing instruction replaces the planning skills'
+optional intention question. Preserve explicit child intentions rather than
+overwriting them with the parent's. If creation fails, report the failure and
+retain useful planning progress; never invent an ID or create duplicate intentions
+when a successful result is already available.
+
+Each plan must explain the current mismatch, required behavior, affected modules,
+catalog/SDK implications, dependencies and shared-interface ownership, and exact
+validation commands. Include observable acceptance for request rejection or
+translation, streaming and tool replay, and accounting where relevant. Use a
+focused live check for unresolved endpoint behavior; a missing key or skipped
+case leaves that acceptance outstanding. Carry dated source evidence and relevant
+ADR context into the plan. Do not expand ordinary model support into unrelated
+provider features. When committing plans, include the planning skills' required
+trailers and the matching intention IDs.
 
 ## Refresh and review
 
-1. Update `openaiInclude` or `anthropicInclude` in
+1. Update `openaiInclude` or `anthropicInclude` (or their current replacements) in
    `baikai/fetch/FetchModelsCore.hs`. Every Anthropic ID needs explicit thinking
    style and sampling support, with a dated official source comment. Update
    `expectedAnthropicFacts` in `baikai/test/CatalogSpec.hs` as well.
@@ -73,6 +159,8 @@ and run `git diff --check`; inspect the final JSON and generated diff together.
 Do not format `Generated.hs`: its generator owns the byte layout. The full
 repository formatter is `nix fmt`; bare `treefmt` has no checked-in config.
 
-Report added bindings, verified sources, checks run, and any remaining API or
-pricing limitations. Offline tests do not establish live account access; only
-claim a live smoke test when one was actually run.
+Report catalog changes separately from implemented and live-verified support.
+Include verified sources, checks run, necessary changes, and links to the plans
+created or updated with their intention IDs. State remaining API or pricing
+limitations and which plan closes each one. Offline tests do not establish live
+account access; only claim a live smoke test when one was actually run.
