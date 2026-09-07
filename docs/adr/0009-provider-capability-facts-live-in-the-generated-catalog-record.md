@@ -117,5 +117,8 @@ JSON. The OpenAI curation map preserves per-model restrictions across refreshes,
 and the generator renders them into the model record. Endpoint availability
 and model-wide tool support are separate facts: Astra's Chat binding carries
 `supportsToolCalls = False` even when the upstream model advertises tools.
-Request enforcement is tracked by plan 73 and is not established by catalog
-generation alone.
+The adapter validates tool requests before resolving credentials or dispatching.
+Its shaping path both applies sampling/effort policy and supplies the translation
+used by strict evidence, so the preflight description agrees with wire output.
+Tests through complete and streaming registry dispatch prove local refusals;
+catalog generation alone does not establish provider execution.

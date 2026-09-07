@@ -15,8 +15,9 @@ import Baikai.Provider.OpenAI.Internal.Stream
     scanThinkTags,
     translate,
   )
+import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
-import Control.Lens ((&), (.~))
+import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as LBS
@@ -36,7 +37,13 @@ tests :: TestTree
 tests =
   testGroup
     "ReasoningSpec"
-    [ parseReasoningTests,
+    [ testCase "minimal maps upward by catalog policy with adjustment evidence" $ do
+        let model = openai_gpt_6_astra & #modelId .~ "renamed-policy-test"
+            opts = emptyOptions & #thinking .~ Just ThinkingMinimal
+            described = describeThinkingShape (openaiCompletionsCompatFor model) True opts
+        described ^. #effortText @?= Just "low"
+        described ^. #adjustments @?= [EffortClamped ThinkingMinimal "low"],
+      parseReasoningTests,
       assemblyTests,
       tagScannerTests,
       taggedTextCompatTest,

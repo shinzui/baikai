@@ -26,9 +26,9 @@ A caller selecting GPT-6 Astra through today's Chat Completions provider will re
 
 - [x] (2026-09-07) Inspect current mapping, catalog pipeline, and ADR contract.
 - [x] (2026-09-07) Persist endpoint facts through curation, JSON and generation; pin Astra and reject malformed effort policies. Core suite: all 680 tests passed, including regeneration and refresh preservation. Claude library builds after selector disambiguation.
-- [ ] Review a live fetch candidate and verify restrictions persist.
-- [ ] Enforce request restrictions and test evidence through dispatch.
-- [ ] Update documentation, refresh skill, and ADR; run acceptance checks.
+- [x] (2026-09-07) Fresh fetch to `/tmp/baikai-mp12-candidate-20260907` succeeds: 23 OpenAI and 11 Anthropic models, semantically identical to committed JSON, including Astra restrictions.
+- [x] (2026-09-07) Enforce tool and effort policies before credential resolution; omit temperature/top-p with matching evidence. Both registry entry points reject tools and strict minimal with zero driver calls.
+- [x] (2026-09-07) Update model documentation, refresh skill, changelog and ADR 0009. Combined suites pass: 680 core and 211 OpenAI tests. Formatter and `git diff --check` pass.
 
 
 ## Surprises & Discoveries
@@ -48,17 +48,17 @@ The sampling selector is shared by OpenAI and Anthropic compatibility records. G
 ## Outcomes & Retrospective
 
 
-Catalog milestone implemented and verified with 680 core tests, a Claude library build, formatter checks and `git diff --check`. Request enforcement, provider dispatch tests and workflow documentation remain outstanding.
+Completed endpoint-aware catalog curation and request enforcement. A renamed model with Astra facts rejects tools on complete and stream, maps minimal to low permissively, refuses that adjustment strictly, preserves low through max, and omits temperature/top-p while recording exactly those requested drops. Existing host tests remain green. The combined core/provider run passed 891 tests; a fresh upstream candidate preserves all committed facts. Astra remains text-only until plan 74 activates Responses. No live inference claim is made. Durable policy is recorded in ADR 0009.
 
 
 ## Context and Orientation
 
 
-Baikai is a Haskell provider abstraction. A Model chooses an Api (the network protocol used for dispatch), limits, prices, and a compat record (facts used when shaping requests). The current Astra binding was added in commit aaecbf5. Its api is OpenAIChatCompletions and compat is CompatNone, which resolves host defaults rather than model-generation restrictions.
+Baikai is a Haskell provider abstraction. A Model chooses an Api (the network protocol used for dispatch), limits, prices, and a compat record (facts used when shaping requests). The current Astra binding was added in commit aaecbf5. It originally used OpenAIChatCompletions with CompatNone; this plan now supplies an explicit endpoint compatibility record while preserving that API tag until plan 74.
 
 The OpenAI migration guidance retrieved 2026-09-07 states that Astra accepts Chat Completions for text, but tool calling requires Responses; it accepts low, medium, high, xhigh and max effort, not minimal, and rejects temperature and top_p. Source: https://developers.openai.com/api/docs/guides/latest-model. The model page's separate endpoint and feature lists do not establish that every feature exists on every endpoint. These facts are embedded here so implementation does not depend on a search result; recheck the official guide if implementation occurs after this date.
 
-The relevant files are baikai/src/Baikai/Compat.hs, baikai/src/Baikai/Model.hs, baikai/fetch/FetchModelsCore.hs, baikai/gen/GenModelsCore.hs, baikai/data/models/openai.json, and baikai/src/Baikai/Models/Generated.hs. The fetcher currently curates OpenAI IDs in openaiInclude and emits file-level API and automatic compatibility. Request construction is mapRequest in baikai-openai/src/Baikai/Provider/OpenAI/Internal/Request.hs; injectThinkingShape in baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs currently forwards every canonical effort unchanged. prepareCall in baikai-openai/src/Baikai/Provider/OpenAI/Internal/Stream.hs owns pre-network preparation.
+The relevant files are baikai/src/Baikai/Compat.hs, baikai/src/Baikai/Model.hs, baikai/fetch/FetchModelsCore.hs, baikai/gen/GenModelsCore.hs, baikai/data/models/openai.json, and baikai/src/Baikai/Models/Generated.hs. The fetcher curates OpenAI IDs and optional endpoint facts in openaiInclude and emits per-model compatibility where specified. Request construction is mapRequest in baikai-openai/src/Baikai/Provider/OpenAI/Internal/Request.hs; injectThinkingShape in baikai-openai/src/Baikai/Provider/OpenAI/Shape.hs now resolves native effort against the model policy and records its adjustments. prepareCall in baikai-openai/src/Baikai/Provider/OpenAI/Internal/Stream.hs owns pre-network preparation.
 
 [ADR 0009](../adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md) requires generation facts in the catalog. [ADR 0003](../adr/0003-the-adapter-owns-the-translation-description.md) requires the actual request mapping to produce its own evidence. [ADR 0014](../adr/0014-strict-evidence-means-a-record-exists.md) requires strict calls to fail when a translation weakens a requested setting or the required evidence cannot be delivered. No cross-repository ADR was needed.
 
@@ -125,3 +125,5 @@ Generation and fixture tests are repeatable without keys. Keep the JSON and gene
 This plan owns OpenAICompletionsCompat capability fields, their defaults, fetch/generator schema and pure request validation. It preserves ApiProvider's public shape. The later Responses plan consumes the effort-policy helper and defines its own endpoint tag and compatibility record. No dependency bump is planned; use the currently resolved SDK and, if an API change proves necessary, locate it first through mori registry show MercuryTechnologies/openai --full and verify any proposed release against Hackage and upstream tags.
 
 Commits carry this file's ExecPlan trailer, the parent MasterPlan trailer and intention intention_01m1z341nne5zszbdvzjmtab3z. This explicit child intention takes precedence over the parent's intention.
+
+2026-09-07 implementation revision: completed all acceptance gates and refreshed the living context. The migration-guide audit also names logprobs/top_logprobs, which Baikai Options does not expose. Seed, frequency and presence penalties retain their existing mapping; no unsupported claim was inferred for those from the temperature/top-p restriction. Sampling evidence is emitted even without a requested thinking level.

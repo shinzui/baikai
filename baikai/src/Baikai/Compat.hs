@@ -86,7 +86,8 @@ data ThinkingFormat
   = -- | OpenAI-native: top-level @reasoning_effort: "minimal" | "low"
     --   | "medium" | "high" | "xhigh" | "max"@.
     --
-    --   This shape sends the canonical baikai level verbatim. Three of
+    --   This shape sends the canonical level unless the model declares
+    --   a restricted supportedReasoningEfforts vocabulary. Three of
     --   the other six — OpenRouter, DeepSeek and Together — route
     --   through @Baikai.Provider.OpenAI.Shape.compatibleEffort@, which
     --   clamps @minimal@ to @low@ and both @xhigh@ and @max@ to @high@ —

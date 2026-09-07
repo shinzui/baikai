@@ -15,7 +15,7 @@
 module EvidenceSpec (tests) where
 
 import Baikai
-import Baikai.Models.Generated (openai_gpt_4o_mini)
+import Baikai.Models.Generated (openai_gpt_4o_mini, openai_gpt_6_astra)
 import Baikai.Provider.OpenAI.Internal.Stream (SseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
@@ -51,7 +51,8 @@ tests =
     -- @--test-options='--pattern Evidence'@ actually selects it. A
     -- pattern that matches nothing reports "All 0 tests passed".
     "EvidenceSpec: OpenAI-compatible model-call evidence"
-    [ successEvidenceTest,
+    [ endpointEvidenceTest,
+      successEvidenceTest,
       rateLimitEvidenceTest,
       toggleHostIndistinguishabilityTest,
       nonReasoningModelEvidenceTest,
@@ -495,3 +496,30 @@ assertSha256 k d =
   assertBool
     (Text.unpack k <> " must be a sha256 digest, got: " <> show d)
     ("sha256:" `Text.isPrefixOf` d && Text.length d == 71)
+
+endpointEvidenceTest :: TestTree
+endpointEvidenceTest = testCase "Astra text shaping and strict refusal agree with evidence" $ do
+  bodyRef <- newIORef Null
+  let model = openai_gpt_6_astra & #modelId .~ "renamed-astra"
+      opts =
+        baseOptions
+          & #thinking .~ Just ThinkingMinimal
+          & #temperature .~ Just 0.5
+          & #topP .~ Just 0.9
+          & #toolChoice .~ Just ToolChoiceAuto
+  ev <- oneEvidence =<< replayWith bodyRef model 200 successHeaders successBody opts
+  body <- readIORef bodyRef
+  lookupIn "reasoning_effort" body @?= Just (String "low")
+  lookupIn "temperature" body @?= Nothing
+  lookupIn "top_p" body @?= Nothing
+  thinkingOf ev "effort_text" @?= Just (String "low")
+  let described = describeThinkingShape (openaiCompletionsCompatFor model) True opts
+  field "thinking" ev @?= Just (Aeson.toJSON described)
+  described ^. #adjustments @?= [EffortClamped ThinkingMinimal "low", SamplingDroppedUnsupportedModel ["temperature", "top_p"]]
+  samplingOnly <- oneEvidence =<< replayWith bodyRef model 200 successHeaders successBody (opts & #thinking .~ Nothing)
+  thinkingOf samplingOnly "adjustments" @?= Just (Aeson.toJSON [SamplingDroppedUnsupportedModel ["temperature", "top_p"]])
+  writeIORef bodyRef Null
+  let strict = opts & #evidence .~ Just (evidenceRequest "strict-astra" & #strictness .~ EvidenceRequired EvidenceRequestedOnly)
+  refused <- oneEvidence =<< replayWith bodyRef model 200 successHeaders successBody strict
+  readIORef bodyRef >>= (@?= Null)
+  field "status" refused @?= Just (String "failed")

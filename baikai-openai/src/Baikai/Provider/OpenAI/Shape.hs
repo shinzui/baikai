@@ -13,6 +13,7 @@ module Baikai.Provider.OpenAI.Shape
     dropUnsupportedStrict,
     injectThinkingShape,
     describeThinkingShape,
+    resolveSupportedEffort,
     injectCacheControl,
   )
 where
@@ -24,6 +25,7 @@ import Baikai.Compat
     OpenAICompletionsCompat
       ( cacheControlFormat,
         maxTokensField,
+        supportedReasoningEfforts,
         supportsLongCacheRetention,
         supportsStrictMode,
         supportsUsageInStreaming,
@@ -37,13 +39,16 @@ import Baikai.Evidence
     ThinkingTranslation (..),
     noThinkingRequested,
   )
-import Baikai.Options (Options, cacheRetention, thinking)
+import Baikai.Options (Options, cacheRetention, temperature, thinking, topP)
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
+import Control.Lens ((%~), (&), (^.))
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap (KeyMap)
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Generics.Labels ()
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
@@ -125,12 +130,10 @@ dropUnsupportedStrict compat
 -- through 'compatibleEffort', the two toggle shapes carry no depth at
 -- all, and 'ThinkingFormatNone' drops the request entirely.
 --
--- The native shape is the one that records __no__ adjustment, because
--- it forwards the canonical level verbatim and therefore expresses all
--- six exactly. That is deliberate and guarded by @nativeHigherEffortTests@
--- in @baikai-openai/test/ShapeSpec.hs@; 'compatibleEffort' is scoped by
--- its own documentation to the non-native shapes and must not be
--- applied here.
+-- The native shape preserves each level unless the model explicitly
+-- restricts its accepted vocabulary. Any replacement is described by
+-- the same mapping that writes the wire field. Host-specific clamping
+-- remains separate from this per-model policy.
 --
 -- The 'Bool' is whether the chosen model advertises reasoning support
 -- ('Baikai.Model.reasoning'). It is consulted /before/ the host's
@@ -150,6 +153,28 @@ injectThinkingShape ::
   Aeson.Value ->
   (Aeson.Value, ThinkingTranslation)
 injectThinkingShape compat modelReasons opts body =
+  let (shaped, translation) = injectEffort compat modelReasons opts body
+      dropped = [name | (name, present) <- [("temperature", isJust (temperature opts)), ("top_p", isJust (topP opts))], present]
+   in if compat ^. #supportsSamplingParameters
+        then (shaped, translation)
+        else
+          ( mapObject (KeyMap.delete "temperature" . KeyMap.delete "top_p") shaped,
+            translation & #adjustments %~ (<> [SamplingDroppedUnsupportedModel dropped | not (null dropped)])
+          )
+
+-- | Resolve to the nearest accepted level at or above the request, or
+-- the greatest accepted level when the request exceeds the policy.
+-- Invalid empty policies are rejected by request validation.
+resolveSupportedEffort :: Maybe [ThinkingLevel] -> ThinkingLevel -> ThinkingLevel
+resolveSupportedEffort Nothing lvl = lvl
+resolveSupportedEffort (Just []) lvl = lvl
+resolveSupportedEffort (Just levels) lvl =
+  case filter (>= lvl) levels of
+    first : _ -> first
+    [] -> last levels
+
+injectEffort :: OpenAICompletionsCompat -> Bool -> Options -> Aeson.Value -> (Aeson.Value, ThinkingTranslation)
+injectEffort compat modelReasons opts body =
   case thinking opts of
     Nothing -> (body, noThinkingRequested)
     Just lvl
@@ -166,7 +191,7 @@ injectThinkingShape compat modelReasons opts body =
           )
     Just lvl -> case thinkingFormat compat of
       ThinkingFormatOpenAI ->
-        let e = renderThinkingLevel lvl
+        let e = renderThinkingLevel (resolveSupportedEffort (supportedReasoningEfforts compat) lvl)
          in ( insertTop "reasoning_effort" (String e) body,
               effortTranslation lvl e "reasoning_effort"
             )

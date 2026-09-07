@@ -19,14 +19,17 @@ import Baikai.Context (Context (..))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
+import Baikai.Provider.OpenAI.Shape (resolveSupportedEffort)
 import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Baikai.Tool qualified as Tool
 import Control.Lens ((^.))
+import Control.Monad (unless)
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as BSL
 import Data.Generics.Labels ()
+import Data.List (nub, sort)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -46,6 +49,18 @@ import OpenAI.V1.ToolCall qualified as ToolCall
 mapRequest ::
   Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
 mapRequest m ctx opts = do
+  let capability = openaiCompletionsCompatFor m
+      forced = case opts ^. #toolChoice of
+        Just Tool.ToolChoiceRequired -> True
+        Just (Tool.ToolChoiceSpecific _) -> True
+        _ -> False
+  unless (capability.supportsToolCalls || (Vector.null (ctx ^. #tools) && not forced)) $
+    Left "This model does not support tools on OpenAI Chat Completions; use OpenAI Responses for tool calling"
+  case capability.supportedReasoningEfforts of
+    Just levels
+      | null levels || levels /= sort (nub levels) ->
+          Left "supportedReasoningEfforts must be nonempty, unique and ordered"
+    _ -> pure ()
   body <- traverse mapMessage (Vector.toList (ctx ^. #messages))
   let compat = openaiCompletionsCompatFor m
       prefix = case ctx ^. #systemPrompt of
@@ -79,8 +94,8 @@ mapRequest m ctx opts = do
       { Chat.messages = Vector.fromList (prefix <> body),
         Chat.model = OpenAIModels.Model (m ^. #modelId),
         Chat.max_completion_tokens = maxTokensField,
-        Chat.temperature = opts ^. #temperature,
-        Chat.top_p = opts ^. #topP,
+        Chat.temperature = if compat.supportsSamplingParameters then opts ^. #temperature else Nothing,
+        Chat.top_p = if compat.supportsSamplingParameters then opts ^. #topP else Nothing,
         Chat.stop = nonEmptyStops (opts ^. #stopSequences),
         Chat.seed = fmap fromIntegral (opts ^. #seed),
         Chat.frequency_penalty = opts ^. #frequencyPenalty,
@@ -139,7 +154,7 @@ applyThinkingFormat ::
   Maybe Chat.ReasoningEffort
 applyThinkingFormat _ Nothing = Nothing
 applyThinkingFormat compat (Just lvl) = case thinkingFormat compat of
-  ThinkingFormatOpenAI -> Just (toReasoningEffort lvl)
+  ThinkingFormatOpenAI -> Just (toReasoningEffort (resolveSupportedEffort compat.supportedReasoningEfforts lvl))
   _ -> Nothing
 
 toReasoningEffort :: ThinkingLevel -> Chat.ReasoningEffort

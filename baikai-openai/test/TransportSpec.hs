@@ -1,17 +1,23 @@
 module TransportSpec (tests) where
 
 import Baikai
+import Baikai.Models.Generated (openai_gpt_6_astra)
 import Baikai.Provider.OpenAI.Api (openaiChatStream)
+import Baikai.Provider.OpenAI.Internal.Stream (openaiChatStreamWith)
+import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.OpenAI.Transport qualified as Transport
+import Contract (assertErrorContract)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket, try)
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
+import Data.Aeson qualified as Aeson
 import Data.CaseInsensitive qualified as CI
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Vector qualified as Vector
 import Network.HTTP.Types.Header (RequestHeaders)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream qualified as Stream
@@ -23,7 +29,8 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Provider.OpenAI.Transport"
-    [ clientEnvCacheTest,
+    [ endpointRejectionTest,
+      clientEnvCacheTest,
       requestHeadersTest,
       timeoutTest,
       nonPositiveTimeoutTest,
@@ -168,3 +175,45 @@ withoutEnv name =
     (lookupEnv name <* unsetEnv name)
     (maybe (unsetEnv name) (setEnv name))
     . const
+
+endpointRejectionTest :: TestTree
+endpointRejectionTest = testCase "endpoint capability rejection precedes network on complete and stream" $ do
+  calls <- newIORef (0 :: Int)
+  let driver _ _ _ _ _ = modifyIORef' calls (+ 1)
+      stream = openaiChatStreamWith driver
+      model = openai_gpt_6_astra & #modelId .~ "renamed-text-only"
+      tool = mkTool "lookup" "lookup" (Aeson.object [])
+      provider =
+        apiProviderWith OpenAIChatCompletions stream (streamingComplete stream)
+          & #describeThinking .~ (\m opts -> describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts)
+      options = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "unused")
+  reg <- newProviderRegistry
+  registerApiProviderWith reg provider
+  forM_
+    [ (emptyContext & #tools .~ Vector.singleton tool, options),
+      (emptyContext, options & #toolChoice .~ Just ToolChoiceRequired),
+      (emptyContext, options & #toolChoice .~ Just (ToolChoiceSpecific "lookup"))
+    ]
+    $ \(ctx, opts) -> do
+      events <- Stream.toList (streamRequestWith reg model ctx opts)
+      assertErrorContract events
+      case last events of
+        EventError payload -> case payload ^. #errorInfo of
+          Just err -> do
+            err ^. #category @?= InvalidRequest
+            assertBool "actionable Responses explanation" ("Responses" `Text.isInfixOf` (err ^. #message))
+          _ -> assertFailure "missing error"
+        _ -> assertFailure "expected error terminal"
+      response <- completeRequestWith reg model ctx opts
+      response ^. (#message . #stopReason) @?= ErrorReason
+  let strict =
+        options
+          & #thinking .~ Just ThinkingMinimal
+          & #evidence .~ Just (evidenceRequest "strict-endpoint" & #strictness .~ EvidenceRequired EvidenceRequestedOnly)
+  strictEvents <- Stream.toList (streamRequestWith reg model emptyContext strict)
+  assertErrorContract strictEvents
+  strictResponse <- completeRequestWith reg model emptyContext strict
+  case responseError strictResponse of
+    Just err -> err ^. #category @?= InvalidRequest
+    _ -> assertFailure "strict complete must refuse adjusted reasoning"
+  readIORef calls >>= (@?= 0)

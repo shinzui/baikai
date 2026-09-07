@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `baikai-openai`: reject tools locally for models whose Chat Completions endpoint
+  disallows them, including GPT-6 Astra. Respect generated effort policies and
+  sampling restrictions, with matching translation evidence and strict refusal.
+- `baikai`: preserve OpenAI endpoint capability facts through catalog refreshes.
+
 ### Added
 
 - `baikai`: GPT-6 Astra and Claude Fable 5.1 catalog bindings, with verified

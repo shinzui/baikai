@@ -75,8 +75,12 @@ For a provider release refresh, use the repository's
 
 The September 2026 additions are `openai_gpt_6_astra` and
 `anthropic_claude_fable_5_1`. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
-supports Chat Completions, with a 1,050,000-token context and 128,000-token output
-limit. Its catalog prices are standard base rates; long-context and service-tier
+supports text on Chat Completions, with a 1,050,000-token context and 128,000-token output
+limit. Its current Baikai binding rejects tools locally: Astra tool calling
+requires the Responses API. Temperature and top-p are omitted with adjustment
+evidence; minimal reasoning becomes low, which strict evidence mode refuses.
+Low through max are preserved. See the
+[migration guidance](https://developers.openai.com/api/docs/guides/latest-model). Its catalog prices are standard base rates; long-context and service-tier
 multipliers are not represented by the flat cost record.
 [Claude Fable 5.1](https://platform.claude.com/docs/en/models/fable-5-1/overview)
 has a 1,000,000-token context, 128,000-token output limit, and $0.25/M cached-input

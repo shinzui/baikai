@@ -30,7 +30,8 @@ tests :: TestTree
 tests =
   testGroup
     "ShapeSpec"
-    [ deepseekShapeTest,
+    [ endpointPolicyTests,
+      deepseekShapeTest,
       nativeHigherEffortTests,
       compatibleHigherEffortClampTest,
       translationTableTests,
@@ -507,3 +508,16 @@ runChunks chunks =
 
 testTime :: UTCTime
 testTime = read "2026-07-03 12:00:00 UTC"
+
+endpointPolicyTests :: TestTree
+endpointPolicyTests =
+  testGroup
+    "endpoint policy"
+    [ testCase ("accepted effort " <> show level) $ do
+        (body, translation) <- shapedCall fake (emptyOptions & #thinking .~ Just level) emptyContext
+        lookupTop "reasoning_effort" body @?= Just (String (renderThinkingLevel level))
+        translation ^. #adjustments @?= []
+    | level <- [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
+    ]
+  where
+    fake = Models.openai_gpt_6_astra & #modelId .~ "arbitrary-generation"

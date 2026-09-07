@@ -119,7 +119,9 @@ trailers and the matching intention IDs.
 ## Refresh and review
 
 1. Update `openaiInclude` or `anthropicInclude` (or their current replacements) in
-   `baikai/fetch/FetchModelsCore.hs`. Every Anthropic ID needs explicit thinking
+   `baikai/fetch/FetchModelsCore.hs`. OpenAI entries carry optional explicit
+   endpoint restrictions; preserve those blocks when refreshing, and test tools
+   against the selected API before advertising agent support. Every Anthropic ID needs explicit thinking
    style and sampling support, with a dated official source comment. Update
    `expectedAnthropicFacts` in `baikai/test/CatalogSpec.hs` as well.
 2. Fetch a candidate into a temporary directory before replacing committed data:
