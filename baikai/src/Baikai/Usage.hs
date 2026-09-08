@@ -22,21 +22,16 @@
 -- every cost-reading caller would have to handle. 'Baikai.Cost.Pricing.computeCost'
 -- depends on the token classes being disjoint so each class is billed
 -- exactly once.
-module Baikai.Usage (Usage (..), UsageAvailability (..), UsageCategory (..), zeroUsage, sumUsage) where
+module Baikai.Usage (Usage (..), UsageAvailability (..), UsageCategory (..), BillingFact (..), observeBilling, zeroUsage, sumUsage) where
 
 import Baikai.Cost (Cost, zeroCost)
-import Data.Aeson
-  ( FromJSON (parseJSON),
-    Options (constructorTagModifier, fieldLabelModifier),
-    ToJSON (toJSON),
-    camelTo2,
-    defaultOptions,
-    genericToJSON,
-  )
+import Data.Aeson (FromJSON (parseJSON), Options (constructorTagModifier, fieldLabelModifier), ToJSON (toJSON), camelTo2, defaultOptions, genericToJSON, (.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Maybe (fromMaybe)
 import Data.Set (Set)
+import Data.Set qualified as Set
+import Data.Text (Text)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -44,11 +39,20 @@ import Numeric.Natural (Natural)
 data UsageCategory = InputUsage | OutputUsage | CacheReadUsage | CacheWriteUsage
   deriving stock (Eq, Ord, Show, Generic)
 
+-- | Provider observations, independent of the requested tier and local rates.
+data BillingFact = BillingServiceTier Text | BillingSpeed Text | BillingServerToolUse
+  deriving stock (Eq, Ord, Show, Generic)
+
+instance FromJSON BillingFact where parseJSON = Aeson.genericParseJSON usageOptions
+
+instance ToJSON BillingFact where toJSON = genericToJSON usageOptions
+
 -- | Provider facts, independent of local prices. Missing categories are not
 -- observed zeroes; inconsistent counters cannot support an exact calculation.
 data UsageAvailability = UsageAvailability
   { missingCategories :: !(Set UsageCategory),
-    inconsistent :: !Bool
+    inconsistent :: !Bool,
+    billingFacts :: !(Set BillingFact)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -56,12 +60,16 @@ instance FromJSON UsageCategory where parseJSON = Aeson.genericParseJSON usageOp
 
 instance ToJSON UsageCategory where toJSON = genericToJSON usageOptions
 
-instance FromJSON UsageAvailability where parseJSON = Aeson.genericParseJSON usageOptions
+instance FromJSON UsageAvailability where
+  parseJSON = Aeson.withObject "UsageAvailability" $ \o -> UsageAvailability <$> o .: "missing_categories" <*> o .: "inconsistent" <*> o .:? "billing_facts" .!= Set.empty
 
-instance ToJSON UsageAvailability where toJSON = genericToJSON usageOptions
+instance ToJSON UsageAvailability where
+  toJSON facts = case genericToJSON usageOptions facts of
+    Aeson.Object o | Set.null (billingFacts facts) -> Aeson.Object (KeyMap.delete "billing_facts" o)
+    value -> value
 
 instance Semigroup UsageAvailability where
-  a <> b = UsageAvailability (missingCategories a <> missingCategories b) (inconsistent a || inconsistent b)
+  a <> b = UsageAvailability (missingCategories a <> missingCategories b) (inconsistent a || inconsistent b) (billingFacts a <> billingFacts b)
 
 -- | Provider-normalized token usage for one model call.
 --
@@ -146,3 +154,10 @@ instance Monoid Usage where
 -- | Total a collection of per-call usages into one.
 sumUsage :: (Foldable f) => f Usage -> Usage
 sumUsage = foldl' (<>) mempty
+
+-- | Add actual response observations without overwriting missing-count facts.
+observeBilling :: [BillingFact] -> Usage -> Usage
+observeBilling [] u = u
+observeBilling facts u =
+  let previous = fromMaybe (UsageAvailability Set.empty False Set.empty) (availability u)
+   in u {availability = Just previous {billingFacts = billingFacts previous <> Set.fromList facts}}

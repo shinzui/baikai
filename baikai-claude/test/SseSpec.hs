@@ -131,12 +131,12 @@ observationTests =
             partial = frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":100}}"
             final = frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":100,\"cache_creation_input_tokens\":30}}"
         (_, before) <- replayTranslate [start, partial]
-        (before ^. #usage) ^. #availability @?= Just (Usage.UsageAvailability (Set.singleton Usage.CacheWriteUsage) False)
+        (before ^. #usage) ^. #availability @?= Just (Usage.UsageAvailability (Set.singleton Usage.CacheWriteUsage) False Set.empty)
         (_, once) <- replayTranslate [start, partial, final]
         (_, twice) <- replayTranslate [start, partial, final, final]
         once ^. #usage @?= twice ^. #usage
         (once ^. #usage) ^. #totalTokens @?= 160
-        (once ^. #usage) ^. #availability @?= Just (Usage.UsageAvailability Set.empty False)
+        (once ^. #usage) ^. #availability @?= Just (Usage.UsageAvailability Set.empty False Set.empty)
         let (_, failed) = translate (Left (providerUnavailable "reset")) once testTime
         failed ^. #usage @?= once ^. #usage,
       testCase "the observed model comes from message_start, not the configured model" $ do
@@ -186,10 +186,12 @@ blockClosingTests =
     [ testCase "Fable cache writes use the shaped duration including compatibility downgrades" $ do
         let fable = anthropic_claude_fable_5_1
             downgraded = fable & #compat .~ CompatAnthropicMessages (anthropicMessagesCompatFor fable & #supportsLongCacheRetention .~ False)
-            body = [frameOf "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_cost\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-fable-5-1\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":1000}}}", frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":0}}", frameOf "{\"type\":\"message_stop\"}"]
+            body = [frameOf "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_cost\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-fable-5-1\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":1000,\"service_tier\":\"standard\",\"speed\":\"standard\"}}}", frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":0}}", frameOf "{\"type\":\"message_stop\"}"]
         forM_ [(fable, CacheRetentionLong, 1 / 50), (fable, CacheRetentionShort, 1 / 80), (downgraded, CacheRetentionLong, 1 / 80)] $ \(m, duration, expected) -> do
           response <- streamingComplete (claudeMessagesStreamWith (replayDriver 200 [] body)) m emptyContext (testOptions & #cacheRetention .~ Just duration)
-          response ^. #message . #usage . #cost . #usd @?= expected,
+          response ^. #message . #usage . #cost . #usd @?= expected
+          response ^. #message . #usage . #cost . #basis . #estimateReasons @?= Set.empty
+          fmap Usage.billingFacts (response ^. #message . #usage . #availability) @?= Just (Set.fromList [Usage.BillingServiceTier "standard", Usage.BillingSpeed "standard"]),
       testCase "a tool call cut off by max_tokens closes with its raw argument text" $ do
         events <- replayStream 200 [] cutOffToolBody
         let calls = [tc | ToolCallEnd ToolCallEndPayload {toolCall = tc} <- events]

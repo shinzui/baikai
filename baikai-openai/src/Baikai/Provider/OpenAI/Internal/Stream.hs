@@ -95,6 +95,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -261,6 +262,7 @@ data RawChunk = RawChunk
     model :: !(Maybe Text),
     -- | The host's identifier for this response, from the chunk's
     -- top-level @id@ field.
+    serviceTier :: !(Maybe Text),
     responseId :: !(Maybe Text)
   }
   deriving stock (Show, Generic)
@@ -372,6 +374,7 @@ parseChunk = Aeson.parseEither $ Aeson.withObject "ChatCompletionChunk" $ \o -> 
         -- compatible hosts vary, and a host that omits either of these
         -- has reported nothing, which is not a decode failure.
         model = lookupText "model" o,
+        serviceTier = lookupText "service_tier" o,
         responseId = lookupText "id" o
       }
 
@@ -828,6 +831,7 @@ data Assembler = Assembler
     -- 'usage' still holding the zeroes it was initialised with. Without
     -- this a failed call would claim the host reported consuming
     -- nothing.
+    serviceTiers :: !(Set.Set Text),
     usageSnapshot :: !(Maybe Value),
     usageReported :: !Bool
   }
@@ -860,6 +864,7 @@ emptyAssembler m s =
       observedModel = Ev.Unobserved,
       responseId = Nothing,
       httpStatus = Nothing,
+      serviceTiers = Set.empty,
       usageSnapshot = Nothing,
       usageReported = False
     }
@@ -910,6 +915,7 @@ translate chunk ass now
 observeChunk :: RawChunk -> Assembler -> Assembler
 observeChunk raw ass =
   ass
+    & #serviceTiers %~ maybe id Set.insert (raw ^. #serviceTier)
     & #observedModel .~ firstObserved (ass ^. #observedModel) (raw ^. #model)
     & #responseId .~ ((ass ^. #responseId) <|> (raw ^. #responseId))
 
@@ -1220,8 +1226,8 @@ closeOpenStream now mErr ass
 -- cannot report different numbers for the same call.
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
-  let usageBare = if ass ^. #usageReported then ass ^. #usage else Billing.unreportedUsage
-   in usageBare & #cost .~ Pricing.computeCost (ass ^. #model) usageBare
+  let usageBare = Usage.observeBilling (map Usage.BillingServiceTier (Set.toList (ass ^. #serviceTiers))) (if ass ^. #usageReported then ass ^. #usage else Billing.unreportedUsage)
+   in usageBare & #cost .~ Pricing.computeCostForService Nothing Nothing (ass ^. #model) usageBare
 
 finalMessage ::
   Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message

@@ -26,8 +26,12 @@ records use `Rational`. Missing policies in older Model JSON decode as absent.
 `computeCost` remains the standard calculation entry point. `resolveRates` and
 `computeCostWith` accept a cache duration selected by request shaping. The
 provider adapter must supply actual shaping and billing facts, rather than
-assuming the user's preference was accepted. Provider service-tier integration
-belongs at this same rate-resolution boundary; it must not multiply prices twice.
+assuming the user's preference was accepted. `computeCostForService` reads actual service/speed observations from usage,
+separately from a requested tier. Standard service uses catalog rates; missing or
+uncurated products keep a standard-rate estimate with a reason. The lower-level
+`computeCostAtRates` prices a resolved rate set once and labels its source
+`ResolvedTokenRates`; plan 69 can use it for catalog-owned fast prices after rate
+selection rather than multiplying an already computed amount.
 
 `Cost.basis.sources` distinguishes standard token calculations from a total
 reported by a provider tool. Nonempty `estimateReasons` makes missing knowledge
@@ -38,7 +42,8 @@ standard calculation nor a subprocess-reported total is described as an invoice.
 Evidence schema 2.2 adds the local calculation basis to serialized cost. As
 established in schema 2.0, locally calculated amounts and pricing metadata stay
 outside the provider response commitment. Raw usage availability is a separate
-provider fact. `Usage.availability` carries missing categories and inconsistency
+provider fact. `Usage.availability` carries missing categories, inconsistency
+and a set of observed service/speed/server-tool facts
 into serialized usage and its canonical envelope. Its absence preserves the
 legacy six-field envelope. API adapters annotate normalized usage even when all
 counts are missing; evidence marks a wholly unreported block unobserved, and
@@ -62,9 +67,9 @@ additive-zero bases are omitted, preserving existing no-pricing trace output.
 An error terminal retains the response's partial billing in both traces and
 OpenTelemetry; synthetic aborts have no terminal usage to report and leave it
 absent.
-Missing usage and reported zero
-remain distinct. Observed service tiers, mixed cache durations and downstream
-trace/log presentation remain work
-in [plan 76](../plans/76-account-for-cache-writes-and-context-tier-model-pricing.md).
-This decision does not claim those integrations or live billing verification
-are complete.
+Missing usage and reported zero remain distinct. Standard token calculations
+exclude server-side tool products and uncurated service/speed prices explicitly.
+The provider adapters issue one shaped cache duration per call; a mixed-duration
+breakdown is outside the current SDK-backed mapping. This decision does not
+claim provider invoice reconciliation or live verification, which belong to the
+focused acceptance work in plan 77.

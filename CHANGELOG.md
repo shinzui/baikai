@@ -25,6 +25,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- API usage now records observed service tiers, inference speed and server-tool
+  use in optional billing facts covered by evidence schema 2.2. Missing service
+  information and uncurated products produce explicit standard-rate estimates.
+  `computeCostForService` separates requested and observed service, while
+  `computeCostAtRates` prices a resolved rate set once for future speed policies.
+  Empty billing facts preserve legacy availability JSON; a CLI-reported zero
+  cost retains its reported-total source. The public vocabulary
+  and record additions require PVP review.
+
 - Failed trace terminals now retain partial response token counts, cost basis,
   usage availability and USD totals. OpenTelemetry exports these alongside the
   error status. Synthetic aborts leave unreported billing absent; legacy failed
@@ -41,27 +50,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   as explicit estimation reasons, distinguish reported zeroes, and merge
   cumulative usage without double-counting. Schema 2.2 commits provider
   availability while preserving legacy usage digests. This public record change
-  requires PVP review; service-tier and cache-duration integration is still open.
+  requires PVP review.
 
 - `baikai`: optional `Model.pricingPolicy`, exact whole-request context tiers,
   and an explicit cache-duration rate resolver. Generated Astra pricing changes
   above 272000 input tokens; Fable exposes its one-hour write price. `Cost.basis`
   preserves calculation sources and estimation reasons when summed. These public
   record additions require PVP review. Evidence schema 2.2 serializes the local
-  basis without changing provider response commitments. Adapter billing-fact
-  integration remains in progress.
+  basis without including local pricing metadata in provider commitments.
 
 - `baikai-openai`: explicit `Baikai.Provider.OpenAI.Responses` registration and
   stream/complete provider with stateless reasoning replay, function tool turns,
   structured output and bounded worker cleanup. Astra now selects this
   provider through a per-model catalog override; callers must register it
-  explicitly. Cache usage/pricing integration is still in progress.
+  explicitly. Cache writes, billing availability and context pricing are integrated.
 
 - `baikai`: separate `OpenAIResponses` dispatch and compatibility types, and
   optional provider/model-scoped `ThinkingContent.replayState` with opaque
   diagnostic output and backward-compatible JSON decoding. These public sum
-  and record additions require PVP review before release. Evidence schema 2.1
-  includes replay state in content commitments while preserving legacy digests.
+  and record additions require PVP review before release. Evidence schema 2.2
+  includes replay state and optional billing facts in commitments while preserving
+  legacy encodings when those fields are absent.
 - Chat and Claude reject provider-scoped reasoning replay they cannot encode.
 
 - `baikai`: GPT-6 Astra and Claude Fable 5.1 catalog bindings, with verified

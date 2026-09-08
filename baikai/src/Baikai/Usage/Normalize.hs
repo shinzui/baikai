@@ -40,5 +40,5 @@ normalizeUsage accounting r =
           U.cacheWriteTokens = writes,
           U.reasoningTokens = reasoningTokens r,
           U.totalTokens = fresh + output + cached + writes,
-          U.availability = Just (U.UsageAvailability missing (invalidInput || invalidReasoning))
+          U.availability = Just (U.UsageAvailability missing (invalidInput || invalidReasoning) Set.empty)
         }

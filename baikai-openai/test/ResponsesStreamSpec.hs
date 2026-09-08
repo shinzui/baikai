@@ -28,7 +28,7 @@ tests =
   testGroup
     "Responses stream"
     [ testCase "terminal usage merges earlier categories and evidence matches its cost" $ do
-        let finished = object ["type" .= ("response.completed" :: Text), "response" .= object ["id" .= ("resp_usage" :: Text), "output" .= [item "hello"], "usage" .= object ["output_tokens" .= (100 :: Int), "input_tokens_details" .= object ["cache_write_tokens" .= (3000 :: Int)]]]]
+        let finished = object ["type" .= ("response.completed" :: Text), "response" .= object ["id" .= ("resp_usage" :: Text), "service_tier" .= ("default" :: Text), "output" .= [item "hello"], "usage" .= object ["output_tokens" .= (100 :: Int), "input_tokens_details" .= object ["cache_write_tokens" .= (3000 :: Int)]]]]
         events <- Stream.toList (openaiResponsesStreamWith (driver [usageStarted, finished, finished]) model emptyContext (options & #evidence .~ Just (evidenceRequest "billing")))
         case last events of
           EventDone p -> case p.message of
@@ -50,7 +50,7 @@ tests =
             AssistantMessage msg -> do
               msg.usage.cacheReadTokens @?= 12000
               msg.usage.inputTokens @?= 3000
-              msg.usage.cost.basis.estimateReasons @?= Set.fromList [OutputUsageNotReported, CacheWriteUsageNotReported]
+              msg.usage.cost.basis.estimateReasons @?= Set.fromList [OutputUsageNotReported, CacheWriteUsageNotReported, ServiceTierNotReported]
             _ -> assertFailure "expected assistant"
           _ -> assertFailure "expected failure",
       testCase "complete folds the same stream, including final-only content" $ do

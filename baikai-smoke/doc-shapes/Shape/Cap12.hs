@@ -12,5 +12,6 @@ shape = do
   let opts = emptyOptions & #cacheRetention .~ Just CacheRetentionLong
   resp <- completeRequest model ctx opts
   print (resp ^. #message . #usage . #cacheReadTokens)
+  print (resp ^. #message . #usage . #cost . #basis)
 
 -- END CAP-12

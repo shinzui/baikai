@@ -23,7 +23,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 
 -- | What the number represents; a standard token calculation is not an invoice.
-data CostSource = StandardTokenRates | ProviderReportedTotal
+data CostSource = StandardTokenRates | ResolvedTokenRates | ProviderReportedTotal
   deriving stock (Eq, Ord, Show, Generic)
 
 data CostEstimateReason
@@ -35,6 +35,7 @@ data CostEstimateReason
   | InconsistentUsage
   | ServiceTierNotReported
   | UnsupportedServiceTier Text
+  | UnsupportedSpeed Text
   | ServiceTierMismatch Text Text
   | PricingUnavailable
   | InvalidPricingPolicy

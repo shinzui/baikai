@@ -141,6 +141,18 @@ Responses subtract reported reads and writes from their inclusive input total;
 Claude's input count is already exclusive. Repeated cumulative usage snapshots
 replace counts, and partial snapshots preserve earlier reported categories.
 
+Model pricing policies also select whole-request context rates. Astra's base
+rates apply through 272000 billable input tokens; above that threshold the full
+request uses the higher tier. Cache reads and writes both contribute to that
+input context. Fable's short and long write rates follow the shaped marker.
+
+`computeCostForService` distinguishes a requested tier from observed billing
+facts. Missing service information produces `ServiceTierNotReported`; uncurated
+tiers or speed products retain a standard-rate estimate with a reason. Server
+tool products are outside token pricing and are marked when reported. The
+ordinary `computeCost` helper remains a standard-policy calculation, not an
+invoice or an assertion that standard service ran.
+
 ## Notes and limits
 
 - **Opt-in.** `cacheRetention` defaults to `Nothing`; no marker is sent
@@ -156,8 +168,10 @@ replace counts, and partial snapshots preserve earlier reported categories.
   at five minutes and $20/M at one hour. Baikai uses the marker that actually
   reached the request body, so a host compatibility downgrade uses the short
   rate. If writes are reported without a selected cache marker, the calculation
-  records `CacheDurationNotReported`. Other billing context, including observed
-  service tiers and mixed-duration provider breakdowns, is still being integrated.
+  records `CacheDurationNotReported`. Observed service and speed are
+  recorded separately; uncurated products remain explicit estimates. Baikai
+  selects one shaped write duration per call and does not price a mixed-duration
+  breakdown it cannot observe through the current SDK.
 - **Verify with the smoke suite.** `baikai-smoke`'s `CacheSmoke` case
   makes a write-then-read pair against a live host and asserts the
   second call reports `cacheReadTokens > 0`. Run it with a real

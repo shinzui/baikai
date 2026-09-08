@@ -35,14 +35,14 @@ A caller can register a native OpenAI Responses provider, select GPT-6 Astra, st
 - [x] (2026-09-07) Attach exact request/normalized response commitments and observed model/IDs. Test conclusive-terminal and consumer-timeout cleanup plus a slow active consumer.
 - [x] (2026-09-07) All 248 OpenAI tests pass after worker integration; formatter and diff checks pass.
 - [x] (2026-09-07) Add ResponsesEvidenceSpec over real SSE decoding: strict success/refusal, local validation, HTTP/in-band errors, malformed JSON/EOF, single-byte fragmentation and trace cancellation. Share the existing byte-reader lifecycle contract with Responses.
-- [ ] Integrate EP-4 usage availability.
+- [x] Integrate EP-4 usage availability.
 - [x] (2026-09-07) Preserve per-model API overrides and Responses compat through fetch/render/parse/generation. Activate Astra without renaming its binding; keep older OpenAI routes and Chat-only registration unchanged. Smoke setup explicitly registers both handlers.
 - [x] (2026-09-07) Core 687, OpenAI 248 and compiled doc-shapes pass. A live refresh candidate has 23 OpenAI/11 Claude models semantically identical to the committed catalogs.
 - [x] (2026-09-07) Final fetch-to-generator/catalog-backed replay assertions pass in 18 core and 36 Responses focused cases. Workspace build and 22-concept capability validation pass.
 - [x] (2026-09-07) Document separate registration and stateless replay; CAP-14 registration example agrees with its compiled twin.
 - [x] (2026-09-07) Reject duplicate function call IDs and completed reasoning missing replay state; reuse the request mapper's raw-item invariant.
 - [x] (2026-09-07) All 265 OpenAI tests pass; capability validation covers all 22 concepts and diff/formatter checks pass.
-- [ ] Integrate EP-4 usage/pricing before marking this child complete.
+- [x] Integrate EP-4 usage/pricing: reported cache writes, availability and service-tier facts feed the same payload/evidence cost; partial snapshots merge without double-counting.
 
 
 ## Surprises & Discoveries
@@ -68,7 +68,7 @@ The full Claude suite exposed a pre-existing missing Fable 5.1 row in the provid
 ## Outcomes & Retrospective
 
 
-The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. Explicit Responses registration and its worker/evidence integration are implemented. The public two-turn tool loop preserves encrypted reasoning and matching function results. Astra now selects Responses, backed by per-model fetch/generator overrides. Registration documentation and its compiled example are updated. Strict evidence and the byte-driver lifecycle contract now pass through the real SSE decoder. Only EP-4 usage/cost integration remains before this child can close. ADR 0019 records the implemented boundary and persistence decision.
+The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. Explicit Responses registration and its worker/evidence integration are implemented. The public two-turn tool loop preserves encrypted reasoning and matching function results. Astra now selects Responses, backed by per-model fetch/generator overrides. Registration documentation and its compiled example are updated. Strict evidence and the byte-driver lifecycle contract now pass through the real SSE decoder. EP-4 integration is complete: the shared raw normalizer retains missing counters, cache writes and observed service tiers in costs and evidence, including partial failures. The final gate passes 708 core, 276 OpenAI, 335 Claude and 10 trace tests, compiled documentation, capability validation and the workspace build. This child is complete; paid live acceptance belongs to EP-5. ADR 0019 records the implemented boundary and persistence decision.
 
 
 ## Context and Orientation

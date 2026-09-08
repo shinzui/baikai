@@ -31,8 +31,8 @@ Reported model costs will account for provider-reported cache writes and Astra's
 - [x] Price Fable writes using the cache marker in the shaped request; test both durations and compatibility downgrade.
 - [x] Propagate successful-call calculation basis and availability into trace, call-log JSON and OpenTelemetry without changing empty-basis legacy traces.
 - [x] Retain partial response billing on failed trace terminals and OpenTelemetry error spans; synthetic abort billing remains absent.
-- [ ] Integrate observed service tiers and the shared fast-mode seam.
-- [ ] Update trace/log consumers, capability examples and final documentation; complete all acceptance checks.
+- [x] Integrate observed service tiers and the shared fast-mode seam.
+- [x] Update trace/log consumers, capability examples and final documentation; complete all acceptance checks.
 
 
 ## Surprises & Discoveries
@@ -51,27 +51,53 @@ Fresh fetch output preserves all existing model fields and adds only the two cur
 2026-09-07: Use the total billable input context to select a context tier and apply that tier to the entire call, not only tokens beyond the threshold. Do not count reasoning tokens again on top of output tokens.
 
 
-2026-09-07: [ADR 0020](../adr/0020-pricing-policies-and-calculation-bases-are-explicit.md) records policy validation and Cost basis aggregation. Schema 2.2 serializes local calculation metadata while retaining the schema 2.0 exclusion of local prices from provider commitments. Raw availability is a separate provider fact and must join the canonical envelope during adapter integration.
+2026-09-07: [ADR 0020](../adr/0020-pricing-policies-and-calculation-bases-are-explicit.md) records policy validation and Cost basis aggregation. Schema 2.2 serializes local calculation metadata while retaining the schema 2.0 exclusion of local prices from provider commitments. Raw availability and billing observations are separate provider facts and join the canonical envelope; empty optional facts preserve legacy encodings.
 
 
 ## Outcomes & Retrospective
 
 
-The pricing foundation passed 700 core tests, 265 OpenAI tests, 333 Claude tests, 9 OpenTelemetry trace tests and the compiled documentation suite. Pricing assertions use the generated model bindings; the catalog round-trip preserves both policies and rejects incomplete tier rates, negative rates and malformed thresholds. The generator output passes the repository formatter unchanged. The final parser tightening passes 24 focused generator/fetch tests; `cabal build all` and `git diff --check` also pass.
+The implementation delivers catalog-owned context and cache-duration policies,
+shared inclusive/exclusive usage normalization, explicit missing-category and
+billing observations, and calculation bases that survive aggregation. Generated
+Astra rates price the whole request above 272000 input tokens. Fable writes use
+the actual shaped TTL, including compatibility downgrades. Unknown write counts,
+inconsistent totals, missing service tiers, uncurated tier/speed products and
+reported server-tool products remain explicit estimates instead of invoice claims.
 
-Shared raw normalization now preserves missing counters, invalid totals and partial observations in `Usage.availability`, its cost estimate reasons and the canonical usage envelope. OpenAI Chat and Responses share parsing and cumulative snapshot merging; Claude uses the exclusive-input normalizer and retains earlier categories omitted in message_delta. Offline tests prove no double-counting, partial usage on error and equality of Responses payload/evidence costs. The final suites pass 701 core, 275 OpenAI, 334 Claude and 9 trace tests plus compiled documentation. The legacy-envelope assertion passes, and an isolated `cabal build all` succeeds. Running build and tests concurrently first caused a shared-output rename collision; both processes were observed terminal before the isolated build, so no second live build was left competing.
+`computeCost` remains the standard-policy entry point. `computeCostForService`
+separates a requested tier from observed billing facts; `computeCostAtRates`
+validates and prices one selected rate record with a `ResolvedTokenRates` source.
+Plan 69 has no implemented speed selector yet and remains separately owned. Its
+future selector can use this tested seam, including a two-times rate fixture,
+without adding another multiplier to a computed cost or making a new speed option
+part of this master plan.
 
-The current Chat API reference explicitly documents prompt_tokens_details.cache_write_tokens as unadjusted prompt tokens written to cache: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create. This confirms the Chat field independently of the Responses input_tokens_details shape. The inspected SDK at mori://MercuryTechnologies/claude/packages/claude exposes optional cache categories in both Usage and StreamUsage; the adapter preserves their absence.
+Successful and failed trace terminals, call logs and OpenTelemetry carry the same
+amounts and calculation bases as responses. Synthetic abort billing remains
+absent. A CLI-reported zero total retains its reported-total source. Optional
+billing facts join evidence schema 2.2 usage commitments, while empty facts keep
+legacy availability encodings and the six-field legacy usage envelope unchanged.
+The capability examples display cost bases and agree with their compiled twins.
 
-Fable now prices writes from the shaped request's cache_control marker. The public stream fixture proves 1000 one-hour writes cost 0.02 USD, short writes 0.0125 USD, and a long preference downgraded by host compatibility still costs 0.0125 USD. Claude's 335 tests pass. Successful trace/call-log/OTel records now carry the same cost basis and usage availability as the response, with backward decoding and omission of the empty additive basis. Consumer validation passes 701 core tests, 9 OpenTelemetry tests and compiled documentation. `cabal build all` and `git diff --check` pass; the opted-out trace golden is unchanged.
-
-This is partial completion. Providers still need observed service-tier pricing and the shared fast-mode seam; failed-call trace accounting now retains partial billing. The new core regression passes with all 702 core tests. All 10 OpenTelemetry tests, including a nonzero partial-charge error-span regression, pass; compiled documentation, `cabal build all` and `git diff --check` pass. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
+Validation: 708 core tests, 276 OpenAI tests, 335 Claude tests and 10 OpenTelemetry
+tests pass. `doc-shapes` passes all 20 Haskell comparisons and one KDL resolution
+with its one declared skip. The 22-concept capability bundle validates. Catalog
+regeneration is byte-identical to the committed generated module. `cabal build all` and `git diff --check` pass. EP-4 is complete. No paid live request
+was made for arithmetic; focused live acceptance remains the next child's job.
 
 
 ## Context and Orientation
 
 
-baikai/src/Baikai/Usage.hs defines disjoint inputTokens, cacheReadTokens and cacheWriteTokens; totalTokens sums those plus outputTokens. reasoningTokens is a subset of output, not extra billed tokens. baikai/src/Baikai/Cost/Pricing.hs currently multiplies four flat Model.cost rates. baikai/src/Baikai/Cost.hs represents exact rational USD arithmetic but has no price-basis/estimate classification. baikai-openai/src/Baikai/Provider/OpenAI/Internal/Stream.hs currently sets cacheWriteTokens to zero. No code applies context tiers.
+`baikai/src/Baikai/Usage.hs` defines the disjoint token classes and optional
+availability/billing facts. `Baikai.Usage.Normalize` implements inclusive and
+exclusive input accounting. `Baikai.Model` holds validated pricing policies;
+`Baikai.Cost.Pricing` resolves context/duration rates and separates actual service
+observations from caller requests. The shared OpenAI `Internal.Usage` parser feeds
+both Chat and Responses, while Claude normalizes its SDK usage and preserves
+facts across terminal snapshots. Trace and call-log consumers retain the resulting
+basis and partial billing on failures.
 
 As verified on 2026-09-07, Astra standard rates per million tokens are input 10, output 50, cache read 1, cache write 12.5. With more than 272,000 input tokens, the full request uses input 20, output 75, cache read 2 and cache write 25. Source: https://developers.openai.com/api/docs/models/gpt-6-astra. Fable 5.1 standard rates are input 10, output 50, cache read 0.25, five-minute writes 12.5 and one-hour writes 20, across its one-million-token context. Source: https://platform.claude.com/docs/en/models/fable-5-1/overview. A rate is not evidence that a write occurred.
 

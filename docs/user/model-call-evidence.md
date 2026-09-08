@@ -189,7 +189,8 @@ remain unchanged. Version 2.2 adds `cost.basis`: its `sources` distinguish stand
 token calculations from provider-reported totals, and nonempty `estimate_reasons`
 identify incomplete billing knowledge. Both the amount and its local calculation
 basis remain outside the response commitment. Optional `usage.availability`
-records missing billing categories and inconsistent counts, and **does** join
+records missing billing categories, inconsistent counts and optional
+`billing_facts` for actual service tiers, speed and server-tool use, and **does** join
 that commitment: a missing write counter is different from a reported zero.
 Legacy usages omit this field and retain their original six-field envelope.
 Successful and failed trace terminals and JSONL call logs carry optional `costBasis` and

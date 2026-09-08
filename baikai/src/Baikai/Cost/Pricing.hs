@@ -7,16 +7,18 @@ module Baikai.Cost.Pricing
     attachCost,
     resolveRates,
     computeCostWith,
+    computeCostForService,
+    computeCostAtRates,
   )
 where
 
 import Baikai.CacheRetention (CacheRetention (..))
-import Baikai.Cost (Cost (..), CostBreakdown (..), CostEstimateReason (..), estimateCost, standardCostBasis)
+import Baikai.Cost (Cost (..), CostBreakdown (..), CostEstimateReason (..), CostSource (..), estimateCost, standardCostBasis)
 import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (InputPriceTier (..), Model, ModelCost (..), PricingPolicy (..), validatePricingPolicy, zeroModelCost)
 import Baikai.Prelude
 import Baikai.Response (Response (..))
-import Baikai.Usage (Usage (..), UsageAvailability (..), UsageCategory (..))
+import Baikai.Usage (BillingFact (..), Usage (..), UsageAvailability (..), UsageCategory (..))
 import Data.Set qualified as Set
 
 -- | Compute a 'Cost' from a model's per-million-token rates and a
@@ -29,9 +31,38 @@ computeCost = computeCostWith Nothing
 -- requested by the caller. Service-tier and usage availability are supplied
 -- by adapters as estimation reasons on the resulting cost.
 computeCostWith :: Maybe CacheRetention -> Model -> Usage -> Cost
-computeCostWith duration m u =
-  let resolved = resolveRates duration m u
-      selected = either (const zeroModelCost) id resolved
+computeCostWith duration m u = priceUsage (resolveRates duration m u) u
+
+-- | Shared terminal pricing entry point. Observed tiers and speed come from
+-- Usage availability, never from the caller's preference. Uncurated products
+-- retain a standard-rate estimate with a specific reason.
+computeCostForService :: Maybe CacheRetention -> Maybe Text -> Model -> Usage -> Cost
+computeCostForService duration requested m u =
+  let facts = maybe [] (Set.toList . billingFacts) (u ^. #availability)
+      tiers = [t | BillingServiceTier t <- facts]
+      speeds = [s | BillingSpeed s <- facts]
+      reasons =
+        [ServiceTierNotReported | null tiers]
+          <> [AdditionalChargesExcluded | BillingServerToolUse `elem` facts]
+          <> [UnsupportedServiceTier t | t <- tiers, t `notElem` ["default", "standard"]]
+          <> [UnsupportedSpeed s | s <- speeds, s /= "standard"]
+          <> [ServiceTierMismatch wanted actual | Just wanted <- [requested], wanted /= "auto", actual <- tiers, not (matches wanted actual)]
+   in estimateCost reasons (computeCostWith duration m u)
+  where
+    matches wanted actual = wanted == actual || (wanted == "standard_only" && actual == "standard") || (wanted == "fast" && actual == "priority")
+
+-- | Price one resolved rate record exactly once. Plan 69's catalog-gated
+-- speed selection can reuse this after context and cache-duration resolution;
+-- it must not multiply an already computed cost a second time.
+computeCostAtRates :: ModelCost -> Usage -> Cost
+computeCostAtRates rates u =
+  let resolved = validatePricingPolicy (PricingPolicy [InputPriceTier 0 rates] Nothing) >> pure rates
+      computed = priceUsage resolved u
+   in computed & #basis . #sources .~ Set.singleton ResolvedTokenRates
+
+priceUsage :: Either Text ModelCost -> Usage -> Cost
+priceUsage resolved u =
+  let selected = either (const zeroModelCost) id resolved
       problems = [InvalidPricingPolicy | Left _ <- [resolved]] <> [PricingUnavailable | selected == ModelCost 0 0 0 0]
       rates = selected
       inRate = inputCost rates

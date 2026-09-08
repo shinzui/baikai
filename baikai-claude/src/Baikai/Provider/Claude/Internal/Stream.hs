@@ -661,15 +661,16 @@ translateEvent raw ass now = case raw of
           Just facts | category `Set.notMember` Usage.missingCategories facts -> Just (getter u)
           _ -> Nothing
         u' =
-          Normalize.normalizeUsage
-            Normalize.ExclusiveInput
-            ( Normalize.ReportedUsage
-                (su.stream_input_tokens <|> known Usage.InputUsage Usage.inputTokens)
-                (Just su.output_tokens)
-                (su.stream_cache_read_input_tokens <|> known Usage.CacheReadUsage Usage.cacheReadTokens)
-                (su.stream_cache_creation_input_tokens <|> known Usage.CacheWriteUsage Usage.cacheWriteTokens)
-                ((Messages.thinking_tokens <$> su.stream_output_tokens_details) <|> (u ^. #reasoningTokens))
-            )
+          Usage.observeBilling (maybe [] (Set.toList . Usage.billingFacts) (u ^. #availability) <> toolBilling su.stream_server_tool_use) $
+            Normalize.normalizeUsage
+              Normalize.ExclusiveInput
+              ( Normalize.ReportedUsage
+                  (su.stream_input_tokens <|> known Usage.InputUsage Usage.inputTokens)
+                  (Just su.output_tokens)
+                  (su.stream_cache_read_input_tokens <|> known Usage.CacheReadUsage Usage.cacheReadTokens)
+                  (su.stream_cache_creation_input_tokens <|> known Usage.CacheWriteUsage Usage.cacheWriteTokens)
+                  ((Messages.thinking_tokens <$> su.stream_output_tokens_details) <|> (u ^. #reasoningTokens))
+              )
      in ([], ass & #stopReason .~ stopR & #usage .~ u' & #usageReported .~ True)
   Messages.Message_Stop ->
     let reason = ass ^. #stopReason
@@ -853,7 +854,7 @@ skeletonMessage ass _now =
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
   let usageBare = if ass ^. #usageReported then ass ^. #usage else Normalize.normalizeUsage Normalize.ExclusiveInput (Normalize.ReportedUsage Nothing Nothing Nothing Nothing Nothing)
-      calculated = Pricing.computeCostWith (ass ^. #cacheDuration) (ass ^. #model) usageBare
+      calculated = Pricing.computeCostForService (ass ^. #cacheDuration) Nothing (ass ^. #model) usageBare
       reasons = [CacheDurationNotReported | usageBare ^. #cacheWriteTokens > 0, Nothing <- [ass ^. #cacheDuration]]
    in usageBare & #cost .~ estimateCost reasons calculated
 
@@ -960,15 +961,21 @@ renderAnthropicError v = case v of
 -- calculation uses the duration selected by the actual shaped request body.
 anthroUsageToBaikai :: Messages.Usage -> Usage.Usage
 anthroUsageToBaikai u =
-  Normalize.normalizeUsage
-    Normalize.ExclusiveInput
-    ( Normalize.ReportedUsage
-        (Just (u ^. #input_tokens))
-        (Just (u ^. #output_tokens))
-        (u ^. #cache_read_input_tokens)
-        (u ^. #cache_creation_input_tokens)
-        (fmap (^. #thinking_tokens) (u ^. #output_tokens_details))
-    )
+  Usage.observeBilling ([Usage.BillingServiceTier tier | Just tier <- [u ^. #service_tier]] <> [Usage.BillingSpeed speed | Just value <- [u ^. #speed], Aeson.String speed <- [Aeson.toJSON value]] <> toolBilling (u ^. #server_tool_use)) $
+    Normalize.normalizeUsage
+      Normalize.ExclusiveInput
+      ( Normalize.ReportedUsage
+          (Just (u ^. #input_tokens))
+          (Just (u ^. #output_tokens))
+          (u ^. #cache_read_input_tokens)
+          (u ^. #cache_creation_input_tokens)
+          (fmap (^. #thinking_tokens) (u ^. #output_tokens_details))
+      )
+
+-- Server-side tool products are outside the token-rate calculation.
+toolBilling :: Maybe Messages.ServerToolUseUsage -> [Usage.BillingFact]
+toolBilling Nothing = []
+toolBilling (Just usage) = [Usage.BillingServerToolUse | fromMaybe 0 (usage ^. #web_search_requests) + fromMaybe 0 (usage ^. #tool_search_requests) > 0]
 
 mapStopReason :: Maybe Messages.StopReason -> Stop.StopReason
 mapStopReason = \case

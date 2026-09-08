@@ -166,8 +166,8 @@ mergeObservation _ new = new
 -- Known counts and their availability travel together into payload and evidence.
 responseUsage :: Model -> Maybe Value -> U.Usage
 responseUsage m raw =
-  let normalized = fromMaybe Billing.unreportedUsage (raw >>= lookupField "usage" >>= Billing.readUsage Billing.ResponsesUsage)
-   in normalized & #cost .~ Pricing.computeCost m normalized
+  let normalized = U.observeBilling [U.BillingServiceTier tier | Just tier <- [raw >>= textField "service_tier"]] (fromMaybe Billing.unreportedUsage (raw >>= lookupField "usage" >>= Billing.readUsage Billing.ResponsesUsage))
+   in normalized & #cost .~ Pricing.computeCostForService Nothing Nothing m normalized
 
 observe :: Ev.CallStatus -> Maybe ResponseMetadata -> Maybe Value -> M.AssistantPayload -> Ev.ModelCallEvidence -> Ev.ModelCallEvidence
 observe status md raw payload ev =

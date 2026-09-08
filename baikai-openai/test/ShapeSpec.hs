@@ -491,6 +491,7 @@ emptyChunk =
       toolDeltas = [],
       usage = Nothing,
       model = Nothing,
+      serviceTier = Nothing,
       responseId = Nothing
     }
 

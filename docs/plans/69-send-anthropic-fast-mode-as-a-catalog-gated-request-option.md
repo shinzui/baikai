@@ -78,6 +78,9 @@ This section must always reflect the actual current state of the work.
 
 Integration note (2026-09-07): plan 76 now supplies the common `resolveRates`
 and `computeCostWith` pricing path for context tiers and shaped cache duration.
+`computeCostAtRates` now prices a resolved rate set once, with a distinct
+`ResolvedTokenRates` basis; `computeCostForService` separates requested service
+from actual usage facts and marks uncurated products estimated.
 Fast-mode pricing must select rates through that path exactly once rather than
 multiply an already-priced result in the adapter. The earlier SDK observation
 below is historical: the currently integrated 1.5.0 SDK at

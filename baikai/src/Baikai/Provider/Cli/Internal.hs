@@ -545,7 +545,7 @@ claudeUsage o = case KeyMap.lookup "usage" o of
   _ -> Nothing
   where
     reportedCost = case KeyMap.lookup "total_cost_usd" o of
-      Just (Number n) | n > 0 -> Cost {usd = toRational n, breakdown = zeroCostBreakdown, basis = providerReportedBasis}
+      Just (Number n) | n >= 0 -> Cost {usd = toRational n, breakdown = zeroCostBreakdown, basis = providerReportedBasis}
       _ -> zeroCost
 
 claudeUsageKeys :: [Key]

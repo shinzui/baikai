@@ -42,9 +42,9 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Make model capabilities and catalog refreshes endpoint-aware | docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md | None | None | Complete |
-| EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | In Progress |
+| EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | Complete |
 | EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Complete |
-| EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | In Progress |
+| EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Complete |
 | EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | Not Started |
 
 EP-2 and EP-4 also have an integration dependency: both can develop their independent fixtures, but the combined Responses terminal must use EP-4's usage and cost-basis contract before EP-5 begins.
@@ -80,20 +80,28 @@ Durable decisions expected during implementation are separate Responses dispatch
 
 
 - [x] (2026-09-07) EP-1: Persist endpoint facts, enforce request policy, and verify refresh preservation.
-- [ ] EP-2: Implement Responses and reasoning replay.
+- [x] EP-2: Implement Responses and reasoning replay, including EP-4 billing integration.
 - [x] EP-3: Enforce Claude tool/history contracts.
-- [ ] EP-4: Implement truthful usage and pricing.
+- [x] EP-4: Implement truthful usage and pricing.
 - [ ] EP-5: Complete offline and live acceptance.
 
 
 ## Surprises & Discoveries
 
-EP-4 now has validated catalog pricing policies and explicit calculation bases. Generated Astra prices the whole request at higher rates above 272000 input tokens; the duration-aware helper supports Fable's one-hour write price. Cost aggregation preserves estimation reasons. Fresh fetches preserve the policies. Chat, Responses and Claude now normalize usage with explicit missing-category facts in costs and evidence. Cumulative snapshots preserve prior categories, repeated counts are not added, and Responses failures retain partial usage. Fable cache writes now use the shaped TTL, including compatibility downgrades. Successful trace, call-log and OpenTelemetry records carry the resulting calculation basis and availability, while empty-basis legacy traces remain byte-identical. Failed traces and OpenTelemetry error spans now retain partial billing from the response. Observed service-tier integration remains open; no live billing claim is made.
+EP-4 is complete. Catalog policies, normalized cache accounting, shaped duration
+pricing, observed service/speed facts and explicit estimation reasons are
+implemented. Successful and failed traces, logs and OpenTelemetry retain billing
+facts. The shared resolved-rate seam supports plan 69's future speed selector
+without introducing a new speed option here. Final validation passes 708 core,
+276 OpenAI, 335 Claude and 10 trace tests, compiled documentation, the 22-concept
+capability bundle, idempotent generation and the workspace build. EP-2's pricing
+integration is complete too. EP-5's focused live acceptance remains outstanding;
+no paid live result is claimed.
 
 EP-3 is complete: Fable 5.1 forced-choice validation is catalog-backed and precedes transport. Two tool rounds preserve signed empty/visible and redacted state, including persisted thinking payloads and unchanged prefixes. Core 687, Claude 333 and compiled documentation pass; a fresh catalog candidate matches the committed data.
 
 
-EP-2 adds provider-scoped `ThinkingReplay` on `ThinkingContent.replayState` and a separate Responses tag. Chat and Claude reject this state before dispatch. Evidence schema 2.1 preserves legacy content encodings; ADR 0019 records the contract. The Responses mapper now validates and preserves those items in the next tool request; the HTTP path is /v1/responses. Request/HTTP coverage passes 12 focused cases; another 12 pure assembler cases prove ordered deltas, parallel call identities, snapshot reconciliation, encrypted items and cut-off arguments. Explicit Responses registration, bounded worker integration and a public two-turn tool loop are implemented. All 248 OpenAI tests pass, including conclusive-terminal/consumer-cancellation cleanup and exact request evidence. Astra now selects Responses through a per-model catalog override; the live fetch candidate is semantically identical to the committed catalogs. Core 687, OpenAI 248 and compiled documentation pass. Responses strict evidence and byte-reader lifecycle acceptance now pass, including abort records, fragmented input, duplicate call rejection and completed replay validation. All 265 OpenAI tests pass. EP-2 remains open only for its EP-4 pricing integration.
+EP-2 adds provider-scoped `ThinkingReplay` on `ThinkingContent.replayState` and a separate Responses tag. Chat and Claude reject this state before dispatch. Evidence schema 2.1 preserves legacy content encodings; ADR 0019 records the contract. The Responses mapper now validates and preserves those items in the next tool request; the HTTP path is /v1/responses. Request/HTTP coverage passes 12 focused cases; another 12 pure assembler cases prove ordered deltas, parallel call identities, snapshot reconciliation, encrypted items and cut-off arguments. Explicit Responses registration, bounded worker integration and a public two-turn tool loop are implemented. All 248 OpenAI tests pass, including conclusive-terminal/consumer-cancellation cleanup and exact request evidence. Astra now selects Responses through a per-model catalog override; the live fetch candidate is semantically identical to the committed catalogs. Core 687, OpenAI 248 and compiled documentation pass. Responses strict evidence and byte-reader lifecycle acceptance now pass, including abort records, fragmented input, duplicate call rejection and completed replay validation. All 265 OpenAI tests pass. The subsequent EP-4 gate closes that pricing integration and this child.
 
 EP-1 confirms a fresh upstream catalog candidate preserves all endpoint restrictions. The native effort shaper now exposes a reusable pure policy resolver for EP-2; sampling changes share the adapter translation path so describeThinking agrees with the outgoing body.
 

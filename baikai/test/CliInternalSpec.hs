@@ -196,7 +196,15 @@ claudeParserTests :: TestTree
 claudeParserTests =
   testGroup
     "claude -p --output-format json result"
-    [ testCase "a recorded run yields its text, session id, model, usage, and cost" $ do
+    [ testCase "a reported zero total retains its source instead of becoming missing cost" $ do
+        case decodeClaudeCliResult "{\"result\":\"ok\",\"is_error\":false,\"usage\":{\"input_tokens\":0},\"total_cost_usd\":0}" of
+          Left err -> assertFailure (show err)
+          Right report -> case report ^. #usage of
+            Just u -> do
+              u ^. #cost . #usd @?= 0
+              u ^. #cost . #basis @?= providerReportedBasis
+            Nothing -> assertFailure "usage disappeared",
+      testCase "a recorded run yields its text, session id, model, usage, and cost" $ do
         recorded <- BS.readFile "test/fixtures/claude-cli-result.json"
         case decodeClaudeCliResult recorded of
           Left err -> assertFailure ("expected the recording to decode: " <> show err)

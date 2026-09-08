@@ -26,6 +26,12 @@ evidence:
   - kind: test
     resource: baikai/test/CostSpec.hs
     proves: "computeCost is deterministic for a catalogued model, bills cache-read and cache-write tokens exactly once each, yields zero for an unknown model, and the call log writes one JSONL record per call, skips disk I/O when disabled, and still returns from closeCallLog when the log path is unwritable."
+  - kind: test
+    resource: baikai/test/PricingPolicySpec.hs
+    proves: "Generated Astra whole-request context thresholds, Fable write durations, observed versus requested tiers, explicit estimates and exact rate selection without double multiplication."
+  - kind: test
+    resource: baikai-openai/test/BillingSpec.hs
+    proves: "Inclusive reads/writes are normalized once, omitted counters remain explicit, cumulative snapshots do not add twice and observed tiers reach costs and commitments."
   - kind: module
     resource: baikai/src/Baikai/Cost/Log.hs
     proves: "The call-log lifecycle: withCallLog, the Chan-plus-worker design that keeps disk latency off the request path, and the single-warning failure policy."
@@ -37,12 +43,21 @@ Every successful call returns a `Usage` carrying input, output, cache-read,
 cache-write, and reasoning token counts, plus a `Cost` computed from the
 `Model`'s per-million-token rates. The token classes are **disjoint** by
 convention: a host that reports OpenAI-style inclusive prompt counts has its
-cached tokens subtracted out of `inputTokens` on the way in, so summing the
+reported cache reads and writes subtracted out of `inputTokens` on the way in, so summing the
 classes never double-counts.
 
 `Usage`, `Cost`, and `CostBreakdown` are monoids that add field by field, and
 `sumUsage` totals a `Foldable` of them, so per-call values roll up to a session
-or a tenant without a hand-written fold.
+or a tenant without a hand-written fold. Cost bases retain all estimation reasons
+when summed. Optional usage availability carries missing categories, inconsistent
+counts and actual service/speed observations into the response commitment.
+
+In the unreleased provider work, Astra's optional pricing policy selects higher
+rates for the whole request above 272000 input tokens, including cache categories.
+Fable's write rate follows the shaped cache TTL. Missing or uncurated service tiers
+produce explicitly identified standard-rate estimates. `computeCost` remains the
+ordinary standard-policy helper; `computeCostForService` checks observed billing
+facts, and `computeCostAtRates` prices an explicitly resolved rate set once.
 
 `Baikai.Cost.Log` adds an opt-in JSONL sink: each open handle owns a channel and
 a worker thread, `appendEntry` is a cheap channel push, and the worker drains to
@@ -58,19 +73,17 @@ dispatch](unified-provider-calls.md).
 ```haskell
 import Baikai.Cost.Log (callLogConfig, runRequestWithLog, withCallLog)
 
-withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h ->
-  runRequestWithLog h model ctx opts
+withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h -> do
+  resp <- runRequestWithLog h model ctx opts
+  print (resp ^. #message . #usage . #cost . #basis)
+  pure resp
 ```
 
 ## Limits
 
-- **A cost of zero now means zero, not "unpriced".** Before 0.5.0.0 a
-  zero-valued cost was omitted, which made "this call was free" and "baikai could
-  not price this call" indistinguishable. A dashboard written against the old
-  behaviour will now count subscription-backed CLI calls as costing zero rather
-  than treating them as unpriced.
-- An uncatalogued model prices at zero. Cost is computed from the `Model` record
-  you passed, so a hand-rolled model with no rates silently produces no cost.
+- Zero is retained numerically. An unknown model's calculation carries
+  `PricingUnavailable`; an empty additive `zeroCost` has no calculation basis.
+  Missing billing metadata must not be interpreted as proof of a free call.
 - Prices come from the catalog snapshot ([CAP-3](generated-model-catalog.md)) and
   are an accounting estimate. The provider's invoice is the authority.
 - The `claude -p` transport is the only one that reports a vendor-computed cost

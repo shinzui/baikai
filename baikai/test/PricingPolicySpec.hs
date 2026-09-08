@@ -4,10 +4,12 @@ module PricingPolicySpec (tests) where
 
 import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Cost qualified as C
-import Baikai.Cost.Pricing (computeCost, computeCostWith, resolveRates)
+import Baikai.Cost.Pricing (computeCost, computeCostAtRates, computeCostForService, computeCostWith, resolveRates)
+import Baikai.Evidence qualified as Ev
 import Baikai.Model qualified as M
 import Baikai.Models.Generated qualified as Models
 import Baikai.Usage qualified as U
+import Baikai.Usage.Normalize qualified as N
 import Control.Lens ((&), (.~))
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
@@ -20,7 +22,36 @@ tests :: TestTree
 tests =
   testGroup
     "Pricing policy"
-    [ testCase "context thresholds are exclusive and price the whole request" $
+    [ testCase "requested tiers never substitute for observed service" $ do
+        let unknown = N.normalizeUsage N.InclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)
+            standard = U.observeBilling [U.BillingServiceTier "default"] unknown
+            priority = U.observeBilling [U.BillingServiceTier "priority"] unknown
+        (computeCostForService Nothing (Just "default") astra unknown).basis.estimateReasons @?= Set.singleton C.ServiceTierNotReported
+        (computeCostForService Nothing (Just "default") astra standard).basis.estimateReasons @?= Set.empty
+        (computeCostForService Nothing (Just "default") astra priority).basis.estimateReasons @?= Set.fromList [C.UnsupportedServiceTier "priority", C.ServiceTierMismatch "default" "priority"]
+        assertBool "observed tier joins commitment" (Ev.usageEnvelope standard /= Ev.usageEnvelope priority),
+      testCase "standard-only matches observed standard and fast remains an explicit estimate" $ do
+        let u = N.normalizeUsage N.ExclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)
+            standard = U.observeBilling [U.BillingServiceTier "standard", U.BillingSpeed "standard"] u
+            fast = U.observeBilling [U.BillingServiceTier "standard", U.BillingSpeed "fast"] u
+        (computeCostForService Nothing (Just "standard_only") fable standard).basis.estimateReasons @?= Set.empty
+        (computeCostForService Nothing Nothing fable fast).basis.estimateReasons @?= Set.singleton (C.UnsupportedSpeed "fast")
+        (computeCostForService Nothing Nothing fable fast).usd @?= (computeCost fable u).usd,
+      testCase "server-side tool products are explicitly outside token charges" $ do
+        let u = U.observeBilling [U.BillingServiceTier "standard", U.BillingServerToolUse] (U.zeroUsage & #inputTokens .~ 1000)
+        (computeCostForService Nothing Nothing fable u).basis.estimateReasons @?= Set.singleton C.AdditionalChargesExcluded,
+      testCase "resolved rate seam prices a speed policy exactly once" $ do
+        let u = U.zeroUsage & #inputTokens .~ 1000 & #outputTokens .~ 100
+            doubled = M.ModelCost 20 100 2 25
+            selected = computeCostAtRates doubled u
+        selected.usd @?= 2 * (computeCost astra u).usd
+        selected.basis.sources @?= Set.singleton C.ResolvedTokenRates,
+      testCase "legacy availability JSON preserves its encoding without billing facts" $ do
+        let old = Aeson.object ["missing_categories" Aeson..= ([] :: [U.UsageCategory]), "inconsistent" Aeson..= False]
+        case Aeson.fromJSON old of
+          Aeson.Success facts -> Aeson.toJSON (facts :: U.UsageAvailability) @?= old
+          Aeson.Error err -> assertFailure err,
+      testCase "context thresholds are exclusive and price the whole request" $
         forM_ [(271999, base), (272000, base), (272001, high)] $ \(n, expectedRates) -> do
           let u = U.zeroUsage & #inputTokens .~ n & #outputTokens .~ 100
           resolveRates Nothing astra u @?= Right expectedRates

@@ -24,8 +24,11 @@ evidence:
     resource: baikai-claude/test/ShapeSpec.hs
     proves: "The cache marker lands on the last tool definition with the requested ttl, and supportsCacheControlOnTools gates whether tool cache markers are emitted at all."
   - kind: test
-    resource: baikai-openai/test/Main.hs
-    proves: "Cached prompt tokens map into baikai's disjoint fields, computeCost bills each token class exactly once, a compatible host that over-reports cached tokens is clamped, and absent cache details produce no cache tokens."
+    resource: baikai-openai/test/BillingSpec.hs
+    proves: "Reported cache reads and writes are normalized once, missing categories and inconsistent counts are explicit, and repeated snapshots preserve cumulative totals."
+  - kind: test
+    resource: baikai-claude/test/SseSpec.hs
+    proves: "Fable write costs follow the shaped TTL, including a compatibility downgrade, and observed billing facts survive terminal snapshots."
   - kind: example
     resource: baikai-smoke/test/CacheSmoke.hs
     proves: "A live two-call sequence against a real provider where the second call reports cache-read tokens."
@@ -46,7 +49,9 @@ The accounting half matters as much as the request half. Cache-read and
 cache-write tokens come back on `Usage` as their own disjoint classes and are
 priced separately, so a consumer can see what caching actually saved rather than
 inferring it. A compatible host that over-reports cached tokens relative to its
-own prompt total is clamped rather than trusted.
+own prompt total is clamped and marked inconsistent; missing counts remain
+unknown in the cost basis. Fable writes use the cache duration in the actual
+request body, so a host downgrade also changes the write rate.
 
 This builds on [CAP-1 — provider-neutral model calls with registry
 dispatch](unified-provider-calls.md) and reports through
@@ -58,14 +63,15 @@ dispatch](unified-provider-calls.md) and reports through
 let opts = emptyOptions & #cacheRetention .~ Just CacheRetentionLong
 resp <- completeRequest model ctx opts
 print (resp ^. #message . #usage . #cacheReadTokens)
+print (resp ^. #message . #usage . #cost . #basis)
 ```
 
 ## Limits
 
-- **A preference, not a contract.** `Long` silently becomes short wherever
-  `supportsLongCacheRetention` is false, and the whole preference is ignored by
-  hosts with no caching. The request does not fail and nothing in the `Response`
-  says the downgrade happened.
+- **Provider-specific behavior.** Claude can downgrade long retention when
+  the host lacks support; Responses rejects unsupported retention preferences
+  before dispatch. The shaped marker determines the applied write price. A
+  preference does not guarantee a cache hit.
 - The Anthropic path is the fully realised one — cache markers on content and on
   the last tool definition, gated by `supportsCacheControlOnTools`. Elsewhere the
   capability is mostly the *accounting* half.
@@ -74,6 +80,9 @@ print (resp ^. #message . #usage . #cacheReadTokens)
   OpenRouter in the shipped table. `api.openai.com` gets no marker at all,
   because Chat Completions caches automatically and exposes no retention
   control, so on that host the capability is the accounting half only.
+- The separate Responses backend supports catalog-gated retention shaping.
+  Astra uses `prompt_cache_options` with its supported short TTL and rejects
+  an unsupported long preference before dispatch.
 - Whether a cache hit actually occurs depends on prefix stability, host policy,
   and timing. baikai reports what the host said it did; it cannot make a hit
   happen.
