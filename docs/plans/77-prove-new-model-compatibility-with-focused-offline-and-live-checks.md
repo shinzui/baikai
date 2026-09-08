@@ -29,7 +29,7 @@ A maintainer can run a focused compatibility command for the two new models, see
 - [x] Pass the offline provider/documentation gate and option/missing-key checks.
 - [x] Add named-case selection for isolated reproduction and exact dispatched endpoint paths.
 - [ ] Execute the focused paid run and record dated results for both models.
-- [ ] Update reproduction documentation and complete the final master-plan audit.
+- [x] Update reproduction documentation and audit every acceptance area; retain Fable live acceptance as outstanding.
 
 
 ## Surprises & Discoveries
@@ -85,9 +85,14 @@ encrypted reasoning. Record structured error categories and HTTP status instead.
 
 The focused runner, isolated case selection, missing-key contract and reproduction
 documentation are implemented. Astra text and deterministic tool use passed live;
-Fable live acceptance and the final master-plan audit remain outstanding. The
+Fable live acceptance remains outstanding. The
 initiative is not complete. An empty reasoning result is not claimed as a live
 encrypted replay test, and local token-cost calculations are not invoice verification.
+
+The [acceptance audit](../validation/masterplan-12/acceptance.md) maps each child
+contract to inspected fixtures, executed gates, or live artifacts. The final
+workspace build passes (`/tmp/baikai-mp12-audit-build.log`). A second goal turn
+confirmed Anthropic credentials remain absent; no further paid call was made.
 
 Validation logs for this increment are `/tmp/baikai-mp12-focused-offline.log` and
 `/tmp/baikai-mp12-smoke-build-final.log` (local, uncommitted execution artifacts).

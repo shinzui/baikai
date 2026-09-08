@@ -56,10 +56,12 @@ stream for completion. A scripted public two-turn tool loop proves the
 continuation reaches the next wire request unchanged.
 
 The Astra binding now selects Responses through an explicit catalog override.
-Remaining strict/lifecycle and pricing acceptance is tracked by
+Strict/lifecycle and pricing acceptance is complete in
 [plan 74](../plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md).
-The default change is backed by the public two-turn replay fixture; it is not
-a claim that the paid live integration checks have already run.
+The default change is backed by the public two-turn replay fixture. Live access
+is a separate acceptance concern tracked by
+[plan 77](../plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md);
+a live response without reasoning items cannot prove encrypted replay.
 
 A successful Responses terminal validates reasoning snapshots with the same
 minimum item contract as the next-request mapper. A completed response missing

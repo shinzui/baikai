@@ -95,8 +95,10 @@ facts. The shared resolved-rate seam supports plan 69's future speed selector
 without introducing a new speed option here. Final validation passes 708 core,
 276 OpenAI, 335 Claude and 10 trace tests, compiled documentation, the 22-concept
 capability bundle, idempotent generation and the workspace build. EP-2's pricing
-integration is complete too. EP-5's focused live acceptance remains outstanding;
-no paid live result is claimed.
+integration is complete too. EP-5's Astra text and deterministic tool cases passed
+live. Fable live acceptance remains outstanding because Anthropic credentials are
+unavailable. The [acceptance audit](../validation/masterplan-12/acceptance.md)
+maps requirements to inspected proof and records the remaining gap.
 
 EP-3 is complete: Fable 5.1 forced-choice validation is catalog-backed and precedes transport. Two tool rounds preserve signed empty/visible and redacted state, including persisted thinking payloads and unchanged prefixes. Core 687, Claude 333 and compiled documentation pass; a fresh catalog candidate matches the committed data.
 
@@ -121,4 +123,8 @@ EP-1 confirms a fresh upstream catalog candidate preserves all endpoint restrict
 ## Outcomes & Retrospective
 
 
-To be filled during implementation. The initiative is complete only after the documented offline checks pass and both live model cases actually execute successfully; unavailable credentials leave live acceptance outstanding.
+The implementation and offline gates are complete, and Astra text/tool access
+passed live. The final workspace build passes. Fable live acceptance remains
+outstanding; the initiative stays incomplete until both model cases execute
+successfully. The acceptance audit preserves the proof and limitations without
+treating unavailable credentials as success.
