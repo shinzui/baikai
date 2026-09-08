@@ -224,7 +224,7 @@ defaultHostEndpointTest =
       oneEvidence
         =<< replayWith (testModel & #baseUrl .~ "") 200 successHeaders successBody baseOptions
     case field "endpoint" ev of
-      Just (Object e) -> KeyMap.lookup "endpoint" e @?= Just (String "https://api.anthropic.com")
+      Just (Object e) -> KeyMap.lookup "endpoint" e @?= Just (String "https://api.anthropic.com/v1/messages")
       other -> assertFailure ("expected an endpoint identity, got: " <> show other)
 
 -- | A response that names its model and its message id but carries no

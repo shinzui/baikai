@@ -83,7 +83,7 @@ Durable decisions expected during implementation are separate Responses dispatch
 - [x] EP-2: Implement Responses and reasoning replay, including EP-4 billing integration.
 - [x] EP-3: Enforce Claude tool/history contracts.
 - [x] EP-4: Implement truthful usage and pricing.
-- [ ] EP-5: Complete offline and live acceptance.
+- [ ] EP-5: Complete offline and live acceptance. Astra text and tool cases passed live; Fable awaits credentials. Redacted results are linked from child 77.
 
 
 ## Surprises & Discoveries

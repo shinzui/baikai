@@ -82,10 +82,14 @@ registration continues to serve Chat Completions models. Temperature and top-p a
 evidence; minimal reasoning becomes low, which strict evidence mode refuses.
 Low through max are preserved. See the
 [migration guidance](https://developers.openai.com/api/docs/guides/latest-model). Its catalog prices are standard base rates; long-context and service-tier
-multipliers are not represented by the flat cost record.
+multipliers are not represented by the flat cost record alone. Its pricing policy
+selects whole-request rates above 272,000 input tokens, counting fresh input,
+cache reads and cache writes. Unsupported service products retain a standard-rate
+estimate with an explicit cost-basis reason.
 [Claude Fable 5.1](https://platform.claude.com/docs/en/models/fable-5-1/overview)
 has a 1,000,000-token context, 128,000-token output limit, and $0.25/M cached-input
-rate. The catalog uses its five-minute cache-write price.
+rate. The catalog uses its five-minute cache-write price, with a pricing-policy
+override for one-hour writes when the shaped request actually uses that duration.
 
 Fable 5.1 thinking is always on: leaving `Options.thinking` unset leaves the
 provider default in effect. Use automatic tool choice; forced `any` or named
@@ -95,6 +99,30 @@ network worker are used. The catalog records this in
 keep conversation history append-only: editing earlier turns invalidates later
 thinking blocks. See the [migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
 before switching existing conversations to this model.
+
+### Focused compatibility checks
+
+Run the offline gate before making paid requests:
+
+```bash
+cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
+cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
+```
+
+The focused command selects only Astra through Responses and Fable through
+Messages. Each model gets one text case and a deterministic tool conversation,
+with low reasoning, 4096 output tokens per request, a 120-second request timeout,
+and at most four requests in the tool case. It prints readable results and a
+`baikai.new-model-smoke/1` JSON summary containing observed endpoint/model facts,
+identifiers, cost bases, and actual call and tool-dispatch counts. It does not
+print conversations or opaque thinking state. Missing required credentials fail
+before any request; without `--require-keys`, missing cases are explicit skips.
+
+To reproduce only a diagnosed failing case, append `--case astra-text`,
+`--case astra-tools`, `--case fable-text`, or `--case fable-tools` inside
+`--test-options`. Only the selected provider's credentials are required. Preserve
+each run's output separately: rerunning a live case can incur another charge.
+Passing offline tests or a keyless skip does not establish live model access.
 
 ## Adding a model to the catalog
 

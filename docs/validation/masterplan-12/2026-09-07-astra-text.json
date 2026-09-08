@@ -1,0 +1,69 @@
+{
+  "missing_environment_alternatives": [],
+  "results": [
+    {
+      "api": "OpenAIResponses",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-astra",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00013,
+              "output_usd": 0.00025
+            },
+            "usd": 0.00038
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.openai.com",
+            "implementation_version": "0.6.0.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "provider_request_id": {
+            "observed": "req_b719137d3a3946f2bca96c8787b9d2aa"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_062ec9d33f3ee2bc016a9f73fdd95087d0b1fb87648b1f3584",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 0
+    }
+  ],
+  "schema": "baikai.new-model-smoke/1"
+}

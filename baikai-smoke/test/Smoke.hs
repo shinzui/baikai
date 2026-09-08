@@ -41,7 +41,7 @@ main = do
   ClaudeCli.register
   CodexCli.register
   if SmokeOptions.newModels selected
-    then NewModelsSmoke.runNewModels (SmokeOptions.requireKeys selected) >>= \ok -> unless ok exitFailure
+    then NewModelsSmoke.runNewModels (SmokeOptions.requireKeys selected) (SmokeOptions.selectedCase selected) >>= \ok -> unless ok exitFailure
     else do
       when (SmokeOptions.requireKeys selected) $ do
         let groups = map caseEnvVars apiCases

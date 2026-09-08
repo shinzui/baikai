@@ -167,6 +167,23 @@ created or updated with their intention IDs. State remaining API or pricing
 limitations and which plan closes each one. Offline tests do not establish live
 account access; only claim a live smoke test when one was actually run.
 
+For the Astra/Fable refresh, the focused acceptance command is:
+
+```bash
+cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
+cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
+```
+
+This selects Astra's Responses route and Fable's Messages route, with bounded
+text and deterministic function-tool conversations. Preserve the readable output
+and `baikai.new-model-smoke/1` JSON summary as dated evidence. Required missing
+keys fail before requests; skips never prove acceptance. The summary separates
+requested models from observed models, includes actual endpoints and cost bases,
+and omits opaque reasoning. For a diagnosed failure, use one of
+`--case astra-text`, `--case astra-tools`, `--case fable-text`, or
+`--case fable-tools` inside the test options to avoid rerunning successful paid
+cases. A selected case only requires that provider's credential chain.
+
 When a provider catalog mixes APIs, set the per-model `api` override alongside
 its endpoint-specific `compat` block in fetch curation. Verify the rendered
 candidate and regenerated binding retain both. Entries without an override

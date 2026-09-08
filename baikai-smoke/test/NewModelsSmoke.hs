@@ -18,7 +18,7 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
-import SmokeOptions (missingKeys)
+import SmokeOptions (caseNames, missingKeys)
 import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
 
@@ -28,24 +28,24 @@ credentialGroups = [["OPENAI_KEY", "OPENAI_API_KEY"], ["ANTHROPIC_KEY", "ANTHROP
 cases :: [(Model, [String])]
 cases = zip [Models.openai_gpt_6_astra, Models.anthropic_claude_fable_5_1] credentialGroups
 
-runNewModels :: Bool -> IO Bool
-runNewModels required = do
+runNewModels :: Bool -> Maybe String -> IO Bool
+runNewModels required selected = do
   env <- traverse (\name -> (name,) <$> lookupEnv name) (concat credentialGroups)
-  let missing = missingKeys env credentialGroups
+  let selectedCases = filter (\(name, _) -> maybe True (== name) selected) (zip caseNames [(model, keys, tool) | (model, keys) <- cases, tool <- [False, True]])
+      missing = missingKeys env [keys | keys <- credentialGroups, any (\(_, (_, group, _)) -> group == keys) selectedCases]
       preflightFailed = required && not (null missing)
   if preflightFailed
     then hPutStrLn stderr ("[baikai-smoke] missing required environment alternatives: " <> show missing)
     else pure ()
-  results <- forM cases $ \(model, keys) ->
-    forM [False, True] $ \toolsCase ->
-      if preflightFailed || keys `elem` missing
-        then do
-          let status = if preflightFailed then "failed" else "skipped"
-              reason = if preflightFailed then "required_credentials_missing" else "credentials_missing"
-          report model toolsCase status False reason 0 0 []
-        else runCase model keys toolsCase
-  LBS.putStrLn (Aeson.encode (Aeson.object ["schema" .= ("baikai.new-model-smoke/1" :: Text), "results" .= map snd (concat results), "missing_environment_alternatives" .= missing]))
-  pure (all fst (concat results))
+  results <- forM selectedCases $ \(_, (model, keys, toolsCase)) ->
+    if preflightFailed || keys `elem` missing
+      then do
+        let status = if preflightFailed then "failed" else "skipped"
+            reason = if preflightFailed then "required_credentials_missing" else "credentials_missing"
+        report model toolsCase status False reason 0 0 []
+      else runCase model keys toolsCase
+  LBS.putStrLn (Aeson.encode (Aeson.object ["schema" .= ("baikai.new-model-smoke/1" :: Text), "results" .= map snd results, "missing_environment_alternatives" .= missing]))
+  pure (all fst results)
 
 runCase :: Model -> [String] -> Bool -> IO (Bool, Aeson.Value)
 runCase model keys toolsCase = do

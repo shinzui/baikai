@@ -27,7 +27,7 @@ A maintainer can run a focused compatibility command for the two new models, see
 - [x] Add focused and required-key flags, keeping the ordinary no-argument suite.
 - [x] Add bounded text/tool cases, credential-chain resolution, and redacted JSON results.
 - [x] Pass the offline provider/documentation gate and option/missing-key checks.
-- [ ] Finish the focused runner acceptance review, including isolated failed-case reproduction.
+- [x] Add named-case selection for isolated reproduction and exact dispatched endpoint paths.
 - [ ] Execute the focused paid run and record dated results for both models.
 - [ ] Update reproduction documentation and complete the final master-plan audit.
 
@@ -41,6 +41,28 @@ checks. An executable-level check removed all four credential environment variab
 from its child process: `--new-models` returned exit 0 with four non-executed skips;
 adding `--require-keys` returned exit 1 with four non-executed failures and named both
 credential alternative groups. Neither check contacted a provider.
+
+2026-09-07 live acceptance: the full required-key command exited 1 before any
+request because both Anthropic credential alternatives were absent. OpenAI
+credentials were available. Isolated `--case astra-text` passed in one request;
+`--case astra-tools` passed in two requests with one dispatcher invocation and an
+exact timestamp match. All three responses observed `gpt-6-astra` and standard
+token pricing, totaling $0.00355 by local calculation. No reasoning block was
+returned, so this run does not establish live encrypted-continuation replay.
+Offline replay fixtures remain its proof. Fable live acceptance remains blocked
+on a credential being available through its existing chain.
+
+The first text run exposed a missing endpoint path in provider evidence. Responses
+and Claude now derive dispatched URLs from the actual normalized client environment
+and append their transport's route. Provider regression checks pass (276 OpenAI,
+335 Claude), as do doc-shapes. The original text artifact retains its base-only
+endpoint; both subsequent tool responses record `/v1/responses`. There was no paid
+rerun of the successful text case. Named-case parsing now has 12 passing pure checks.
+
+Redacted, unmodified JSON summaries are preserved in
+[the full preflight result](../validation/masterplan-12/2026-09-07-required-credentials.json),
+[Astra text](../validation/masterplan-12/2026-09-07-astra-text.json), and
+[Astra tools](../validation/masterplan-12/2026-09-07-astra-tools.json).
 
 
 ## Decision Log
@@ -61,9 +83,11 @@ encrypted reasoning. Record structured error categories and HTTP status instead.
 ## Outcomes & Retrospective
 
 
-Implementation and offline validation are in progress. No paid call has run and no
-live model-support claim is made. The focused runner and missing-key contract are
-implemented; live acceptance and the final documentation/audit remain outstanding.
+The focused runner, isolated case selection, missing-key contract and reproduction
+documentation are implemented. Astra text and deterministic tool use passed live;
+Fable live acceptance and the final master-plan audit remain outstanding. The
+initiative is not complete. An empty reasoning result is not claimed as a live
+encrypted replay test, and local token-cost calculations are not invoice verification.
 
 Validation logs for this increment are `/tmp/baikai-mp12-focused-offline.log` and
 `/tmp/baikai-mp12-smoke-build-final.log` (local, uncommitted execution artifacts).

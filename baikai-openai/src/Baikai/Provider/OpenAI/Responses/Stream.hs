@@ -46,6 +46,7 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import Data.Version (showVersion)
 import Paths_baikai_openai qualified as Paths
+import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 
@@ -69,7 +70,8 @@ openaiResponsesStreamWith driver m ctx opts = Stream.concatEffect $ do
       q <- newFrameQueue
       meta <- newIORef Nothing
       start <- getCurrentTime
-      evidence <- Build.prepareEvidenceAt (resolvedUrl m) m opts Ev.TransportHttpApi req.translation req.requestBody start
+      let endpoint = T.pack (Client.showBaseUrl (Client.baseUrl env)) <> "/v1/responses"
+      evidence <- Build.prepareEvidenceAt endpoint m opts Ev.TransportHttpApi req.translation req.requestBody start
       let worker = do
             result <-
               trySync $

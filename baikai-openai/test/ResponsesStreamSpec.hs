@@ -147,6 +147,7 @@ tests =
           EventDone p -> case p.evidence of
             Just ev -> do
               ev.requestCommitment @?= commitmentDigest body
+              (ev ^. #endpoint ^. #endpoint) @?= Just "https://api.openai.com/v1/responses"
               ev.providerRequestId @?= Observed "req_observed"
               ev.strength @?= declaredStrength OpenAIResponses
             Nothing -> assertFailure "missing evidence"

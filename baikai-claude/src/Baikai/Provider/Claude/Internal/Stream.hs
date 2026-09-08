@@ -141,7 +141,7 @@ claudeMessagesStreamWith driver m ctx opts =
         -- separately by 'Transport.requestHeaders'.
         mkEvidence <-
           Build.prepareEvidenceAt
-            (call ^. #baseUrl)
+            (Text.pack (Client.showBaseUrl (Client.baseUrl (call ^. #clientEnv))) <> "/v1/messages")
             m
             opts
             Ev.TransportHttpApi
