@@ -39,6 +39,13 @@ before a release. Applications can use `emptyThinkingContent` and record updates
 Moving a conversation across APIs or models requires an explicit application
 history decision; Baikai does not silently drop or reinterpret continuation.
 
+The Responses mapper uses `store=false` and requests encrypted reasoning items.
+It checks API/model provenance and requires a reasoning item ID, encrypted
+content and summary array before forwarding the original ordered JSON. Empty
+summaries are valid. Function results use the tool's `call_id`, independently
+of the reasoning item ID. An SDK projection is not used for opaque items,
+because it could discard unknown continuation fields.
+
 Transport implementation and catalog activation remain tracked by
 [plan 74](../plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md).
 A separate dispatch tag does not by itself establish an implemented provider.

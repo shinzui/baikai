@@ -47,6 +47,8 @@ import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import PublicSurfaceSpec qualified
 import ReasoningSpec qualified
+import ResponsesSpec qualified
+import ResponsesTransportSpec qualified
 import ShapeSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
@@ -99,6 +101,8 @@ main =
         MidStreamSpec.tests,
         PublicSurfaceSpec.tests,
         ReasoningSpec.tests,
+        ResponsesSpec.tests,
+        ResponsesTransportSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,
         TransportSpec.tests

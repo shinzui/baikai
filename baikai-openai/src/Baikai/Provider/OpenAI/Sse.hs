@@ -10,8 +10,10 @@ module Baikai.Provider.OpenAI.Sse
   ( openaiSseStream,
     openaiSseStreamValue,
     openaiSseStreamValueWithHeaders,
+    responsesSseStreamValueWithHeaders,
     sseFromResponse,
     buildRequest,
+    buildResponsesRequest,
     ResponseMetadata (..),
     capturedHeaderNames,
   )
@@ -128,8 +130,30 @@ openaiSseStreamValueWithHeaders ::
   (ResponseMetadata -> IO ()) ->
   (Either BaikaiError Aeson.Value -> IO ()) ->
   IO ()
-openaiSseStreamValueWithHeaders env requestHeaders requestBody onMetadata onEvent = do
-  HTTP.withResponse (buildRequest (Client.baseUrl env) requestHeaders requestBody) (Client.manager env) $ \response ->
+openaiSseStreamValueWithHeaders = sseStreamWith buildRequest
+
+-- | Native Responses uses the same HTTP ownership and SSE framing, but
+-- has a distinct URL and event protocol. The Responses assembler owns
+-- interpretation of the JSON frames.
+responsesSseStreamValueWithHeaders ::
+  Client.ClientEnv ->
+  RequestHeaders ->
+  Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
+  (Either BaikaiError Aeson.Value -> IO ()) ->
+  IO ()
+responsesSseStreamValueWithHeaders = sseStreamWith buildResponsesRequest
+
+sseStreamWith ::
+  (Client.BaseUrl -> RequestHeaders -> Aeson.Value -> HTTP.Request) ->
+  Client.ClientEnv ->
+  RequestHeaders ->
+  Aeson.Value ->
+  (ResponseMetadata -> IO ()) ->
+  (Either BaikaiError Aeson.Value -> IO ()) ->
+  IO ()
+sseStreamWith makeRequest env requestHeaders requestBody onMetadata onEvent =
+  HTTP.withResponse (makeRequest (Client.baseUrl env) requestHeaders requestBody) (Client.manager env) $ \response ->
     sseFromResponse response onMetadata onEvent
 
 -- | The exact request this transport sends.
@@ -145,7 +169,13 @@ openaiSseStreamValueWithHeaders env requestHeaders requestBody onMetadata onEven
 -- teaches it — @https:\/\/api.deepseek.com\/v1@ — gets one @\/v1@ here
 -- rather than two.
 buildRequest :: Client.BaseUrl -> RequestHeaders -> Aeson.Value -> HTTP.Request
-buildRequest base requestHeaders requestBody =
+buildRequest = buildRequestAt "/v1/chat/completions"
+
+buildResponsesRequest :: Client.BaseUrl -> RequestHeaders -> Aeson.Value -> HTTP.Request
+buildResponsesRequest = buildRequestAt "/v1/responses"
+
+buildRequestAt :: String -> Client.BaseUrl -> RequestHeaders -> Aeson.Value -> HTTP.Request
+buildRequestAt endpoint base requestHeaders requestBody =
   HTTP.defaultRequest
     { HTTP.secure = case Client.baseUrlScheme base of
         Client.Http -> False
@@ -153,7 +183,7 @@ buildRequest base requestHeaders requestBody =
       HTTP.host = S8.pack (Client.baseUrlHost base),
       HTTP.port = Client.baseUrlPort base,
       HTTP.method = "POST",
-      HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> "/v1/chat/completions"),
+      HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> endpoint),
       HTTP.requestHeaders = requestHeaders,
       HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
       -- This POST has no legitimate redirect, and http-client's default

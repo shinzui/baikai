@@ -89,7 +89,7 @@ Durable decisions expected during implementation are separate Responses dispatch
 ## Surprises & Discoveries
 
 
-EP-2 adds provider-scoped `ThinkingReplay` on `ThinkingContent.replayState` and a separate Responses tag. Chat and Claude reject this state before dispatch. Evidence schema 2.1 preserves legacy content encodings; ADR 0019 records the contract. The provider and Astra activation remain in progress.
+EP-2 adds provider-scoped `ThinkingReplay` on `ThinkingContent.replayState` and a separate Responses tag. Chat and Claude reject this state before dispatch. Evidence schema 2.1 preserves legacy content encodings; ADR 0019 records the contract. The Responses mapper now validates and preserves those items in the next tool request; the HTTP path is /v1/responses. Request/HTTP coverage passes 12 focused cases within 224 OpenAI tests. The streaming provider and Astra activation remain in progress.
 
 EP-1 confirms a fresh upstream catalog candidate preserves all endpoint restrictions. The native effort shaper now exposes a reusable pure policy resolver for EP-2; sampling changes share the adapter translation path so describeThinking agrees with the outgoing body.
 

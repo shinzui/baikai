@@ -27,8 +27,10 @@ A caller can register a native OpenAI Responses provider, select GPT-6 Astra, st
 - [x] (2026-09-07) Reverify Hackage preferred release 2.5.4, upstream tags (none), and local SDK through Mori; streaming driver and high-effort/current usage gaps remain.
 - [x] (2026-09-07) Add API tag, Responses compat and optional `ThinkingReplay`/`replayState`; preserve legacy JSON and commitments, hide opaque payloads in Show, and reject replay at Chat/Claude boundaries. Full workspace builds.
 - [x] (2026-09-07) Core (684), OpenAI (212), Claude (315) and doc-shapes suites pass; five public-surface tests re-run after adding Model serialization coverage.
-- [ ] Complete milestone 1 with Responses request validation and a next-request fixture preserving empty summary/encrypted items.
-- [ ] Implement request mapping and streaming state machine.
+- [x] (2026-09-07) Implement Responses request validation and a next-request fixture preserving persisted empty-summary/encrypted items through appendToolResult with matching call_id.
+- [x] (2026-09-07) Map text/images, assistant history, tools/results, structured output, effort/sampling, metadata and supported cache preferences. Add the Responses HTTP path using shared SSE framing and manager ownership.
+- [x] (2026-09-07) Request/HTTP validation: all 224 OpenAI tests pass; final exact-wire assertions pass in all 12 Responses cases. Formatter and diff checks pass.
+- [ ] Implement streaming state machine and attach the HTTP driver.
 - [ ] Attach evidence, support per-model API overrides and activate Astra.
 - [ ] Prove two-turn tool loop, lifecycle and documentation examples.
 
@@ -52,7 +54,7 @@ The full Claude suite exposed a pre-existing missing Fable 5.1 row in the provid
 ## Outcomes & Retrospective
 
 
-The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. A Responses provider is not registered or activated yet; the request mapper, wire replay fixture, streaming assembler, evidence integration and tool-loop acceptance remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
+The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. A Responses provider is not registered or activated yet; the streaming assembler, evidence integration and runToolLoop acceptance remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
 
 
 ## Context and Orientation
@@ -149,3 +151,5 @@ The public additions are Api.OpenAIResponses and Baikai.Provider.OpenAI.Response
 Commits carry this file's ExecPlan trailer, the parent MasterPlan trailer and intention intention_01m1z34288e5p9f6d5am62qmes.
 
 2026-09-07 implementation revision: separate the verified shared-type foundation from next-request proof, which depends on milestone 2's mapper. Evidence schema 2.1 adds optional replay state without changing existing content digests. No dependency pin or application default changed.
+
+2026-09-07 request-mapping revision: the SDK lacks an assistant input role, json_object output format, modern effort values and prompt_cache_options. Local JSON covers only those gaps and lossless replay; ordinary request, function and image types use released SDK 2.5.4. Official Responses create reference confirms `reasoning.encrypted_content` for store=false; the prompt-caching guide permits only 30m for current models. Short selects that TTL, while an explicit long preference is rejected rather than misrepresented. Stop sequences, seed, frequency/presence penalties and image tool results currently receive useful local errors. Metadata is checked against the API's string map limits. Sampling drops retain EP-1's explicit evidence convention.
