@@ -13,9 +13,10 @@
 module LifecycleSpec (tests) where
 
 import Baikai
-import Baikai.Models.Generated (openai_gpt_4o_mini)
+import Baikai.Models.Generated (openai_gpt_4o_mini, openai_gpt_6_astra)
 import Baikai.Provider.Internal.StreamWorker (frameQueueCapacity)
 import Baikai.Provider.OpenAI.Internal.Stream (SseDriver, openaiChatStreamWith)
+import Baikai.Provider.OpenAI.Responses.Stream (openaiResponsesStreamWith)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Control.Concurrent (forkIO, threadDelay, throwTo)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
@@ -25,9 +26,11 @@ import Data.ByteString (ByteString)
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.Text (Text)
 import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
+import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import System.Mem (performMajorGC)
 import System.Timeout (timeout)
@@ -37,19 +40,35 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 tests :: TestTree
 tests =
   testGroup
-    "Baikai.Provider.OpenAI lifecycle"
-    [ boundedReadTest,
-      abandonedReleasesAfterGcTest,
-      cancellationReleasesWithoutGcTest,
-      workerDeathCannotStrandTest
+    "OpenAI worker lifecycle"
+    [ backendTests "Chat lifecycle" chatBackend,
+      backendTests "Responses lifecycle" responsesBackend
     ]
+
+backendTests :: String -> Backend -> TestTree
+backendTests title backend =
+  testGroup
+    title
+    [ boundedReadTest backend,
+      abandonedReleasesAfterGcTest backend,
+      cancellationReleasesWithoutGcTest backend,
+      workerDeathCannotStrandTest backend
+    ]
+
+data Backend = Backend
+  { streamWith :: SseDriver -> Model -> Context -> Options -> Stream IO AssistantMessageEvent,
+    modelFor :: Model,
+    initialFrame :: ByteString,
+    nextFrame :: ByteString,
+    eofMessage :: Text
+  }
 
 -- | The bound alone stops the socket read: no garbage collection and no
 -- timer is involved. Before the frame queue the counter grew without
 -- limit, because the worker drained an endless body into an unbounded
 -- channel.
-boundedReadTest :: TestTree
-boundedReadTest =
+boundedReadTest :: Backend -> TestTree
+boundedReadTest backend =
   testCase "a consumer that stops after three events stops the body reader within the queue bound" $ do
     reads' <- newIORef (0 :: Int)
     closedRef <- newIORef False
@@ -57,7 +76,7 @@ boundedReadTest =
       Stream.toList
         ( Stream.take
             3
-            (openaiChatStreamWith (countingDriver reads' closedRef Nothing) testModel emptyContext testOptions)
+            (streamWith backend (countingDriver backend reads' closedRef Nothing) (modelFor backend) emptyContext testOptions)
         )
     length events @?= 3
     settled <- awaitSettled reads'
@@ -68,8 +87,8 @@ boundedReadTest =
 -- | The eventual guarantee. Nothing runs at the moment a consumer walks
 -- away; streamly's finaliser kills the worker at the next major
 -- collection, and that is when the connection goes back.
-abandonedReleasesAfterGcTest :: TestTree
-abandonedReleasesAfterGcTest =
+abandonedReleasesAfterGcTest :: Backend -> TestTree
+abandonedReleasesAfterGcTest backend =
   testCase "an abandoned stream releases its connection after a major GC" $ do
     reads' <- newIORef (0 :: Int)
     closedRef <- newIORef False
@@ -77,7 +96,7 @@ abandonedReleasesAfterGcTest =
       Stream.toList
         ( Stream.take
             3
-            (openaiChatStreamWith (countingDriver reads' closedRef Nothing) testModel emptyContext testOptions)
+            (streamWith backend (countingDriver backend reads' closedRef Nothing) (modelFor backend) emptyContext testOptions)
         )
     released <- pollFor 100 50000 (performMajorGC >> readIORef closedRef)
     assertBool "an abandoned stream's connection is released at a major GC" released
@@ -85,8 +104,8 @@ abandonedReleasesAfterGcTest =
 -- | The immediate guarantee. The exception lands while the consumer is
 -- inside the stream's step, which is inside the bracket, so streamly
 -- runs the release synchronously.
-cancellationReleasesWithoutGcTest :: TestTree
-cancellationReleasesWithoutGcTest =
+cancellationReleasesWithoutGcTest :: Backend -> TestTree
+cancellationReleasesWithoutGcTest backend =
   testCase "cancelling the consumer releases the connection without a GC" $ do
     reads' <- newIORef (0 :: Int)
     closedRef <- newIORef False
@@ -97,7 +116,7 @@ cancellationReleasesWithoutGcTest =
         r <-
           try
             ( Stream.toList
-                (openaiChatStreamWith (countingDriver reads' closedRef (Just gate)) testModel emptyContext testOptions)
+                (streamWith backend (countingDriver backend reads' closedRef (Just gate)) (modelFor backend) emptyContext testOptions)
             )
         putMVar outcome (r :: Either SomeException [AssistantMessageEvent])
     threadDelay 100000
@@ -113,22 +132,22 @@ cancellationReleasesWithoutGcTest =
 -- worker that dies by asynchronous exception still ends the stream.
 -- Before the frame queue the consumer blocked until the runtime's
 -- deadlock detector fired.
-workerDeathCannotStrandTest :: TestTree
-workerDeathCannotStrandTest =
+workerDeathCannotStrandTest :: Backend -> TestTree
+workerDeathCannotStrandTest backend =
   testCase "an asynchronous exception in the worker still closes the channel" $ do
     let dyingDriver :: SseDriver
         dyingDriver _env _headers _body _onMetadata _onEvent = throwIO ThreadKilled
     got <-
       timeout
         2000000
-        (Stream.toList (openaiChatStreamWith dyingDriver testModel emptyContext testOptions))
+        (Stream.toList (streamWith backend dyingDriver (modelFor backend) emptyContext testOptions))
     case got of
       Nothing -> assertFailure "a worker killed asynchronously left the consumer blocked"
       Just events -> case reverse events of
         -- 'errorInfo' is a 'Maybe': whether a stream error carries a
         -- typed error at all is itself worth asserting.
         (EventError p : _) ->
-          fmap (^. #message) (p ^. #errorInfo) @?= Just "openai stream ended without finish_reason"
+          fmap (^. #message) (p ^. #errorInfo) @?= Just (eofMessage backend)
         other -> assertFailure ("expected a terminal EventError, got: " <> show (take 1 other))
 
 -- --------------------------------------------------------------------
@@ -142,8 +161,8 @@ workerDeathCannotStrandTest =
 -- With a gate, the reader blocks forever from the fourth read on, which
 -- is the state a cancelled consumer must be able to interrupt. Without
 -- one, the body never ends, which is what makes the queue bound visible.
-countingDriver :: IORef Int -> IORef Bool -> Maybe (MVar ()) -> SseDriver
-countingDriver reads' closedRef gate _env _headers _body onMetadata onEvent =
+countingDriver :: Backend -> IORef Int -> IORef Bool -> Maybe (MVar ()) -> SseDriver
+countingDriver backend reads' closedRef gate _env _headers _body onMetadata onEvent =
   bracket mkFakeResponse HTTP.responseClose $ \resp ->
     sseFromResponse resp onMetadata onEvent
   where
@@ -163,7 +182,7 @@ countingDriver reads' closedRef gate _env _headers _body onMetadata onEvent =
       n <- atomicModifyIORef' reads' (\k -> (k + 1, k))
       case gate of
         Just g | n >= 3 -> takeMVar g >> pure ""
-        _ -> pure contentFrame
+        _ -> pure (if n == 0 then initialFrame backend else nextFrame backend)
 
 -- | An endless stream of visible-text deltas.
 contentFrame :: ByteString
@@ -202,3 +221,15 @@ testModel =
 
 testOptions :: Options
 testOptions = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "test-key")
+
+chatBackend :: Backend
+chatBackend = Backend openaiChatStreamWith testModel contentFrame contentFrame "openai stream ended without finish_reason"
+
+responsesBackend :: Backend
+responsesBackend =
+  Backend
+    openaiResponsesStreamWith
+    openai_gpt_6_astra
+    "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg\",\"content\":[]}}\n\n"
+    "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"item_id\":\"msg\",\"delta\":\"x\"}\n\n"
+    "Responses stream ended without a terminal response"

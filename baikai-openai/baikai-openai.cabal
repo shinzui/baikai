@@ -106,6 +106,7 @@ test-suite baikai-openai-test
     PublicSurfaceSpec
     ReasoningSpec
     ResponsesAssemblerSpec
+    ResponsesEvidenceSpec
     ResponsesSpec
     ResponsesStreamSpec
     ResponsesTransportSpec

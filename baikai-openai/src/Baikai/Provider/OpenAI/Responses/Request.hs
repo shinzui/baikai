@@ -11,6 +11,7 @@ module Baikai.Provider.OpenAI.Responses.Request
     mapRequest,
     describeThinking,
     validateReplay,
+    validateReplayItems,
   )
 where
 
@@ -205,8 +206,13 @@ toolResultText = \case
 validateReplay :: Model -> C.ThinkingReplay -> Either Text ()
 validateReplay m state = do
   unless (normaliseApi state.replayApi == OpenAIResponses && state.replayModel == m.modelId) (Left "Reasoning replay belongs to another API or model")
-  unless (not (V.null state.replayItems)) (Left "Reasoning replay must contain at least one item")
-  mapM_ item state.replayItems
+  validateReplayItems state.replayItems
+
+-- | The same wire invariant applies to completed output and next input.
+validateReplayItems :: V.Vector Value -> Either Text ()
+validateReplayItems items = do
+  unless (not (V.null items)) (Left "Reasoning replay must contain at least one item")
+  mapM_ item items
   where
     item (Object o)
       | KM.lookup "type" o == Just (String "reasoning"),

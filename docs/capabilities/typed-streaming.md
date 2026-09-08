@@ -19,6 +19,9 @@ requires:
   - CAP-1
 evidence:
   - kind: test
+    resource: baikai-openai/test/LifecycleSpec.hs
+    proves: "The same bounded-read, abandonment cleanup, cancellation without GC and worker-death contract for both Chat Completions and native Responses, through the SSE body reader."
+  - kind: test
     resource: baikai/test/StreamSpec.hs
     proves: "The event algebra's load-bearing invariants: an error-only stream still begins with EventStart, terminal message content is authoritative over accumulated deltas, thinking signatures and redaction survive lift and reassembly, dangling buffers keep contentIndex order, responseId flows from events into the Response, and async exceptions pass through liftCompleteToStream rather than being swallowed."
   - kind: test

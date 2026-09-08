@@ -37,6 +37,9 @@ evidence:
     resource: baikai-claude/test/EvidenceSpec.hs
     proves: "The Anthropic transport records the model Anthropic reported running, the request-id correlation header, and reaches model_observed only when both arrived — never from a 2xx alone."
   - kind: test
+    resource: baikai-openai/test/ResponsesEvidenceSpec.hs
+    proves: "Native Responses strict success/refusal, HTTP and in-band failures, malformed/fragmented SSE, premature EOF, exact request and replay commitments, absent observations, and one aborted record when a traced consumer is cancelled."
+  - kind: test
     resource: baikai-openai/test/EvidenceSpec.hs
     proves: "The same for the Chat Completions transport, including that a call failing before any chunk arrives reports no observed model at all."
   - kind: test

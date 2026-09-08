@@ -48,6 +48,7 @@ import OpenAI.V1.ResponseFormat qualified as RF
 import PublicSurfaceSpec qualified
 import ReasoningSpec qualified
 import ResponsesAssemblerSpec qualified
+import ResponsesEvidenceSpec qualified
 import ResponsesSpec qualified
 import ResponsesStreamSpec qualified
 import ResponsesTransportSpec qualified
@@ -104,6 +105,7 @@ main =
         PublicSurfaceSpec.tests,
         ReasoningSpec.tests,
         ResponsesAssemblerSpec.tests,
+        ResponsesEvidenceSpec.tests,
         ResponsesSpec.tests,
         ResponsesStreamSpec.tests,
         ResponsesTransportSpec.tests,

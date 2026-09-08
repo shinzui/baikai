@@ -18,6 +18,7 @@ where
 
 import Baikai.Api (Api (OpenAIResponses))
 import Baikai.Content qualified as C
+import Baikai.Provider.OpenAI.Responses.Request (validateReplayItems)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event qualified as E
 import Control.Monad (foldM, unless)
@@ -75,7 +76,7 @@ advance frame a
           raw <- field "item" frame
           item <- fromSnapshot False raw
           unless (IM.notMember n a.items && n >= a.cursor) (Left "Responses repeated output item")
-          unless (all ((/= item.identity) . (.identity)) (IM.elems a.items)) (Left "Responses duplicate item ID")
+          unless (freshIdentity item (IM.elems a.items)) (Left "Responses duplicate item or function call ID")
           pump a {items = IM.insert n item a.items}
         "response.output_item.done" -> do
           n <- index "output_index" frame
@@ -116,6 +117,12 @@ terminal :: StopReason -> Value -> Assembler -> Either Text (Assembler, [E.Assis
 terminal reason f a = do
   r <- field "response" f
   output <- array "output" r
+  mapM_
+    ( \raw -> case raw of
+        Object o | reason == Stop && KM.lookup "type" o == Just (String "reasoning") -> validateReplayItems (V.singleton raw)
+        _ -> pure ()
+    )
+    output
   updated <- foldM (\s (n, raw) -> mergeSnapshot n True raw s) a (zip [0 ..] (V.toList output))
   unless (IM.size updated.items == V.length output) (Left "Responses terminal output omitted an existing item")
   (drained, events) <- pump updated {observedResponse = Just r}
@@ -145,12 +152,15 @@ fromSnapshot final raw = do
     _ -> Left "Responses unsupported output item type"
   pure (Item k ident call name ps (if final then IS.fromList (IM.keys ps) else IS.empty) final (if final then Just raw else Nothing))
 
+freshIdentity :: Item -> [Item] -> Bool
+freshIdentity new = all (\old -> old.identity /= new.identity && (new.kind /= "function_call" || old.kind /= "function_call" || old.callId /= new.callId))
+
 mergeSnapshot :: Int -> Bool -> Value -> Assembler -> Either Text Assembler
 mergeSnapshot n final raw a = do
   new <- fromSnapshot final raw
   case IM.lookup n a.items of
     Nothing -> do
-      unless (n >= a.cursor && all ((/= new.identity) . (.identity)) (IM.elems a.items)) (Left "Responses duplicate item ID")
+      unless (n >= a.cursor && freshIdentity new (IM.elems a.items)) (Left "Responses duplicate item or function call ID")
       pure a {items = IM.insert n new a.items}
     Just old -> do
       unless (old.kind == new.kind && old.identity == new.identity && old.callId == new.callId && old.functionName == new.functionName) (Left "Responses item identity changed")

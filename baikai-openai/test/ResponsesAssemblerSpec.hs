@@ -98,6 +98,12 @@ tests =
         let raw = object ["id" .= ("r" :: Text), "model" .= ("observed" :: Text), "output" .= [message "ok"], "usage" .= object ["input_tokens" .= (20 :: Int), "input_tokens_details" .= object ["cached_tokens" .= (10 :: Int)]]]
         (s, _) <- run [frame "response.completed" ["response" .= raw]]
         A.observedResponse s @?= Just raw,
+      testCase "duplicate call IDs cannot masquerade as separate tool calls" $ do
+        (s, _) <- run [added 0 (call "item_a" "same_call" "" "in_progress")]
+        rejects (added 1 (call "item_b" "same_call" "" "in_progress")) s
+        rejects (completed [call "item_a" "same_call" "{}" "completed", call "item_b" "same_call" "{}" "completed"]) s,
+      testCase "successful reasoning must carry replayable continuation" $ do
+        rejects (completed [reasoningAdded]) (A.emptyAssembler "m"),
       testCase "failure and malformed frames remain failures" $ do
         mapM_
           (\f -> rejects f (A.emptyAssembler "m"))

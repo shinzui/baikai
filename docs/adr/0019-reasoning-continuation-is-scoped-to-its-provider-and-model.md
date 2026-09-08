@@ -60,3 +60,9 @@ Remaining strict/lifecycle and pricing acceptance is tracked by
 [plan 74](../plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md).
 The default change is backed by the public two-turn replay fixture; it is not
 a claim that the paid live integration checks have already run.
+
+A successful Responses terminal validates reasoning snapshots with the same
+minimum item contract as the next-request mapper. A completed response missing
+required continuation is an error, rather than a successful response that the
+next turn cannot replay. Output item IDs and function `call_id` values must each
+be unique across their respective output items.
