@@ -10,6 +10,7 @@ import Baikai.Provider.Claude.Sse
     claudeSseStreamValueWithHeaders,
     sseFromResponse,
   )
+import Baikai.Usage qualified as Usage
 import Claude.V1.Messages qualified as Messages
 import Contract (assertErrorContract)
 import Control.Lens ((&), (.~), (^.))
@@ -21,6 +22,7 @@ import Data.ByteString.Char8 qualified as S8
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector (Vector)
@@ -124,6 +126,19 @@ observationTests =
             -- fixture also carries must not be recorded.
             md ^. #headers @?= [("request-id", "req_abc123")]
           other -> assertFailure ("expected exactly one metadata value, got: " <> show other),
+      testCase "partial and repeated usage snapshots preserve reported cache categories" $ do
+        let start = frameOf "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_usage\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-test\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_read_input_tokens\":20}}}"
+            partial = frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":100}}"
+            final = frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":100,\"cache_creation_input_tokens\":30}}"
+        (_, before) <- replayTranslate [start, partial]
+        (before ^. #usage) ^. #availability @?= Just (Usage.UsageAvailability (Set.singleton Usage.CacheWriteUsage) False)
+        (_, once) <- replayTranslate [start, partial, final]
+        (_, twice) <- replayTranslate [start, partial, final, final]
+        once ^. #usage @?= twice ^. #usage
+        (once ^. #usage) ^. #totalTokens @?= 160
+        (once ^. #usage) ^. #availability @?= Just (Usage.UsageAvailability Set.empty False)
+        let (_, failed) = translate (Left (providerUnavailable "reset")) once testTime
+        failed ^. #usage @?= once ^. #usage,
       testCase "the observed model comes from message_start, not the configured model" $ do
         (_, ass) <- replay 200 [("request-id", "req_abc123")] successBody
         ass ^. #observedModel @?= Observed "claude-haiku-4-5-20990101-server-side"

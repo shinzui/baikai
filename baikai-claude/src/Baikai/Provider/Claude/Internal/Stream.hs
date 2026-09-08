@@ -31,7 +31,6 @@ where
 
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
-import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
@@ -66,7 +65,9 @@ import Baikai.Stream.Event
   )
 import Baikai.Url qualified as Url
 import Baikai.Usage qualified as Usage
+import Baikai.Usage.Normalize qualified as Normalize
 import Claude.V1.Messages qualified as Messages
+import Control.Applicative ((<|>))
 import Control.Exception (SomeAsyncException (..), SomeException, fromException, throwIO, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value)
@@ -79,6 +80,7 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet qualified as IntSet
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -650,21 +652,19 @@ translateEvent raw ass now = case raw of
         -- 'Messages.StreamUsage' has no 'GHC.Generics.Generic' instance,
         -- so these are record dots rather than the generic-lens labels
         -- used for 'Messages.Usage'.
-        inputFinal = fromMaybe (u ^. #inputTokens) su.stream_input_tokens
-        outputFinal = su.output_tokens
-        cacheReadFinal = fromMaybe (u ^. #cacheReadTokens) su.stream_cache_read_input_tokens
-        cacheWriteFinal = fromMaybe (u ^. #cacheWriteTokens) su.stream_cache_creation_input_tokens
-        reasoningFinal = case su.stream_output_tokens_details of
-          Just d -> Just d.thinking_tokens
-          Nothing -> u ^. #reasoningTokens
+        known category getter = case u ^. #availability of
+          Just facts | category `Set.notMember` Usage.missingCategories facts -> Just (getter u)
+          _ -> Nothing
         u' =
-          u
-            & #inputTokens .~ inputFinal
-            & #outputTokens .~ outputFinal
-            & #cacheReadTokens .~ cacheReadFinal
-            & #cacheWriteTokens .~ cacheWriteFinal
-            & #reasoningTokens .~ reasoningFinal
-            & #totalTokens .~ (inputFinal + outputFinal + cacheReadFinal + cacheWriteFinal)
+          Normalize.normalizeUsage
+            Normalize.ExclusiveInput
+            ( Normalize.ReportedUsage
+                (su.stream_input_tokens <|> known Usage.InputUsage Usage.inputTokens)
+                (Just su.output_tokens)
+                (su.stream_cache_read_input_tokens <|> known Usage.CacheReadUsage Usage.cacheReadTokens)
+                (su.stream_cache_creation_input_tokens <|> known Usage.CacheWriteUsage Usage.cacheWriteTokens)
+                ((Messages.thinking_tokens <$> su.stream_output_tokens_details) <|> (u ^. #reasoningTokens))
+            )
      in ([], ass & #stopReason .~ stopR & #usage .~ u' & #usageReported .~ True)
   Messages.Message_Stop ->
     let reason = ass ^. #stopReason
@@ -855,7 +855,7 @@ skeletonMessage ass _now =
 -- second rate models.dev does not publish.
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
-  let usageBare = ass ^. #usage
+  let usageBare = if ass ^. #usageReported then ass ^. #usage else Normalize.normalizeUsage Normalize.ExclusiveInput (Normalize.ReportedUsage Nothing Nothing Nothing Nothing Nothing)
    in usageBare & #cost .~ Pricing.computeCost (ass ^. #model) usageBare
 
 finalMessage :: Assembler -> UTCTime -> Msg.Message
@@ -956,19 +956,15 @@ renderAnthropicError v = case v of
 -- @docs\/user\/prompt-caching.md@.
 anthroUsageToBaikai :: Messages.Usage -> Usage.Usage
 anthroUsageToBaikai u =
-  let i = u ^. #input_tokens
-      o = u ^. #output_tokens
-      cr = fromMaybe 0 (u ^. #cache_read_input_tokens)
-      cw = fromMaybe 0 (u ^. #cache_creation_input_tokens)
-   in Usage.Usage
-        { Usage.inputTokens = i,
-          Usage.outputTokens = o,
-          Usage.cacheReadTokens = cr,
-          Usage.cacheWriteTokens = cw,
-          Usage.reasoningTokens = fmap (^. #thinking_tokens) (u ^. #output_tokens_details),
-          Usage.totalTokens = i + o + cr + cw,
-          Usage.cost = zeroCost
-        }
+  Normalize.normalizeUsage
+    Normalize.ExclusiveInput
+    ( Normalize.ReportedUsage
+        (Just (u ^. #input_tokens))
+        (Just (u ^. #output_tokens))
+        (u ^. #cache_read_input_tokens)
+        (u ^. #cache_creation_input_tokens)
+        (fmap (^. #thinking_tokens) (u ^. #output_tokens_details))
+    )
 
 mapStopReason :: Maybe Messages.StopReason -> Stop.StopReason
 mapStopReason = \case

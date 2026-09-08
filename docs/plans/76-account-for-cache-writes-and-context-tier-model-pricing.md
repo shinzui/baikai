@@ -27,7 +27,7 @@ Reported model costs will account for provider-reported cache writes and Astra's
 - [x] Add optional validated Model pricing policies and explicit Cost calculation bases, preserving old model JSON decoding and cost aggregation laws.
 - [x] Curate Astra context tiers and Fable long-write rates through fetch, catalog JSON and generated Haskell; fresh fetch changes only the intended policies.
 - [x] Prove exact threshold/cache arithmetic against the generated models, including 5.44752 USD at 272001 input plus 100 output tokens.
-- [ ] Normalize raw Chat/Responses/Claude usage with explicit availability and commit those provider facts in evidence.
+- [x] Normalize raw Chat/Responses/Claude usage with explicit availability and commit those provider facts in evidence.
 - [ ] Integrate shaped cache duration, observed service tiers and the shared fast-mode seam.
 - [ ] Update trace/log consumers, capability examples and final documentation; complete all acceptance checks.
 
@@ -54,9 +54,13 @@ Fresh fetch output preserves all existing model fields and adds only the two cur
 ## Outcomes & Retrospective
 
 
-The pricing foundation passes 700 core tests, 265 OpenAI tests, 333 Claude tests, 9 OpenTelemetry trace tests and the compiled documentation suite. Pricing assertions use the generated model bindings; the catalog round-trip preserves both policies and rejects incomplete tier rates, negative rates and malformed thresholds. The generator output passes the repository formatter unchanged. The final parser tightening passes 24 focused generator/fetch tests; `cabal build all` and `git diff --check` also pass.
+The pricing foundation passed 700 core tests, 265 OpenAI tests, 333 Claude tests, 9 OpenTelemetry trace tests and the compiled documentation suite. Pricing assertions use the generated model bindings; the catalog round-trip preserves both policies and rejects incomplete tier rates, negative rates and malformed thresholds. The generator output passes the repository formatter unchanged. The final parser tightening passes 24 focused generator/fetch tests; `cabal build all` and `git diff --check` also pass.
 
-This is partial completion. Providers still need shared raw usage normalization with explicit availability, actual cache duration and observed service-tier pricing. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
+Shared raw normalization now preserves missing counters, invalid totals and partial observations in `Usage.availability`, its cost estimate reasons and the canonical usage envelope. OpenAI Chat and Responses share parsing and cumulative snapshot merging; Claude uses the exclusive-input normalizer and retains earlier categories omitted in message_delta. Offline tests prove no double-counting, partial usage on error and equality of Responses payload/evidence costs. The final suites pass 701 core, 275 OpenAI, 334 Claude and 9 trace tests plus compiled documentation. The legacy-envelope assertion passes, and an isolated `cabal build all` succeeds. Running build and tests concurrently first caused a shared-output rename collision; both processes were observed terminal before the isolated build, so no second live build was left competing.
+
+The current Chat API reference explicitly documents prompt_tokens_details.cache_write_tokens as unadjusted prompt tokens written to cache: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create. This confirms the Chat field independently of the Responses input_tokens_details shape. The inspected SDK at mori://MercuryTechnologies/claude/packages/claude exposes optional cache categories in both Usage and StreamUsage; the adapter preserves their absence.
+
+This is partial completion. Providers still need actual cache duration and observed service-tier pricing. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
 
 
 ## Context and Orientation

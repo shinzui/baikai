@@ -188,7 +188,12 @@ Absent replay state is omitted, so earlier content encodings and digests
 remain unchanged. Version 2.2 adds `cost.basis`: its `sources` distinguish standard
 token calculations from provider-reported totals, and nonempty `estimate_reasons`
 identify incomplete billing knowledge. Both the amount and its local calculation
-basis remain outside the response commitment. A verifier selects its rules by
+basis remain outside the response commitment. Optional `usage.availability`
+records missing billing categories and inconsistent counts, and **does** join
+that commitment: a missing write counter is different from a reported zero.
+Legacy usages omit this field and retain their original six-field envelope.
+Known partial usage is observed together with its availability; an entirely
+unreported usage block remains unobserved. A verifier selects its rules by
 `schema_version`: under `1.x`, `response_commitment` also covered the
 cost and `request_configuration` carried both structured-output schemas
 verbatim.

@@ -275,6 +275,10 @@ usageEnvelopeTests =
         let cheap = zeroUsage {inputTokens = 10, outputTokens = 20}
             dear = cheap {cost = zeroCost {usd = 1234}}
         usageEnvelope cheap @?= usageEnvelope dear,
+      testCase "legacy usage envelope has exactly the original six keys" $
+        case usageEnvelope zeroUsage of
+          Object fields -> KeyMap.size fields @?= 6
+          _ -> assertFailure "usage envelope is not an object",
       testCase "the encoded envelope carries no cost key" $ do
         let encoded = BS8.unpack (canonicalEncode (usageEnvelope zeroUsage))
         assertBool

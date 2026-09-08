@@ -38,8 +38,11 @@ standard calculation nor a subprocess-reported total is described as an invoice.
 Evidence schema 2.2 adds the local calculation basis to serialized cost. As
 established in schema 2.0, locally calculated amounts and pricing metadata stay
 outside the provider response commitment. Raw usage availability is a separate
-provider fact: adapter integration must represent and commit it explicitly,
-including the distinction between an omitted counter and a reported zero.
+provider fact. `Usage.availability` carries missing categories and inconsistency
+into serialized usage and its canonical envelope. Its absence preserves the
+legacy six-field envelope. API adapters annotate normalized usage even when all
+counts are missing; evidence marks a wholly unreported block unobserved, and
+preserves a partial observation together with its missing categories.
 
 ## Consequences
 
@@ -48,9 +51,12 @@ release. Existing flat models retain their numeric totals. Unknown prices retain
 the numeric zero but now carry a pricing-unavailable reason. Reasoning tokens
 remain an informational subset of output tokens and are never charged again.
 
-The first implementation provides validated catalog policies, exact arithmetic,
-calculation provenance and aggregation. Adapter availability, observed service
-tiers, mixed cache durations and downstream trace/log presentation remain work
+Implementation provides validated catalog policies, exact arithmetic,
+calculation provenance and aggregation, plus shared usage normalization in Chat,
+Responses and Claude. Cumulative snapshots replace reported counters and retain
+earlier categories omitted by a later snapshot. Missing usage and reported zero
+remain distinct. Observed service tiers, mixed cache durations and downstream
+trace/log presentation remain work
 in [plan 76](../plans/76-account-for-cache-writes-and-context-tier-model-pricing.md).
 This decision does not claim those integrations or live billing verification
 are complete.

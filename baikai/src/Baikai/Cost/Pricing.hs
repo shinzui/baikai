@@ -16,7 +16,8 @@ import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (InputPriceTier (..), Model, ModelCost (..), PricingPolicy (..), validatePricingPolicy, zeroModelCost)
 import Baikai.Prelude
 import Baikai.Response (Response (..))
-import Baikai.Usage (Usage (..))
+import Baikai.Usage (Usage (..), UsageAvailability (..), UsageCategory (..))
+import Data.Set qualified as Set
 
 -- | Compute a 'Cost' from a model's per-million-token rates and a
 -- 'Usage'. Zero rates retain the old numeric total and now mark pricing
@@ -43,7 +44,7 @@ computeCostWith duration m u =
       cacheWriteUsd = toRational (u ^. #cacheWriteTokens) * cwRate / 1_000_000
       total = inUsd + outUsd + cachedUsd + cacheWriteUsd
    in estimateCost
-        problems
+        (problems <> usageProblems u)
         Cost
           { usd = total,
             basis = standardCostBasis,
@@ -55,6 +56,22 @@ computeCostWith duration m u =
                   cachedWriteUsd = cacheWriteUsd
                 }
           }
+
+-- | Legacy, manually constructed usages have no availability annotation.
+-- Normalized provider usages always carry one, even for an entirely absent body.
+usageProblems :: Usage -> [CostEstimateReason]
+usageProblems u = case u ^. #availability of
+  Nothing -> []
+  Just facts ->
+    [InconsistentUsage | inconsistent facts]
+      <> if Set.size (missingCategories facts) == 4
+        then [UsageNotReported]
+        else map reason (Set.toList (missingCategories facts))
+  where
+    reason InputUsage = InputUsageNotReported
+    reason OutputUsage = OutputUsageNotReported
+    reason CacheReadUsage = CacheReadUsageNotReported
+    reason CacheWriteUsage = CacheWriteUsageNotReported
 
 -- | Choose one complete rate record. Thresholds are exclusive and use
 -- disjoint normalized input categories, including both cache counters.

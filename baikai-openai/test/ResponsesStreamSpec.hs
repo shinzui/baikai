@@ -15,6 +15,7 @@ import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.KeyMap qualified as KM
 import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Vector qualified as V
 import Streamly.Data.Stream qualified as Stream
@@ -26,7 +27,33 @@ tests :: TestTree
 tests =
   testGroup
     "Responses stream"
-    [ testCase "complete folds the same stream, including final-only content" $ do
+    [ testCase "terminal usage merges earlier categories and evidence matches its cost" $ do
+        let finished = object ["type" .= ("response.completed" :: Text), "response" .= object ["id" .= ("resp_usage" :: Text), "output" .= [item "hello"], "usage" .= object ["output_tokens" .= (100 :: Int), "input_tokens_details" .= object ["cache_write_tokens" .= (3000 :: Int)]]]]
+        events <- Stream.toList (openaiResponsesStreamWith (driver [usageStarted, finished, finished]) model emptyContext (options & #evidence .~ Just (evidenceRequest "billing")))
+        case last events of
+          EventDone p -> case p.message of
+            AssistantMessage msg -> do
+              let u = msg.usage
+              (u.inputTokens, u.cacheReadTokens, u.cacheWriteTokens, u.totalTokens) @?= (0, 12000, 3000, 15100)
+              u.cost.usd @?= 109 / 2000
+              u.cost.basis.estimateReasons @?= Set.empty
+              case p.evidence of
+                Just ev -> ev.usage @?= Observed u
+                Nothing -> assertFailure "missing evidence"
+            _ -> assertFailure "expected assistant"
+          _ -> assertFailure "expected completion",
+      testCase "partial usage survives a failed stream with missing categories explicit" $ do
+        events <- run [usageStarted, added, delta]
+        assertErrorContract events
+        case last events of
+          EventError p -> case p.message of
+            AssistantMessage msg -> do
+              msg.usage.cacheReadTokens @?= 12000
+              msg.usage.inputTokens @?= 3000
+              msg.usage.cost.basis.estimateReasons @?= Set.fromList [OutputUsageNotReported, CacheWriteUsageNotReported]
+            _ -> assertFailure "expected assistant"
+          _ -> assertFailure "expected failure",
+      testCase "complete folds the same stream, including final-only content" $ do
         response <- streamingComplete (openaiResponsesStreamWith (driver [completed])) model emptyContext options
         response.message.content @?= V.singleton (AssistantText (TextContent "hello"))
         response.message.stopReason @?= Stop
@@ -160,3 +187,6 @@ delta = object ["type" .= ("response.output_text.delta" :: Text), "output_index"
 
 completed :: Value
 completed = object ["type" .= ("response.completed" :: Text), "response" .= object ["id" .= ("resp_actual" :: Text), "model" .= ("server-model" :: Text), "output" .= [item "hello"]]]
+
+usageStarted :: Value
+usageStarted = object ["type" .= ("response.created" :: Text), "response" .= object ["id" .= ("resp_usage" :: Text), "usage" .= object ["input_tokens" .= (15000 :: Int), "input_tokens_details" .= object ["cached_tokens" .= (12000 :: Int)]]]]

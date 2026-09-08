@@ -418,6 +418,7 @@ codexUsage u =
           cacheWriteTokens = written,
           reasoningTokens = natFieldMaybe u "reasoning_output_tokens",
           totalTokens = nonCached + out + cached + written,
+          availability = Nothing,
           cost = zeroCost
         }
 
@@ -538,6 +539,7 @@ claudeUsage o = case KeyMap.lookup "usage" o of
                   cacheWriteTokens = cw,
                   reasoningTokens = Nothing,
                   totalTokens = i + out + cr + cw,
+                  availability = Nothing,
                   cost = reportedCost
                 }
   _ -> Nothing

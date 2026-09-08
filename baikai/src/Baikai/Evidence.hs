@@ -506,12 +506,12 @@ untranslatedThinking = \case
 -- not reported by the provider, so including it made
 -- @response_commitment@ change whenever pricing was edited and left a
 -- verifier holding only the response unable to recompute it. The six
--- counts are listed through record selectors rather than encoded
+-- counts and optional availability facts are listed through record selectors rather than encoded
 -- wholesale, so a field added to 'Usage' later does not silently join
 -- the digest.
 usageEnvelope :: Usage -> Value
 usageEnvelope u =
-  object
+  object $
     [ "input_tokens" .= Usage.inputTokens u,
       "output_tokens" .= Usage.outputTokens u,
       "cache_read_tokens" .= Usage.cacheReadTokens u,
@@ -519,6 +519,7 @@ usageEnvelope u =
       "reasoning_tokens" .= Usage.reasoningTokens u,
       "total_tokens" .= Usage.totalTokens u
     ]
+      <> maybe [] (\facts -> ["availability" .= facts]) (Usage.availability u)
 
 -- ============================================================
 -- Endpoint and transport
@@ -882,6 +883,8 @@ evidenceSchemaVersion :: Text
 -- absent, preserving every pre-existing content encoding and digest.
 -- Version 2.2 adds the local cost calculation basis to serialized usage.
 -- Like the local numeric cost, this basis is excluded from response commitments.
+-- Optional provider availability facts do join usage commitments. Their absence
+-- preserves the six-field envelope and every legacy usage digest.
 evidenceSchemaVersion = "baikai.model-call-evidence/2.2"
 
 -- | Everything Baikai can say about one completed provider call.

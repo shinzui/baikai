@@ -93,6 +93,7 @@ library
     Baikai.Trace.Sink
     Baikai.Url
     Baikai.Usage
+    Baikai.Usage.Normalize
 
   -- The cabal-generated version module. 'Baikai.Evidence.Build' reads
   -- it so an evidence record can name the build that produced it,

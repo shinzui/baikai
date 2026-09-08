@@ -20,6 +20,7 @@ import Baikai.Options (Options)
 import Baikai.Provider.Internal.StreamWorker
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyErrorFrame, classifyException)
 import Baikai.Provider.OpenAI.Internal.Stream (SseDriver)
+import Baikai.Provider.OpenAI.Internal.Usage qualified as Billing
 import Baikai.Provider.OpenAI.Responses.Assembler qualified as A
 import Baikai.Provider.OpenAI.Responses.Request qualified as R
 import Baikai.Provider.OpenAI.Sse (ResponseMetadata, capturedHeaderNames, responsesSseStreamValueWithHeaders)
@@ -44,7 +45,6 @@ import Data.Text.Encoding qualified as T
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import Data.Version (showVersion)
-import Numeric.Natural (Natural)
 import Paths_baikai_openai qualified as Paths
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -157,23 +157,16 @@ responseError raw = case textField "type" raw of
 
 mergeObservation :: Maybe Value -> Maybe Value -> Maybe Value
 mergeObservation old Nothing = old
-mergeObservation (Just (Object old)) (Just (Object new)) = Just (Object (KM.union new old))
+mergeObservation (Just (Object old)) (Just (Object new)) =
+  let merged = KM.union new old
+      usage = Billing.mergeUsage (KM.lookup "usage" old) (KM.lookup "usage" new)
+   in Just (Object (maybe merged (\u -> KM.insert "usage" u merged) usage))
 mergeObservation _ new = new
 
--- Preserve absent cache categories in the raw observation. EP-4 supplies
--- the public availability/cost-basis contract; until then usage evidence is
--- only Observed when both cache counters were actually supplied.
+-- Known counts and their availability travel together into payload and evidence.
 responseUsage :: Model -> Maybe Value -> U.Usage
 responseUsage m raw =
-  let usage = raw >>= lookupField "usage"
-      input = fromMaybe 0 (usage >>= naturalField "input_tokens")
-      output = fromMaybe 0 (usage >>= naturalField "output_tokens")
-      details = usage >>= lookupField "input_tokens_details"
-      cached = fromMaybe 0 (details >>= naturalField "cached_tokens")
-      writes = fromMaybe 0 (details >>= naturalField "cache_write_tokens")
-      reasoning = usage >>= lookupField "output_tokens_details" >>= naturalField "reasoning_tokens"
-      fresh = if cached + writes >= input then 0 else input - cached - writes
-      normalized = U.zeroUsage & #inputTokens .~ fresh & #outputTokens .~ output & #cacheReadTokens .~ cached & #cacheWriteTokens .~ writes & #reasoningTokens .~ reasoning & #totalTokens .~ (fresh + cached + writes + output)
+  let normalized = fromMaybe Billing.unreportedUsage (raw >>= lookupField "usage" >>= Billing.readUsage Billing.ResponsesUsage)
    in normalized & #cost .~ Pricing.computeCost m normalized
 
 observe :: Ev.CallStatus -> Maybe ResponseMetadata -> Maybe Value -> M.AssistantPayload -> Ev.ModelCallEvidence -> Ev.ModelCallEvidence
@@ -186,12 +179,7 @@ observe status md raw payload ev =
           v : _ -> Ev.Observed v
           [] -> Ev.Unobserved
       allCounts = do
-        u <- raw >>= lookupField "usage"
-        _ <- naturalField "input_tokens" u
-        _ <- naturalField "output_tokens" u
-        d <- lookupField "input_tokens_details" u
-        _ <- naturalField "cached_tokens" d
-        _ <- naturalField "cache_write_tokens" d
+        _ <- raw >>= lookupField "usage" >>= Billing.readUsage Billing.ResponsesUsage
         pure (payload ^. #usage)
       commitment =
         if status == Ev.CallSucceeded
@@ -212,9 +200,6 @@ lookupField _ _ = Nothing
 
 textField :: Key -> Value -> Maybe Text
 textField k v = lookupField k v >>= \case String t | not (T.null t) -> Just t; _ -> Nothing
-
-naturalField :: Key -> Value -> Maybe Natural
-naturalField k v = lookupField k v >>= \case Number n | n >= 0, fromInteger (floor n) == n -> Just (fromInteger (floor n)); _ -> Nothing
 
 trySync :: IO a -> IO (Either SomeException a)
 trySync action = do

@@ -21,6 +21,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: optional `Usage.availability` and shared inclusive/exclusive billing
+  normalization. OpenAI Chat/Responses and Claude preserve missing cache counters
+  as explicit estimation reasons, distinguish reported zeroes, and merge
+  cumulative usage without double-counting. Schema 2.2 commits provider
+  availability while preserving legacy usage digests. This public record change
+  requires PVP review; service-tier and cache-duration integration is still open.
+
 - `baikai`: optional `Model.pricingPolicy`, exact whole-request context tiers,
   and an explicit cache-duration rate resolver. Generated Astra pricing changes
   above 272000 input tokens; Fable exposes its one-hour write price. `Cost.basis`

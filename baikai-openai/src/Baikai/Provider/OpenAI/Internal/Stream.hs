@@ -45,7 +45,6 @@ where
 import Baikai.Compat (OpenAICompletionsCompat (requiresThinkingAsText))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
-import Baikai.Cost (zeroCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
@@ -62,6 +61,7 @@ import Baikai.Provider.Internal.StreamWorker
   )
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyErrorFrame, classifyException)
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
+import Baikai.Provider.OpenAI.Internal.Usage qualified as Billing
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape, streamRequestBody)
 import Baikai.Provider.OpenAI.Sse (ResponseMetadata, capturedHeaderNames, openaiSseStreamValueWithHeaders)
 import Baikai.Provider.OpenAI.Transport qualified as Transport
@@ -104,7 +104,6 @@ import Data.Vector qualified as Vector
 import Data.Version (showVersion)
 import GHC.Generics (Generic)
 import Network.HTTP.Types.Header (RequestHeaders)
-import Numeric.Natural (Natural)
 import Paths_baikai_openai qualified as Paths
 import Servant.Client qualified as Client
 import Streamly.Data.Stream (Stream)
@@ -274,12 +273,7 @@ data RawToolDelta = RawToolDelta
   }
   deriving stock (Show, Generic)
 
-data RawUsage = RawUsage
-  { inputTokens :: !Natural,
-    outputTokens :: !Natural,
-    cacheReadTokens :: !Natural,
-    reasoningTokens :: !(Maybe Natural)
-  }
+newtype RawUsage = RawUsage Aeson.Object
   deriving stock (Show, Generic)
 
 -- | Worker body: drive the transport, forwarding decoded chunks onto the
@@ -421,33 +415,7 @@ parseToolCallDeltas = \case
       _ -> Nothing
 
 parseUsage :: Aeson.Object -> Maybe RawUsage
-parseUsage o =
-  case Aeson.parseEither pUsage o of
-    Right u -> Just u
-    Left _ -> Nothing
-  where
-    pUsage obj = do
-      i <- obj .:? "prompt_tokens"
-      out <- obj .:? "completion_tokens"
-      ptd <- obj .:? "prompt_tokens_details"
-      ctd <- obj .:? "completion_tokens_details"
-      let cached = case ptd of
-            Just (Aeson.Object p) -> case lookupField "cached_tokens" p of
-              Just (Aeson.Number n) -> truncate n
-              _ -> 0 :: Natural
-            _ -> 0
-          reasoning = case ctd of
-            Just (Aeson.Object c) -> case lookupField "reasoning_tokens" c of
-              Just (Aeson.Number n) -> Just (truncate n)
-              _ -> Nothing
-            _ -> Nothing
-      pure
-        RawUsage
-          { inputTokens = fromMaybe 0 i,
-            outputTokens = fromMaybe 0 out,
-            cacheReadTokens = cached,
-            reasoningTokens = reasoning
-          }
+parseUsage o = RawUsage o <$ Billing.readUsage Billing.ChatUsage (Aeson.Object o)
 
 lookupField :: Text -> Aeson.Object -> Maybe Value
 lookupField k = KeyMap.lookup (AesonKey.fromText k)
@@ -860,6 +828,7 @@ data Assembler = Assembler
     -- 'usage' still holding the zeroes it was initialised with. Without
     -- this a failed call would claim the host reported consuming
     -- nothing.
+    usageSnapshot :: !(Maybe Value),
     usageReported :: !Bool
   }
   deriving stock (Generic)
@@ -891,6 +860,7 @@ emptyAssembler m s =
       observedModel = Ev.Unobserved,
       responseId = Nothing,
       httpStatus = Nothing,
+      usageSnapshot = Nothing,
       usageReported = False
     }
 
@@ -1084,41 +1054,20 @@ applyOneToolDelta d ass =
           else events0 <> [ToolCallDelta DeltaPayload {contentIndex = baikaiIdx, delta = argsDelta}]
    in (events1, ass3)
 
--- | Normalize OpenAI's inclusive usage counters into baikai's
--- disjoint 'Usage.Usage' convention. OpenAI's @prompt_tokens@
--- includes @prompt_tokens_details.cached_tokens@, so the cached count
--- is subtracted out of 'Usage.inputTokens'. The subtraction is clamped
--- at zero because 'Natural' subtraction throws on underflow and because
--- OpenAI-compatible hosts can report inconsistent counters.
--- 'Usage.totalTokens' is recomputed from the normalized parts;
--- 'Usage.reasoningTokens' is a subset of 'Usage.outputTokens' and is
--- not added to the total. OpenAI does not bill cache writes, so
--- 'Usage.cacheWriteTokens' is always zero.
+-- | Shared Chat/Responses normalization preserves reported writes and marks
+-- missing or inconsistent billing categories explicitly.
 rawUsageToUsage :: RawUsage -> Usage.Usage
-rawUsageToUsage u =
-  let prompt = u ^. #inputTokens
-      cached = u ^. #cacheReadTokens
-      out = u ^. #outputTokens
-      nonCached = if cached >= prompt then 0 else prompt - cached
-   in Usage.Usage
-        { Usage.inputTokens = nonCached,
-          Usage.outputTokens = out,
-          Usage.cacheReadTokens = cached,
-          Usage.cacheWriteTokens = 0,
-          Usage.reasoningTokens = u ^. #reasoningTokens,
-          Usage.totalTokens = nonCached + out + cached,
-          Usage.cost = zeroCost
-        }
+rawUsageToUsage (RawUsage o) = fromMaybe Billing.unreportedUsage (Billing.readUsage Billing.ChatUsage (Aeson.Object o))
 
 applyUsage :: Maybe RawUsage -> Assembler -> Assembler
 applyUsage Nothing ass = ass
-applyUsage (Just u) ass =
-  ass
-    & #usage .~ rawUsageToUsage u
-    -- A host that sent a usage block reported its counts, even if every
-    -- one of them is zero. That is what distinguishes a reported zero
-    -- from silence in the evidence record.
-    & #usageReported .~ True
+applyUsage (Just (RawUsage raw)) ass =
+  let snapshot = Billing.mergeUsage (ass ^. #usageSnapshot) (Just (Aeson.Object raw))
+      normalized = fromMaybe Billing.unreportedUsage (snapshot >>= Billing.readUsage Billing.ChatUsage)
+   in ass
+        & #usage .~ normalized
+        & #usageSnapshot .~ snapshot
+        & #usageReported .~ True
 
 -- | Close all open content blocks and stash the resolved stop
 -- reason; defer 'EventDone' to channel close.
@@ -1271,7 +1220,7 @@ closeOpenStream now mErr ass
 -- cannot report different numbers for the same call.
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
-  let usageBare = ass ^. #usage
+  let usageBare = if ass ^. #usageReported then ass ^. #usage else Billing.unreportedUsage
    in usageBare & #cost .~ Pricing.computeCost (ass ^. #model) usageBare
 
 finalMessage ::

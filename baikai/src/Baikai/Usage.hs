@@ -22,19 +22,46 @@
 -- every cost-reading caller would have to handle. 'Baikai.Cost.Pricing.computeCost'
 -- depends on the token classes being disjoint so each class is billed
 -- exactly once.
-module Baikai.Usage (Usage (..), zeroUsage, sumUsage) where
+module Baikai.Usage (Usage (..), UsageAvailability (..), UsageCategory (..), zeroUsage, sumUsage) where
 
 import Baikai.Cost (Cost, zeroCost)
 import Data.Aeson
-  ( Options (fieldLabelModifier),
+  ( FromJSON (parseJSON),
+    Options (constructorTagModifier, fieldLabelModifier),
     ToJSON (toJSON),
     camelTo2,
     defaultOptions,
     genericToJSON,
   )
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Maybe (fromMaybe)
+import Data.Set (Set)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
+
+-- | Billed categories whose omission affects the local calculation.
+data UsageCategory = InputUsage | OutputUsage | CacheReadUsage | CacheWriteUsage
+  deriving stock (Eq, Ord, Show, Generic)
+
+-- | Provider facts, independent of local prices. Missing categories are not
+-- observed zeroes; inconsistent counters cannot support an exact calculation.
+data UsageAvailability = UsageAvailability
+  { missingCategories :: !(Set UsageCategory),
+    inconsistent :: !Bool
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance FromJSON UsageCategory where parseJSON = Aeson.genericParseJSON usageOptions
+
+instance ToJSON UsageCategory where toJSON = genericToJSON usageOptions
+
+instance FromJSON UsageAvailability where parseJSON = Aeson.genericParseJSON usageOptions
+
+instance ToJSON UsageAvailability where toJSON = genericToJSON usageOptions
+
+instance Semigroup UsageAvailability where
+  a <> b = UsageAvailability (missingCategories a <> missingCategories b) (inconsistent a || inconsistent b)
 
 -- | Provider-normalized token usage for one model call.
 --
@@ -62,16 +89,21 @@ data Usage = Usage
     -- 'inputTokens' + 'outputTokens' + 'cacheReadTokens' +
     -- 'cacheWriteTokens'.
     totalTokens :: !Natural,
-    -- | Computed cost for this usage. Providers without pricing data
-    -- use 'zeroCost'.
+    -- | Availability of provider billing facts. Nothing is the legacy/manual
+    -- representation; normalized API responses always carry an annotation.
+    availability :: !(Maybe UsageAvailability),
+    -- | Computed cost. Incomplete usage or prices carry estimation reasons.
     cost :: !Cost
   }
   deriving stock (Eq, Show, Generic)
 
 usageOptions :: Options
-usageOptions = defaultOptions {fieldLabelModifier = camelTo2 '_'}
+usageOptions = defaultOptions {fieldLabelModifier = camelTo2 '_', constructorTagModifier = camelTo2 '_'}
 
-instance ToJSON Usage where toJSON = genericToJSON usageOptions
+instance ToJSON Usage where
+  toJSON u = case genericToJSON usageOptions u of
+    Aeson.Object o | Nothing <- availability u -> Aeson.Object (KeyMap.delete "availability" o)
+    value -> value
 
 -- | Empty usage with every count and cost set to zero.
 zeroUsage :: Usage
@@ -83,6 +115,7 @@ zeroUsage =
       cacheWriteTokens = 0,
       reasoningTokens = Nothing,
       totalTokens = 0,
+      availability = Nothing,
       cost = zeroCost
     }
 
@@ -103,6 +136,7 @@ instance Semigroup Usage where
         cacheWriteTokens = cacheWriteTokens a + cacheWriteTokens b,
         reasoningTokens = combineReasoning (reasoningTokens a) (reasoningTokens b),
         totalTokens = totalTokens a + totalTokens b,
+        availability = availability a <> availability b,
         cost = cost a <> cost b
       }
 

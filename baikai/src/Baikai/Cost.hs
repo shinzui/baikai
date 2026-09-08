@@ -27,6 +27,8 @@ data CostSource = StandardTokenRates | ProviderReportedTotal
 
 data CostEstimateReason
   = UsageNotReported
+  | InputUsageNotReported
+  | OutputUsageNotReported
   | CacheReadUsageNotReported
   | CacheWriteUsageNotReported
   | InconsistentUsage

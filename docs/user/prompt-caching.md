@@ -134,6 +134,13 @@ The rates come from the model's per-million-token pricing
 large `cacheWriteUsd` on the first call and mostly `cachedInputUsd` —
 much cheaper — on the calls that follow.
 
+API usage carries `availability`: missing billed categories are not reported
+zeroes. `Cost.basis.estimateReasons` records what prevents an exact standard-rate
+calculation, including missing cache counters or inconsistent totals. Chat and
+Responses subtract reported reads and writes from their inclusive input total;
+Claude's input count is already exclusive. Repeated cumulative usage snapshots
+replace counts, and partial snapshots preserve earlier reported categories.
+
 ## Notes and limits
 
 - **Opt-in.** `cacheRetention` defaults to `Nothing`; no marker is sent

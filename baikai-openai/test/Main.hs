@@ -29,6 +29,7 @@ import Baikai.Provider.OpenAI.Internal.Stream
     translate,
   )
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
+import BillingSpec qualified
 import CliEvidenceSpec qualified
 import Contract (assertErrorContract, assertOneErrorTerminal)
 import Control.Exception (bracket)
@@ -97,6 +98,7 @@ main =
         finishReasonTests,
         responseFormatMappingTest,
         optionsMappingTest,
+        BillingSpec.tests,
         CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
