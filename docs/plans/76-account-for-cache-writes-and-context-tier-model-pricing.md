@@ -30,7 +30,8 @@ Reported model costs will account for provider-reported cache writes and Astra's
 - [x] Normalize raw Chat/Responses/Claude usage with explicit availability and commit those provider facts in evidence.
 - [x] Price Fable writes using the cache marker in the shaped request; test both durations and compatibility downgrade.
 - [x] Propagate successful-call calculation basis and availability into trace, call-log JSON and OpenTelemetry without changing empty-basis legacy traces.
-- [ ] Integrate observed service tiers and the shared fast-mode seam, and finish failed-call trace accounting.
+- [x] Retain partial response billing on failed trace terminals and OpenTelemetry error spans; synthetic abort billing remains absent.
+- [ ] Integrate observed service tiers and the shared fast-mode seam.
 - [ ] Update trace/log consumers, capability examples and final documentation; complete all acceptance checks.
 
 
@@ -64,7 +65,7 @@ The current Chat API reference explicitly documents prompt_tokens_details.cache_
 
 Fable now prices writes from the shaped request's cache_control marker. The public stream fixture proves 1000 one-hour writes cost 0.02 USD, short writes 0.0125 USD, and a long preference downgraded by host compatibility still costs 0.0125 USD. Claude's 335 tests pass. Successful trace/call-log/OTel records now carry the same cost basis and usage availability as the response, with backward decoding and omission of the empty additive basis. Consumer validation passes 701 core tests, 9 OpenTelemetry tests and compiled documentation. `cabal build all` and `git diff --check` pass; the opted-out trace golden is unchanged.
 
-This is partial completion. Providers still need observed service-tier pricing and the shared fast-mode seam; failed-call trace accounting must retain partial billing too. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
+This is partial completion. Providers still need observed service-tier pricing and the shared fast-mode seam; failed-call trace accounting now retains partial billing. The new core regression passes with all 702 core tests. All 10 OpenTelemetry tests, including a nonzero partial-charge error-span regression, pass; compiled documentation, `cabal build all` and `git diff --check` pass. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
 
 
 ## Context and Orientation

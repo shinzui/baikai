@@ -25,6 +25,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Failed trace terminals now retain partial response token counts, cost basis,
+  usage availability and USD totals. OpenTelemetry exports these alongside the
+  error status. Synthetic aborts leave unreported billing absent; legacy failed
+  trace JSON still decodes. The expanded public record requires PVP review.
+
 - Successful trace terminals and call-log records carry optional cost basis and
   usage availability; call logs also carry cache-write counts. OpenTelemetry
   exports the same basis alongside USD totals. Old JSON decodes with absent

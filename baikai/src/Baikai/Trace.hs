@@ -266,6 +266,15 @@ finalizeTrace reg s eid start m opts = mask $ \restore -> do
                   provider = m ^. #provider,
                   model = m ^. #modelId,
                   latencyMs = millisBetween start now,
+                  inputTokens = Nothing,
+                  outputTokens = Nothing,
+                  cachedInputTokens = Nothing,
+                  cacheWriteTokens = Nothing,
+                  reasoningTokens = Nothing,
+                  totalTokens = Nothing,
+                  costBasis = Nothing,
+                  usageAvailability = Nothing,
+                  usd = Nothing,
                   errorMessage = abortText
                 }
         -- The consumer stopped before the terminal event, so no adapter
@@ -520,6 +529,7 @@ traceEvent reg state eid start m opts ev = do
     EventError TerminalPayload {message = msg, evidence = mev} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
+          mu = assistantUsageFromMsg msg
           errMsg = case msg of
             AssistantMessage AssistantPayload {errorMessage = Just t} -> t
             _ -> "stream terminated with EventError"
@@ -530,6 +540,15 @@ traceEvent reg state eid start m opts ev = do
                 provider = m ^. #provider,
                 model = m ^. #modelId,
                 latencyMs = latency,
+                inputTokens = fmap Usage.inputTokens mu,
+                outputTokens = fmap Usage.outputTokens mu,
+                cachedInputTokens = fmap Usage.cacheReadTokens mu,
+                cacheWriteTokens = fmap Usage.cacheWriteTokens mu,
+                reasoningTokens = mu >>= Usage.reasoningTokens,
+                totalTokens = fmap Usage.totalTokens mu,
+                costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
+                usageAvailability = mu >>= Usage.availability,
+                usd = fmap (usdAsScientific . Usage.cost) mu,
                 errorMessage = errMsg
               }
       commitTerminal state eid now m mev failed

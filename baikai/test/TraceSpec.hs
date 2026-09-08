@@ -506,7 +506,25 @@ fidelityTest :: TestTree
 fidelityTest =
   testGroup
     "CallFinished fidelity"
-    [ testCase "carries the full disjoint token breakdown" $ do
+    [ testCase "failed terminal retains the partial response billing" $ do
+        let a = Custom "baikai-partial-billing"
+            partial = stubResponse a & #message . #usage .~ richUsage & #message . #stopReason .~ ErrorReason & #message . #errorMessage .~ Just "reset"
+            handler _ _ _ = pure partial
+        registerApiProvider (apiProviderWith a (liftCompleteToStream handler) handler)
+        (ref, sink) <- memorySink
+        response <- withTrace sink (stubModel a) stubContext stubOptions
+        events <- reverse <$> readTVarIO ref
+        case [f | f@CallFailed {} <- events] of
+          [CallFailed {inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens, totalTokens, usd, costBasis}] -> do
+            inputTokens @?= Just 11
+            outputTokens @?= Just 7
+            cachedInputTokens @?= Just 5
+            cacheWriteTokens @?= Just 3
+            totalTokens @?= Just 26
+            usd @?= Just (Cost.usdAsScientific (response ^. #message . #usage . #cost))
+            costBasis @?= Cost.nonEmptyBasis (response ^. #message . #usage . #cost)
+          other -> assertFailure (show other),
+      testCase "carries the full disjoint token breakdown" $ do
         let a = Custom "baikai-trace-usage-fidelity"
         registerWithUsage a richUsage
         (ref, sink) <- memorySink
@@ -1232,5 +1250,14 @@ sampleFailed =
       provider = "stub.trace",
       model = "stub-1",
       latencyMs = 12,
+      inputTokens = Nothing,
+      outputTokens = Nothing,
+      cachedInputTokens = Nothing,
+      cacheWriteTokens = Nothing,
+      reasoningTokens = Nothing,
+      totalTokens = Nothing,
+      costBasis = Nothing,
+      usageAvailability = Nothing,
+      usd = Nothing,
       errorMessage = "boom"
     }

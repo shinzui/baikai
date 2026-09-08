@@ -95,6 +95,15 @@ data TraceEvent
         provider :: !Text,
         model :: !Text,
         latencyMs :: !Int,
+        inputTokens :: !(Maybe Natural),
+        outputTokens :: !(Maybe Natural),
+        cachedInputTokens :: !(Maybe Natural),
+        cacheWriteTokens :: !(Maybe Natural),
+        reasoningTokens :: !(Maybe Natural),
+        totalTokens :: !(Maybe Natural),
+        costBasis :: !(Maybe CostBasis),
+        usageAvailability :: !(Maybe UsageAvailability),
+        usd :: !(Maybe Scientific),
         errorMessage :: !Text
       }
   | -- | The complete evidence record for one terminal provider call.
@@ -196,6 +205,15 @@ instance FromJSON TraceEvent where
           <*> d .: "provider"
           <*> d .: "model"
           <*> d .: "latencyMs"
+          <*> d .:? "inputTokens"
+          <*> d .:? "outputTokens"
+          <*> d .:? "cachedInputTokens"
+          <*> d .:? "cacheWriteTokens"
+          <*> d .:? "reasoningTokens"
+          <*> d .:? "totalTokens"
+          <*> d .:? "costBasis"
+          <*> d .:? "usageAvailability"
+          <*> d .:? "usd"
           <*> d .: "errorMessage"
       "call_evidence" ->
         fail

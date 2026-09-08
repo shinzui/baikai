@@ -65,6 +65,7 @@ main =
       [ successSpanTest,
         observedModelSpanTest,
         failureSpanTest,
+        partialBillingSpanTest,
         abortSpanTest,
         evidenceSpanTest,
         liveEvidenceSpanTest,
@@ -249,6 +250,29 @@ parentContextTest =
           "the call span records a parent"
           (maybe False (const True) (Otel.spanParent sp))
       other -> assertFailure ("expected one baikai.call span, got " <> show (length other))
+
+partialBillingSpanTest :: TestTree
+partialBillingSpanTest =
+  testCase "failed span retains partial usage and calculation basis" $ do
+    let a = Custom "baikai-otel-partial-cost"
+        partial = stubResponse a & #message . #stopReason .~ ErrorReason & #message . #errorMessage .~ Just "connection reset" & #message . #usage . #cost . #usd .~ (3 / 1000000) & #message . #usage . #cost . #breakdown . #inputUsd .~ (3 / 1000000)
+        handler _ _ _ = pure partial
+    registerApiProvider (apiProviderWith a (liftCompleteToStream handler) handler)
+    (tracer, getSpans) <- newTracerWithInMemory
+    response <- withTrace (otelSink tracer) (stubModel a) stubContext stubOptions
+    spans <- getSpans
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
+            usage = response ^. #message . #usage
+        HashMap.lookup "baikai.cost.basis" attrs @?= Just (Attr.toAttribute (TextEncoding.decodeUtf8 (canonicalEncode (Aeson.toJSON (usage ^. #cost . #basis)))))
+        HashMap.lookup "baikai.cost.usd" attrs @?= Just (Attr.toAttribute (fromRational (usage ^. #cost . #usd) :: Double))
+        assertBool "partial input count reaches span" (HashMap.member "gen_ai.usage.input_tokens" attrs)
+        case Otel.hotStatus hot of
+          Otel.Error _ -> pure ()
+          other -> assertFailure ("expected error status: " <> show other)
+      other -> assertFailure ("expected one span: " <> show (length other))
 
 failureSpanTest :: TestTree
 failureSpanTest =

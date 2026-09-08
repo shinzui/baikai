@@ -192,11 +192,14 @@ basis remain outside the response commitment. Optional `usage.availability`
 records missing billing categories and inconsistent counts, and **does** join
 that commitment: a missing write counter is different from a reported zero.
 Legacy usages omit this field and retain their original six-field envelope.
-Successful trace terminals and JSONL call logs carry optional `costBasis` and
+Successful and failed trace terminals and JSONL call logs carry optional `costBasis` and
 `usageAvailability`; call logs also expose `cacheWriteTokens`. OpenTelemetry
 exports their canonical JSON as `baikai.cost.basis` and
 `baikai.usage.availability`, alongside the numeric `baikai.cost.usd`. An empty
 additive-zero basis is omitted, preserving legacy traces with no pricing facts.
+A failed terminal retains the partial response's counts and amount; the error
+status does not imply a free call. Synthetic consumer-abort traces have no
+terminal usage to copy, so they leave those billing fields absent.
 Known partial usage is observed together with its availability; an entirely
 unreported usage block remains unobserved. A verifier selects its rules by
 `schema_version`: under `1.x`, `response_commitment` also covered the

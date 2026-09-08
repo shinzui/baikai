@@ -56,9 +56,12 @@ calculation provenance and aggregation, plus shared usage normalization in Chat,
 Responses and Claude. Cumulative snapshots replace reported counters and retain
 earlier categories omitted by a later snapshot. Claude prices cache writes from
 the marker in the shaped request body, so compatibility downgrades also change
-the applied write price. Successful trace and call-log records carry optional
+the applied write price. Successful and failed trace terminals and call-log records carry optional
 basis and availability; OpenTelemetry exports their canonical JSON. Empty
 additive-zero bases are omitted, preserving existing no-pricing trace output.
+An error terminal retains the response's partial billing in both traces and
+OpenTelemetry; synthetic aborts have no terminal usage to report and leave it
+absent.
 Missing usage and reported zero
 remain distinct. Observed service tiers, mixed cache durations and downstream
 trace/log presentation remain work
