@@ -3,6 +3,7 @@ module TraceSpec (tests) where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
+import Baikai.Cost qualified as Cost
 import Baikai.Error (BaikaiError, ErrorCategory (..), providerError)
 import Baikai.Evidence
   ( ModelCallEvidence,
@@ -487,6 +488,8 @@ richUsage =
     .~ Just 4
     & #totalTokens
     .~ 26
+    & #cost
+    .~ Cost.estimateCost [Cost.ServiceTierNotReported] Cost.zeroCost
 
 registerWithUsage :: Api -> Usage -> IO ()
 registerWithUsage a u =
@@ -520,7 +523,8 @@ fidelityTest =
                 cachedInputTokens,
                 cacheWriteTokens,
                 reasoningTokens,
-                totalTokens
+                totalTokens,
+                costBasis
               }
             ] -> do
               inputTokens @?= Just 11
@@ -529,6 +533,7 @@ fidelityTest =
               cacheWriteTokens @?= Just 3
               reasoningTokens @?= Just 4
               totalTokens @?= Just 26
+              costBasis @?= Just (Cost.basis (richUsage ^. #cost))
           other -> assertFailure ("expected one CallFinished, got: " <> show other),
       -- A zero cost used to be suppressed, which made "this call was
       -- free" indistinguishable from "baikai could not price this
@@ -1214,6 +1219,8 @@ sampleFinished =
       cacheWriteTokens = Just 3,
       reasoningTokens = Just 4,
       totalTokens = Just 26,
+      costBasis = Nothing,
+      usageAvailability = Nothing,
       usd = Just 0
     }
 

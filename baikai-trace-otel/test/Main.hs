@@ -5,12 +5,14 @@ module Main (main) where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
+import Baikai.Cost qualified as Cost
 import Baikai.Error (BaikaiError, providerError)
 import Baikai.Evidence
   ( CallStatus (..),
     EvidenceRequest,
     Observed (..),
     TransportKind (..),
+    canonicalEncode,
     evidenceRequest,
     noThinkingRequested,
   )
@@ -41,6 +43,7 @@ import Data.HashMap.Strict qualified as HashMap
 import Data.IORef (IORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TextEncoding
 import Data.Time (getCurrentTime)
 import Data.Vector qualified as V
 import OpenTelemetry.Attributes qualified as Attr
@@ -93,6 +96,7 @@ sampleUsage =
     & #inputTokens .~ 12
     & #outputTokens .~ 3
     & #totalTokens .~ 15
+    & #cost .~ Cost.estimateCost [Cost.ServiceTierNotReported] Cost.zeroCost
 
 stubResponse :: Api -> Response
 stubResponse a =
@@ -178,6 +182,7 @@ successSpanTest =
           (not (HashMap.member "gen_ai.response.model" attrs))
         assertBool "has gen_ai.usage.input_tokens" (HashMap.member "gen_ai.usage.input_tokens" attrs)
         assertBool "has gen_ai.usage.output_tokens" (HashMap.member "gen_ai.usage.output_tokens" attrs)
+        HashMap.lookup "baikai.cost.basis" attrs @?= Just (Attr.toAttribute (TextEncoding.decodeUtf8 (canonicalEncode (Aeson.toJSON (sampleUsage ^. #cost . #basis)))))
         assertBool "has baikai.event_id" (HashMap.member "baikai.event_id" attrs)
         assertBool "has baikai.latency_ms" (HashMap.member "baikai.latency_ms" attrs)
         assertBool "does not emit deprecated GenAI system key" (not (HashMap.member deprecatedGenAiSystemKey attrs))

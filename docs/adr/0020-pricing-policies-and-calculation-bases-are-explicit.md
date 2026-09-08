@@ -54,7 +54,12 @@ remain an informational subset of output tokens and are never charged again.
 Implementation provides validated catalog policies, exact arithmetic,
 calculation provenance and aggregation, plus shared usage normalization in Chat,
 Responses and Claude. Cumulative snapshots replace reported counters and retain
-earlier categories omitted by a later snapshot. Missing usage and reported zero
+earlier categories omitted by a later snapshot. Claude prices cache writes from
+the marker in the shaped request body, so compatibility downgrades also change
+the applied write price. Successful trace and call-log records carry optional
+basis and availability; OpenTelemetry exports their canonical JSON. Empty
+additive-zero bases are omitted, preserving existing no-pricing trace output.
+Missing usage and reported zero
 remain distinct. Observed service tiers, mixed cache durations and downstream
 trace/log presentation remain work
 in [plan 76](../plans/76-account-for-cache-writes-and-context-tier-model-pricing.md).

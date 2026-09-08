@@ -9,6 +9,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `baikai-claude`: price Fable cache writes using the TTL in the shaped request,
+  including compatibility downgrades. Missing write-duration context is explicit
+  in the cost basis.
+
 - `baikai-claude`: reject forced tool choices locally on Fable 5.1, using the
   generated `supportsForcedToolChoice` capability. Automatic tool rounds retain
   signed empty/visible thinking, redacted blocks and prior-message order. The
@@ -20,6 +24,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `baikai`: preserve OpenAI endpoint capability facts through catalog refreshes.
 
 ### Added
+
+- Successful trace terminals and call-log records carry optional cost basis and
+  usage availability; call logs also carry cache-write counts. OpenTelemetry
+  exports the same basis alongside USD totals. Old JSON decodes with absent
+  metadata and empty additive-zero bases stay omitted from traces. These public
+  record additions require PVP review.
 
 - `baikai`: optional `Usage.availability` and shared inclusive/exclusive billing
   normalization. OpenAI Chat/Responses and Claude preserve missing cache counters

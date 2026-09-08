@@ -7,6 +7,7 @@ module Baikai.Cost
     standardCostBasis,
     providerReportedBasis,
     estimateCost,
+    nonEmptyBasis,
     zeroCost,
     zeroCostBreakdown,
     usdAsScientific,
@@ -77,6 +78,11 @@ providerReportedBasis = CostBasis (Set.singleton ProviderReportedTotal) Set.empt
 
 estimateCost :: [CostEstimateReason] -> Cost -> Cost
 estimateCost reasons c = c {basis = basis c <> CostBasis Set.empty (Set.fromList reasons)}
+
+-- | The additive zero carries no calculation facts. Omit that empty basis
+-- when adding optional metadata to existing trace and log formats.
+nonEmptyBasis :: Cost -> Maybe CostBasis
+nonEmptyBasis c = if basis c == mempty then Nothing else Just (basis c)
 
 data CostBreakdown = CostBreakdown
   { inputUsd :: !Rational,

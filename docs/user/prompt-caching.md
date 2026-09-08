@@ -152,15 +152,12 @@ replace counts, and partial snapshots preserve earlier reported categories.
   Both tools do report token counts and baikai carries them, but neither
   breaks out cache reads or writes, so the cache counters stay zero
   through the CLI providers — measure caching on the API providers.
-- **A one-hour cache write is priced at the five-minute rate.** Anthropic
-  bills a `CacheRetentionLong` write at roughly twice the short-retention
-  rate, but its API reports one `cache_creation_input_tokens` count with
-  no per-TTL split, and the catalog carries one `cacheWriteCost` — the
-  five-minute one. baikai therefore *under-states* the dollar cost of a
-  long-retention write. The token counts are right; only `cachedWriteUsd`
-  is low. Nothing baikai can read off the wire distinguishes the two, so
-  measure a long-TTL run against your provider bill rather than against
-  `Cost`.
+- **Write rates follow the shaped duration.** Fable 5.1 writes cost $12.50/M
+  at five minutes and $20/M at one hour. Baikai uses the marker that actually
+  reached the request body, so a host compatibility downgrade uses the short
+  rate. If writes are reported without a selected cache marker, the calculation
+  records `CacheDurationNotReported`. Other billing context, including observed
+  service tiers and mixed-duration provider breakdowns, is still being integrated.
 - **Verify with the smoke suite.** `baikai-smoke`'s `CacheSmoke` case
   makes a write-then-read pair against a live host and asserts the
   second call reports `cacheReadTokens > 0`. Run it with a real

@@ -15,7 +15,9 @@ module Baikai.Trace.Event
   )
 where
 
+import Baikai.Cost (CostBasis)
 import Baikai.Evidence (ModelCallEvidence)
+import Baikai.Usage (UsageAvailability)
 import Data.Aeson
   ( FromJSON (parseJSON),
     Options (..),
@@ -83,6 +85,8 @@ data TraceEvent
         cacheWriteTokens :: !(Maybe Natural),
         reasoningTokens :: !(Maybe Natural),
         totalTokens :: !(Maybe Natural),
+        costBasis :: !(Maybe CostBasis),
+        usageAvailability :: !(Maybe UsageAvailability),
         usd :: !(Maybe Scientific)
       }
   | CallFailed
@@ -182,6 +186,8 @@ instance FromJSON TraceEvent where
           <*> d .:? "cacheWriteTokens"
           <*> d .:? "reasoningTokens"
           <*> d .:? "totalTokens"
+          <*> d .:? "costBasis"
+          <*> d .:? "usageAvailability"
           <*> d .:? "usd"
       "call_failed" ->
         CallFailed

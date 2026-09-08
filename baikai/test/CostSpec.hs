@@ -230,6 +230,8 @@ callLogTests =
         entry ^. #latencyMs @?= 7
         entry ^. #promptSummary @?= "Hello world"
         isJust (entry ^. #usd) @?= True
+        entry ^. #costBasis @?= Just (cannedHaiku ^. #message . #usage . #cost . #basis)
+        entry ^. #cacheWriteTokens @?= Just (cannedHaiku ^. #message . #usage . #cacheWriteTokens)
         removeFile path',
       testCase "closeCallLog returns even when the log path is unwritable" $ do
         tmp <- getTemporaryDirectory
@@ -269,6 +271,9 @@ sampleEntry now =
       outputTokens = Nothing,
       cachedInputTokens = Nothing,
       reasoningTokens = Nothing,
+      cacheWriteTokens = Nothing,
+      costBasis = Nothing,
+      usageAvailability = Nothing,
       usd = Nothing,
       latencyMs = 0,
       promptSummary = ""

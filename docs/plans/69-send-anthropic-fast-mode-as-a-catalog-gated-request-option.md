@@ -76,6 +76,16 @@ This section must always reflect the actual current state of the work.
 
 ## Surprises & Discoveries
 
+Integration note (2026-09-07): plan 76 now supplies the common `resolveRates`
+and `computeCostWith` pricing path for context tiers and shaped cache duration.
+Fast-mode pricing must select rates through that path exactly once rather than
+multiply an already-priced result in the adapter. The earlier SDK observation
+below is historical: the currently integrated 1.5.0 SDK at
+mori://MercuryTechnologies/claude/packages/claude has optional `service_tier` and
+`speed` on `Usage`. Plan 76 owns their billing observation integration; this
+plan retains ownership of the speed option, capability gate and curated fast
+rates. Its implementation checklist remains open.
+
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 

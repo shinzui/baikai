@@ -29,8 +29,10 @@ module Baikai.Provider.Claude.Internal.Stream
   )
 where
 
+import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
+import Baikai.Cost (CostEstimateReason (CacheDurationNotReported), estimateCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
@@ -72,6 +74,7 @@ import Control.Exception (SomeAsyncException (..), SomeException, fromException,
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BSL
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
@@ -163,7 +166,7 @@ claudeMessagesStreamWith driver m ctx opts =
                             responseId = Nothing
                           }
                     ],
-                  assembler = emptyAssembler m startTime,
+                  assembler = emptyAssembler m startTime & #cacheDuration .~ shapedCacheDuration (call ^. #requestBody),
                   finished = False,
                   terminalRef = tref,
                   metadataRef = mref,
@@ -553,6 +556,7 @@ data Assembler = Assembler
     toolArgsBuf :: !(IntMap Text),
     toolMeta :: !(IntMap (Text, Text)),
     usage :: !Usage.Usage,
+    cacheDuration :: !(Maybe CacheRetention),
     stopReason :: !Stop.StopReason,
     -- | Anthropic's own correlation identifier for this call, from the
     -- response headers.
@@ -587,6 +591,7 @@ emptyAssembler m s =
       toolArgsBuf = IntMap.empty,
       toolMeta = IntMap.empty,
       usage = Usage.zeroUsage,
+      cacheDuration = Nothing,
       stopReason = Stop.Stop,
       providerRequestId = Ev.Unobserved,
       observedModel = Ev.Unobserved,
@@ -843,20 +848,22 @@ skeletonMessage ass _now =
 -- Shared so the terminal message and the evidence record cannot report
 -- two different figures for one call.
 --
--- __Known limitation: cache writes are priced at one rate.__ Anthropic
--- bills a one-hour ('Baikai.CacheRetention.CacheRetentionLong') cache
--- write at roughly twice the five-minute rate, but the catalog carries a
--- single @cacheWriteCost@ — the five-minute one — and the SDK's
--- 'Messages.Usage' reports a single @cache_creation_input_tokens@ with
--- no per-TTL split (see 'anthroUsageToBaikai'). A long-retention write
--- is therefore /under-stated/ here. Token counts are unaffected; only
--- the dollar figure is low. Fixing it needs a second value carried off
--- the worker channel, a second field inside the evidence record, and a
--- second rate models.dev does not publish.
+-- The duration comes from the shaped request body, so a compatibility
+-- downgrade to a short cache cannot accidentally incur the long-write rate.
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
   let usageBare = if ass ^. #usageReported then ass ^. #usage else Normalize.normalizeUsage Normalize.ExclusiveInput (Normalize.ReportedUsage Nothing Nothing Nothing Nothing Nothing)
-   in usageBare & #cost .~ Pricing.computeCost (ass ^. #model) usageBare
+      calculated = Pricing.computeCostWith (ass ^. #cacheDuration) (ass ^. #model) usageBare
+      reasons = [CacheDurationNotReported | usageBare ^. #cacheWriteTokens > 0, Nothing <- [ass ^. #cacheDuration]]
+   in usageBare & #cost .~ estimateCost reasons calculated
+
+shapedCacheDuration :: Aeson.Value -> Maybe CacheRetention
+shapedCacheDuration (Aeson.Object body) = case KeyMap.lookup "cache_control" body of
+  Just (Aeson.Object marker) -> Just $ case KeyMap.lookup "ttl" marker of
+    Just (Aeson.String "1h") -> CacheRetentionLong
+    _ -> CacheRetentionShort
+  _ -> Nothing
+shapedCacheDuration _ = Nothing
 
 finalMessage :: Assembler -> UTCTime -> Msg.Message
 finalMessage ass now =
@@ -949,11 +956,8 @@ renderAnthropicError v = case v of
 -- output tokens rather than a billed class of its own, so it moves no
 -- total.
 --
--- @cache_creation_input_tokens@ is one number covering both cache-write
--- TTLs. The SDK's 'Messages.Usage' has no per-TTL breakdown, so baikai
--- cannot tell a five-minute write from a one-hour one and prices both at
--- the catalog's single @cacheWriteCost@; see 'finalUsage' and
--- @docs\/user\/prompt-caching.md@.
+-- @cache_creation_input_tokens@ is a total across cache writes. The final
+-- calculation uses the duration selected by the actual shaped request body.
 anthroUsageToBaikai :: Messages.Usage -> Usage.Usage
 anthroUsageToBaikai u =
   Normalize.normalizeUsage

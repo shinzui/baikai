@@ -42,7 +42,8 @@ where
 
 import Baikai.Content (TextContent (..), UserContent (..))
 import Baikai.Context (Context)
-import Baikai.Cost (usdAsScientific)
+import Baikai.Cost (CostBasis, usdAsScientific)
+import Baikai.Cost qualified as Cost
 import Baikai.Message
   ( Message (..),
     UserPayload (..),
@@ -106,6 +107,9 @@ data CallLogEntry = CallLogEntry
     inputTokens :: !(Maybe Natural),
     outputTokens :: !(Maybe Natural),
     cachedInputTokens :: !(Maybe Natural),
+    cacheWriteTokens :: !(Maybe Natural),
+    costBasis :: !(Maybe CostBasis),
+    usageAvailability :: !(Maybe Usage.UsageAvailability),
     reasoningTokens :: !(Maybe Natural),
     usd :: !(Maybe Scientific),
     latencyMs :: !Int,
@@ -215,6 +219,9 @@ runRequestWithLogWith reg h m ctx opts = do
             inputTokens = positive (Usage.inputTokens u),
             outputTokens = positive (Usage.outputTokens u),
             cachedInputTokens = positive (Usage.cacheReadTokens u),
+            cacheWriteTokens = Just (Usage.cacheWriteTokens u),
+            costBasis = Cost.nonEmptyBasis (Usage.cost u),
+            usageAvailability = Usage.availability u,
             reasoningTokens = Usage.reasoningTokens u,
             -- A zero cost is reported as zero. The other entry-building
             -- site ('Baikai.Trace.runRequestWithRegistry') used to

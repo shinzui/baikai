@@ -33,12 +33,14 @@ import Baikai.Evidence qualified as Ev
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Control.Monad (forM_)
+import Data.Aeson qualified as Aeson
 import Data.HashMap.Strict qualified as HashMap
 import Data.Int (Int64)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Scientific qualified as Scientific
 import Data.Text (Text)
+import Data.Text.Encoding qualified as Text
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.Word (Word64)
@@ -144,7 +146,7 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext}
   -- evidence, and, because 'Otel.addAttributes' replaces an existing key
   -- and evidence is pushed before the terminal, overwrote the genuinely
   -- observed value on every call that did.
-  CallFinished {eventId, timestamp, latencyMs, inputTokens, outputTokens, usd} ->
+  CallFinished {eventId, timestamp, latencyMs, inputTokens, outputTokens, usd, costBasis, usageAvailability} ->
     case Map.lookup eventId m of
       -- A terminal without a live span is unreachable for normal withTraceStream
       -- usage because each traced call drives a fresh fold. Keep the silent drop so
@@ -155,10 +157,12 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext}
             attrs =
               maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_inputTokens (fromIntegral n :: Int64)) inputTokens $
                 maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_outputTokens (fromIntegral n :: Int64)) outputTokens $
-                  maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
-                    HashMap.fromList
-                      [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
-                      ]
+                  maybe id (\b -> HashMap.insert "baikai.cost.basis" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON b))))) costBasis $
+                    maybe id (\a -> HashMap.insert "baikai.usage.availability" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON a))))) usageAvailability $
+                      maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
+                        HashMap.fromList
+                          [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
+                          ]
         Otel.addAttributes sp attrs
         Otel.setStatus sp Otel.Ok
         Otel.endSpan sp (Just (utcToTimestamp timestamp))

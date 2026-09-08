@@ -52,6 +52,7 @@ library
   hs-source-dirs:  src
   exposed-modules: Baikai.Trace.Sink.OpenTelemetry
   build-depends:
+    , aeson                                  ^>=2.2
     , baikai                                 ^>=0.6.0
     , base                                   >=4.20   && <5
     , containers                             ^>=0.7

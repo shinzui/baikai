@@ -28,7 +28,9 @@ Reported model costs will account for provider-reported cache writes and Astra's
 - [x] Curate Astra context tiers and Fable long-write rates through fetch, catalog JSON and generated Haskell; fresh fetch changes only the intended policies.
 - [x] Prove exact threshold/cache arithmetic against the generated models, including 5.44752 USD at 272001 input plus 100 output tokens.
 - [x] Normalize raw Chat/Responses/Claude usage with explicit availability and commit those provider facts in evidence.
-- [ ] Integrate shaped cache duration, observed service tiers and the shared fast-mode seam.
+- [x] Price Fable writes using the cache marker in the shaped request; test both durations and compatibility downgrade.
+- [x] Propagate successful-call calculation basis and availability into trace, call-log JSON and OpenTelemetry without changing empty-basis legacy traces.
+- [ ] Integrate observed service tiers and the shared fast-mode seam, and finish failed-call trace accounting.
 - [ ] Update trace/log consumers, capability examples and final documentation; complete all acceptance checks.
 
 
@@ -60,7 +62,9 @@ Shared raw normalization now preserves missing counters, invalid totals and part
 
 The current Chat API reference explicitly documents prompt_tokens_details.cache_write_tokens as unadjusted prompt tokens written to cache: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create. This confirms the Chat field independently of the Responses input_tokens_details shape. The inspected SDK at mori://MercuryTechnologies/claude/packages/claude exposes optional cache categories in both Usage and StreamUsage; the adapter preserves their absence.
 
-This is partial completion. Providers still need actual cache duration and observed service-tier pricing. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
+Fable now prices writes from the shaped request's cache_control marker. The public stream fixture proves 1000 one-hour writes cost 0.02 USD, short writes 0.0125 USD, and a long preference downgraded by host compatibility still costs 0.0125 USD. Claude's 335 tests pass. Successful trace/call-log/OTel records now carry the same cost basis and usage availability as the response, with backward decoding and omission of the empty additive basis. Consumer validation passes 701 core tests, 9 OpenTelemetry tests and compiled documentation. `cabal build all` and `git diff --check` pass; the opted-out trace golden is unchanged.
+
+This is partial completion. Providers still need observed service-tier pricing and the shared fast-mode seam; failed-call trace accounting must retain partial billing too. Downstream trace/log basis presentation and final capability documentation also remain. EP-2 cannot close its billing integration and EP-5 cannot begin live acceptance until those contracts are complete.
 
 
 ## Context and Orientation

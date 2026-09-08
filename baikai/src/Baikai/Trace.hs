@@ -57,6 +57,7 @@ where
 
 import Baikai.Context (Context)
 import Baikai.Cost (usdAsScientific)
+import Baikai.Cost qualified as Cost
 import Baikai.Cost.Log
   ( CallLogEntry (..),
     CallLogHandle,
@@ -500,6 +501,8 @@ traceEvent reg state eid start m opts ev = do
                 -- baikai could not compute — and the subscription-based
                 -- CLI providers always compute zero, so that was the
                 -- common case rather than a corner.
+                costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
+                usageAvailability = mu >>= Usage.availability,
                 usd = fmap (usdAsScientific . Usage.cost) mu
               }
       -- Evidence goes out *before* the terminal, so a sink that keys
@@ -601,6 +604,9 @@ runRequestWithRegistry reg sink h m ctx opts = do
             inputTokens = mu >>= positiveNat . Usage.inputTokens,
             outputTokens = mu >>= positiveNat . Usage.outputTokens,
             cachedInputTokens = mu >>= positiveNat . Usage.cacheReadTokens,
+            cacheWriteTokens = fmap Usage.cacheWriteTokens mu,
+            costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
+            usageAvailability = mu >>= Usage.availability,
             reasoningTokens = mu >>= Usage.reasoningTokens,
             -- Report a zero cost as zero. Suppressing it made "this
             -- call was free" indistinguishable from "baikai could not
