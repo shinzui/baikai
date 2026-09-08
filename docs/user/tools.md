@@ -276,3 +276,18 @@ before dispatching anything a stream handed you.
   definition — the breakpoint that covers the whole tool block — on hosts
   whose compat record sets `supportsCacheControlOnTools`. There is no API
   for marking individual tools.
+
+## Responses reasoning continuation
+
+GPT-6 Astra uses the native Responses provider. Register
+`Baikai.Provider.OpenAI.Responses` before selecting `openai_gpt_6_astra`.
+`runToolLoop` preserves the returned reasoning items and sends tool results with
+matching function `call_id` values. The provider sends full history with
+`store=false`; it does not require a server-stored conversation.
+
+Keep `ThinkingContent.replayState` unchanged even when its visible summary is
+empty. JSON persistence retains the opaque items, including unknown fields.
+Replay is scoped to the same API and model; another provider rejects it rather
+than treating it as an Anthropic signature. Image tool results, stop sequences,
+seed and frequency/presence penalties are currently rejected by the Responses
+mapper. Incomplete function arguments are never executed by `runToolLoop`.

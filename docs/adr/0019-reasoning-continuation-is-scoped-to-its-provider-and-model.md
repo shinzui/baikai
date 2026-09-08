@@ -55,6 +55,8 @@ Explicit Responses registration now exposes the bounded worker and the same
 stream for completion. A scripted public two-turn tool loop proves the
 continuation reaches the next wire request unchanged.
 
-Catalog activation and remaining acceptance remain tracked by
+The Astra binding now selects Responses through an explicit catalog override.
+Remaining strict/lifecycle and pricing acceptance is tracked by
 [plan 74](../plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md).
-Catalog routing changes only after the remaining acceptance gates pass.
+The default change is backed by the public two-turn replay fixture; it is not
+a claim that the paid live integration checks have already run.

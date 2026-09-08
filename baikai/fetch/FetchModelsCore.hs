@@ -16,7 +16,8 @@
 -- emitted, and only if upstream marks them @tool_call: true@. For
 -- @openai@ this excludes Responses-API-only ids (@*-pro@, @*-codex@,
 -- @*-deep-research@) because @baikai/data/models/openai.json@ speaks
--- @openai-chat-completions@ and 'Baikai.Api' has no Responses tag.
+-- @openai-chat-completions@ by default. Per-model API overrides allow
+-- explicitly curated Responses models without changing the older routes.
 --
 -- == Override philosophy
 --
@@ -64,7 +65,7 @@ module FetchModelsCore
   )
 where
 
-import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), defaultOpenAICompletionsCompat)
+import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
@@ -208,6 +209,7 @@ data AnthropicGenerationFacts = AnthropicGenerationFacts
 data CatalogModelCompat
   = CatalogAnthropicCompat !AnthropicGenerationFacts
   | CatalogOpenAICompat !OpenAICompletionsCompat
+  | CatalogResponsesCompat !OpenAIResponsesCompat
   deriving stock (Eq, Show, Generic)
 
 -- | One emitted catalog model. @enabled@ is always @true@ for emitted
@@ -220,6 +222,7 @@ data CatalogModel = CatalogModel
     cost :: !CatalogCost,
     contextWindow :: !Integer,
     maxOutputTokens :: !Integer,
+    apiOverride :: !(Maybe Text),
     compat :: !(Maybe CatalogModelCompat)
   }
   deriving stock (Eq, Show, Generic)
@@ -246,6 +249,7 @@ data ProviderSpec = ProviderSpec
     -- | The per-model @compat@ block to render, if this provider needs
     -- one. 'const Nothing' for a provider whose file-level
     -- @"compat": "auto"@ directive says everything.
+    apiFor :: !(Text -> Maybe Text),
     compatFor :: !(Text -> Maybe CatalogModelCompat)
   }
   deriving stock (Generic)
@@ -253,9 +257,9 @@ data ProviderSpec = ProviderSpec
 -- | Curation include set for OpenAI: the chat-completions-compatible
 -- current line. Responses-API-only ids (@*-pro@, @*-codex@,
 -- @*-deep-research@) are deliberately absent.
-openaiInclude :: Map Text (Maybe OpenAICompletionsCompat)
+openaiInclude :: Map Text (Maybe CatalogModelCompat)
 openaiInclude =
-  Map.insert "gpt-6-astra" (Just astraChatFacts) $
+  Map.insert "gpt-6-astra" (Just (CatalogResponsesCompat astraResponsesFacts)) $
     Map.fromList
       [ (model, Nothing)
       | model <-
@@ -284,11 +288,12 @@ openaiInclude =
           ]
       ]
   where
-    -- 2026-09-07: tools require Responses; Chat accepts text only.
+    -- 2026-09-07: native tools require Responses; only modern 30m cache TTL.
     -- https://developers.openai.com/api/docs/guides/latest-model
-    astraChatFacts =
-      defaultOpenAICompletionsCompat
-        { supportsToolCalls = False,
+    astraResponsesFacts =
+      defaultOpenAIResponsesCompat
+        { supportsPromptCacheOptions = True,
+          supportsLongCacheRetention = False,
           supportsSamplingParameters = False,
           supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
         }
@@ -347,7 +352,7 @@ anthropicInclude =
     adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True
     budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True
 
--- | Provider spec for OpenAI's first-party chat-completions endpoint.
+-- | OpenAI curation with a Chat default and explicit Responses overrides.
 openaiSpec :: ProviderSpec
 openaiSpec =
   ProviderSpec
@@ -355,7 +360,10 @@ openaiSpec =
       baseUrl = "https://api.openai.com",
       api = "openai-chat-completions",
       include = (`Map.member` openaiInclude),
-      compatFor = fmap CatalogOpenAICompat . (\model -> Map.lookup model openaiInclude >>= id)
+      apiFor = \mid -> case Map.lookup mid openaiInclude >>= id of
+        Just (CatalogResponsesCompat _) -> Just "openai-responses"
+        _ -> Nothing,
+      compatFor = \mid -> Map.lookup mid openaiInclude >>= id
     }
 
 -- | Provider spec for Anthropic's first-party messages endpoint.
@@ -366,6 +374,7 @@ anthropicSpec =
       baseUrl = "https://api.anthropic.com",
       api = "anthropic-messages",
       include = (`Map.member` anthropicInclude),
+      apiFor = const Nothing,
       compatFor = fmap CatalogAnthropicCompat . (`Map.lookup` anthropicInclude)
     }
 
@@ -407,6 +416,7 @@ normalizeProvider spec upstream =
               },
           contextWindow = fromMaybe 0 (m ^. #contextWindow),
           maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens),
+          apiOverride = (spec ^. #apiFor) (m ^. #modelId),
           compat = (spec ^. #compatFor) (m ^. #modelId)
         }
 
@@ -584,6 +594,7 @@ renderModel m =
     "      \"contextWindow\": " <> Text.pack (show (m ^. #contextWindow)) <> ",",
     "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ","
   ]
+    ++ maybe [] (\a -> ["      \"api\": " <> jsonString a <> ","]) (m ^. #apiOverride)
     ++ renderModelCompat (m ^. #compat)
     ++ [ "      \"enabled\": true",
          "    }"
@@ -612,6 +623,15 @@ renderModelCompat (Just (CatalogOpenAICompat facts)) =
     "        \"kind\": \"openai-completions\",",
     "        \"supportsToolCalls\": " <> jsonBool (facts ^. #supportsToolCalls) <> ",",
     "        \"supportsSamplingParameters\": " <> jsonBool (facts ^. #supportsSamplingParameters) <> ",",
+    "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
+    "      },"
+  ]
+renderModelCompat (Just (CatalogResponsesCompat facts)) =
+  [ "      \"compat\": {",
+    "        \"kind\": \"openai-responses\",",
+    "        \"supportsSamplingParameters\": " <> jsonBool (facts ^. #supportsSamplingParameters) <> ",",
+    "        \"supportsLongCacheRetention\": " <> jsonBool (facts ^. #supportsLongCacheRetention) <> ",",
+    "        \"supportsPromptCacheOptions\": " <> jsonBool (facts ^. #supportsPromptCacheOptions) <> ",",
     "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
     "      },"
   ]

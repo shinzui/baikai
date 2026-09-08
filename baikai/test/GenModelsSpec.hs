@@ -1,6 +1,6 @@
 module GenModelsSpec (tests) where
 
-import Baikai.Api (Api (AnthropicMessages, OpenAIChatCompletions))
+import Baikai.Api (Api (AnthropicMessages, OpenAIChatCompletions, OpenAIResponses))
 import Baikai.Compat
   ( AnthropicThinkingStyle (AnthropicThinkingAdaptive),
     defaultAnthropicMessagesCompat,
@@ -19,7 +19,19 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.GenModels"
-    [ testCase "OpenAI effort policy rejects empty, duplicate, unordered and unknown levels" $
+    [ testCase "per-model API override changes only the selected binding" $ do
+        let catalog = collisionCatalog {models = [model "legacy", (model "native") {entryApiOverride = Just OpenAIResponses}]}
+            rendered = renderModule (flattenEntries catalog)
+        assertBool "legacy inherits file API" ("api = OpenAIChatCompletions" `Text.isInfixOf` rendered)
+        assertBool "native overrides API" ("api = OpenAIResponses" `Text.isInfixOf` rendered),
+      testCase "Responses catalog compat parses and renders all endpoint facts" $ do
+        let raw = Aeson.object ["kind" Aeson..= ("openai-responses" :: Text), "supportsSamplingParameters" Aeson..= False, "supportsLongCacheRetention" Aeson..= False, "supportsPromptCacheOptions" Aeson..= True, "supportedReasoningEfforts" Aeson..= (["low", "max"] :: [Text])]
+        case Aeson.fromJSON raw of
+          Aeson.Error err -> assertFailure err
+          Aeson.Success block -> do
+            let rendered = renderModule (flattenEntries collisionCatalog {models = [(model "native") {entryApiOverride = Just OpenAIResponses, entryCompatOverride = Just block}]})
+            mapM_ (\expected -> assertBool (Text.unpack expected) (expected `Text.isInfixOf` rendered)) ["CompatOpenAIResponses", "supportsPromptCacheOptions = True", "supportsLongCacheRetention = False", "supportsSamplingParameters = False", "Just [ThinkingLow, ThinkingMax]"],
+      testCase "OpenAI effort policy rejects empty, duplicate, unordered and unknown levels" $
         mapM_
           ( \levels ->
               case Aeson.fromJSON (Aeson.object ["kind" Aeson..= ("openai-completions" :: Text), "supportedReasoningEfforts" Aeson..= levels]) :: Aeson.Result CatalogCompat of
@@ -107,5 +119,6 @@ model mid =
       entryContextWindow = 1,
       entryMaxOutputTokens = 1,
       entryEnabled = True,
+      entryApiOverride = Nothing,
       entryCompatOverride = Nothing
     }

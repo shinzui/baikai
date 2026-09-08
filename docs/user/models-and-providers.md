@@ -75,9 +75,10 @@ For a provider release refresh, use the repository's
 
 The September 2026 additions are `openai_gpt_6_astra` and
 `anthropic_claude_fable_5_1`. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
-supports text on Chat Completions, with a 1,050,000-token context and 128,000-token output
-limit. Its current Baikai binding rejects tools locally: Astra tool calling
-requires the Responses API. Temperature and top-p are omitted with adjustment
+uses `OpenAIResponses`, with a 1,050,000-token context and 128,000-token output
+limit. Register `Baikai.Provider.OpenAI.Responses` to use this binding for text,
+function tools and structured output. The existing `Baikai.Provider.OpenAI.Api`
+registration continues to serve Chat Completions models. Temperature and top-p are omitted with adjustment
 evidence; minimal reasoning becomes low, which strict evidence mode refuses.
 Low through max are preserved. See the
 [migration guidance](https://developers.openai.com/api/docs/guides/latest-model). Its catalog prices are standard base rates; long-context and service-tier
@@ -476,6 +477,7 @@ whatever error handling the call site happens to have.
 |----------------------------|-------------------------------------|
 | `AnthropicMessages`        | `Baikai.Provider.Claude.Api`        |
 | `AnthropicMessagesCli`     | `Baikai.Provider.Claude.Cli`        |
+| `OpenAIResponses`         | `Baikai.Provider.OpenAI.Responses`  |
 | `OpenAIChatCompletions`    | `Baikai.Provider.OpenAI.Api`        |
 | `OpenAICompletionsCli`     | `Baikai.Provider.OpenAI.Cli`        |
 | `Custom !Text`             | Any caller — register your own.     |

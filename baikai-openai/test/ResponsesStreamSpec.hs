@@ -3,6 +3,7 @@
 module ResponsesStreamSpec (tests) where
 
 import Baikai hiding (delta, model)
+import Baikai.Models.Generated (openai_gpt_6_astra)
 import Baikai.Provider.OpenAI.Internal.Stream (SseDriver)
 import Baikai.Provider.OpenAI.Responses.Stream (openaiResponsesStreamWith)
 import Baikai.Provider.OpenAI.Sse (ResponseMetadata (..))
@@ -143,7 +144,7 @@ driver :: [Value] -> SseDriver
 driver frames _ _ _ _ emit = mapM_ (emit . Right) frames
 
 model :: Model
-model = emptyModel & #api .~ OpenAIResponses & #modelId .~ "configured-model" & #provider .~ "openai"
+model = openai_gpt_6_astra & #modelId .~ "configured-model"
 
 options :: Options
 options = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "offline-test-key")

@@ -166,3 +166,8 @@ Include verified sources, checks run, necessary changes, and links to the plans
 created or updated with their intention IDs. State remaining API or pricing
 limitations and which plan closes each one. Offline tests do not establish live
 account access; only claim a live smoke test when one was actually run.
+
+When a provider catalog mixes APIs, set the per-model `api` override alongside
+its endpoint-specific `compat` block in fetch curation. Verify the rendered
+candidate and regenerated binding retain both. Entries without an override
+inherit the file-level API; changing one model must not migrate older models.

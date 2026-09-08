@@ -4,7 +4,7 @@
 -- models.dev-shaped fixture. No network is involved.
 module FetchModelsSpec (tests) where
 
-import Baikai.Compat (AnthropicThinkingStyle (..))
+import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Prelude
 import Data.Aeson qualified as Aeson
@@ -19,6 +19,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8)
 import Data.Vector qualified as V
 import FetchModelsCore
+import GenModelsCore qualified as Gen
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -59,6 +60,7 @@ expectedOpenAI =
               cost = CatalogCost 0.05 0.4 0 0,
               contextWindow = 400000,
               maxOutputTokens = 128000,
+              apiOverride = Nothing,
               compat = Nothing
             },
           CatalogModel
@@ -69,6 +71,7 @@ expectedOpenAI =
               cost = CatalogCost 2.5 15 0.25 0,
               contextWindow = 1050000,
               maxOutputTokens = 128000,
+              apiOverride = Nothing,
               compat = Nothing
             }
         ]
@@ -92,6 +95,7 @@ expectedAnthropic =
               cost = CatalogCost 5 25 1.5 6.25,
               contextWindow = 200000,
               maxOutputTokens = 64000,
+              apiOverride = Nothing,
               compat =
                 Just
                   ( CatalogAnthropicCompat
@@ -109,14 +113,45 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.FetchModels"
-    [ testCase "refresh preserves Astra endpoint restrictions despite upstream tool support" $ do
+    [ testCase "per-model API and Responses compat survive normalization and rendering" $ do
+        upstream <- loadUpstream
+        let spec =
+              openaiSpec
+                & #apiFor
+                .~ (\mid -> if mid == "gpt-5.4" then Just "openai-responses" else Nothing)
+                & #compatFor
+                .~ (\mid -> if mid == "gpt-5.4" then Just (CatalogResponsesCompat defaultOpenAIResponsesCompat) else Nothing)
+            refreshed = catalogFor upstream spec
+            raw = renderCatalog refreshed
+        map (^. #apiOverride) (refreshed ^. #models) @?= [Nothing, Just "openai-responses"]
+        case Aeson.eitherDecode (BSL.fromStrict raw) of
+          Left err -> assertFailure err
+          Right catalog -> do
+            let generated = Gen.renderModule (Gen.flattenEntries catalog)
+            assertBool "generator reads the rendered override" ("api = OpenAIResponses" `Text.isInfixOf` generated)
+            assertBool "generator keeps the inherited default" ("api = OpenAIChatCompletions" `Text.isInfixOf` generated)
+
+        case Aeson.eitherDecode (BSL.fromStrict raw) of
+          Right (Aeson.Object root) -> case KeyMap.lookup "models" root of
+            Just (Aeson.Array entries) -> case V.toList entries of
+              [Aeson.Object legacy, Aeson.Object native] -> do
+                KeyMap.lookup "api" legacy @?= Nothing
+                KeyMap.lookup "api" native @?= Just (Aeson.String "openai-responses")
+                case KeyMap.lookup "compat" native of
+                  Just (Aeson.Object facts) -> KeyMap.lookup "kind" facts @?= Just (Aeson.String "openai-responses")
+                  _ -> assertFailure "missing Responses compat"
+              _ -> assertFailure "wrong entries"
+            _ -> assertFailure "missing models"
+          _ -> assertFailure "invalid rendered catalog",
+      testCase "refresh preserves Astra endpoint restrictions despite upstream tool support" $ do
         upstream <- loadUpstream
         let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
             astra = sample & #modelId .~ "gpt-6-astra"
             refreshed = normalizeProvider openaiSpec (Map.singleton "gpt-6-astra" astra)
             expected = Map.lookup "gpt-6-astra" openaiInclude >>= id
-        map (^. #compat) (refreshed ^. #models) @?= [CatalogOpenAICompat <$> expected]
-        assertBool "explicit compat survives rendering" ("openai-completions" `Text.isInfixOf` decodeUtf8 (renderCatalog refreshed)),
+        map (^. #apiOverride) (refreshed ^. #models) @?= [Just "openai-responses"]
+        map (^. #compat) (refreshed ^. #models) @?= [expected]
+        assertBool "explicit compat survives rendering" ("openai-responses" `Text.isInfixOf` decodeUtf8 (renderCatalog refreshed)),
       testCase "OpenAI normalization filters, curates, and maps fields" $ do
         upstream <- loadUpstream
         catalogFor upstream openaiSpec @?= expectedOpenAI,
@@ -167,6 +202,7 @@ tests =
                           cost = CatalogCost 0 0 0 0,
                           contextWindow = 1,
                           maxOutputTokens = 1,
+                          apiOverride = Nothing,
                           compat = Nothing
                         }
                     ]

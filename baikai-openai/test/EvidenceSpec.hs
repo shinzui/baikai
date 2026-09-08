@@ -15,7 +15,7 @@
 module EvidenceSpec (tests) where
 
 import Baikai
-import Baikai.Models.Generated (openai_gpt_4o_mini, openai_gpt_6_astra)
+import Baikai.Models.Generated (openai_gpt_4o_mini)
 import Baikai.Provider.OpenAI.Internal.Stream (SseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.OpenAI.Sse (sseFromResponse)
@@ -36,6 +36,7 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import EndpointModels (chatRestrictedModel)
 import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
@@ -500,7 +501,7 @@ assertSha256 k d =
 endpointEvidenceTest :: TestTree
 endpointEvidenceTest = testCase "Astra text shaping and strict refusal agree with evidence" $ do
   bodyRef <- newIORef Null
-  let model = openai_gpt_6_astra & #modelId .~ "renamed-astra"
+  let model = chatRestrictedModel & #modelId .~ "renamed-astra"
       opts =
         baseOptions
           & #thinking .~ Just ThinkingMinimal

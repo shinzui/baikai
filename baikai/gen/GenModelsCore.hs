@@ -45,9 +45,11 @@ import Baikai.Compat
         supportsUsageInStreaming,
         thinkingFormat
       ),
+    OpenAIResponsesCompat (..),
     ThinkingFormat (..),
     defaultAnthropicMessagesCompat,
     defaultOpenAICompletionsCompat,
+    defaultOpenAIResponsesCompat,
   )
 import Baikai.Model (InputModality (..))
 import Baikai.ThinkingLevel (parseThinkingLevel)
@@ -89,6 +91,7 @@ instance FromJSON CatalogFile where
 data CatalogCompat
   = CatalogCompatAuto
   | CatalogCompatOpenAI !OpenAICompletionsCompat
+  | CatalogCompatResponses !OpenAIResponsesCompat
   | CatalogCompatAnthropic !AnthropicMessagesCompat
   deriving stock (Show)
 
@@ -100,11 +103,25 @@ instance FromJSON CatalogCompat where
       case kind of
         "openai-completions" ->
           CatalogCompatOpenAI <$> parseOpenAICompat o
+        "openai-responses" -> CatalogCompatResponses <$> parseResponsesCompat o
         "anthropic-messages" ->
           CatalogCompatAnthropic <$> parseAnthropicCompat o
         _ ->
           fail $ "CatalogCompat: unknown kind " <> show kind
     v -> typeMismatch "CatalogCompat (expected \"auto\" or {\"kind\": ...})" v
+
+parseResponsesCompat :: Aeson.Object -> Parser OpenAIResponsesCompat
+parseResponsesCompat o = do
+  let d = defaultOpenAIResponsesCompat
+  raw <- o .:? "supportedReasoningEfforts"
+  efforts <- traverse (traverse (\t -> maybe (fail "Unknown reasoning effort") pure (parseThinkingLevel t))) raw
+  case efforts of
+    Just xs | null xs || xs /= sort (nub xs) -> fail "supportedReasoningEfforts must be nonempty, unique and ordered"
+    _ -> pure ()
+  sampling <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
+  long <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
+  modern <- o .:? "supportsPromptCacheOptions" .!= d.supportsPromptCacheOptions
+  pure d {supportedReasoningEfforts = efforts, supportsSamplingParameters = sampling, supportsLongCacheRetention = long, supportsPromptCacheOptions = modern}
 
 parseOpenAICompat :: Aeson.Object -> Parser OpenAICompletionsCompat
 parseOpenAICompat o = do
@@ -222,7 +239,8 @@ data ModelEntry = ModelEntry
     entryContextWindow :: !Natural,
     entryMaxOutputTokens :: !Natural,
     entryEnabled :: !Bool,
-    entryCompatOverride :: !(Maybe CatalogCompat)
+    entryCompatOverride :: !(Maybe CatalogCompat),
+    entryApiOverride :: !(Maybe Api)
   }
 
 instance FromJSON ModelEntry where
@@ -237,6 +255,7 @@ instance FromJSON ModelEntry where
       <*> o .: "maxOutputTokens"
       <*> o .:? "enabled" .!= True
       <*> o .:? "compat"
+      <*> (fmap parseApi <$> o .:? "api")
 
 parseInputModality :: Text -> Parser InputModality
 parseInputModality = \case
@@ -293,7 +312,7 @@ flattenEntries c =
                 sanitizeIdentifier (c.provider <> "_" <> entryId m),
               modelId = entryId m,
               name = entryName m,
-              api = c.api,
+              api = maybe c.api id (entryApiOverride m),
               provider = c.provider,
               baseUrl = c.baseUrl,
               reasoning = entryReasoning m,
@@ -422,9 +441,11 @@ renderModule entries =
         "        supportsUsageInStreaming,",
         "        thinkingFormat",
         "      ),",
+        "    OpenAIResponsesCompat (..),",
         "    ThinkingFormat (..),",
         "    defaultAnthropicMessagesCompat,",
         "    defaultOpenAICompletionsCompat,",
+        "    defaultOpenAIResponsesCompat,",
         "  )",
         "import Baikai.Model",
         "  ( Compat (..),",
@@ -559,6 +580,16 @@ renderCompat = \case
       "              supportedReasoningEfforts = " <> maybe "Nothing" (\xs -> "Just [" <> Text.intercalate ", " (map (Text.pack . show) xs) <> "]") c.supportedReasoningEfforts <> ",",
       "              supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming <> ",",
       "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
+      "            }"
+    ]
+  CatalogCompatResponses c ->
+    [ "      compat =",
+      "        CompatOpenAIResponses",
+      "          defaultOpenAIResponsesCompat",
+      "            { supportedReasoningEfforts = " <> maybe "Nothing" (\xs -> "Just [" <> Text.intercalate ", " (map (Text.pack . show) xs) <> "]") c.supportedReasoningEfforts <> ",",
+      "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
+      "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention <> ",",
+      "              supportsPromptCacheOptions = " <> renderBool c.supportsPromptCacheOptions,
       "            }"
     ]
   CatalogCompatAnthropic c ->

@@ -122,3 +122,9 @@ Its shaping path both applies sampling/effort policy and supplies the translatio
 used by strict evidence, so the preflight description agrees with wire output.
 Tests through complete and streaming registry dispatch prove local refusals;
 catalog generation alone does not establish provider execution.
+
+The catalog now supports a per-model `api` override, inherited from the file
+when absent. Responses compatibility has its own catalog discriminator and
+renderer. Fetch curation emits the override and endpoint facts together;
+Astra selects Responses while older OpenAI entries retain the Chat default.
+The fetch-to-generator round-trip test verifies both routes in one catalog.

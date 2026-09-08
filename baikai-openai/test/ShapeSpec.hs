@@ -23,6 +23,7 @@ import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
+import EndpointModels (chatRestrictedModel)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
@@ -520,4 +521,4 @@ endpointPolicyTests =
     | level <- [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
     ]
   where
-    fake = Models.openai_gpt_6_astra & #modelId .~ "arbitrary-generation"
+    fake = chatRestrictedModel & #modelId .~ "arbitrary-generation"

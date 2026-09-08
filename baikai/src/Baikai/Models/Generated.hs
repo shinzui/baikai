@@ -30,9 +30,11 @@ import Baikai.Compat
         supportsUsageInStreaming,
         thinkingFormat
       ),
+    OpenAIResponsesCompat (..),
     ThinkingFormat (..),
     defaultAnthropicMessagesCompat,
     defaultOpenAICompletionsCompat,
+    defaultOpenAIResponsesCompat,
   )
 import Baikai.Model
   ( Compat (..),
@@ -863,7 +865,7 @@ openai_gpt_6_astra =
   emptyModel
     { modelId = "gpt-6-astra",
       name = "GPT-6 Astra",
-      api = OpenAIChatCompletions,
+      api = OpenAIResponses,
       provider = "openai",
       baseUrl = "https://api.openai.com",
       reasoning = True,
@@ -879,18 +881,12 @@ openai_gpt_6_astra =
       maxOutputTokens = 128000,
       headers = Map.empty,
       compat =
-        CompatOpenAICompletions
-          defaultOpenAICompletionsCompat
-            { maxTokensField = MaxCompletionTokensField,
-              supportsStrictMode = True,
-              requiresThinkingAsText = False,
-              thinkingFormat = ThinkingFormatOpenAI,
-              cacheControlFormat = Nothing,
-              supportsToolCalls = False,
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
-              supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
-              supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = False,
+              supportsPromptCacheOptions = True
             }
     }
 

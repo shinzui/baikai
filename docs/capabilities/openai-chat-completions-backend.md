@@ -73,8 +73,10 @@ dispatch](unified-provider-calls.md).
 
 ```haskell
 import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
+import Baikai.Provider.OpenAI.Responses qualified as OpenAIResponses
 
 OpenAIApi.register
+OpenAIResponses.register -- also enable native Responses models
 -- a non-OpenAI host is just a Model with a different baseUrl:
 let m = mkModel OpenAIChatCompletions "deepseek-chat" "https://api.deepseek.com"
 completeRequest m ctx opts
@@ -82,12 +84,11 @@ completeRequest m ctx opts
 
 ## Limits
 
-- **Chat Completions only.** The OpenAI Responses API is not implemented, so
-  anything that exists only there is out of reach. On `api.openai.com` that
-  includes prompt-cache control: Chat Completions caches automatically and
-  accepts no retention marker, so `Options.cacheRetention` reaches the wire only
-  on a compatible host whose compat record sets `cacheControlFormat` —
-  OpenRouter, in the shipped table.
+- **Chat Completions only.** Native Responses models use the separate
+  `Baikai.Provider.OpenAI.Responses` handler. The Astra binding selects that
+  tag; registering this Chat handler alone does not register Responses.
+  Chat prompt-cache behavior continues to depend on its endpoint compatibility
+  record; Responses cache preferences use its separate compatibility record.
 - Compat auto-detection is a lookup over known hosts. A host baikai has not seen
   falls back to defaults, and getting it wrong shows up as a rejected request or
   a silently ignored field, not as a typed error.

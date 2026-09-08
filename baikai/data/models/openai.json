@@ -276,10 +276,12 @@
     },
     {
       "id": "gpt-6-astra",
+      "api": "openai-responses",
       "compat": {
-        "kind": "openai-completions",
-        "supportsToolCalls": false,
+        "kind": "openai-responses",
         "supportsSamplingParameters": false,
+        "supportsLongCacheRetention": false,
+        "supportsPromptCacheOptions": true,
         "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
       },
       "name": "GPT-6 Astra",

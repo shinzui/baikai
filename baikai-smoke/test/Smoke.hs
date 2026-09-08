@@ -6,6 +6,7 @@ import Baikai.Provider.Claude.Api qualified as ClaudeApi
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.OpenAI.Api qualified as OpenAIApi
 import Baikai.Provider.OpenAI.Cli qualified as CodexCli
+import Baikai.Provider.OpenAI.Responses qualified as OpenAIResponses
 import CacheSmoke qualified
 import CompatSmoke qualified
 import Control.Lens ((&), (.~), (^.))
@@ -32,6 +33,7 @@ main :: IO ()
 main = do
   ClaudeApi.register
   OpenAIApi.register
+  OpenAIResponses.register
   ClaudeCli.register
   CodexCli.register
   hadApi <- mapM runApiCase apiCases

@@ -1,7 +1,6 @@
 module TransportSpec (tests) where
 
 import Baikai
-import Baikai.Models.Generated (openai_gpt_6_astra)
 import Baikai.Provider.OpenAI.Api (openaiChatStream)
 import Baikai.Provider.OpenAI.Internal.Stream (openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
@@ -18,6 +17,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector qualified as Vector
+import EndpointModels (chatRestrictedModel)
 import Network.HTTP.Types.Header (RequestHeaders)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream qualified as Stream
@@ -181,7 +181,7 @@ endpointRejectionTest = testCase "endpoint capability rejection precedes network
   calls <- newIORef (0 :: Int)
   let driver _ _ _ _ _ = modifyIORef' calls (+ 1)
       stream = openaiChatStreamWith driver
-      model = openai_gpt_6_astra & #modelId .~ "renamed-text-only"
+      model = chatRestrictedModel & #modelId .~ "renamed-text-only"
       tool = mkTool "lookup" "lookup" (Aeson.object [])
       provider =
         apiProviderWith OpenAIChatCompletions stream (streamingComplete stream)

@@ -98,6 +98,7 @@ test-suite baikai-openai-test
   other-modules:
     CliEvidenceSpec
     Contract
+    EndpointModels
     ErrorClassSpec
     EvidenceSpec
     LifecycleSpec

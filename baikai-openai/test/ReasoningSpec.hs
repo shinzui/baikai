@@ -26,6 +26,7 @@ import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
+import EndpointModels (chatRestrictedModel)
 import Network.HTTP.Client.Internal qualified as HTTP
 import Network.HTTP.Types.Status (mkStatus)
 import Network.HTTP.Types.Version (http11)
@@ -45,7 +46,7 @@ tests =
           Left _ -> pure ()
           Right _ -> assertFailure "foreign state was silently accepted",
       testCase "minimal maps upward by catalog policy with adjustment evidence" $ do
-        let model = openai_gpt_6_astra & #modelId .~ "renamed-policy-test"
+        let model = chatRestrictedModel & #modelId .~ "renamed-policy-test"
             opts = emptyOptions & #thinking .~ Just ThinkingMinimal
             described = describeThinkingShape (openaiCompletionsCompatFor model) True opts
         described ^. #effortText @?= Just "low"

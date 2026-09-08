@@ -20,16 +20,16 @@
 -- JSON file changed without a paired regeneration.
 module CatalogSpec (tests) where
 
-import Baikai.Api (Api (AnthropicMessages))
+import Baikai.Api (Api (AnthropicMessages, OpenAIResponses))
 import Baikai.Compat
   ( AnthropicMessagesCompat,
     AnthropicThinkingStyle (..),
-    OpenAICompletionsCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsToolCalls),
+    OpenAIResponsesCompat (supportedReasoningEfforts, supportsLongCacheRetention, supportsPromptCacheOptions, supportsSamplingParameters),
     supportsSamplingParameters,
     thinkingStyle,
   )
 import Baikai.Model
-  ( Compat (CompatAnthropicMessages, CompatOpenAICompletions),
+  ( Compat (CompatAnthropicMessages, CompatOpenAIResponses),
     Model,
     api,
     compat,
@@ -49,10 +49,12 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Models.Generated"
-    [ testCase "Astra Chat endpoint has explicit restrictions" $
+    [ testCase "Astra selects Responses with explicit endpoint facts" $ do
+        [api m | m <- allModels, modelId m == "gpt-6-astra"] @?= [OpenAIResponses]
         case [compat m | m <- allModels, modelId m == "gpt-6-astra"] of
-          [CompatOpenAICompletions c] -> do
-            c.supportsToolCalls @?= False
+          [CompatOpenAIResponses c] -> do
+            c.supportsPromptCacheOptions @?= True
+            c.supportsLongCacheRetention @?= False
             c.supportsSamplingParameters @?= False
             c.supportedReasoningEfforts @?= Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
           _ -> assertFailure "Astra needs explicit OpenAI endpoint facts",
