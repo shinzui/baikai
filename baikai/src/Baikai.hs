@@ -37,6 +37,7 @@ module Baikai
 
     -- * Per-API compat shims and call-time options
     module Baikai.Compat,
+    module Baikai.Speed,
     module Baikai.CacheRetention,
     module Baikai.ResponseFormat,
     module Baikai.ThinkingLevel,
@@ -69,6 +70,7 @@ import Baikai.Options
 import Baikai.Provider
 import Baikai.Response
 import Baikai.ResponseFormat
+import Baikai.Speed
 import Baikai.StopReason
 import Baikai.Stream
 import Baikai.Stream.Event

@@ -2,13 +2,15 @@ module ShapeSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated qualified as Models
-import Baikai.Provider.Claude.Internal.Request (mapRequest)
+import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
-import Control.Lens ((&), (.~))
+import Baikai.Provider.Claude.Transport qualified as Transport
+import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import Test.Tasty (TestTree, testGroup)
@@ -18,7 +20,8 @@ tests :: TestTree
 tests =
   testGroup
     "ShapeSpec"
-    [ verbatimToolSchemaTest,
+    [ fastSpeedTests,
+      verbatimToolSchemaTest,
       toolChoiceNoneTest,
       toolCacheControlTest,
       toolCacheControlCompatGateTest
@@ -124,3 +127,44 @@ lookupPath (field : rest) (Array xs)
     i < Vector.length xs =
       lookupPath rest (xs Vector.! i)
 lookupPath _ _ = Nothing
+
+fastSpeedTests :: TestTree
+fastSpeedTests =
+  testGroup
+    "speed"
+    [ testCase "a fast-mode request on claude-opus-5 carries speed and the beta header" $ do
+        let m = Models.anthropic_claude_opus_5
+            opts = emptyOptions & #speed .~ Just SpeedFast
+        value <- shapedBody m emptyContext opts
+        lookupPath ["speed"] value @?= Just (String "fast")
+        lookup "anthropic-beta" (headers m opts) @?= Just "fast-mode-2026-02-01",
+      testCase "a fast-mode request on claude-sonnet-5 omits speed and records the drop" $ do
+        let m = Models.anthropic_claude_sonnet_5
+            opts = emptyOptions & #speed .~ Just SpeedFast
+        value <- shapedBody m emptyContext opts
+        lookupPath ["speed"] value @?= Nothing
+        lookup "anthropic-beta" (headers m opts) @?= Nothing
+        case mapRequest m emptyContext opts of
+          Left err -> assertFailure (show err)
+          Right (_, translation) -> do
+            translation @?= describeThinkingFor m opts
+            translation ^. #adjustments @?= [FastModeDroppedUnsupportedModel]
+        weakensThinking FastModeDroppedUnsupportedModel @?= False
+        Aeson.fromJSON (Aeson.toJSON FastModeDroppedUnsupportedModel) @?= Aeson.Success FastModeDroppedUnsupportedModel,
+      testCase "absent and explicit standard speed remain distinct on unsupported models" $ do
+        let m = Models.anthropic_claude_sonnet_5
+            opts = emptyOptions & #speed .~ Just SpeedStandard
+        absent <- shapedBody m emptyContext emptyOptions
+        standard <- shapedBody m emptyContext opts
+        lookupPath ["speed"] absent @?= Nothing
+        lookupPath ["speed"] standard @?= Just (String "standard")
+        lookup "anthropic-beta" (headers m opts) @?= Nothing
+        describeThinkingFor m opts ^. #adjustments @?= [],
+      testCase "caller beta headers override model and automatic fast beta headers" $ do
+        let m = Models.anthropic_claude_opus_5 & #headers .~ Map.singleton "anthropic-beta" "model-beta"
+            opts = emptyOptions & #speed .~ Just SpeedFast & #headers .~ Map.singleton "Anthropic-Beta" "caller-beta"
+        lookup "anthropic-beta" (headers m emptyOptions) @?= Just "model-beta"
+        lookup "anthropic-beta" (headers m opts) @?= Just "caller-beta"
+    ]
+  where
+    headers m opts = Transport.requestHeaders "test-key" Nothing (anthropicMessagesCompatFor m) emptyContext m opts

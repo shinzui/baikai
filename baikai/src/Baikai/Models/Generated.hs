@@ -11,6 +11,7 @@ import Baikai.Compat
   ( AnthropicMessagesCompat
       ( sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
+        supportsFastMode,
         supportsForcedToolChoice,
         supportsLongCacheRetention,
         supportsSamplingParameters,
@@ -50,6 +51,7 @@ import Baikai.Model
     contextWindow,
     cost,
     emptyModel,
+    fastModeCost,
     headers,
     input,
     maxOutputTokens,
@@ -80,6 +82,7 @@ anthropic_claude_fable_5 =
             cacheReadCost = 1 % 1,
             cacheWriteCost = 25 % 2
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
@@ -92,6 +95,7 @@ anthropic_claude_fable_5 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -113,6 +117,7 @@ anthropic_claude_fable_5_1 =
             cacheReadCost = 1 % 4,
             cacheWriteCost = 25 % 2
           },
+      fastModeCost = Nothing,
       pricingPolicy = Just (PricingPolicy [] (Just (20 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
@@ -125,6 +130,7 @@ anthropic_claude_fable_5_1 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
+              supportsFastMode = False,
               supportsForcedToolChoice = False
             }
     }
@@ -146,6 +152,7 @@ anthropic_claude_haiku_4_5 =
             cacheReadCost = 1 % 10,
             cacheWriteCost = 5 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 64000,
@@ -158,6 +165,7 @@ anthropic_claude_haiku_4_5 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingBudget,
               supportsSamplingParameters = True,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -179,6 +187,7 @@ anthropic_claude_opus_4_5 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 64000,
@@ -191,6 +200,7 @@ anthropic_claude_opus_4_5 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingBudget,
               supportsSamplingParameters = True,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -212,6 +222,7 @@ anthropic_claude_opus_4_6 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
@@ -224,6 +235,7 @@ anthropic_claude_opus_4_6 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = True,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -245,6 +257,7 @@ anthropic_claude_opus_4_7 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
@@ -257,6 +270,7 @@ anthropic_claude_opus_4_7 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -278,7 +292,16 @@ anthropic_claude_opus_4_8 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
-      pricingPolicy = Nothing,
+      fastModeCost =
+        Just
+          ( ModelCost
+              { inputCost = 10 % 1,
+                outputCost = 50 % 1,
+                cacheReadCost = 1 % 1,
+                cacheWriteCost = 25 % 2
+              }
+          ),
+      pricingPolicy = Just (PricingPolicy [] (Just (10 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -290,6 +313,7 @@ anthropic_claude_opus_4_8 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
+              supportsFastMode = True,
               supportsForcedToolChoice = True
             }
     }
@@ -311,7 +335,16 @@ anthropic_claude_opus_5 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
-      pricingPolicy = Nothing,
+      fastModeCost =
+        Just
+          ( ModelCost
+              { inputCost = 10 % 1,
+                outputCost = 50 % 1,
+                cacheReadCost = 1 % 1,
+                cacheWriteCost = 25 % 2
+              }
+          ),
+      pricingPolicy = Just (PricingPolicy [] (Just (10 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -323,6 +356,7 @@ anthropic_claude_opus_5 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
+              supportsFastMode = True,
               supportsForcedToolChoice = True
             }
     }
@@ -344,6 +378,7 @@ anthropic_claude_sonnet_4_5 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 64000,
@@ -356,6 +391,7 @@ anthropic_claude_sonnet_4_5 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingBudget,
               supportsSamplingParameters = True,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -377,6 +413,7 @@ anthropic_claude_sonnet_4_6 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
@@ -389,6 +426,7 @@ anthropic_claude_sonnet_4_6 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = True,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -410,6 +448,7 @@ anthropic_claude_sonnet_5 =
             cacheReadCost = 1 % 5,
             cacheWriteCost = 5 % 2
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
@@ -422,6 +461,7 @@ anthropic_claude_sonnet_5 =
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
+              supportsFastMode = False,
               supportsForcedToolChoice = True
             }
     }
@@ -443,6 +483,7 @@ deepseek_deepseek_chat =
             cacheReadCost = 7 % 100,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 64000,
       maxOutputTokens = 8192,
@@ -467,6 +508,7 @@ deepseek_deepseek_reasoner =
             cacheReadCost = 7 % 50,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 64000,
       maxOutputTokens = 8192,
@@ -491,6 +533,7 @@ openai_gpt_4_1 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1047576,
       maxOutputTokens = 32768,
@@ -515,6 +558,7 @@ openai_gpt_4_1_mini =
             cacheReadCost = 1 % 10,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1047576,
       maxOutputTokens = 32768,
@@ -539,6 +583,7 @@ openai_gpt_4_1_nano =
             cacheReadCost = 1 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1047576,
       maxOutputTokens = 32768,
@@ -563,6 +608,7 @@ openai_gpt_4o =
             cacheReadCost = 5 % 4,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,
@@ -587,6 +633,7 @@ openai_gpt_4o_mini =
             cacheReadCost = 3 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,
@@ -611,6 +658,7 @@ openai_gpt_5 =
             cacheReadCost = 1 % 8,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -635,6 +683,7 @@ openai_gpt_5_1 =
             cacheReadCost = 1 % 8,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -659,6 +708,7 @@ openai_gpt_5_2 =
             cacheReadCost = 7 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -683,6 +733,7 @@ openai_gpt_5_4 =
             cacheReadCost = 1 % 4,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -707,6 +758,7 @@ openai_gpt_5_4_mini =
             cacheReadCost = 3 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -731,6 +783,7 @@ openai_gpt_5_4_nano =
             cacheReadCost = 1 % 50,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -755,6 +808,7 @@ openai_gpt_5_5 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -779,6 +833,7 @@ openai_gpt_5_6 =
             cacheReadCost = 2 % 5,
             cacheWriteCost = 5 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -803,6 +858,7 @@ openai_gpt_5_6_luna =
             cacheReadCost = 1 % 50,
             cacheWriteCost = 1 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -827,6 +883,7 @@ openai_gpt_5_6_sol =
             cacheReadCost = 2 % 5,
             cacheWriteCost = 5 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -851,6 +908,7 @@ openai_gpt_5_6_terra =
             cacheReadCost = 1 % 5,
             cacheWriteCost = 5 % 2
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -875,6 +933,7 @@ openai_gpt_5_mini =
             cacheReadCost = 1 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -899,6 +958,7 @@ openai_gpt_5_nano =
             cacheReadCost = 1 % 200,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
@@ -923,6 +983,7 @@ openai_gpt_6_astra =
             cacheReadCost = 1 % 1,
             cacheWriteCost = 25 % 2
           },
+      fastModeCost = Nothing,
       pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (20 % 1) (75 % 1) (2 % 1) (25 % 1))] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
@@ -954,6 +1015,7 @@ openai_o1 =
             cacheReadCost = 15 % 2,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
@@ -978,6 +1040,7 @@ openai_o3 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
@@ -1002,6 +1065,7 @@ openai_o3_mini =
             cacheReadCost = 11 % 20,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
@@ -1026,6 +1090,7 @@ openai_o4_mini =
             cacheReadCost = 11 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
@@ -1050,6 +1115,7 @@ openrouter_anthropic_claude_sonnet_4 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 8192,
@@ -1074,6 +1140,7 @@ openrouter_openai_gpt_4o_mini =
             cacheReadCost = 3 % 40,
             cacheWriteCost = 0 % 1
           },
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,

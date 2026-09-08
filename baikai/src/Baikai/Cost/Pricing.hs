@@ -4,6 +4,7 @@
 -- Arithmetic stays exact, and unavailable pricing carries an estimate reason.
 module Baikai.Cost.Pricing
   ( computeCost,
+    computeCostAtSpeed,
     attachCost,
     resolveRates,
     computeCostWith,
@@ -18,12 +19,14 @@ import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (InputPriceTier (..), Model, ModelCost (..), PricingPolicy (..), validatePricingPolicy, zeroModelCost)
 import Baikai.Prelude
 import Baikai.Response (Response (..))
+import Baikai.Speed (Speed (..))
 import Baikai.Usage (BillingFact (..), Usage (..), UsageAvailability (..), UsageCategory (..))
 import Data.Set qualified as Set
 
 -- | Compute a 'Cost' from a model's per-million-token rates and a
 -- 'Usage'. Zero rates retain the old numeric total and now mark pricing
 -- unavailable. This entry point assumes the standard cache duration.
+-- Use 'computeCostAtSpeed' to select premium speed rates explicitly.
 computeCost :: Model -> Usage -> Cost
 computeCost = computeCostWith Nothing
 
@@ -45,15 +48,44 @@ computeCostForService duration requested m u =
         [ServiceTierNotReported | null tiers]
           <> [AdditionalChargesExcluded | BillingServerToolUse `elem` facts]
           <> [UnsupportedServiceTier t | t <- tiers, t `notElem` ["default", "standard"]]
-          <> [UnsupportedSpeed s | s <- speeds, s /= "standard"]
+          <> [UnsupportedSpeed s | s <- speeds, s /= "standard", s /= "fast" || m ^. #fastModeCost == Nothing]
+          <> [InconsistentUsage | length speeds > 1]
           <> [ServiceTierMismatch wanted actual | Just wanted <- [requested], wanted /= "auto", actual <- tiers, not (matches wanted actual)]
-   in estimateCost reasons (computeCostWith duration m u)
+   in estimateCost reasons (if speeds == ["fast"] then priceAtSpeed duration m SpeedFast u else computeCostWith duration m u)
   where
     matches wanted actual = wanted == actual || (wanted == "standard_only" && actual == "standard") || (wanted == "fast" && actual == "priority")
 
--- | Price one resolved rate record exactly once. Plan 69's catalog-gated
--- speed selection can reuse this after context and cache-duration resolution;
--- it must not multiply an already computed cost a second time.
+-- | Price an explicitly selected speed with the standard cache duration.
+-- Standard agrees exactly with 'computeCost'. Missing fast rates retain a
+-- standard-rate estimate with 'UnsupportedSpeed', never a fabricated zero.
+-- This helper does not claim the provider observed the selected speed.
+computeCostAtSpeed :: Model -> Speed -> Usage -> Cost
+computeCostAtSpeed = priceAtSpeed Nothing
+
+priceAtSpeed :: Maybe CacheRetention -> Model -> Speed -> Usage -> Cost
+priceAtSpeed duration m SpeedStandard u = computeCostWith duration m u
+priceAtSpeed duration m SpeedFast u = case m ^. #fastModeCost of
+  Nothing -> estimateCost [UnsupportedSpeed "fast"] (computeCostWith duration m u)
+  Just fast ->
+    let resolved = do
+          validatePricingPolicy (PricingPolicy [InputPriceTier 0 fast] Nothing)
+          standard <- resolveRates duration m u
+          let base = m ^. #cost
+              -- Apply each premium rate's ratio to the resolved policy once.
+              -- A zero base cannot define a ratio for a nonzero policy rate.
+              scale b f r
+                | b > 0 = Right (r * f / b)
+                | r == 0 = Right f
+                | otherwise = Left "Cannot apply fast rates to a zero-base pricing policy"
+          ModelCost
+            <$> scale (inputCost base) (inputCost fast) (inputCost standard)
+            <*> scale (outputCost base) (outputCost fast) (outputCost standard)
+            <*> scale (cacheReadCost base) (cacheReadCost fast) (cacheReadCost standard)
+            <*> scale (cacheWriteCost base) (cacheWriteCost fast) (cacheWriteCost standard)
+        computed = priceUsage resolved u
+     in computed & #basis . #sources .~ Set.singleton ResolvedTokenRates
+
+-- | Price one resolved rate record exactly once.
 computeCostAtRates :: ModelCost -> Usage -> Cost
 computeCostAtRates rates u =
   let resolved = validatePricingPolicy (PricingPolicy [InputPriceTier 0 rates] Nothing) >> pure rates

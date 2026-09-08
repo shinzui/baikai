@@ -56,6 +56,7 @@ module Baikai.Options
     toolChoice,
     cacheRetention,
     thinking,
+    speed,
     responseFormat,
     evidence,
     topP,
@@ -73,6 +74,7 @@ import Baikai.CacheRetention (CacheRetention)
 import Baikai.Evidence (EvidenceRequest)
 import Baikai.Header (HeaderName)
 import Baikai.ResponseFormat (ResponseFormat)
+import Baikai.Speed (Speed)
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Tool (ToolChoice)
 import Data.Aeson
@@ -104,6 +106,10 @@ data Options = Options
     -- both send no cache-control marker. The constructor is kept for a
     -- caller who wants to say "no caching" explicitly.
     cacheRetention :: !(Maybe CacheRetention),
+    -- | Nothing omits the speed field; standard explicitly requests standard
+    -- speed. Fast is catalog-gated by Anthropic and dropped with evidence on
+    -- unsupported models. See "Baikai.Speed" for availability and pricing.
+    speed :: !(Maybe Speed),
     thinking :: !(Maybe ThinkingLevel),
     responseFormat :: !(Maybe ResponseFormat),
     evidence :: !(Maybe EvidenceRequest),
@@ -144,6 +150,7 @@ instance Show Options where
         . next "metadata" (metadata o)
         . next "toolChoice" (toolChoice o)
         . next "cacheRetention" (cacheRetention o)
+        . next "speed" (speed o)
         . next "thinking" (thinking o)
         . next "responseFormat" (responseFormat o)
         . next "evidence" (evidence o)
@@ -179,6 +186,7 @@ emptyOptions =
       metadata = Map.empty,
       toolChoice = Nothing,
       cacheRetention = Nothing,
+      speed = Nothing,
       thinking = Nothing,
       responseFormat = Nothing,
       evidence = Nothing,

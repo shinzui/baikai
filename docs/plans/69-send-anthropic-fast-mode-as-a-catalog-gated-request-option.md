@@ -59,22 +59,38 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: `supportsFastMode` added to `Baikai.Compat.AnthropicMessagesCompat` with default `False`
-- [ ] M1: `fastModeCost` added to `Baikai.Model.Model` as `Maybe ModelCost`
-- [ ] M1: catalog fetcher carries both facts per curated Anthropic id
-- [ ] M1: generator refuses an entry where the two facts disagree
-- [ ] M1: `baikai/data/models/anthropic.json` and `Baikai/Models/Generated.hs` regenerated
-- [ ] M1: the two pinned fact tables in the test suites widened and passing
-- [ ] M2: `Baikai.Speed` module added and re-exported from `Baikai`
-- [ ] M2: `Options.speed` added with a default of `Nothing`
-- [ ] M2: `mapRequest` sends `Messages.speed` only when the compat record allows it
-- [ ] M2: the beta header is sent exactly when `speed: fast` reaches the wire
-- [ ] M2: a dropped fast-mode request is recorded in the evidence
-- [ ] M3: `computeCostAtSpeed` added and tested against both rate sets
-- [ ] M4: Haddock, `docs/user/models-and-providers.md`, and `CHANGELOG.md` updated
+- [x] (2026-09-07) M1: `supportsFastMode` added to `Baikai.Compat.AnthropicMessagesCompat` with default `False`
+- [x] (2026-09-07) M1: `fastModeCost` added to `Baikai.Model.Model` as `Maybe ModelCost`
+- [x] (2026-09-07) M1: catalog fetcher carries both facts per curated Anthropic id
+- [x] (2026-09-07) M1: generator refuses an entry where the two facts disagree
+- [x] (2026-09-07) M1: `baikai/data/models/anthropic.json` and `Baikai/Models/Generated.hs` regenerated
+- [x] (2026-09-07) M1: the two pinned fact tables in the test suites widened and passing
+- [x] (2026-09-07) M2: `Baikai.Speed` module added and re-exported from `Baikai`
+- [x] (2026-09-07) M2: `Options.speed` added with a default of `Nothing`
+- [x] (2026-09-07) M2: `mapRequest` sends `Messages.speed` only when the compat record allows it
+- [x] (2026-09-07) M2: the beta header is sent exactly when `speed: fast` reaches the wire
+- [x] (2026-09-07) M2: a dropped fast-mode request is recorded in the evidence
+- [x] (2026-09-07) M3: `computeCostAtSpeed` added and tested against both rate sets
+- [x] (2026-09-07) M4: Haddock, `docs/user/models-and-providers.md`, and `CHANGELOG.md` updated
 
 
 ## Surprises & Discoveries
+
+The commit hook formats explicitly staged generated files despite the normal
+formatter exclusion. Its first run changed the new optional-price layout and
+import order. The generator now emits that same layout, preserving both the
+byte-identical regeneration test and formatting checks.
+
+Implementation (2026-09-07): the clean starting tree passed `cabal build all`.
+The SDK upgrade and plan 76 were already integrated. Core and Claude tests
+compile and exercise the new wire, gate, pricing and streamed-usage cases.
+One existing fetch-rendering assertion required the new compat key in its
+expected block. Full-project validation passes: all ten suites, including 748 core and 351
+Claude tests. The generator executable rejects a temporary Opus 5 entry with
+missing premium rates, naming that model. An isolated live fetch matches this
+plan's fields across all 11 Anthropic entries. Anthropic live smoke was skipped
+because its credentials are absent; replay tests establish the adapter contract.
+
 
 Integration note (2026-09-07): plan 76 now supplies the common `resolveRates`
 and `computeCostWith` pricing path for context tiers and shaped cache duration.
@@ -92,31 +108,46 @@ rates. Its implementation checklist remains open.
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
 
-One discovery made during planning is recorded here because it shapes
-Milestone 2's acceptance criteria. `Claude.V1.Messages.Usage` in the
-`claude` package version this repository builds against has exactly five
-fields:
+The original plan assumed the SDK could not observe speed. That premise is
+superseded: the integrated 1.5.0 `Usage.speed` reports it, and plan 76 already
+preserves the value in billing facts. `StreamUsage` itself still has no speed
+field, so the message-start observation survives later count snapshots. The
+adapter now selects terminal rates from that observation. A shaped fast request
+with no observation gets `SpeedNotReported`; it does not fabricate fast usage.
 
-```haskell
-data Usage = Usage
-    { input_tokens :: Natural
-    , output_tokens :: Natural
-    , cache_creation_input_tokens :: Maybe Natural
-    , cache_read_input_tokens :: Maybe Natural
-    , server_tool_use :: Maybe ServerToolUseUsage
-    } deriving stock (Generic, Show)
-```
+The current compat record also has `supportsForcedToolChoice`, added by another
+initiative. Both pinned tables now include forced choice and fast support.
+The fetcher stores optional fast rates in its curation facts and derives the
+wire capability from their presence, eliminating contradictory fetch facts.
+The generator still checks both directions on independently editable JSON.
 
-None of them reports which speed the provider actually ran. So baikai can
-request fast mode and can describe what it translated the request into,
-but it can never confirm that fast mode took effect. That is not a
-defect to work around; it is the situation
-`docs/adr/0002-requested-translated-observed-are-never-collapsed.md`
-exists to describe, and Milestone 2 must record the request and the
-translation without ever implying the observation.
+Long cache-write pricing is a prerequisite for truthful fast pricing. Opus 5
+and Opus 4.8 now carry the standard long-write rate of 10 USD/MTok in their
+pricing policy, so the fast premium produces 20 rather than the short-write
+rate of 12.5. Provider documentation was checked on 2026-09-07 at
+https://platform.claude.com/docs/en/build-with-claude/fast-mode.
 
 
 ## Decision Log
+
+- Decision (2026-09-07): evidence schema 2.3 adds the fast drop kind and missing
+  speed estimate reason; the newly emitted speed field joins the configuration
+  allow-list. Existing no-speed golden digests stay unchanged. ADR 0004 records
+  this addition and the focused test distinguishes absent, standard and fast.
+
+- Decision (2026-09-07): share `planSpeed` between typed request mapping,
+  automatic headers, and the preflight evidence describer. Preserve the existing
+  `requestHeaders` signature and header override order. This gives every path
+  the same capability gate without coupling Transport to a new public type.
+- Decision (2026-09-07): retain `computeCost` and route explicit and observed
+  fast pricing through the existing policy resolver and arithmetic. Apply each
+  premium/base category ratio to resolved rates once; a zero base with a
+  nonzero resolved rate is an invalid policy. Missing fast rates retain the
+  standard amount with `UnsupportedSpeed`. See ADR 0020.
+- Decision (2026-09-07): validate live fetch output in a temporary directory and
+  compare this plan's fields, alongside deterministic fetch/generator tests.
+  A whole-file empty diff against changing upstream data is not a sound test
+  of curation and must not pull unrelated catalog changes into this work.
 
 - Decision: whether a model has fast mode is a field of the model's
   compatibility record (`supportsFastMode`), and the fast-mode prices are
@@ -165,7 +196,29 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Completed 2026-09-07. Callers can set `Options.speed`; the generated catalog
+allows fast on Opus 5 and Opus 4.8, supplies their premium rates, and refuses
+inconsistent catalog edits. Unsupported fast requests omit the wire field and
+automatic beta header and carry a non-thinking evidence adjustment. Explicit
+standard remains distinct from absent. Caller header overrides retain precedence.
+
+Pricing composes resolved context/cache policy with premium rates once, uses
+reported speed at terminal events, and marks missing speed or unknown rates as
+estimates. Schema 2.3 fingerprints speed configuration without changing existing
+no-speed golden digests. Durable context is recorded in ADRs 0004, 0009 and 0020.
+
+Validation: `cabal build all`, `cabal test all` (all ten suites, 748 core tests,
+351 Claude tests), `nix fmt`, and `git diff --check` pass. After the commit hook
+exposed generated formatting drift, the generator was corrected and all 748 core
+tests passed again, including the byte-identical regeneration test. A temporary
+malformed catalog is rejected by the generator executable with the Opus 5 id.
+The isolated live fetch matches fast capability, rates and Opus long-write
+policies across all 11 checked-in Anthropic models. Anthropic live smoke was
+skipped for absent credentials; the wire/terminal contract is covered by replay
+and shape tests. No live fast-mode entitlement claim is made.
+
+This completes EP-1. EP-3 (thinking display) and EP-4 (refusal details/fallbacks)
+remain under the parent MasterPlan.
 
 
 ## Context and Orientation
@@ -216,10 +269,10 @@ required by convention to carry a dated comment naming its source.
 **The compatibility record.** Two models can speak the same API and still
 differ in what they accept. `Baikai.Compat.AnthropicMessagesCompat`, in
 `baikai/src/Baikai/Compat.hs`, is the record of those differences for one
-Anthropic model. It currently has five fields:
+Anthropic model. It now has seven fields:
 `supportsLongCacheRetention`, `supportsCacheControlOnTools`,
-`sendSessionAffinityHeaders`, `thinkingStyle`, and
-`supportsSamplingParameters`. Each generated Anthropic catalog entry
+`sendSessionAffinityHeaders`, `thinkingStyle`,
+`supportsSamplingParameters`, `supportsForcedToolChoice`, and `supportsFastMode`. Each generated Anthropic catalog entry
 carries one explicitly.
 
 **Evidence.** baikai can emit a record describing what happened on a
@@ -237,10 +290,9 @@ non-thinking constructor.
 **Pricing.** `Baikai.Model.ModelCost` holds four rates per model, all in
 US dollars per million tokens: `inputCost`, `outputCost`,
 `cacheReadCost`, `cacheWriteCost`. `Baikai.Cost.Pricing.computeCost ::
-Model -> Usage -> Cost` multiplies a token count by those rates. Note
-that no provider in this repository calls it; providers leave
-`Usage.cost` at zero and `computeCost` is a helper the caller applies.
-That makes it safe to extend without touching any request path.
+Model -> Usage -> Cost` multiplies a token count by those rates. The shared `resolveRates` path applies context tiers and shaped cache
+duration. Providers already call `computeCostForService` at terminal events;
+this plan extends that path to select curated rates from observed speed.
 
 **Relevant ADRs.** Read these three; they are short.
 
@@ -257,9 +309,8 @@ mode available to it.
 `docs/adr/0002-requested-translated-observed-are-never-collapsed.md`
 records that baikai keeps three distinct facts about a call — what was
 requested, what baikai translated it into, and what the provider
-reported — and never merges them. Fast mode cannot be observed at all
-with the current dependency, which this plan must state rather than
-paper over.
+reported — and never merges them. The integrated SDK can observe speed in message-start usage; missing
+observations remain missing and the caller preference never fills them.
 
 `docs/adr/0003-the-adapter-owns-the-translation-description.md` records
 that the provider adapter, not a later layer, describes what it
@@ -298,7 +349,7 @@ Anthropic's fast-mode rates, while `anthropic_claude_sonnet_5` carries
 Add `supportsFastMode :: !Bool` to `AnthropicMessagesCompat` in
 `baikai/src/Baikai/Compat.hs`, defaulting to `False` in
 `defaultAnthropicMessagesCompat`, and export the field selector from the
-module's export list alongside the existing five. `False` is the correct
+module's export list alongside the other capability fields. `False` is the correct
 default because a hand-rolled model built from `emptyModel` should not
 claim a capability that exists on two models in the world.
 
@@ -312,7 +363,7 @@ and add the new field to it, or the module will not compile.
 Teach the fetcher both facts. In `baikai/fetch/FetchModelsCore.hs`, the
 record `AnthropicGenerationFacts` currently carries the thinking style
 and the sampling flag, and `anthropicInclude` maps each curated Anthropic
-id to one. Widen that record with the fast-mode facts, and widen the
+id to one. Widen that record with optional fast rates (availability is their presence), and widen the
 three helper values at the bottom of `anthropicInclude`'s `where` clause
 (`adaptiveNoSampling`, `adaptiveWithSampling`, `budgetWithSampling`) so
 existing rows keep compiling. Then set the fast-mode facts on the two ids
@@ -366,7 +417,7 @@ Do not re-export the `claude` package's own `Speed` type. baikai's
 `Options` deliberately names no third-party type; `ThinkingLevel` and
 `CacheRetention` are both baikai's own. Add the module to the
 `exposed-modules` list in `baikai/baikai.cabal` and re-export it from
-`baikai/src/Baikai/Baikai.hs` beside the other option types.
+`baikai/src/Baikai.hs` beside the other option types.
 
 Add `speed :: !(Maybe Speed)` to `Options` in
 `baikai/src/Baikai/Options.hs`, defaulting to `Nothing` in
@@ -378,10 +429,9 @@ the request body depend on a distinction the caller cannot see.
 Wire it through `mapRequest` in
 `baikai-claude/src/Baikai/Provider/Claude/Internal/Request.hs`. That
 function already computes a `compat` value near the top and already
-returns a translation description alongside the request. Add a
-`speedField` binding that resolves to `Just Messages.SpeedFast` only when
+returns a translation description alongside the request. Use `planSpeed`, which resolves to `Just Messages.SpeedFast` only when
 the caller asked for fast and `supportsFastMode compat` is `True`, and
-set `Messages.speed = speedField` in the `Messages._CreateMessage` record
+set `Messages.speed = fst (planSpeed compat (opts ^. #speed))` in the `Messages._CreateMessage` record
 literal beside the existing `Messages.thinking` and
 `Messages.output_config` fields. A caller asking for `SpeedStandard`
 passes through unconditionally; standard speed is not gated because it is
@@ -402,10 +452,8 @@ Send the beta header. In
 assembles the provider's own headers and then applies the model's and the
 caller's overrides on top. Add `anthropic-beta: fast-mode-2026-02-01` to
 the provider headers exactly when the request being built carries
-`speed: fast`. Note that `requestHeaders` does not currently see the
-request body; the cleanest available seam is to pass the resolved speed
-in, since `requestHeaders` already takes both the compat record and the
-`Options`. Keep the caller-override behaviour intact so a caller can
+`speed: fast`. `requestHeaders` uses the shared `planSpeed` function with its existing
+compat and options arguments, so its gate is identical to the request builder. Keep the caller-override behaviour intact so a caller can
 still replace the header value.
 
 ### Milestone 3 — the price is the real price
@@ -421,11 +469,21 @@ computeCostAtSpeed :: Model -> Speed -> Usage -> Cost
 
 At `SpeedStandard` it must be identical to `computeCost`. At `SpeedFast`
 it uses the model's `fastModeCost` rates when present. When a caller asks
-for fast pricing on a model with no fast-mode rates, return the standard
-cost rather than zero: zero is the truthful signal for a model with no
-published pricing at all, and reusing it here would make an ordinary
-model look free. Leave `computeCost` exactly as it is, and give it a
+for fast pricing on a model with no fast-mode rates, retain the standard
+amount and add `UnsupportedSpeed "fast"` to the estimate reasons. A missing
+rate must not make an ordinary model look free. Leave `computeCost` exactly as it is, and give it a
 Haddock line pointing at the new function.
+
+Resolve context and cache-duration policy first, then apply each category's
+fast/base rate ratio and price once, with `ResolvedTokenRates` as the basis.
+Validate fast rates and refuse an undefined ratio from a zero base with a
+nonzero policy rate. Add the standard long-write rate to both curated Opus
+policies, so fast and long-cache premiums compose. `computeCostForService`
+selects fast rates only for an unambiguous observed fast speed. Contradictory
+observations keep standard pricing marked inconsistent. The Claude assembler
+remembers whether the shaped body requested fast; if no speed was reported,
+`finalUsage` adds `SpeedNotReported`. Replay tests must distinguish fast,
+standard and absent observations for the same fast request.
 
 ### Milestone 4 — write it down
 
@@ -468,22 +526,15 @@ git diff --stat baikai/src/Baikai/Models/Generated.hs
 
 Note that you run only the generator here, not `baikai-fetch-models`.
 The fetcher re-downloads models.dev and would mix an unrelated upstream
-refresh into this plan's diff. The curated facts you are adding live in
-`baikai/fetch/FetchModelsCore.hs` and reach the JSON only through the
-fetcher, so for this milestone edit `baikai/data/models/anthropic.json`
-by hand to add the new `compat` key and the fast-mode rates on the two
-models that have them, keeping the fetcher's curation in step so that a
-later refresh reproduces what you wrote. Verify they agree by running the
-fetcher last and confirming it produces no diff:
-
-```bash
-cabal run baikai-fetch-models
-git diff --stat baikai/data/models/anthropic.json
-```
-
-An empty diff means the hand edit and the curated table agree. A
-non-empty diff means they do not; fix the fetcher table until the diff is
-empty.
+refresh into this plan's diff. The curated facts live in the fetcher, so edit the checked-in JSON with
+just the new compat keys, fast rates, and long-cache policies. The test
+"fast rates and capability survive fetch and generator on exactly two curated
+models" normalizes every curated Anthropic id, renders JSON and checks it with
+the real generator. For live validation, use `cabal run baikai-fetch-models --
+--provider anthropic --out-dir <temporary-directory>` and compare
+`compat.supportsFastMode`, `fastModeCost` and the two Opus pricing policies
+against the checked-in file. Leave unrelated upstream changes outside the
+working tree. Re-run the generator after each JSON edit.
 
 Then verify the generator's new refusal actually refuses. Temporarily
 remove the `fastModeCost` entry from `claude-opus-5` in the JSON and run:
@@ -557,11 +608,8 @@ its row being updated, which is exactly what those tables are for.
 Every step is safe to repeat. `cabal run baikai-gen-models` is a pure
 function of the JSON files and rewrites `Generated.hs` from scratch, so
 running it twice produces the same file; a test in `baikai/test/CatalogSpec.hs`
-asserts that property. `cabal run baikai-fetch-models` rewrites the JSON
-files from the network and from the curated tables, so running it will
-also pull in any unrelated upstream price change — if that happens
-mid-plan, either commit it separately or `git checkout` the JSON and
-re-apply just your curated edits.
+asserts that property. The fetcher writes into a temporary directory for validation, leaving
+checked-in catalogs intact even if upstream prices changed.
 
 If the Milestone 1 edits leave the tree not compiling because a record
 gained a field that some construction site does not set, the compiler
@@ -577,8 +625,8 @@ there is no rollback beyond `git checkout`.
 
 ## Interfaces and Dependencies
 
-No new third-party dependency is added. The `claude` package stays at
-`^>=1.4`; everything this plan needs is already in 1.4.0, specifically
+No new third-party dependency is added. The `claude` package is already at
+`^>=1.5` after child plan 70. The request mapping uses
 the field `speed :: Maybe Speed` on `Claude.V1.Messages.CreateMessage`
 and the type `Claude.V1.Messages.Speed` with constructors `SpeedStandard`
 and `SpeedFast`.
@@ -607,7 +655,7 @@ speed :: Options -> Maybe Speed
 
 plus one new constructor on `Baikai.Evidence.ThinkingAdjustment`
 recording a fast-mode request dropped for an unsupporting model, with a
-wire spelling in `renderThinkingAdjustment` and its parser, and
+wire spelling in the JSON encoder and decoder, and
 `weakensThinking` returning `False` for it.
 
 At the end of Milestone 3:
@@ -622,3 +670,7 @@ Note on module boundaries: `Baikai.Cost.Pricing` will need to import
 `Baikai.Speed` should import nothing from baikai beyond what
 `Baikai.CacheRetention` imports, which is only `Data.Aeson` and
 `GHC.Generics`, so no cycle should arise.
+
+Revision 2026-09-07: rebased the implementation on integrated SDK 1.5, forced-choice
+facts and plan 76 pricing; added observed-speed terminal pricing, long-cache
+composition and isolated fetch validation. Updated ADRs 0009 and 0020.

@@ -203,7 +203,8 @@ data CatalogCost = CatalogCost
 data AnthropicGenerationFacts = AnthropicGenerationFacts
   { thinkingStyle :: !AnthropicThinkingStyle,
     supportsSamplingParameters :: !Bool,
-    supportsForcedToolChoice :: !Bool
+    supportsForcedToolChoice :: !Bool,
+    fastModeCost :: !(Maybe CatalogCost)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -222,6 +223,7 @@ data CatalogModel = CatalogModel
     reasoning :: !Bool,
     input :: ![InputModality],
     cost :: !CatalogCost,
+    fastModeCost :: !(Maybe CatalogCost),
     pricingPolicy :: !(Maybe Model.PricingPolicy),
     contextWindow :: !Integer,
     maxOutputTokens :: !Integer,
@@ -319,10 +321,10 @@ anthropicInclude =
       -- by REV-2 C.1 (docs/reviews/correctness-and-api-review-follow-up.md).
       -- docs/plans/60-... named this id as the one the include set did not
       -- yet carry, and stated the facts it would have to arrive with.
-      ("claude-opus-5", adaptiveNoSampling),
+      ("claude-opus-5", fastAdaptive),
       -- 2026-08-27: adaptive-only, sampling parameters rejected with a
       -- 400 — same source.
-      ("claude-opus-4-8", adaptiveNoSampling),
+      ("claude-opus-4-8", fastAdaptive),
       -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
       ("claude-opus-4-7", adaptiveNoSampling),
       -- 2026-08-27: accepts both thinking shapes, but the budget shape is
@@ -355,9 +357,12 @@ anthropicInclude =
     -- their separate manual-thinking constraint); only Fable 5.1 rejects it.
     -- https://platform.claude.com/docs/en/api/errors
     -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
-    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True
-    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True
-    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True
+    -- 2026-09-07: Opus 5 and 4.8 only; cache multipliers stack on fast rates.
+    -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
+    fastAdaptive = adaptiveNoSampling & #fastModeCost ?~ CatalogCost 10 50 1 12.5
+    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True Nothing
+    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True Nothing
+    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True Nothing
 
 -- | OpenAI curation with a Chat default and explicit Responses overrides.
 openaiSpec :: ProviderSpec
@@ -421,6 +426,9 @@ normalizeProvider spec upstream =
                 cacheReadCost = fromMaybe 0 (m ^. #cacheReadCost),
                 cacheWriteCost = fromMaybe 0 (m ^. #cacheWriteCost)
               },
+          fastModeCost = case (spec ^. #compatFor) (m ^. #modelId) of
+            Just (CatalogAnthropicCompat facts) -> facts ^. #fastModeCost
+            _ -> Nothing,
           pricingPolicy = Map.lookup (spec ^. #provider, m ^. #modelId) pricingPolicies,
           contextWindow = fromMaybe 0 (m ^. #contextWindow),
           maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens),
@@ -603,6 +611,7 @@ renderModel m =
     "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ","
   ]
     ++ maybe [] (\a -> ["      \"api\": " <> jsonString a <> ","]) (m ^. #apiOverride)
+    ++ maybe [] (\r -> ["      \"fastModeCost\": " <> renderFastCost r <> ","]) (m ^. #fastModeCost)
     ++ maybe [] (\p -> ["      \"pricingPolicy\": " <> renderPricingPolicy p <> ","]) (m ^. #pricingPolicy)
     ++ renderModelCompat (m ^. #compat)
     ++ [ "      \"enabled\": true",
@@ -615,10 +624,13 @@ renderModel m =
 -- models.dev rates, which do not describe the full request billing policy.
 -- https://developers.openai.com/api/docs/models/gpt-6-astra
 -- https://platform.claude.com/docs/en/models/fable-5-1/overview
+-- https://platform.claude.com/docs/en/build-with-claude/fast-mode
 pricingPolicies :: Map (Text, Text) Model.PricingPolicy
 pricingPolicies =
   Map.fromList
-    [ (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
+    [ (("anthropic", "claude-opus-5"), Model.PricingPolicy [] (Just 10)),
+      (("anthropic", "claude-opus-4-8"), Model.PricingPolicy [] (Just 10)),
+      (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20))
     ]
 
@@ -644,6 +656,7 @@ renderModelCompat (Just (CatalogAnthropicCompat facts)) =
     "        \"supportsSamplingParameters\": "
       <> jsonBool (facts ^. #supportsSamplingParameters)
       <> ",",
+    "        \"supportsFastMode\": " <> jsonBool (maybe False (const True) (facts ^. #fastModeCost)) <> ",",
     "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice),
     "      },"
   ]
@@ -693,3 +706,6 @@ renderNum = Text.pack . formatScientific Fixed Nothing
 -- control characters, quotes, and backslashes follow the JSON encoder exactly.
 jsonString :: Text -> Text
 jsonString = decodeUtf8 . LBS.toStrict . encode . String
+
+renderFastCost :: CatalogCost -> Text
+renderFastCost c = "{\"input\": " <> renderNum (c ^. #inputCost) <> ", \"output\": " <> renderNum (c ^. #outputCost) <> ", \"cacheRead\": " <> renderNum (c ^. #cacheReadCost) <> ", \"cacheWrite\": " <> renderNum (c ^. #cacheWriteCost) <> "}"

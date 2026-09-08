@@ -32,7 +32,7 @@ where
 import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
-import Baikai.Cost (CostEstimateReason (CacheDurationNotReported), estimateCost)
+import Baikai.Cost (CostEstimateReason (CacheDurationNotReported, SpeedNotReported), estimateCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
@@ -166,7 +166,10 @@ claudeMessagesStreamWith driver m ctx opts =
                             responseId = Nothing
                           }
                     ],
-                  assembler = emptyAssembler m startTime & #cacheDuration .~ shapedCacheDuration (call ^. #requestBody),
+                  assembler =
+                    emptyAssembler m startTime
+                      & #cacheDuration .~ shapedCacheDuration (call ^. #requestBody)
+                      & #fastRequested .~ shapedFastRequested (call ^. #requestBody),
                   finished = False,
                   terminalRef = tref,
                   metadataRef = mref,
@@ -557,6 +560,7 @@ data Assembler = Assembler
     toolMeta :: !(IntMap (Text, Text)),
     usage :: !Usage.Usage,
     cacheDuration :: !(Maybe CacheRetention),
+    fastRequested :: !Bool,
     stopReason :: !Stop.StopReason,
     -- | Anthropic's own correlation identifier for this call, from the
     -- response headers.
@@ -592,6 +596,7 @@ emptyAssembler m s =
       toolMeta = IntMap.empty,
       usage = Usage.zeroUsage,
       cacheDuration = Nothing,
+      fastRequested = False,
       stopReason = Stop.Stop,
       providerRequestId = Ev.Unobserved,
       observedModel = Ev.Unobserved,
@@ -855,8 +860,16 @@ finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
   let usageBare = if ass ^. #usageReported then ass ^. #usage else Normalize.normalizeUsage Normalize.ExclusiveInput (Normalize.ReportedUsage Nothing Nothing Nothing Nothing Nothing)
       calculated = Pricing.computeCostForService (ass ^. #cacheDuration) Nothing (ass ^. #model) usageBare
-      reasons = [CacheDurationNotReported | usageBare ^. #cacheWriteTokens > 0, Nothing <- [ass ^. #cacheDuration]]
+      reasons =
+        [CacheDurationNotReported | usageBare ^. #cacheWriteTokens > 0, Nothing <- [ass ^. #cacheDuration]]
+          <> [SpeedNotReported | ass ^. #fastRequested, not (any isSpeed (maybe [] (Set.toList . Usage.billingFacts) (usageBare ^. #availability)))]
+      isSpeed (Usage.BillingSpeed _) = True
+      isSpeed _ = False
    in usageBare & #cost .~ estimateCost reasons calculated
+
+shapedFastRequested :: Aeson.Value -> Bool
+shapedFastRequested (Aeson.Object body) = KeyMap.lookup "speed" body == Just (Aeson.String "fast")
+shapedFastRequested _ = False
 
 shapedCacheDuration :: Aeson.Value -> Maybe CacheRetention
 shapedCacheDuration (Aeson.Object body) = case KeyMap.lookup "cache_control" body of

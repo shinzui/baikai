@@ -158,7 +158,13 @@ digestTests :: TestTree
 digestTests =
   testGroup
     "digests"
-    [ testCase "a digest is sha256: plus 64 lowercase hex characters" $ do
+    [ testCase "speed participates in the configuration fingerprint" $ do
+        let absent = object ["model" .= ("claude-opus-5" :: Text.Text)]
+            standard = object ["model" .= ("claude-opus-5" :: Text.Text), "speed" .= ("standard" :: Text.Text)]
+            fast = object ["model" .= ("claude-opus-5" :: Text.Text), "speed" .= ("fast" :: Text.Text)]
+        assertBool "fast differs from standard" (configurationDigest fast /= configurationDigest standard)
+        assertBool "explicit standard differs from absent" (configurationDigest standard /= configurationDigest absent),
+      testCase "a digest is sha256: plus 64 lowercase hex characters" $ do
         env <- loadFixture
         let d = commitmentDigest env
         assertBool ("expected a sha256: prefix, got " <> Text.unpack d) $
@@ -263,7 +269,7 @@ usageEnvelopeTests =
   testGroup
     "usage envelope"
     [ testCase "cost basis is serialized additively without changing provider commitments" $ do
-        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.2"
+        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.3"
         let estimated = zeroUsage {cost = estimateCost [CacheWriteUsageNotReported] zeroCost}
         usageEnvelope estimated @?= usageEnvelope zeroUsage
         assertBool "usage JSON retains the local calculation basis" (Aeson.toJSON estimated /= Aeson.toJSON zeroUsage),

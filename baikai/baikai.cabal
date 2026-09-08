@@ -83,6 +83,7 @@ library
     Baikai.Provider.Transport.Classify
     Baikai.Response
     Baikai.ResponseFormat
+    Baikai.Speed
     Baikai.StopReason
     Baikai.Stream
     Baikai.Stream.Event

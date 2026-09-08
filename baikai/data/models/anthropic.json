@@ -21,6 +21,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -43,6 +44,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": false
       },
       "enabled": true
@@ -64,6 +66,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
         "supportsSamplingParameters": true,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -85,6 +88,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
         "supportsSamplingParameters": true,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -106,6 +110,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": true,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -127,6 +132,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -144,10 +150,13 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 10.0},
+      "fastModeCost": {"input": 10.0, "output": 50.0, "cacheRead": 1.0, "cacheWrite": 12.5},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
+        "supportsFastMode": true,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -165,10 +174,13 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 10.0},
+      "fastModeCost": {"input": 10.0, "output": 50.0, "cacheRead": 1.0, "cacheWrite": 12.5},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
+        "supportsFastMode": true,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -190,6 +202,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
         "supportsSamplingParameters": true,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -211,6 +224,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": true,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true
@@ -232,6 +246,7 @@
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
+        "supportsFastMode": false,
         "supportsForcedToolChoice": true
       },
       "enabled": true

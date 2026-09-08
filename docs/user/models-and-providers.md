@@ -406,6 +406,24 @@ catalog record, omits the parameters rather than sending a request it
 knows will fail, and records
 `sampling_dropped_unsupported_model` with the field names.
 
+`Options.speed` is an Anthropic Messages preference. `Nothing` omits the field;
+`Just SpeedStandard` explicitly sends standard speed. `Just SpeedFast` sends fast
+speed and the `fast-mode-2026-02-01` beta header when the model's compatibility
+record has `supportsFastMode = True`. The current catalog enables Opus 5 and
+Opus 4.8. Other Anthropic models omit fast speed and record
+`fast_mode_dropped_unsupported_model` in translation evidence; this does not
+weaken thinking or trigger the strict thinking gate. OpenAI and CLI providers
+omit this option. Model and caller header overrides still take precedence.
+
+`Model.fastModeCost` carries premium token rates. `computeCostAtSpeed` selects
+these explicitly; `SpeedStandard` agrees with `computeCost`, and missing fast
+rates retain a standard-rate estimate with an `UnsupportedSpeed` reason.
+Completed Anthropic calls select rates from **observed** usage speed, and apply
+the shaped cache duration once. When a fast request has no speed observation,
+the result retains standard pricing with `SpeedNotReported`; requesting fast
+mode alone does not prove it ran. The provider's current availability and
+pricing are documented in [Anthropic's fast-mode guide](https://platform.claude.com/docs/en/build-with-claude/fast-mode).
+
 `Options.metadata` is forwarded by neither API provider. Anthropic's
 `metadata` accepts only `user_id` and rejects other keys, so forwarding
 an arbitrary map would trade a silent drop for a 400.

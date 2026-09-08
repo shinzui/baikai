@@ -8,6 +8,7 @@
 module Baikai.Provider.Claude.Internal.Request
   ( mapRequest,
     planRequest,
+    planSpeed,
     planThinking,
     describeThinkingFor,
     ThinkingPlan (..),
@@ -32,6 +33,7 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
 import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
+import Baikai.Speed (Speed (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
 import Claude.V1.Messages qualified as Messages
@@ -127,6 +129,7 @@ mapRequest m ctx opts = do
           Messages.tools = toolsField,
           Messages.tool_choice = toolChoiceField,
           Messages.cache_control = cacheControlField,
+          Messages.speed = fst (planSpeed compat (opts ^. #speed)),
           Messages.thinking = field plan,
           Messages.output_config = outputConfigField
         },
@@ -206,7 +209,7 @@ resolveBaseTokens m opts = case opts ^. #maxTokens of
 -- separately: one is a fact about the model, the other about the API.
 planRequest :: Model -> Options -> (ThinkingPlan, SamplingPlan, ThinkingTranslation)
 planRequest m opts =
-  (plan, sampling, translation & #adjustments %~ (<> samplingAdjustments))
+  (plan, sampling, translation & #adjustments %~ (<> (samplingAdjustments <> snd (planSpeed compat (opts ^. #speed)))))
   where
     compat = anthropicMessagesCompatFor m
     cap = m ^. #maxOutputTokens
@@ -658,3 +661,12 @@ nonEmpty :: Text -> Maybe Text
 nonEmpty t
   | Text.null t = Nothing
   | otherwise = Just t
+
+-- | One capability gate shared by wire mapping, headers and the describer.
+planSpeed :: AnthropicMessagesCompat -> Maybe Speed -> (Maybe Messages.Speed, [ThinkingAdjustment])
+planSpeed compat = \case
+  Nothing -> (Nothing, [])
+  Just SpeedStandard -> (Just Messages.SpeedStandard, [])
+  Just SpeedFast
+    | compat ^. #supportsFastMode -> (Just Messages.SpeedFast, [])
+    | otherwise -> (Nothing, [FastModeDroppedUnsupportedModel])

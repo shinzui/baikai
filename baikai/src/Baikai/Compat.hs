@@ -54,6 +54,7 @@ module Baikai.Compat
         supportsCacheControlOnTools,
         sendSessionAffinityHeaders,
         thinkingStyle,
+        supportsFastMode,
         supportsForcedToolChoice,
         supportsSamplingParameters
       ),
@@ -270,6 +271,9 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     --   record, not of this type. Consumed by
     --   @Baikai.Provider.Claude.Internal.Request.planRequest@.
     supportsSamplingParameters :: !Bool,
+    -- | Whether this model accepts fast inference. Defaults to False;
+    -- curated availability and premium rates must agree.
+    supportsFastMode :: !Bool,
     -- | Whether this generation accepts required or named tool choice.
     -- Defaults to True; explicit catalog facts disable unsupported choices.
     supportsForcedToolChoice :: !Bool
@@ -286,10 +290,11 @@ defaultAnthropicMessagesCompat =
       sendSessionAffinityHeaders = False,
       thinkingStyle = AnthropicThinkingBudget,
       supportsSamplingParameters = True,
+      supportsFastMode = False,
       supportsForcedToolChoice = True
     }
 
--- | Older persisted models predate the forced-choice capability.
+-- | Older persisted models predate fast-mode and forced-choice capabilities.
 instance FromJSON AnthropicMessagesCompat where
   parseJSON = withObject "AnthropicMessagesCompat" $ \o ->
     AnthropicMessagesCompat
@@ -298,6 +303,7 @@ instance FromJSON AnthropicMessagesCompat where
       <*> o .: "sendSessionAffinityHeaders"
       <*> o .: "thinkingStyle"
       <*> o .: "supportsSamplingParameters"
+      <*> o .:? "supportsFastMode" .!= False
       <*> o .:? "supportsForcedToolChoice" .!= True
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible

@@ -21,6 +21,7 @@ module Baikai.Model
     reasoning,
     input,
     cost,
+    fastModeCost,
     pricingPolicy,
     contextWindow,
     maxOutputTokens,
@@ -183,6 +184,8 @@ data Model = Model
     reasoning :: !Bool,
     input :: ![InputModality],
     cost :: !ModelCost,
+    -- | Optional premium speed rates, in USD per million tokens.
+    fastModeCost :: !(Maybe ModelCost),
     pricingPolicy :: !(Maybe PricingPolicy),
     contextWindow :: !Natural,
     -- | The provider's cap on output tokens for this model, or @0@
@@ -232,6 +235,7 @@ instance Show Model where
         . next "reasoning" (reasoning m)
         . next "input" (input m)
         . next "cost" (cost m)
+        . next "fastModeCost" (fastModeCost m)
         . next "pricingPolicy" (pricingPolicy m)
         . next "contextWindow" (contextWindow m)
         . next "maxOutputTokens" (maxOutputTokens m)
@@ -282,6 +286,7 @@ emptyModel =
       reasoning = False,
       input = [InputText],
       cost = zeroModelCost,
+      fastModeCost = Nothing,
       pricingPolicy = Nothing,
       contextWindow = 0,
       maxOutputTokens = 0,

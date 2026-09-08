@@ -26,6 +26,7 @@ import Baikai.Compat
   ( AnthropicMessagesCompat
       ( sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
+        supportsFastMode,
         supportsForcedToolChoice,
         supportsLongCacheRetention,
         supportsSamplingParameters,
@@ -164,6 +165,7 @@ parseAnthropicCompat o = do
   ssah <- o .:? "sendSessionAffinityHeaders" .!= d.sendSessionAffinityHeaders
   ts <- optionalField o "thinkingStyle" parseAnthropicThinkingStyle d.thinkingStyle
   ssp <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
+  fast <- o .:? "supportsFastMode" .!= False
   forced <- o .:? "supportsForcedToolChoice" .!= d.supportsForcedToolChoice
   pure
     d
@@ -172,6 +174,7 @@ parseAnthropicCompat o = do
         sendSessionAffinityHeaders = ssah,
         thinkingStyle = ts,
         supportsSamplingParameters = ssp,
+        supportsFastMode = fast,
         supportsForcedToolChoice = forced
       }
 
@@ -240,6 +243,7 @@ data ModelEntry = ModelEntry
     entryReasoning :: !Bool,
     entryInput :: ![InputModality],
     entryCost :: !CostEntry,
+    entryFastModeCost :: !(Maybe CostEntry),
     entryPricingPolicy :: !(Maybe Model.PricingPolicy),
     entryContextWindow :: !Natural,
     entryMaxOutputTokens :: !Natural,
@@ -256,6 +260,7 @@ instance FromJSON ModelEntry where
       <*> o .:? "reasoning" .!= False
       <*> (o .: "input" >>= traverse parseInputModality)
       <*> o .: "cost"
+      <*> o .:? "fastModeCost"
       <*> (o .:? "pricingPolicy" >>= traverse parsePricingPolicy)
       <*> o .: "contextWindow"
       <*> o .: "maxOutputTokens"
@@ -322,6 +327,7 @@ data GeneratedEntry = GeneratedEntry
     reasoning :: !Bool,
     input :: ![InputModality],
     cost :: !CostEntry,
+    fastModeCost :: !(Maybe CostEntry),
     pricingPolicy :: !(Maybe Model.PricingPolicy),
     contextWindow :: !Natural,
     maxOutputTokens :: !Natural,
@@ -345,6 +351,7 @@ flattenEntries c =
               reasoning = entryReasoning m,
               input = entryInput m,
               cost = entryCost m,
+              fastModeCost = entryFastModeCost m,
               pricingPolicy = entryPricingPolicy m,
               contextWindow = entryContextWindow m,
               maxOutputTokens = entryMaxOutputTokens m,
@@ -389,9 +396,14 @@ checkIdentifierCollisions entries =
 checkAnthropicCompat :: [(Text, GeneratedEntry)] -> Either Text ()
 checkAnthropicCompat entries =
   case [e | (_, e) <- entries, e.api == AnthropicMessages, not (stated e.compat)] of
-    [] -> Right ()
+    [] -> case [e | (_, e) <- entries, fastSupported e /= maybe False (const True) e.fastModeCost] of
+      [] -> Right ()
+      bad -> Left ("fast-mode capability and rates disagree: " <> Text.intercalate ", " (map modelId bad))
     missing -> Left (Text.intercalate "; " (map complain missing))
   where
+    fastSupported e = case e.compat of
+      CatalogCompatAnthropic c -> c.supportsFastMode
+      _ -> False
     stated = \case
       CatalogCompatAnthropic _ -> True
       _ -> False
@@ -450,6 +462,7 @@ renderModule entries =
         "  ( AnthropicMessagesCompat",
         "      ( sendSessionAffinityHeaders,",
         "        supportsCacheControlOnTools,",
+        "        supportsFastMode,",
         "        supportsForcedToolChoice,",
         "        supportsLongCacheRetention,",
         "        supportsSamplingParameters,",
@@ -489,6 +502,7 @@ renderModule entries =
         "    contextWindow,",
         "    cost,",
         "    emptyModel,",
+        "    fastModeCost,",
         "    headers,",
         "    input,",
         "    maxOutputTokens,",
@@ -537,6 +551,7 @@ renderEntry g =
     "      input = " <> renderInputList g.input <> ",",
     "      cost =",
     renderCost g.cost <> ",",
+    renderFastCost g.fastModeCost,
     "      pricingPolicy = " <> renderPolicy g.pricingPolicy <> ",",
     "      contextWindow = " <> Text.pack (show g.contextWindow) <> ",",
     "      maxOutputTokens = " <> Text.pack (show g.maxOutputTokens) <> ",",
@@ -641,6 +656,7 @@ renderCompat = \case
       "              sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders <> ",",
       "              thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle <> ",",
       "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
+      "              supportsFastMode = " <> renderBool c.supportsFastMode <> ",",
       "              supportsForcedToolChoice = " <> renderBool c.supportsForcedToolChoice,
       "            }"
     ]
@@ -669,3 +685,19 @@ renderMaybeCacheControl :: Maybe CacheControlFormat -> Text
 renderMaybeCacheControl = \case
   Nothing -> "Nothing"
   Just CacheControlFormatAnthropic -> "Just CacheControlFormatAnthropic"
+
+renderFastCost :: Maybe CostEntry -> Text
+renderFastCost Nothing = "      fastModeCost = Nothing,"
+renderFastCost (Just c) =
+  Text.intercalate
+    "\n"
+    [ "      fastModeCost =",
+      "        Just",
+      "          ( ModelCost",
+      "              { inputCost = " <> renderRational (toRational (costInput c)) <> ",",
+      "                outputCost = " <> renderRational (toRational (costOutput c)) <> ",",
+      "                cacheReadCost = " <> renderRational (toRational (costCacheRead c)) <> ",",
+      "                cacheWriteCost = " <> renderRational (toRational (costCacheWrite c)),
+      "              }",
+      "          ),"
+    ]

@@ -182,7 +182,9 @@ including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
 Those changes introduced version 2.0. Records now say
-`baikai.model-call-evidence/2.2`. Version 2.1 added optional provider-scoped
+`baikai.model-call-evidence/2.3`. Version 2.3 adds the fast-mode drop adjustment,
+`SpeedNotReported` cost estimates, and the newly supported speed field to the
+configuration fingerprint. Envelopes without speed retain their old digests. Version 2.1 added optional provider-scoped
 `replay_state` to thinking content and includes it in the response commitment.
 Absent replay state is omitted, so earlier content encodings and digests
 remain unchanged. Version 2.2 adds `cost.basis`: its `sources` distinguish standard

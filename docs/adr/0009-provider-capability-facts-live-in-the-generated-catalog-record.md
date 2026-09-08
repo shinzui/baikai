@@ -135,3 +135,14 @@ curated predecessors. It is preserved by fetch/generation and checked before
 request preparation. Adaptive thinking alone does not determine this flag.
 Legacy persisted compat records default the new field to True; unsupported
 required/named choices produce a local error naming auto/none alternatives.
+
+## Anthropic fast mode (2026-09-07)
+
+`supportsFastMode` follows the same catalog contract and defaults to False for
+unannotated models and legacy persisted compat records. `Model.fastModeCost`
+holds prices separately from wire facts. Fetch curation derives availability
+from optional curated rates, and generation rejects disagreement in either
+direction, naming the model. Request mapping, automatic beta headers and the
+preflight evidence describer share `planSpeed`; unsupported fast preferences
+produce a non-thinking adjustment. Model and caller header overrides retain
+their existing precedence.

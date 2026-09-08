@@ -4,6 +4,7 @@ import Baikai.Api (Api (AnthropicMessages, OpenAIChatCompletions, OpenAIResponse
 import Baikai.Compat
   ( AnthropicThinkingStyle (AnthropicThinkingAdaptive),
     defaultAnthropicMessagesCompat,
+    supportsFastMode,
     supportsSamplingParameters,
     thinkingStyle,
   )
@@ -20,7 +21,14 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.GenModels"
-    [ testCase "catalog rejects invalid policy thresholds and negative rates" $ do
+    [ testCase "fast capability and rates must agree in both directions" $ do
+        forM_ [(True, Nothing), (False, Just (CostEntry 10 50 1 12.5))] $ \(supported, rates) -> do
+          let block = CatalogCompatAnthropic (defaultAnthropicMessagesCompat {supportsFastMode = supported})
+              catalog = (anthropicCatalog CatalogCompatAuto (Just block)) {models = [(model "claude-x") {entryCompatOverride = Just block, entryFastModeCost = rates}]}
+          case checkAnthropicCompat (flattenEntries catalog) of
+            Left err -> assertBool "names model" ("claude-x" `Text.isInfixOf` err)
+            Right () -> assertFailure "contradictory fast-mode catalog accepted",
+      testCase "catalog rejects invalid policy thresholds and negative rates" $ do
         let cost n = Aeson.object ["input" Aeson..= (n :: Int), "output" Aeson..= (1 :: Int), "cacheRead" Aeson..= (0 :: Int), "cacheWrite" Aeson..= (0 :: Int)]
             tier n rate = Aeson.object ["inputAbove" Aeson..= (n :: Int), "rates" Aeson..= cost rate]
             policy tiers = Aeson.object ["inputTiers" Aeson..= tiers]
@@ -126,6 +134,7 @@ model mid =
             costCacheRead = 0,
             costCacheWrite = 0
           },
+      entryFastModeCost = Nothing,
       entryPricingPolicy = Nothing,
       entryContextWindow = 1,
       entryMaxOutputTokens = 1,

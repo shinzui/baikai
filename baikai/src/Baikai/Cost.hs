@@ -35,6 +35,7 @@ data CostEstimateReason
   | InconsistentUsage
   | ServiceTierNotReported
   | UnsupportedServiceTier Text
+  | SpeedNotReported
   | UnsupportedSpeed Text
   | ServiceTierMismatch Text Text
   | PricingUnavailable

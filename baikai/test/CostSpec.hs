@@ -1,6 +1,7 @@
 module CostSpec (tests) where
 
 import Baikai.Api (Api (..))
+import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context (..), emptyContext)
 import Baikai.Cost qualified as Cost
@@ -13,9 +14,10 @@ import Baikai.Cost.Log
     runRequestWithLog,
     withCallLog,
   )
-import Baikai.Cost.Pricing (attachCost, computeCost)
+import Baikai.Cost.Pricing (attachCost, computeCost, computeCostAtSpeed, computeCostForService)
 import Baikai.Message (AssistantPayload (..), user)
-import Baikai.Model (Model (..), ModelCost (..), emptyModel)
+import Baikai.Model (InputPriceTier (..), Model (..), ModelCost (..), PricingPolicy (..), emptyModel)
+import Baikai.Models.Generated qualified as Models
 import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
 import Baikai.Provider
@@ -23,13 +25,16 @@ import Baikai.Provider
     registerApiProvider,
   )
 import Baikai.Response (Response (..), flattenAssistantBlocks)
+import Baikai.Speed (Speed (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.Usage (Usage, zeroUsage)
+import Baikai.Usage qualified as Usage
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BSL
 import Data.List.NonEmpty (NonEmpty ((:|)), nonEmpty)
 import Data.Maybe (fromJust, isJust)
+import Data.Set qualified as Set
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Vector qualified as V
 import System.Directory (getTemporaryDirectory, removeFile)
@@ -42,7 +47,8 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Cost"
-    [ computeTests,
+    [ fastCostTests,
+      computeTests,
       attachCostTests,
       callLogTests
     ]
@@ -278,3 +284,47 @@ sampleEntry now =
       latencyMs = 0,
       promptSummary = ""
     }
+
+fastCostTests :: TestTree
+fastCostTests =
+  testGroup
+    "fast pricing"
+    [ testCase "fast premiums compose with context tiers before pricing" $ do
+        let m = Models.anthropic_claude_opus_5 & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 1000 (ModelCost 10 50 1 12.5)] Nothing)
+        Cost.usd (computeCostAtSpeed m SpeedFast u) @?= 2 * Cost.usd (computeCost m u),
+      testCase "invalid premium rates and undefined policy ratios are explicit" $ do
+        let negative = knownModel & #fastModeCost .~ Just (ModelCost (-1) 10 0.2 2.5)
+            undefinedRatio = knownModel & #cost .~ ModelCost 0 5 0.1 1.25 & #fastModeCost .~ Just (ModelCost 10 10 0.2 2.5) & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 1 (ModelCost 5 5 0.1 1.25)] Nothing)
+        mapM_ (\m -> Set.member Cost.InvalidPricingPolicy (Cost.estimateReasons (Cost.basis (computeCostAtSpeed m SpeedFast u))) @?= True) [negative, undefinedRatio],
+      testCase "contradictory speed observations remain an explicit standard estimate" $ do
+        let usage = Usage.observeBilling [Usage.BillingSpeed "fast", Usage.BillingSpeed "standard"] u
+            result = computeCostForService Nothing Nothing Models.anthropic_claude_opus_5 usage
+        Cost.usd result @?= Cost.usd (computeCost Models.anthropic_claude_opus_5 u)
+        Set.member Cost.InconsistentUsage (Cost.estimateReasons (Cost.basis result)) @?= True,
+      testCase "fast Opus costs exactly twice standard across all four token categories" $ do
+        mapM_
+          ( \m -> do
+              let standard = computeCost m u
+                  fast = computeCostAtSpeed m SpeedFast u
+              Cost.usd fast @?= 2 * Cost.usd standard
+              Cost.breakdown fast @?= Cost.breakdown (standard <> standard)
+              computeCostAtSpeed m SpeedStandard u @?= standard
+              Cost.sources (Cost.basis fast) @?= Set.singleton Cost.ResolvedTokenRates
+          )
+          [Models.anthropic_claude_opus_5, Models.anthropic_claude_opus_4_8],
+      testCase "uncurated fast pricing retains the standard amount and marks the estimate" $ do
+        let m = Models.anthropic_claude_sonnet_5
+            fast = computeCostAtSpeed m SpeedFast u
+        Cost.usd fast @?= Cost.usd (computeCost m u)
+        Set.member (Cost.UnsupportedSpeed "fast") (Cost.estimateReasons (Cost.basis fast)) @?= True,
+      testCase "observed fast speed selects premium long-cache rates once" $ do
+        let usage = Usage.observeBilling [Usage.BillingSpeed "fast", Usage.BillingServiceTier "standard"] (zeroUsage & #cacheWriteTokens .~ 1000000)
+            price = computeCostForService (Just CacheRetentionLong) Nothing Models.anthropic_claude_opus_5 usage
+        Cost.usd price @?= 20
+        Set.member (Cost.UnsupportedSpeed "fast") (Cost.estimateReasons (Cost.basis price)) @?= False,
+      testCase "observed standard speed retains standard long-cache rates" $ do
+        let usage = Usage.observeBilling [Usage.BillingSpeed "standard", Usage.BillingServiceTier "standard"] (zeroUsage & #cacheWriteTokens .~ 1000000)
+        Cost.usd (computeCostForService (Just CacheRetentionLong) Nothing Models.anthropic_claude_opus_5 usage) @?= 10
+    ]
+  where
+    u = sampleUsage & #cacheReadTokens .~ 200 & #cacheWriteTokens .~ 300

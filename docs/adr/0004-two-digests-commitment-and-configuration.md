@@ -111,3 +111,9 @@ Neither digest is a signature and neither is presented as one. See
   section anticipates: records now say
   `baikai.model-call-evidence/2.0`, and a verifier selects its rules by
   `schema_version`.
+
+- 2026-09-07, `docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md`:
+  schema 2.3 admits the newly emitted `speed` configuration field. Absent,
+  explicit standard and fast configurations have distinct fingerprints;
+  envelopes without speed retain the existing golden digests. Canonical
+  encoding and response-commitment rules are unchanged.

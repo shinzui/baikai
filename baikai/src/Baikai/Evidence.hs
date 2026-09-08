@@ -267,11 +267,12 @@ instance FromJSON ThinkingMode where
 -- strict evidence mode can compare them; they render through
 -- 'Baikai.ThinkingLevel.renderThinkingLevel' in JSON.
 --
--- Two constructors are not about thinking: the sampling drops record
+-- Sampling and speed drops are not about thinking: sampling drops record
 -- that @temperature@, @top_p@, @seed@ and their kind were removed
 -- because the model generation or the API rejects them. They carry no
 -- requested level and 'weakensThinking' is 'False' for them, so strict
--- evidence mode does not refuse a call over one.
+-- evidence mode does not refuse a call over one. Fast-mode drops follow
+-- the same rule: losing speed does not weaken reasoning.
 data ThinkingAdjustment
   = -- | The requested level was replaced by a weaker one the transport
     -- accepts. Carries the requested level and the wire text sent.
@@ -306,6 +307,8 @@ data ThinkingAdjustment
     -- @presence_penalty@. Carries the wire names removed, in wire
     -- order.
     SamplingDroppedUnsupportedApi ![Text]
+  | -- | Fast speed was requested but the model does not support it.
+    FastModeDroppedUnsupportedModel
   deriving stock (Eq, Show, Generic)
 
 -- | Whether an adjustment weakens the /thinking/ the caller asked for.
@@ -313,7 +316,7 @@ data ThinkingAdjustment
 -- Strict evidence mode refuses a call whose translation would weaken
 -- the requested thinking level; it must not refuse one merely because
 -- a sampling parameter had nowhere to go. The six level-carrying
--- constructors weaken thinking; the two sampling ones do not.
+-- constructors weaken thinking; the sampling and speed ones do not.
 weakensThinking :: ThinkingAdjustment -> Bool
 weakensThinking = \case
   EffortClamped {} -> True
@@ -324,6 +327,7 @@ weakensThinking = \case
   ThinkingDroppedBudgetExceeded {} -> True
   SamplingDroppedUnsupportedModel {} -> False
   SamplingDroppedUnsupportedApi {} -> False
+  FastModeDroppedUnsupportedModel -> False
 
 -- | Adjustments encode as a tagged object whose @kind@ names the
 -- constructor in snake_case and whose @requested@ field carries the
@@ -349,6 +353,8 @@ instance ToJSON ThinkingAdjustment where
       untagged "sampling_dropped_unsupported_model" fields
     SamplingDroppedUnsupportedApi fields ->
       untagged "sampling_dropped_unsupported_api" fields
+    FastModeDroppedUnsupportedModel ->
+      object ["kind" .= ("fast_mode_dropped_unsupported_model" :: Text)]
     where
       tagged kind lvl extra =
         object
@@ -382,6 +388,7 @@ instance FromJSON ThinkingAdjustment where
           SamplingDroppedUnsupportedModel <$> o .: "fields"
         "sampling_dropped_unsupported_api" ->
           SamplingDroppedUnsupportedApi <$> o .: "fields"
+        "fast_mode_dropped_unsupported_model" -> pure FastModeDroppedUnsupportedModel
         other -> fail ("unknown thinking adjustment: " <> show other)
     v -> typeMismatch "ThinkingAdjustment" v
 
@@ -885,7 +892,10 @@ evidenceSchemaVersion :: Text
 -- Like the local numeric cost, this basis is excluded from response commitments.
 -- Optional provider availability facts do join usage commitments. Their absence
 -- preserves the six-field envelope and every legacy usage digest.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.2"
+-- Version 2.3 adds fast-mode drops and speed-unreported cost estimates.
+-- Newly emitted speed fields join the configuration projection; envelopes
+-- without speed retain their existing digests.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.3"
 
 -- | Everything Baikai can say about one completed provider call.
 --
@@ -1260,6 +1270,7 @@ configurationKeys =
       "reasoning",
       "reasoning_effort",
       "seed",
+      "speed",
       "stop_sequences",
       "stream",
       "temperature",

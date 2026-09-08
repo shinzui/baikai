@@ -48,7 +48,8 @@ tests =
       mergedOutputConfigTest,
       explicitCompatOverridesDefaultTest,
       anthropicModelsCoverCatalogTest,
-      testGroup "forced-tool catalog facts" [testCase name ((anthropicMessagesCompatFor m ^. #supportsForcedToolChoice) @?= forced) | (name, m, _, _, forced) <- anthropicModels],
+      testGroup "fast-mode catalog facts" [testCase name ((anthropicMessagesCompatFor m ^. #supportsFastMode) @?= fast) | (name, m, _, _, _, fast) <- anthropicModels],
+      testGroup "forced-tool catalog facts" [testCase name ((anthropicMessagesCompatFor m ^. #supportsForcedToolChoice) @?= forced) | (name, m, _, _, forced, _) <- anthropicModels],
       samplingTests,
       claude15UsageTests,
       zeroCapFloorTests,
@@ -66,19 +67,19 @@ tests =
 --
 -- @anthropicModelsCoverCatalogTest@ ties the table to @allModels@, so a
 -- newly curated model cannot arrive unpinned.
-anthropicModels :: [(String, Model, AnthropicThinkingStyle, Bool, Bool)]
+anthropicModels :: [(String, Model, AnthropicThinkingStyle, Bool, Bool, Bool)]
 anthropicModels =
-  [ ("claude-fable-5", anthropic_claude_fable_5, AnthropicThinkingAdaptive, False, True),
-    ("claude-fable-5-1", anthropic_claude_fable_5_1, AnthropicThinkingAdaptive, False, False),
-    ("claude-haiku-4-5", anthropic_claude_haiku_4_5, AnthropicThinkingBudget, True, True),
-    ("claude-opus-4-5", anthropic_claude_opus_4_5, AnthropicThinkingBudget, True, True),
-    ("claude-opus-4-6", anthropic_claude_opus_4_6, AnthropicThinkingAdaptive, True, True),
-    ("claude-opus-4-7", anthropic_claude_opus_4_7, AnthropicThinkingAdaptive, False, True),
-    ("claude-opus-4-8", anthropic_claude_opus_4_8, AnthropicThinkingAdaptive, False, True),
-    ("claude-opus-5", anthropic_claude_opus_5, AnthropicThinkingAdaptive, False, True),
-    ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget, True, True),
-    ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive, True, True),
-    ("claude-sonnet-5", anthropic_claude_sonnet_5, AnthropicThinkingAdaptive, False, True)
+  [ ("claude-fable-5", anthropic_claude_fable_5, AnthropicThinkingAdaptive, False, True, False),
+    ("claude-fable-5-1", anthropic_claude_fable_5_1, AnthropicThinkingAdaptive, False, False, False),
+    ("claude-haiku-4-5", anthropic_claude_haiku_4_5, AnthropicThinkingBudget, True, True, False),
+    ("claude-opus-4-5", anthropic_claude_opus_4_5, AnthropicThinkingBudget, True, True, False),
+    ("claude-opus-4-6", anthropic_claude_opus_4_6, AnthropicThinkingAdaptive, True, True, False),
+    ("claude-opus-4-7", anthropic_claude_opus_4_7, AnthropicThinkingAdaptive, False, True, False),
+    ("claude-opus-4-8", anthropic_claude_opus_4_8, AnthropicThinkingAdaptive, False, True, True),
+    ("claude-opus-5", anthropic_claude_opus_5, AnthropicThinkingAdaptive, False, True, True),
+    ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget, True, True, False),
+    ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive, True, True, False),
+    ("claude-sonnet-5", anthropic_claude_sonnet_5, AnthropicThinkingAdaptive, False, True, False)
   ]
 
 thinkingLevels :: [(String, ThinkingLevel)]
@@ -97,7 +98,7 @@ neverExceedsCapTests =
       req <- requestFor model (emptyOptions & #thinking .~ Just level)
       req ^. #max_tokens <= model ^. #maxOutputTokens
         @?= True
-  | (name, model, _, _, _) <- anthropicModels,
+  | (name, model, _, _, _, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
   ]
 
@@ -118,7 +119,7 @@ styleTests =
           req ^. #max_tokens @?= model ^. #maxOutputTokens
           (req ^. #output_config >>= Messages.effort)
             @?= adaptiveEffort level
-  | (name, model, style, _, _) <- anthropicModels,
+  | (name, model, style, _, _, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
   ]
 
@@ -358,7 +359,7 @@ adaptiveEffort = \case
 anthropicModelsCoverCatalogTest :: TestTree
 anthropicModelsCoverCatalogTest =
   testCase "anthropicModels covers exactly the catalog's Anthropic ids" $
-    List.sort [m ^. #modelId | (_, m, _, _, _) <- anthropicModels]
+    List.sort [m ^. #modelId | (_, m, _, _, _, _) <- anthropicModels]
       @?= List.sort [m ^. #modelId | m <- allModels, m ^. #api == AnthropicMessages]
 
 -- | Sampling parameters against the catalog's own record.
@@ -385,7 +386,7 @@ samplingTests =
               Messages.top_p req @?= Nothing
               filter isSamplingAdjustment (t ^. #adjustments)
                 @?= [SamplingDroppedUnsupportedModel ["temperature", "top_p"]]
-      | (name, model, _, supported, _) <- anthropicModels,
+      | (name, model, _, supported, _, _) <- anthropicModels,
         let verb = if supported then "forwards temperature and top_p" else "drops temperature and top_p and records it"
       ]
         <> [ testCase "sampling is dropped and recorded even when no thinking level is set" $ do

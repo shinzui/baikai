@@ -25,6 +25,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: add `Speed`, `Options.speed`, catalog-owned fast rates and
+  `computeCostAtSpeed`. Anthropic gates fast mode by model capability, adds the
+  beta header and records unsupported drops. Terminal pricing uses observed
+  speed, including cache duration; unreported speed is an explicit estimate.
+  Public records and sum types gain fields/constructors (PVP major review
+  required before release); older Model JSON defaults the new fields safely.
+
 - API usage now records observed service tiers, inference speed and server-tool
   use in optional billing facts covered by evidence schema 2.2. Missing service
   information and uncurated products produce explicit standard-rate estimates.

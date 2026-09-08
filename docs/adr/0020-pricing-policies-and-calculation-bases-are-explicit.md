@@ -30,8 +30,8 @@ assuming the user's preference was accepted. `computeCostForService` reads actua
 separately from a requested tier. Standard service uses catalog rates; missing or
 uncurated products keep a standard-rate estimate with a reason. The lower-level
 `computeCostAtRates` prices a resolved rate set once and labels its source
-`ResolvedTokenRates`; plan 69 can use it for catalog-owned fast prices after rate
-selection rather than multiplying an already computed amount.
+`ResolvedTokenRates`. Fast-mode pricing uses the same arithmetic path after
+resolving policy rates, never multiplying an already computed amount.
 
 `Cost.basis.sources` distinguishes standard token calculations from a total
 reported by a provider tool. Nonempty `estimateReasons` makes missing knowledge
@@ -73,3 +73,21 @@ The provider adapters issue one shaped cache duration per call; a mixed-duration
 breakdown is outside the current SDK-backed mapping. This decision does not
 claim provider invoice reconciliation or live verification, which belong to the
 focused acceptance work in plan 77.
+
+## Fast speed selection (2026-09-07)
+
+`Model.fastModeCost` is optional and missing legacy JSON decodes as absent.
+`computeCostAtSpeed` is an explicit calculation, not a provider observation;
+standard speed agrees exactly with `computeCost`. Fast speed applies the
+premium/base ratio for each category to the context- and duration-resolved
+rates before pricing once. Undefined ratios (a zero base with a nonzero
+resolved policy rate) are rejected as invalid policy. This composes long cache
+writes with premium pricing; the two curated Opus models carry their standard
+long-cache rate as well as fast rates. Missing fast prices retain the standard
+amount with `UnsupportedSpeed`, never a fabricated free call.
+
+Terminal pricing selects fast rates only from `Usage` billing observations.
+An accepted fast request whose response omits speed retains a standard-rate
+estimate marked `SpeedNotReported`. Contradictory speed observations retain a
+standard estimate marked `InconsistentUsage`. These states preserve the split
+between preference and observation required by ADR 0002.

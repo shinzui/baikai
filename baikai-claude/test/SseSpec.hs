@@ -2,7 +2,7 @@ module SseSpec (tests) where
 
 import Baikai
 import Baikai.Http qualified as Http
-import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_4_5)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_4_5, anthropic_claude_opus_5)
 import Baikai.Provider.Claude.Internal.Stream (Assembler, SseDriver, claudeMessagesStreamWith, emptyAssembler, translate)
 import Baikai.Provider.Claude.Sse
   ( ResponseMetadata,
@@ -183,7 +183,14 @@ blockClosingTests :: TestTree
 blockClosingTests =
   testGroup
     "block closing under failure"
-    [ testCase "Fable cache writes use the shaped duration including compatibility downgrades" $ do
+    [ testCase "fast terminal pricing follows observed speed, including missing observations" $ do
+        forM_ [(Just "fast", 1 / 50, Set.empty), (Just "standard", 1 / 100, Set.empty), (Nothing, 1 / 100, Set.singleton SpeedNotReported)] $ \(observed, expected, reasons) -> do
+          let speedJson = maybe "" (\v -> ",\"speed\":\"" <> v <> "\"") observed
+              body = [frameOf ("{\"type\":\"message_start\",\"message\":{\"id\":\"msg_fast\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":1000,\"service_tier\":\"standard\"" <> speedJson <> "}}}"), frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":0}}", frameOf "{\"type\":\"message_stop\"}"]
+          response <- streamingComplete (claudeMessagesStreamWith (replayDriver 200 [] body)) anthropic_claude_opus_5 emptyContext (testOptions & #cacheRetention .~ Just CacheRetentionLong & #speed .~ Just SpeedFast)
+          response ^. #message . #usage . #cost . #usd @?= expected
+          response ^. #message . #usage . #cost . #basis . #estimateReasons @?= reasons,
+      testCase "Fable cache writes use the shaped duration including compatibility downgrades" $ do
         let fable = anthropic_claude_fable_5_1
             downgraded = fable & #compat .~ CompatAnthropicMessages (anthropicMessagesCompatFor fable & #supportsLongCacheRetention .~ False)
             body = [frameOf "{\"type\":\"message_start\",\"message\":{\"id\":\"msg_cost\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-fable-5-1\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":1000,\"service_tier\":\"standard\",\"speed\":\"standard\"}}}", frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":0}}", frameOf "{\"type\":\"message_stop\"}"]

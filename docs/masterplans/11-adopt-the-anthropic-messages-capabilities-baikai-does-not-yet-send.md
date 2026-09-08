@@ -66,9 +66,9 @@ The initiative splits into four work streams. The split is driven by one
 hard technical fact and one architectural question, not by which files
 each change touches.
 
-The hard technical fact is the dependency version. `baikai-claude`
-declares `claude ^>=1.4` in `baikai-claude/baikai-claude.cabal` and
-currently resolves to `claude` 1.4.0. Reading the 1.4.0 source confirms
+At planning time, the hard technical fact was the dependency version. `baikai-claude`
+declared `claude ^>=1.4` in `baikai-claude/baikai-claude.cabal` and
+resolved to `claude` 1.4.0 before EP-2. Reading the 1.4.0 source confirms
 what is and is not available: the request record `Claude.V1.Messages.CreateMessage`
 already carries a `speed :: Maybe Speed` field, so fast mode needs no
 dependency change at all. But the `Thinking` type in 1.4.0 is only
@@ -134,11 +134,10 @@ each stream reports what it did. baikai keeps three separate facts about
 every call: what the caller asked for, what baikai translated that into
 on the wire, and what the provider reported back. A capability that is
 requested but cannot be observed must be recorded as such rather than
-assumed to have taken effect. This matters concretely for fast mode:
-`Claude.V1.Messages.Usage` in `claude` 1.4.0 has no field reporting which
-speed actually ran, so fast mode is requestable and translatable but not
-observable, and the plan must say so rather than imply the request
-succeeded.
+assumed to have taken effect. This matters concretely for fast mode: the planning SDK, 1.4.0, could
+not report speed. EP-2 upgraded it to 1.5.0, and EP-1 now uses reported
+usage speed for terminal pricing. Missing speed remains unobserved and a
+fast request with no report receives an explicit cost estimate reason.
 
 `docs/adr/0005-what-baikai-deliberately-does-not-do.md` is discussed
 above and governs the fallbacks decision.
@@ -163,7 +162,7 @@ rather than a decision record.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| EP-1 | Send Anthropic fast mode as a catalog-gated request option | docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md | None | None | Not Started |
+| EP-1 | Send Anthropic fast mode as a catalog-gated request option | docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md | None | None | Complete |
 | EP-2 | Upgrade the claude SDK to 1.5 and decide what a paused turn means | docs/plans/70-upgrade-the-claude-sdk-to-1-5-and-decide-what-a-paused-turn-means.md | None | EP-1 | Complete |
 | EP-3 | Ask Anthropic for summarized thinking instead of silently empty blocks | docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md | EP-2 | EP-1 | Not Started |
 | EP-4 | Carry the refusal category into the error and settle server-side fallbacks | docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md | EP-2 | EP-3 | Not Started |
@@ -177,8 +176,8 @@ Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3
 EP-1 depends on nothing and can start immediately. Everything it needs —
 the `speed` field on `Claude.V1.Messages.CreateMessage` and the
 `Speed` type with its `SpeedStandard` and `SpeedFast` constructors —
-exists in `claude` 1.4.0, the version the repository already builds
-against.
+existed in `claude` 1.4.0. The repository now builds against 1.5.0
+after EP-2, so EP-1 also consumes observed speed for pricing.
 
 EP-2 depends on nothing either, and could in principle run first or in
 parallel with EP-1. It is listed with EP-1 as a soft dependency for a
@@ -218,12 +217,11 @@ about it.
 
 The first is `Baikai.Compat.AnthropicMessagesCompat`, the record in
 `baikai/src/Baikai/Compat.hs` that carries per-model facts about what the
-Anthropic Messages API accepts for that model. It has five fields today:
+Anthropic Messages API accepts for that model. It now has seven fields:
 `supportsLongCacheRetention`, `supportsCacheControlOnTools`,
-`sendSessionAffinityHeaders`, `thinkingStyle` and
-`supportsSamplingParameters`. EP-1 adds a sixth field describing whether
-fast mode exists on the model, and EP-3 adds a seventh describing whether
-the model returns reasoning summaries by default. EP-1 owns establishing
+`sendSessionAffinityHeaders`, `thinkingStyle`, `supportsSamplingParameters`,
+`supportsForcedToolChoice` and EP-1's `supportsFastMode`. EP-3 adds another
+field describing whether the model returns reasoning summaries by default. EP-1 owns establishing
 the pattern; EP-3 follows it. Both must extend the same four places that
 `supportsSamplingParameters` already occupies: the record and its
 `default…` value in `baikai/src/Baikai/Compat.hs`, the curated facts
@@ -269,9 +267,9 @@ time Anthropic adds a stop reason.
 Track milestone-level progress across all child plans. Each entry names the child plan
 and the milestone. This section provides an at-a-glance view of the entire initiative.
 
-- [ ] EP-1: Fast mode support is a catalog fact carried by the compat record
-- [ ] EP-1: `Options.speed` reaches the wire, is refused on unsupporting models, and is recorded in evidence
-- [ ] EP-1: Fast-mode pricing is reported truthfully rather than at the standard rate
+- [x] EP-1: Fast mode support is a catalog fact carried by the compat record
+- [x] EP-1: `Options.speed` reaches the wire, is refused on unsupporting models, and is recorded in evidence
+- [x] EP-1: Fast-mode pricing is reported truthfully rather than at the standard rate
 - [x] EP-2: `claude` moves to `^>=1.5` and the package builds
 - [x] EP-2: A paused turn has a decided, tested representation
 - [ ] EP-3: Reasoning summaries are requested and arrive non-empty
@@ -282,6 +280,20 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 
 ## Surprises & Discoveries
 
+EP-1 integration (2026-09-07): plan 76 had already added policy resolution and
+observed billing facts. Fast pricing now uses that shared path, with a premium
+ratio applied to each resolved rate once. The Opus long-cache policy is also
+curated so cache and speed premiums compose. Missing speed after a shaped fast
+request is `SpeedNotReported`; no request preference fills an observation.
+Schema 2.3 adds the speed configuration fingerprint and drop vocabulary while
+preserving older no-speed golden digests. ADRs 0004, 0009 and 0020 record the
+durable rules. The fetcher derives capability from optional curated fast rates;
+the generator checks the independent JSON fields in both directions.
+
+The compatibility record and both pinned test tables now include forced-choice
+support from another initiative as well as EP-1's fast flag. EP-3 must extend
+the current shapes, including both additions.
+
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
 
@@ -289,9 +301,9 @@ Two discoveries during planning changed the shape of this MasterPlan and
 are recorded here so a later reader does not repeat the mistakes.
 
 The first is that the initiative was scoped from reading the wrong copy
-of the dependency. A local checkout of the `claude` package at
-`/Users/shinzui/Keikaku/hub/haskell/claude-project` is at version 1.5.0,
-while `baikai-claude` builds against 1.4.0 from Hackage. Three of the
+of the dependency. A local checkout of
+`mori://MercuryTechnologies/claude/packages/claude` is at version 1.5.0,
+while `baikai-claude` then built against 1.4.0 from Hackage. Three of the
 four capabilities appeared to be available when they were not. The
 correction was made by reading the 1.4.0 tarball directly:
 
@@ -337,6 +349,11 @@ with named tests under "the counts and stop reasons claude 1.5 reports".
 
 
 ## Decision Log
+
+- Decision (2026-09-07): implement EP-1 against already completed EP-2 and the
+  integrated pricing work rather than its historical SDK 1.4 assumptions.
+  Use observed speed for terminal rate selection, share the request gate with
+  headers and evidence, and preserve the existing pricing-policy composition.
 
 - Decision: Decompose into four ExecPlans — fast mode, the dependency
   bump, thinking display, and refusal plus fallbacks — rather than three
@@ -398,4 +415,22 @@ Compare the result against the original vision. Before marking the MasterPlan co
 distill durable project context from this MasterPlan and its child ExecPlans into
 docs/adr/. Keep task-local execution and coordination details here.
 
-(To be filled during and after implementation.)
+As of 2026-09-07, EP-1 and EP-2 are Complete (two of four children).
+Fast mode is available through `Options.speed`, with catalog gating, automatic
+beta headers, drop evidence and premium pricing composed with cache policy.
+The SDK upgrade supplies observed speed, and terminal costs consume it without
+substituting the request preference for provider evidence. ADRs 0004, 0009 and
+0020 capture EP-1's durable decisions; ADR 0018 captures EP-2's stop semantics.
+
+All ten Cabal test suites pass, including 748 core tests and 351 Claude tests.
+Generation rejects contradictory fast-mode facts, and isolated live fetching
+reproduces the new facts for all 11 Anthropic entries. Live Anthropic smoke was
+skipped because credentials are absent; no live fast entitlement was exercised.
+
+The next ready child is EP-3,
+`docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md`.
+EP-4 remains ready after EP-2 but is sequenced after EP-3 by its soft dependency.
+The whole-initiative ADR distillation pass remains due after those children.
+
+Revision 2026-09-07: recorded EP-1 integration with SDK 1.5 and shared pricing,
+updated current compat ownership, and distilled fast-mode decisions into ADRs.
