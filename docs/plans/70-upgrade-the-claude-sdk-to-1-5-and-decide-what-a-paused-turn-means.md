@@ -51,16 +51,22 @@ Use a checklist to summarize granular steps. Every stopping point must be docume
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: `claude` bound raised to `^>=1.5` and the resolver picks 1.5.0
-- [ ] M1: every compile error from the bump catalogued before any is fixed
-- [ ] M2: the paused-turn decision made and recorded in the Decision Log
-- [ ] M2: `mapStopReason` handles `Pause_Turn` and the package compiles
-- [ ] M2: a test proves a paused-turn stream produces the decided outcome
-- [ ] M3: full suite green; no behaviour change on any existing test
-- [ ] M3: `CHANGELOG.md` updated and an ADR written for the stop-reason rule
+- [x] (reconciled 2026-09-08) M1: `claude` bound raised to `^>=1.5` and the resolver picks 1.5.0
+- [x] (reconciled 2026-09-08) M1: the exhaustive stop-reason match has an explicit Pause_Turn branch
+- [x] (reconciled 2026-09-08) M2: the paused-turn decision made and recorded in the Decision Log
+- [x] (reconciled 2026-09-08) M2: `mapStopReason` handles `Pause_Turn` and the package compiles
+- [x] (reconciled 2026-09-08) M2: a test proves a paused-turn stream produces the decided outcome
+- [x] (reconciled 2026-09-08) M3: full suite green; no behaviour change on any existing test
+- [x] (reconciled 2026-09-08) M3: `CHANGELOG.md` updated and an ADR written for the stop-reason rule
 
 
 ## Surprises & Discoveries
+
+Reconciliation 2026-09-08: the master registry and implementation were complete
+while this child's living sections were still the original planning skeleton.
+This revision records the existing code and ADR rather than treating the stale
+checklist as work to implement again. The original pause-as-error recommendation
+below was rejected; ADR 0018 and the completion decision above are authoritative.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
@@ -97,11 +103,12 @@ plan makes.
   — each stand alone once this lands.
   Date: 2026-08-28
 
-- Decision: (to be recorded during Milestone 2) what a paused turn maps
-  to. The Plan of Work below lays out the options and states a
-  recommendation; the implementer must record the decision actually taken
-  here, with its rationale and date, before the milestone is complete.
-  Date: (pending)
+- Decision (reconciled 2026-09-08): `Pause_Turn` maps to `Stop`, produces
+  `EventDone`, and does not populate errorMessage. A paused generation has not
+  failed. The public stop sum stays closed and the SDK match exhaustive.
+  ADR 0018 records both the rule and its deliberate loss of raw stop identity.
+  `baikai-claude/test/ThinkingSpec.hs` tests the completed-stream behavior.
+
 
 
 ## Outcomes & Retrospective
@@ -111,7 +118,19 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Reconciled 2026-09-08 during the MasterPlan completion review. The parent
+already marked this child Complete, but its living sections had not recorded
+the implementation. The dependency is ^>=1.5 and the installed build plan uses
+1.5.0. `mapStopReason` handles Pause_Turn as Stop; ThinkingSpec pins EventDone
+without error text. ADR 0018 already holds the durable decision, including the
+lost raw stop identity. The master plan's earlier successful full-suite results
+cover this work; the final EP-4 validation rechecks it in the integrated tree.
+
+The implementation also adopted reported reasoning tokens and final prompt-side
+counts from SDK 1.5, contrary to the initial dependency-only scope. The tests
+under "the counts and stop reasons claude 1.5 reports" cover these observations
+and preservation of earlier counts when a delta omits them. This supports the
+observation rules already in ADR 0002; no additional ADR is necessary.
 
 
 ## Context and Orientation
@@ -504,7 +523,12 @@ to `baikai`'s public API and must be announced under a `### Changed`
 heading in `CHANGELOG.md` naming the release that carries it, in the
 spirit of `docs/adr/0016-deprecated-names-are-removed-at-the-next-major.md`.
 
-No new capability from `claude` 1.5 is consumed by this plan. The types
+The original scope excluded new capabilities; implementation additionally
+consumes reasoning-token and prompt-side usage reports as recorded above. The types
 `ThinkingAdaptiveWithDisplay`, `StopDetails` and `Fallbacks` become
 available on completion and are used by the two sibling plans named in
 Context and Orientation.
+
+Revision 2026-09-08: reconciled stale completion sections against the installed
+dependency, current ThinkingSpec acceptance tests, and ADR 0018 during the
+whole-initiative distillation pass. No SDK or pause behavior changed here.
