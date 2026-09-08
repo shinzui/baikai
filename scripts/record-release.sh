@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 # Record the mori Project release fact for shinzui/baikai from an observed tag.
 #
-# Called once per matched tag by the `release` automation
-# (automation/release.dhall), which cannot narrow its own ref pattern: mori's
-# ref globs understand `*` and `**` and nothing else, so "baikai- followed by a
-# version" is not expressible there. The narrowing happens here instead.
+# Called once per release by the `release` automation (automation/release.dhall).
+# That config's `refRegexes` already restricts the trigger to the umbrella
+# `baikai-<version>` tag, so this script no longer filters: it exists only to do
+# the two things a reaction cannot express -- strip the `baikai-` prefix and
+# read the tag's own creation time.
 set -euo pipefail
 
 tag=${1:?usage: record-release.sh TAG}
 
-# A release cut pushes one tag per package -- baikai-0.6.0.0 alongside
-# baikai-agent-0.2.0.0, baikai-claude-0.6.0.0 and four more. Mori keeps one
-# release fact per project, and baikai's project version is the umbrella
-# package's, so a tag carrying a package segment before the version is not this
-# fact. Exit 0: being the wrong tag is the ordinary outcome, six times out of
-# seven, and a nonzero exit would record six failed reactions per release.
+# The selector guarantees this shape, so a mismatch is a bug in the selector or
+# a hand-run with the wrong argument -- not the ordinary case it used to be.
+# Fail loudly rather than recording a version that breaks the convention below.
 if [[ ! $tag =~ ^baikai-([0-9]+(\.[0-9]+)*)$ ]]; then
-  echo "record-release: $tag is a package tag, not the umbrella baikai tag" >&2
-  exit 0
+  echo "record-release: $tag is not an umbrella baikai release tag" >&2
+  exit 1
 fi
 
+# Mori keeps one release fact per project and baikai's project version is the
+# umbrella package's, recorded without the tag prefix -- `0.6.0.1`, not
+# `baikai-0.6.0.1`. Versions are opaque to mori, so nothing but this line
+# enforces that.
 version=${BASH_REMATCH[1]}
 
 # The tag's own creation time, not the observation time. The two agree when the
