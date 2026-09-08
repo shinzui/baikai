@@ -165,7 +165,7 @@ rather than a decision record.
 | EP-1 | Send Anthropic fast mode as a catalog-gated request option | docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md | None | None | Complete |
 | EP-2 | Upgrade the claude SDK to 1.5 and decide what a paused turn means | docs/plans/70-upgrade-the-claude-sdk-to-1-5-and-decide-what-a-paused-turn-means.md | None | EP-1 | Complete |
 | EP-3 | Ask Anthropic for summarized thinking instead of silently empty blocks | docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md | EP-2 | EP-1 | Complete |
-| EP-4 | Carry the refusal category into the error and settle server-side fallbacks | docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md | EP-2 | EP-3 | Not Started |
+| EP-4 | Carry the refusal category into the error and settle server-side fallbacks | docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md | EP-2 | EP-3 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -261,11 +261,23 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-2: A paused turn has a decided, tested representation
 - [x] EP-3: Reasoning summaries are requested and arrive non-empty
 - [x] EP-3: A model that returns no summary says so in the evidence record
-- [ ] EP-4: A refusal carries the provider's category and explanation
-- [ ] EP-4: The server-side fallbacks question is answered in an ADR
+- [x] EP-4: A refusal carries the provider's category and explanation
+- [x] EP-4: The server-side fallbacks question is answered in an ADR
 
 
 ## Surprises & Discoveries
+
+EP-4 integration (2026-09-08): refusalCategory is a new optional public error
+field and therefore also an additive field inside evidence error_info. Schema
+2.5 names that addition; digest inputs are unchanged. Both API timeout
+constructors explicitly initialize it. SDK StopDetails uses record-dot access
+rather than generic lenses. Fallback iteration accounting and served-model
+handoffs are not implemented, so enabling that request field would exceed the
+current pricing and evidence contract. ADRs 0005 and 0011 hold the decisions.
+
+The completion audit found EP-2's child checklist still in its planning state
+although the parent, code and ADR 0018 recorded completion. Its living sections
+now reflect the existing implementation and tests; no pause behavior changed.
 
 EP-3 integration (2026-09-07): SDK 1.5 and current provider documentation support
 display in both thinking modes. Existing thinkingStyle suffices for the chosen
@@ -343,6 +355,12 @@ with named tests under "the counts and stop reasons claude 1.5 reports".
 
 
 ## Decision Log
+
+- Decision (2026-09-08): decline server-side fallbacks and retain caller-owned
+  subsequent calls. A future adoption needs explicit per-attempt billing,
+  served identity, target compatibility and replay design. Refusal categories
+  remain optional open provider text rather than new core error constructors.
+  ADRs 0005 and 0011 record the durable boundaries.
 
 - Decision (2026-09-07): EP-3 supersedes the proposed extra summary capability
   flag with the existing thinkingStyle selector. Explicit summarized display
@@ -433,12 +451,27 @@ a response-only diagnostic without altering signatures or observed effort.
 Replay acceptance passes; live Anthropic summary behavior was not exercised
 because credentials are absent.
 
-The next ready child is EP-4,
-docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md.
-The whole-initiative ADR distillation pass remains due after that child.
+Completed 2026-09-08: all four children are Complete. EP-4 adds the structured
+refusal category and readable explanation without changing failure semantics.
+Server-side fallbacks remain deliberately unsupported under ADR 0005.
+Final `cabal build all` and `cabal test all` pass, with all ten suites green
+(783 core, 366 Claude, 276 OpenAI and 116 agent tests). Formatting, diff checks,
+and strict profiled docs/user validation pass. Live Anthropic cases are skipped
+because credentials are absent; no live refusal behavior is claimed.
+The error record addition requires PVP major review before publishing.
+The whole-initiative ADR review covered the living sections of all four children:
+ADRs 0004, 0009 and 0020 already hold fast capability/pricing decisions; ADR 0018
+holds pause semantics and their limits; ADRs 0002, 0003 and 0009 hold summary
+policy and evidence distinctions. EP-4 extends ADRs 0005 and 0011 with the
+fallback exclusion and refusal detail contract. No new ADR is needed.
 
 Revision 2026-09-07: recorded EP-1 integration with SDK 1.5 and shared pricing,
 updated current compat ownership, and distilled fast-mode decisions into ADRs.
 
 Revision 2026-09-07: completed EP-3, reconciled shared catalog ownership with
 the reused thinkingStyle policy, and recorded summary evidence validation.
+
+Revision 2026-09-08: implemented EP-4, recorded refusal/schema integration and
+the fallback exclusion, reconciled EP-2's stale living sections, and performed
+the whole-initiative ADR distillation review. Final integrated checks pass;
+all four children are Complete.

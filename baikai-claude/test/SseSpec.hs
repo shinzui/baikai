@@ -19,6 +19,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
+import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
@@ -222,6 +223,7 @@ blockClosingTests =
             be ^. #category @?= ContentFiltered
             isRetryable be @?= False
           other -> assertFailure ("expected a terminal EventError, got: " <> show (take 1 other)),
+      refusalDetailTests,
       testCase "a mid-stream transport error closes open blocks before the terminal" $ do
         -- The failure is injected through 'translate' rather than the
         -- transport, because what is under test is the assembler's
@@ -581,3 +583,65 @@ fakeRedirectingManager attemptsRef =
     redirectResponse =
       S8.pack
         "HTTP/1.1 302 Found\r\nLocation: http://evil.test/steal\r\nContent-Length: 0\r\n\r\n"
+
+refusalDetailTests :: TestTree
+refusalDetailTests =
+  testGroup
+    "refusal details"
+    [ testCase "a categorised refusal names its category and explanation" $
+        check (Just "cyber") (Just "Provider explanation"),
+      testCase "unknown categories survive without an enum update" $
+        check (Just "future_category") Nothing,
+      testCase "an explanation survives without a category" $
+        check Nothing (Just "Provider explanation"),
+      testCase "null details preserve the original refusal message" $ do
+        events <- replayStream 200 [] (refusalWithDetails Aeson.Null)
+        be <- terminalError events
+        be ^. #refusalCategory @?= Nothing
+        be ^. #message @?= base,
+      testCase "absent detail fields preserve the original refusal message" $
+        check Nothing Nothing,
+      testCase "explicit null category and explanation remain absent" $ do
+        events <- replayStream 200 [] (refusalWithDetails (Aeson.object ["type" Aeson..= ("refusal" :: Text.Text), "category" Aeson..= Aeson.Null, "explanation" Aeson..= Aeson.Null]))
+        be <- terminalError events
+        be ^. #refusalCategory @?= Nothing
+        be ^. #message @?= base,
+      testCase "non-refusal completion does not turn stray details into an error" $ do
+        let body = map (S8.pack . Text.unpack . Text.replace "\"stop_reason\":\"refusal\"" "\"stop_reason\":\"end_turn\"" . Text.pack . S8.unpack) (refusalWithDetails (detail (Just "cyber") Nothing))
+        events <- replayStream 200 [] body
+        case reverse events of
+          EventDone TerminalPayload {errorInfo = Nothing} : _ -> pure ()
+          other -> assertFailure (show other),
+      testCase "blocking completion preserves the structured refusal" $ do
+        response <- streamingComplete (claudeMessagesStreamWith (replayDriver 200 [] (refusalWithDetails (detail (Just "bio") Nothing)))) testModel emptyContext testOptions
+        fmap (\be -> be ^. #refusalCategory) (response ^. #errorInfo) @?= Just (Just "bio")
+    ]
+  where
+    base = "Anthropic refused to generate a response (stop_reason=refusal)"
+    detail :: Maybe Text.Text -> Maybe Text.Text -> Aeson.Value
+    detail c e = Aeson.object (["type" Aeson..= ("refusal" :: Text.Text)] <> maybe [] (\v -> ["category" Aeson..= v]) c <> maybe [] (\v -> ["explanation" Aeson..= v]) e)
+    check c e = do
+      events <- replayStream 200 [] (refusalWithDetails (detail c e))
+      assertErrorContract events
+      be <- terminalError events
+      be ^. #category @?= ContentFiltered
+      isRetryable be @?= False
+      be ^. #refusalCategory @?= c
+      be ^. #message @?= base <> maybe "" (\v -> " [category=" <> v <> "]") c <> maybe "" (": " <>) e
+
+refusalWithDetails :: Aeson.Value -> [ByteString]
+refusalWithDetails details =
+  take 1 refusalBody
+    <> [ frameOf
+           ( LBS.toStrict
+               ( Aeson.encode
+                   ( Aeson.object
+                       [ "type" Aeson..= ("message_delta" :: Text.Text),
+                         "delta" Aeson..= Aeson.object ["stop_reason" Aeson..= ("refusal" :: Text.Text), "stop_details" Aeson..= details],
+                         "usage" Aeson..= Aeson.object ["output_tokens" Aeson..= (1 :: Int)]
+                       ]
+                   )
+               )
+           ),
+         frameOf "{\"type\":\"message_stop\"}"
+       ]

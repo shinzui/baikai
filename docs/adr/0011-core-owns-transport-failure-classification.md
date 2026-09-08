@@ -1,7 +1,7 @@
 ---
 title: Core owns transport failure classification, keyed on the phase the failure happened in
 status: accepted
-date: 2026-08-27
+date: 2026-09-08
 ---
 
 # Core owns transport failure classification, keyed on the phase the failure happened in
@@ -134,3 +134,18 @@ This record does not give baikai a retry loop. It makes the
 retryability answer correct;
 [0005](0005-what-baikai-deliberately-does-not-do.md) still holds, and
 nothing in baikai acts on `isRetryable`.
+
+## Provider refusal details (2026-09-08)
+
+Provider refusal categories are an open vocabulary and do not widen
+`ErrorCategory`. `BaikaiError.refusalCategory :: Maybe Text` preserves the
+provider's category verbatim; all smart constructors default it to `Nothing`.
+The Anthropic assembler reads it from refusal `stop_details`, and includes
+both the category and any explanation in the readable error message. Missing
+details retain the old message. A category is never inferred from prose,
+and the refusal remains `ContentFiltered`, non-retryable, and terminal.
+
+The additive JSON key is `refusal_category`; old error JSON still decodes
+with `Nothing`. Because evidence embeds these errors, schema 2.5 records the
+addition without changing digest inputs. Explicit downstream error record
+construction must accommodate the new field at the next PVP major release.

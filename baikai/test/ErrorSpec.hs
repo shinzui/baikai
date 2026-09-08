@@ -5,6 +5,7 @@ import Baikai.Error
     ErrorCategory (..),
     classifyHttpStatus,
     classifyHttpStatusWithBody,
+    contentFiltered,
     decodeError,
     httpError,
     invalidRequest,
@@ -15,6 +16,7 @@ import Baikai.Error
     rateLimited,
     retryAfterSecondsAt,
   )
+import Data.Aeson qualified as Aeson
 import Data.Time (UTCTime)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
@@ -27,6 +29,7 @@ tests =
       bodyClassifyTests,
       httpHelperTests,
       retryTests,
+      refusalJsonTests,
       constructorTests
     ]
 
@@ -150,4 +153,27 @@ constructorTests =
         category (invalidRequest "x") @?= InvalidRequest,
       testCase "decodeError category" $
         category (decodeError "x") @?= DecodeFailure
+    ]
+
+refusalJsonTests :: TestTree
+refusalJsonTests =
+  testGroup
+    "refusal error JSON"
+    [ testCase "provider category round-trips under its snake-case key" $ do
+        let e = (contentFiltered "declined") {refusalCategory = Just "future_category"}
+        Aeson.eitherDecode (Aeson.encode e) @?= Right e
+        Aeson.toJSON e
+          @?= Aeson.object
+            [ "category" Aeson..= ("content_filtered" :: String),
+              "message" Aeson..= ("declined" :: String),
+              "http_status" Aeson..= Aeson.Null,
+              "retry_after_seconds" Aeson..= Aeson.Null,
+              "exit_code" Aeson..= Aeson.Null,
+              "refusal_category" Aeson..= ("future_category" :: String)
+            ],
+      testCase "legacy errors without refusal_category still decode" $
+        Aeson.eitherDecode "{\"category\":\"content_filtered\",\"message\":\"declined\",\"http_status\":null,\"retry_after_seconds\":null,\"exit_code\":null}"
+          @?= Right (contentFiltered "declined"),
+      testCase "ordinary failures have no refusal category" $
+        refusalCategory (httpError 429 Nothing "slow down") @?= Nothing
     ]

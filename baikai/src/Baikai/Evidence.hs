@@ -914,7 +914,9 @@ evidenceSchemaVersion :: Text
 -- without speed retain their existing digests.
 -- Version 2.4 adds optional thinking.display_text and a response-only
 -- thinking_summary_unavailable diagnostic; existing digest rules are unchanged.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.4"
+-- Version 2.5 adds error_info.refusal_category, an optional provider fact.
+-- Older error objects decode with Nothing; digest inputs are unchanged.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.5"
 
 -- | Everything Baikai can say about one completed provider call.
 --

@@ -57,22 +57,39 @@ set the option and see the field on the wire.
 
 ## Progress
 
+- [x] (2026-09-08) Final: full build and all ten package suites pass in the integrated tree
+
 Use a checklist to summarize granular steps. Every stopping point must be documented here,
 even if it requires splitting a partially completed task into two ("done" vs. "remaining").
 This section must always reflect the actual current state of the work.
 
-- [ ] M1: the assembler reads `stop_details` off the message delta
-- [ ] M1: the refusal category and explanation reach the caller's error
-- [ ] M1: the existing refusal test still passes unchanged in intent
-- [ ] M1: a new test asserts a categorised refusal names its category
-- [ ] M2: the fallbacks question researched against ADR 0005 and answered
-- [ ] M2: `docs/adr/0005-what-baikai-deliberately-does-not-do.md` amended either way
-- [ ] M2: if adopted — option, wire field, beta header, and evidence handling
-- [ ] M2: if declined — the exclusion recorded with its reasoning
-- [ ] M3: `CHANGELOG.md` and `docs/user/models-and-providers.md` updated
+- [x] (2026-09-08) M1: the assembler reads `stop_details` off the message delta
+- [x] (2026-09-08) M1: the refusal category and explanation reach the caller's error
+- [x] (2026-09-08) M1: the existing refusal test still passes unchanged in intent
+- [x] (2026-09-08) M1: a new test asserts a categorised refusal names its category
+- [x] (2026-09-08) M2: the fallbacks question researched against ADR 0005 and answered
+- [x] (2026-09-08) M2: `docs/adr/0005-what-baikai-deliberately-does-not-do.md` amended either way
+- [x] (2026-09-08) M2: adoption branch not applicable; no fallback option is exposed
+- [x] (2026-09-08) M2: if declined — the exclusion recorded with its reasoning
+- [x] (2026-09-08) M3: `CHANGELOG.md` and `docs/user/models-and-providers.md` updated
 
 
 ## Surprises & Discoveries
+
+Implementation research (2026-09-08): `StopDetails` has no Generic instance,
+so its optional category/explanation use record-dot access; MessageDelta does
+have Generic. Source was located using Mori at
+`mori://MercuryTechnologies/claude/packages/claude`. No dependency bounds or
+pins changed; the already adopted ^>=1.5 dependency supplies these types.
+The provider's [current contract](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback)
+confirms that categories are open provider facts and fallback responses carry
+handoffs and iteration usage. The current adapter calculates from `ass.model`
+and reads observed identity only from message_start, supporting the exclusion.
+
+The initial build and test commands overlapped source edits and compiled an
+old core interface against the new adapter. They are not a clean baseline:
+the missing-field error was an artifact of timing. Validation was restarted
+sequentially after the edits, so only the later results count as acceptance.
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
 implementation. Provide concise evidence.
@@ -113,13 +130,21 @@ correct.
   and none of the work here supplies one.
   Date: 2026-08-28
 
-- Decision: (to be recorded during Milestone 2) whether baikai forwards
-  Anthropic's server-side `fallbacks` request field. The Plan of Work
-  below sets out the arguments on both sides. The implementer must record
-  the conclusion here with its rationale and date, and must amend
-  `docs/adr/0005-what-baikai-deliberately-does-not-do.md` to match,
-  whichever way it goes.
-  Date: (pending)
+- Decision (2026-09-08): retain the open provider category in
+  `BaikaiError.refusalCategory :: Maybe Text` and include both category and
+  explanation in the readable message. The JSON key is `refusal_category`;
+  generic decoding accepts older errors without it. This public record
+  addition requires PVP major review before publishing. Evidence embeds the
+  error, so its additive schema version becomes 2.5; digest inputs do not change.
+  ADR 0011 records the durable error vocabulary rule.
+
+- Decision (2026-09-08): decline server-side fallbacks. Forwarding a provider
+  loop does not itself create a local retry loop, but current pricing uses the
+  requested catalog model and the assembler ignores fallback handoffs and
+  iteration accounting. Correct support requires a separate design covering
+  served identity, per-attempt billing and credits, target compatibility and
+  replay. ADR 0005 records this exclusion without promising later adoption.
+
 
 
 ## Outcomes & Retrospective
@@ -129,7 +154,21 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Milestones 1–3 implemented 2026-09-08. Provider categories survive as open text
+and readable messages include explanations. The original uncategorised refusal
+test and fixture are unchanged. New replay tests cover absent, null, partial and
+unknown details, stray details on a successful stop, and blocking completion;
+core tests pin JSON spelling, round trips and legacy decoding. Timeout errors
+in both API adapters explicitly initialize the new field to Nothing.
+
+Focused acceptance: `cabal test baikai baikai-claude` passes all 783 core and
+366 Claude tests. Strict profiled validation of docs/user passes (11 concepts).
+`cabal build all` and `cabal test all` pass (all ten suites, including 783
+core, 366 Claude, 276 OpenAI and 116 agent tests). Fourmolu checks and
+`git diff --check` pass. Live Anthropic cases were skipped for absent
+credentials; replay is the acceptance evidence. The ADR distillation
+adds the error vocabulary rule to ADR 0011 and the fallback exclusion to ADR
+0005. No live refusal or fallback request was made.
 
 
 ## Context and Orientation
@@ -151,7 +190,10 @@ category is an open set — values seen so far include `cyber`, `bio`,
 absent. `stop_details` is populated *only* for a refusal; it is null for
 every other stop reason.
 
-**How baikai reports errors.** `baikai/src/Baikai/Error.hs` defines:
+**How baikai reports errors.** Before this implementation,
+`baikai/src/Baikai/Error.hs` defined the following record; the completed
+implementation adds `refusalCategory :: Maybe Text` as described in the
+Decision Log:
 
 ```haskell
 data BaikaiError = BaikaiError
@@ -175,7 +217,7 @@ with `fieldLabelModifier = camelTo2 '_'`, so field names serialize as
 snake case (`http_status`, `retry_after_seconds`). Any field you add
 appears on that wire, which consumers may already parse.
 
-**Where the refusal is turned into an error.** In
+**Where the refusal is turned into an error (pre-implementation excerpt).** In
 `baikai-claude/src/Baikai/Provider/Claude/Internal/Stream.hs`, the
 assembler consumes the provider's server-sent events. Two branches
 matter. The `Messages.Message_Delta` branch is where the stop reason
@@ -205,7 +247,7 @@ stop reason arrives in one event and is consumed in a later one, held in
 between on the assembler state record. Anything you read off
 `stop_details` must be carried the same way.
 
-**Why this plan is blocked.** The `claude` package version 1.4.0, which
+**Dependency history (now satisfied).** The `claude` package version 1.4.0, which
 this repository builds against before its sibling plan lands, has no
 `stop_details` field anywhere and no fallback types. Confirm for yourself
 by extracting the tarball Cabal already downloaded and grepping the
@@ -323,7 +365,7 @@ field breaks explicit record construction downstream and changes the JSON
 encoding, where the new key appears in snake case alongside the existing
 ones.
 
-The recommendation is to do both: a structured field for branching and a
+The implemented decision is to do both: a structured field for branching and a
 message that still reads well on its own, because an error message that
 requires a second field to be intelligible is a bad error message. If you
 take the recommendation, follow the existing precedent exactly — the new
@@ -530,16 +572,23 @@ At the end of Milestone 1, the assembler state record in
 `baikai-claude/src/Baikai/Provider/Claude/Internal/Stream.hs` carries the
 refusal detail from the delta that supplies it to the stop that consumes
 it, and — if the recommendation is taken — `Baikai.Error.BaikaiError` has
-one new `Maybe Text` field holding the provider's refusal category,
+one new `Maybe Text` field, `refusalCategory`, holding the provider's refusal category,
 defaulted to `Nothing` in the shared `baseError` helper and set only on
 the refusal path.
 
 At the end of Milestone 2, `docs/adr/0005-what-baikai-deliberately-does-not-do.md`
-states baikai's position on server-side fallbacks. If that position is to
-adopt, then additionally: a baikai-owned option type in `baikai/src/Baikai/`
+records the decision to decline server-side fallbacks. The following remains
+the historical scope considered only for an adoption decision: a baikai-owned option type in `baikai/src/Baikai/`
 mirroring the shape of `Baikai.CacheRetention`, a field on
 `Baikai.Options.Options` defaulting to `Nothing`, the `fallbacks` field
 set in `mapRequest`, the beta header sent from
 `baikai-claude/src/Baikai/Provider/Claude/Transport.hs`, and a response
 path that reports the model that actually ran rather than the model that
 was requested.
+
+Revision 2026-09-08: implemented the structured category and readable detail,
+settled fallbacks as an exclusion, documented schema 2.5 and public API impact,
+and extended validation to legacy JSON and optional-detail replay cases.
+
+Final validation 2026-09-08: all milestones and integrated checks pass. EP-4 is
+Complete and no further implementation remains under this MasterPlan.

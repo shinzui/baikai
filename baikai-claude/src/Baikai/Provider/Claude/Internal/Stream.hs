@@ -581,6 +581,8 @@ data Assembler = Assembler
     cacheDuration :: !(Maybe CacheRetention),
     fastRequested :: !Bool,
     stopReason :: !Stop.StopReason,
+    -- | Refusal detail reported in the delta, consumed at message_stop.
+    stopDetails :: !(Maybe Messages.StopDetails),
     -- | Anthropic's own correlation identifier for this call, from the
     -- response headers.
     providerRequestId :: !(Ev.Observed Text),
@@ -617,6 +619,7 @@ emptyAssembler m s =
       cacheDuration = Nothing,
       fastRequested = False,
       stopReason = Stop.Stop,
+      stopDetails = Nothing,
       providerRequestId = Ev.Unobserved,
       observedModel = Ev.Unobserved,
       httpStatus = Nothing,
@@ -695,12 +698,21 @@ translateEvent raw ass now = case raw of
                   (su.stream_cache_creation_input_tokens <|> known Usage.CacheWriteUsage Usage.cacheWriteTokens)
                   ((Messages.thinking_tokens <$> su.stream_output_tokens_details) <|> (u ^. #reasoningTokens))
               )
-     in ([], ass & #stopReason .~ stopR & #usage .~ u' & #usageReported .~ True)
+     in ([], ass & #stopReason .~ stopR & #stopDetails .~ (md ^. #stop_details) & #usage .~ u' & #usageReported .~ True)
   Messages.Message_Stop ->
     let reason = ass ^. #stopReason
         -- A refusal is a filter: the content, not the transport, is
         -- the problem, and a caller can branch on the category.
-        refusal = contentFiltered "Anthropic refused to generate a response (stop_reason=refusal)"
+        details = ass ^. #stopDetails
+        refusalCategory = details >>= (\d -> d.category)
+        explanation = details >>= (\d -> d.explanation)
+        refusal =
+          contentFiltered
+            ( "Anthropic refused to generate a response (stop_reason=refusal)"
+                <> maybe "" (\c -> " [category=" <> c <> "]") refusalCategory
+                <> maybe "" (": " <>) explanation
+            )
+            & #refusalCategory .~ refusalCategory
         msg =
           if reason == Stop.ErrorReason
             then finalMessageOnError ass now (refusal ^. #message)

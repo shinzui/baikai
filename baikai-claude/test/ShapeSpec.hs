@@ -21,7 +21,10 @@ tests :: TestTree
 tests =
   testGroup
     "ShapeSpec"
-    [ summaryDisplayTest,
+    [ testCase "server-side fallbacks stay absent from the request" $ do
+        value <- shapedBody Models.anthropic_claude_opus_5 emptyContext emptyOptions
+        lookupPath ["fallbacks"] value @?= Nothing,
+      summaryDisplayTest,
       fastSpeedTests,
       verbatimToolSchemaTest,
       toolChoiceNoneTest,

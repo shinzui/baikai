@@ -182,7 +182,10 @@ including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
 Those changes introduced version 2.0. Records now say
-`baikai.model-call-evidence/2.4`. Version 2.4 adds optional
+`baikai.model-call-evidence/2.5`. Version 2.5 adds optional
+`error_info.refusal_category`, preserving the provider category separately from
+the readable error message. Legacy errors decode without a category; digest
+inputs are unchanged. Version 2.4 adds optional
 `thinking.display_text` and the response-only `thinking_summary_unavailable`
 adjustment. The latter records unreadable completed thinking blocks without
 claiming an observed effort level or changing the call status. Existing digest

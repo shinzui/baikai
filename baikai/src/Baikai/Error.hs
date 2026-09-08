@@ -106,7 +106,10 @@ data BaikaiError = BaikaiError
     -- header in either its integer or its HTTP-date form.
     retryAfterSeconds :: !(Maybe Int),
     -- | The subprocess exit code, for 'ProcessFailure'.
-    exitCode :: !(Maybe Int)
+    exitCode :: !(Maybe Int),
+    -- | Provider-reported refusal category, an open vocabulary. Present only
+    -- when a content refusal names one; never inferred from message text.
+    refusalCategory :: !(Maybe Text)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -133,7 +136,8 @@ baseError c m =
       message = m,
       httpStatus = Nothing,
       retryAfterSeconds = Nothing,
-      exitCode = Nothing
+      exitCode = Nothing,
+      refusalCategory = Nothing
     }
 
 -- Smart constructors. These keep call sites close to the old API: an

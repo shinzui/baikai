@@ -687,3 +687,18 @@ everything with zero — they don't expose token usage.
 prompt caching via `Options.cacheRetention`. See
 [Prompt Caching](prompt-caching.md) for the request-side preference, the
 host-aware long/short downgrade, and a worked write-then-read example.
+
+## Anthropic refusals
+
+An Anthropic Messages refusal produces a terminal `EventError` with
+`BaikaiError.category = ContentFiltered` and `isRetryable = False`.
+`BaikaiError.refusalCategory` holds the provider's category when reported;
+treat it as an open text value, including categories not previously seen.
+The readable `message` includes that category and any provider explanation.
+Without either detail, the original generic refusal message remains.
+The JSON field is `refusal_category`; older error objects decode with no category.
+
+Baikai does not enable Anthropic server-side fallbacks. Applications own any
+subsequent call and model choice. Supporting provider-side model substitution
+would require per-attempt model, billing, compatibility and replay handling;
+see [ADR 0005](../adr/0005-what-baikai-deliberately-does-not-do.md).

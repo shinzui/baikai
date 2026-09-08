@@ -82,7 +82,8 @@ timeoutError ms =
       message = "provider stream exceeded timeoutMs=" <> Text.pack (show ms),
       httpStatus = Nothing,
       retryAfterSeconds = Nothing,
-      exitCode = Nothing
+      exitCode = Nothing,
+      refusalCategory = Nothing
     }
 
 -- | Apply caller overrides over the provider's own headers.

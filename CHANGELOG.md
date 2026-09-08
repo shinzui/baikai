@@ -9,6 +9,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `baikai-claude`: refusal messages include the reported category and explanation,
+  retaining the original message when neither exists. Classification remains
+  non-retryable `ContentFiltered`. Server-side fallbacks remain deliberately
+  unsupported, as recorded in ADR 0005.
+
 - `baikai-claude`: adaptive reasoning requests explicitly ask for summarized
   thinking. Evidence schema 2.4 records the display setting and diagnoses
   successful responses whose thinking blocks contain no readable summary.
@@ -34,6 +39,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `baikai`: preserve OpenAI endpoint capability facts through catalog refreshes.
 
 ### Added
+
+- `baikai`: `BaikaiError.refusalCategory` preserves an Anthropic refusal's
+  provider category. JSON adds `refusal_category`; older errors still decode.
+  Evidence schema 2.5 records the addition without changing digest inputs.
+  This public record addition requires PVP major review before release.
 
 - `baikai`: add `Speed`, `Options.speed`, catalog-owned fast rates and
   `computeCostAtSpeed`. Anthropic gates fast mode by model capability, adds the

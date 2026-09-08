@@ -1,7 +1,7 @@
 ---
 title: Baikai does not sign, does not hold sanctioning policy, does not claim provider internals, and does not own retries
 status: accepted
-date: 2026-08-05
+date: 2026-09-08
 ---
 
 # Baikai does not sign, does not hold sanctioning policy, does not claim provider internals, and does not own retries
@@ -51,6 +51,26 @@ on it. The evidence therefore models a retry relationship as
 caller-supplied provenance — an `attempt` ordinal and an optional
 `supersedes` call id — not as something baikai observes.
 
+**Baikai does not enable Anthropic server-side fallbacks.** Forwarding a
+provider-owned loop would not itself violate the no-local-retries boundary,
+but forwarding this field without modelling its result would violate the
+boundary on truthful reporting. The adapter leaves `fallbacks` absent.
+A caller may choose a subsequent call explicitly; baikai does not act on a
+refusal category or choose a substitute model.
+
+The current adapter calculates cost from the requested model's catalog and
+records a single observed model from `message_start`. It does not interpret
+fallback handoff blocks or per-iteration usage. Supporting this feature would
+require an explicit design for requested versus served model identity,
+per-attempt usage and pricing (including refusal billing and fallback credit),
+compatibility validation for each target, and replay of cross-model content.
+Those are prerequisites for reconsideration, not promised follow-on work.
+This is a deliberate exclusion, not a judgment about which models are allowed.
+
+The provider's [refusal and fallback contract](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback)
+was consulted on 2026-09-08; SDK types were inspected through
+`mori://MercuryTechnologies/claude/packages/claude`.
+
 ## Consequences
 
 The exclusions have teeth in the code rather than only in prose. There
@@ -72,3 +92,7 @@ statement has to build the layer above. That is the correct division: a
 provider-abstraction library that also held signing keys and a model
 allow-list would be two products sharing a package boundary, and the
 second would constrain the first.
+
+Refusal detail remains useful without automatic fallback: callers can branch
+on the provider's category and decide their own next action. Request-shape
+coverage asserts that baikai does not enable the excluded fallback feature.
