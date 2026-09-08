@@ -57,6 +57,7 @@ library
     Baikai.Provider.OpenAI.Internal.ErrorClass
     Baikai.Provider.OpenAI.Internal.Request
     Baikai.Provider.OpenAI.Internal.Stream
+    Baikai.Provider.OpenAI.Responses.Assembler
     Baikai.Provider.OpenAI.Responses.Request
     Baikai.Provider.OpenAI.Shape
     Baikai.Provider.OpenAI.Sse
@@ -101,6 +102,7 @@ test-suite baikai-openai-test
     MidStreamSpec
     PublicSurfaceSpec
     ReasoningSpec
+    ResponsesAssemblerSpec
     ResponsesSpec
     ResponsesTransportSpec
     ShapeSpec

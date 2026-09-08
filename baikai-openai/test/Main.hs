@@ -47,6 +47,7 @@ import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import PublicSurfaceSpec qualified
 import ReasoningSpec qualified
+import ResponsesAssemblerSpec qualified
 import ResponsesSpec qualified
 import ResponsesTransportSpec qualified
 import ShapeSpec qualified
@@ -101,6 +102,7 @@ main =
         MidStreamSpec.tests,
         PublicSurfaceSpec.tests,
         ReasoningSpec.tests,
+        ResponsesAssemblerSpec.tests,
         ResponsesSpec.tests,
         ResponsesTransportSpec.tests,
         ShapeSpec.tests,

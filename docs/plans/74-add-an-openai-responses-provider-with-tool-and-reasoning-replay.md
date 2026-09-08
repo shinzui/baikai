@@ -30,7 +30,8 @@ A caller can register a native OpenAI Responses provider, select GPT-6 Astra, st
 - [x] (2026-09-07) Implement Responses request validation and a next-request fixture preserving persisted empty-summary/encrypted items through appendToolResult with matching call_id.
 - [x] (2026-09-07) Map text/images, assistant history, tools/results, structured output, effort/sampling, metadata and supported cache preferences. Add the Responses HTTP path using shared SSE framing and manager ownership.
 - [x] (2026-09-07) Request/HTTP validation: all 224 OpenAI tests pass; final exact-wire assertions pass in all 12 Responses cases. Formatter and diff checks pass.
-- [ ] Implement streaming state machine and attach the HTTP driver.
+- [x] (2026-09-07) Add pure Responses item/content-index assembler: live deltas, ordered parallel calls, snapshot reconciliation, opaque reasoning items, partial cut-off calls and raw terminal observations. All 236 OpenAI tests pass, including 12 assembler cases.
+- [ ] Attach the assembler to the bounded HTTP worker with classified terminal errors and EOF handling.
 - [ ] Attach evidence, support per-model API overrides and activate Astra.
 - [ ] Prove two-turn tool loop, lifecycle and documentation examples.
 
@@ -45,6 +46,8 @@ The full Claude suite exposed a pre-existing missing Fable 5.1 row in the provid
 
 ## Decision Log
 
+2026-09-07: Serialize output items into one Baikai content block per item, buffering later output/content indexes until the current prefix completes. Final snapshots reconcile prefixes rather than append them. A function call lacking item completion remains a String argument prefix even if it parses as JSON. Keep the raw observed terminal response for usage availability and evidence integration.
+
 
 2026-09-07: Add a separate OpenAIResponses API tag and provider; do not tunnel Responses through the Chat Completions tag. This keeps dispatch and evidence truthful.
 
@@ -54,7 +57,7 @@ The full Claude suite exposed a pre-existing missing Fable 5.1 row in the provid
 ## Outcomes & Retrospective
 
 
-The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. A Responses provider is not registered or activated yet; the streaming assembler, evidence integration and runToolLoop acceptance remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
+The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. A Responses provider is not registered or activated yet; the pure streaming assembler is implemented and tested. HTTP worker/evidence integration and runToolLoop acceptance remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
 
 
 ## Context and Orientation

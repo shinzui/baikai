@@ -46,6 +46,11 @@ summaries are valid. Function results use the tool's `call_id`, independently
 of the reasoning item ID. An SDK projection is not used for opaque items,
 because it could discard unknown continuation fields.
 
-Transport implementation and catalog activation remain tracked by
+The Responses assembler retains the entire final reasoning item on ThinkingEnd,
+including an empty summary and unknown continuation fields. Summary deltas
+contain only visible text. Ordered item assembly buffers parallel later items
+to preserve Baikai's one-open-block event contract.
+
+Transport integration and catalog activation remain tracked by
 [plan 74](../plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md).
 A separate dispatch tag does not by itself establish an implemented provider.
