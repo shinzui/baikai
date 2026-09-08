@@ -28,12 +28,15 @@ A maintainer can run a focused compatibility command for the two new models, see
 - [x] Add bounded text/tool cases, credential-chain resolution, and redacted JSON results.
 - [x] Pass the offline provider/documentation gate and option/missing-key checks.
 - [x] Add named-case selection for isolated reproduction and exact dispatched endpoint paths.
-- [ ] Execute the focused paid run and record dated results for both models.
-- [x] Update reproduction documentation and audit every acceptance area; retain Fable live acceptance as outstanding.
+- [x] Execute the focused paid run and record dated results for both models.
+- [x] Update reproduction documentation and audit every acceptance area and close the final live acceptance gap.
 
 
 ## Surprises & Discoveries
 
+
+2026-09-08: The credential gap is resolved and the complete focused run passed.
+The dated notes below retain the earlier failed preflight and discovery history.
 
 The focused executable builds successfully. The prerequisite gate passes 708 core,
 276 OpenAI, 335 Claude tests, compiled documentation, and nine pure option/credential
@@ -83,19 +86,32 @@ encrypted reasoning. Record structured error categories and HTTP status instead.
 ## Outcomes & Retrospective
 
 
-The focused runner, isolated case selection, missing-key contract and reproduction
-documentation are implemented. Astra text and deterministic tool use passed live;
-Fable live acceptance remains outstanding. The
-initiative is not complete. An empty reasoning result is not claimed as a live
-encrypted replay test, and local token-cost calculations are not invoice verification.
+Complete on 2026-09-08. The full focused command passed all four cases with
+credentials loaded through `direnv exec .`: Astra text/tools and Fable text/tools.
+Each text case used one request; each tool case used two requests and invoked
+its local dispatcher once. Both final tool answers contained the exact supplied
+timestamp. All six responses reported the requested model and correct endpoint.
+The redacted [full result](../validation/masterplan-12/2026-09-08-full-focused.json)
+is preserved alongside the earlier failed preflight and successful Astra runs.
 
-The [acceptance audit](../validation/masterplan-12/acceptance.md) maps each child
-contract to inspected fixtures, executed gates, or live artifacts. The final
-workspace build passes (`/tmp/baikai-mp12-audit-build.log`). A second goal turn
-confirmed Anthropic credentials remain absent; no further paid call was made.
+The final run's local standard-token calculation is $0.01438: $0.00355 for Astra
+and $0.01083 for Fable. No estimate reasons were attached to these responses;
+this is still not invoice verification. No reasoning blocks were returned, so
+signed/encrypted replay remains established by the offline fixtures, not by this
+live sample. This is consistent with the plan's empty-summary acceptance rule.
 
-Validation logs for this increment are `/tmp/baikai-mp12-focused-offline.log` and
-`/tmp/baikai-mp12-smoke-build-final.log` (local, uncommitted execution artifacts).
+The prerequisite gate passed 783 core, 276 OpenAI, 366 Claude tests, 12 smoke-option
+checks and doc-shapes. Concurrent refusal-test work initially had an ambiguous
+JSON helper; its author added the type annotation before the successful Claude
+rerun. Logs: `/tmp/baikai-mp12-closeout-offline.log`,
+`/tmp/baikai-mp12-closeout-offline-2.log`, and
+`/tmp/baikai-mp12-live-full-20260908-1.log`. The live command rebuilt its provider
+and smoke components against the current checkout. Newer independent Claude
+capability work was preserved and is not part of this closeout commit.
+
+The [acceptance audit](../validation/masterplan-12/acceptance.md) now records
+proof for every acceptance area. No implementation or acceptance work remains
+under this child; publication and invoice reconciliation remain outside scope.
 
 
 ## Context and Orientation
@@ -103,7 +119,7 @@ Validation logs for this increment are `/tmp/baikai-mp12-focused-offline.log` an
 
 This child has hard dependencies on docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md, docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md and docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md. It also requires the final pricing integration of docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md before its acceptance report is complete. Those plans provide the new route, validation, replay and pricing contracts summarized below.
 
-The smoke executable is the baikai-smoke test suite in baikai-smoke/baikai-smoke.cabal, driven by baikai-smoke/test/Smoke.hs. ToolsSmoke.hs builds a get_time function and calls runToolLoop, but currently hardcodes temperature=0. ThinkingSmoke.hs expects visible thinking in some cases and handles two-turn replay. Blindly adding new IDs to these cases would conflate unsupported sampling, absent default summaries and broken models. The existing smoke suite skips on missing keys; a passing keyless run is not live evidence.
+The smoke executable is the baikai-smoke test suite in baikai-smoke/baikai-smoke.cabal, driven by baikai-smoke/test/Smoke.hs. ToolsSmoke.hs builds a get_time function and calls runToolLoop; this plan removed its former hardcoded temperature=0. ThinkingSmoke.hs expects visible thinking in some cases and handles two-turn replay. Blindly adding new IDs to these cases would conflate unsupported sampling, absent default summaries and broken models. The existing smoke suite skips on missing keys; a passing keyless run is not live evidence.
 
 GPT-6 Astra needs Responses for tools, rejects minimal effort and sampling, and has cache/context pricing rules. Fable 5.1 needs auto/none tool choice and preserves signed thinking even when the displayed summary is empty. These facts were verified 2026-09-07 from https://developers.openai.com/api/docs/guides/latest-model and https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1.
 
@@ -150,7 +166,7 @@ cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys
 git diff --check
 ```
 
-The new flags are to be implemented in milestone 1; they do not exist at planning time. API keys come from the existing OPENAI_API_KEY and Anthropic credential chains. With missing required keys the live command must exit nonzero and list names only. With accessible models it must report both executed and passed, with at least one successful real tool round-trip per model.
+The flags are implemented and validated; use `direnv exec .` before the command when credentials are supplied through `.envrc`. API keys come from the existing OPENAI_API_KEY and Anthropic credential chains. With missing required keys the live command must exit nonzero and list names only. With accessible models it must report both executed and passed, with at least one successful real tool round-trip per model.
 
 
 ## Validation and Acceptance

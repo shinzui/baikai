@@ -1,9 +1,10 @@
 # MasterPlan 12 acceptance audit
 
-Audit date: 2026-09-07. Implementation inspected at commit `5ba0ef5`.
-The initiative is **not complete**: Fable live text and tool acceptance needs
-Anthropic credentials. This record distinguishes offline protocol proof from
-live account access and does not treat skipped cases as successes.
+Audit closed: 2026-09-08. The original implementation audit inspected commit
+`5ba0ef5`; final gates and live acceptance ran against the newer checkout with
+Claude speed, summary and refusal work present. The initiative is **complete**.
+This record distinguishes offline protocol proof from live account access and
+does not treat skipped cases as successes.
 
 Paths below are relative to the repository root. Test names refer to executable
 assertions, not only fixture declarations.
@@ -24,11 +25,20 @@ assertions, not only fixture declarations.
 | Focused selection, required-key failure, ordinary behavior and bounded useful cases | `SmokeOptionsSpec.hs` has 12 pure checks. Executable keyless checks returned four skips or four failures with zero calls. `Smoke.hs` retains its ordinary suite branch. `NewModelsSmoke.hs` uses explicit options, four-call tool bounds, per-call timeouts, real dispatcher counting and exact timestamp matching. Isolated Astra selection succeeded despite absent Anthropic keys. | Implemented and checked |
 | Redacted structured results and endpoint observations | Committed JSON artifacts contain requested/observed models, call/dispatch counts, identifiers, cost basis and thinking translation. The initial text result exposed a base-only endpoint; the transport-derived path fix is covered by provider tests and both subsequent live tool responses record `/v1/responses`. Original evidence was preserved unchanged. | Passed, initial artifact limitation retained |
 | Astra live text and deterministic tool conversation | `2026-09-07-astra-text.json` records one successful call. `2026-09-07-astra-tools.json` records two successful calls and one tool dispatch; runner success also requires the exact returned timestamp. | Live passed |
-| Fable live text and deterministic tool conversation; both models passing the full focused command | `2026-09-07-required-credentials.json` records the missing Anthropic credential alternatives and zero calls. The workspace environment was checked again during this audit and still lacks both alternatives. | **Outstanding** |
+| Fable live text and deterministic tool conversation; both models passing the full focused command | `2026-09-08-full-focused.json` records all four cases passed with six calls. Each model has one actual tool dispatch and two tool-conversation requests; runner success requires the exact supplied timestamp in the final answer. Both endpoint paths and observed models match. The earlier credential failure remains preserved separately. | **Live passed** |
 | Reproduction docs, capability examples and durable decisions | `docs/user/models-and-providers.md` and `agents/skills/update-models/SKILL.md` contain the implemented commands. CAP-7/CAP-12 compiled twins expose cost basis; doc-shapes passes. ADRs 0019/0020 retain dispatch/replay and pricing decisions. Unreleased changelog identifies public compatibility changes without cutting a release. | Implemented and checked |
 | Build, generated catalog, documentation gates and clean diff | Final `cabal build all` exited 0 at this audit. The prior generation check left `Generated.hs` byte-identical; the unchanged catalog remains covered by core tests. Doc-shapes passed after the endpoint fix. Capability validation previously passed all 22 concepts. | Passed |
 
-Validation logs retained locally (not committed):
+Final validation on 2026-09-08:
+
+- `cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options`: core 783, OpenAI 276 and smoke options 12 passed. An in-progress refusal-test helper lacked a type annotation during this attempt.
+- After that helper was corrected, `cabal test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes`: Claude 366 and documentation checks passed.
+- `direnv exec . cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'`: passed all four cases. Credentials came from `.envrc`; no credential contents were printed or committed.
+- Full live run calculated $0.01438 in standard token charges: Astra $0.00355 and Fable $0.01083. There were no estimate reasons on these six responses. Both models returned zero reasoning blocks; the offline replay proof remains essential.
+
+Final logs: `/tmp/baikai-mp12-closeout-offline.log`, `/tmp/baikai-mp12-closeout-offline-2.log`, and `/tmp/baikai-mp12-live-full-20260908-1.log`.
+
+Earlier validation logs retained locally (not committed):
 
 - `/tmp/baikai-mp12-focused-offline.log`: 708 core, 276 OpenAI, 335 Claude and doc-shapes passed.
 - `/tmp/baikai-mp12-selection-tests.log`: 12 option/credential checks passed.
@@ -42,6 +52,7 @@ live encrypted replay is not claimed: the scripted public tool-loop fixture is
 the evidence for that contract. No expensive live context-threshold request,
 automatic retry, unrelated model run, release or publication was used.
 
-Resume Fable validation only after its credential chain is available, preserve
-its dated results separately, and re-evaluate the outstanding row before marking
-the master plan complete. Successful Astra cases need not be charged again.
+No outstanding acceptance row remains. Both models were exercised together on
+2026-09-08 because provider/evidence code had changed since the earlier Astra run.
+The full focused result is preserved unchanged in `2026-09-08-full-focused.json`.
+No release or publication was performed.

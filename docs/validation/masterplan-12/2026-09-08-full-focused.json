@@ -1,0 +1,351 @@
+{
+  "missing_environment_alternatives": [],
+  "results": [
+    {
+      "api": "OpenAIResponses",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-astra",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00013,
+              "output_usd": 0.00025
+            },
+            "usd": 0.00038
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.6.0.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "provider_request_id": {
+            "observed": "req_d2ce0b9e87ea45a68637a0e787fbc4d2"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_00a848a7539e2750016aa01674571c87d092b52a3a9b2c942b",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 0
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-astra",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00062,
+              "output_usd": 0.0007
+            },
+            "usd": 0.00132
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.6.0.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "provider_request_id": {
+            "observed": "req_7e4eff2b77ff4546ae4fe717779a8ad7"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_03739b9ac102edad016aa01676b0f087d0b2797da9f2416f72",
+          "stop_reason": "ToolUse",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.001,
+              "output_usd": 0.00085
+            },
+            "usd": 0.00185
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.6.0.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "provider_request_id": {
+            "observed": "req_8a384f1d909c4570b5b815e780476cc3"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_06e70859821b2a57016aa016785e4887d0907f20a8a5fc5a66",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 1
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-fable-5-1",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00018,
+              "output_usd": 0.0002
+            },
+            "usd": 0.00038
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.6.0.1",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-fable-5-1"
+          },
+          "provider_request_id": {
+            "observed": "req_011Cer6rWdkUZYDCJtxmxb8q"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "msg_011Cer6rXpgu2d6sACgrAxf2",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 0
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-fable-5-1",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00395,
+              "output_usd": 0.0013
+            },
+            "usd": 0.00525
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.6.0.1",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-fable-5-1"
+          },
+          "provider_request_id": {
+            "observed": "req_011Cer6rodwkZAHmVhhxedfb"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "msg_011Cer6rpXGudd92qVZAVfhe",
+          "stop_reason": "ToolUse",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.0044,
+              "output_usd": 0.0008
+            },
+            "usd": 0.0052
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.6.0.1",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.6.0.1",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-fable-5-1"
+          },
+          "provider_request_id": {
+            "observed": "req_011Cer6s7q5Uxne4HwJr4zNe"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "msg_011Cer6s8wJjpiJ6ZLeXJmXe",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 1
+    }
+  ],
+  "schema": "baikai.new-model-smoke/1"
+}

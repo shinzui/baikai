@@ -45,7 +45,7 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 | EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | Complete |
 | EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Complete |
 | EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Complete |
-| EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | In Progress |
+| EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | Complete |
 
 EP-2 and EP-4 also have an integration dependency: both can develop their independent fixtures, but the combined Responses terminal must use EP-4's usage and cost-basis contract before EP-5 begins.
 
@@ -83,7 +83,7 @@ Durable decisions expected during implementation are separate Responses dispatch
 - [x] EP-2: Implement Responses and reasoning replay, including EP-4 billing integration.
 - [x] EP-3: Enforce Claude tool/history contracts.
 - [x] EP-4: Implement truthful usage and pricing.
-- [ ] EP-5: Complete offline and live acceptance. Astra text and tool cases passed live; Fable awaits credentials. Redacted results are linked from child 77.
+- [x] (2026-09-08) EP-5: Complete offline and live acceptance. The full focused run passed Astra and Fable text/tool cases; redacted results are linked from child 77.
 
 
 ## Surprises & Discoveries
@@ -95,10 +95,9 @@ facts. The shared resolved-rate seam supports plan 69's future speed selector
 without introducing a new speed option here. Final validation passes 708 core,
 276 OpenAI, 335 Claude and 10 trace tests, compiled documentation, the 22-concept
 capability bundle, idempotent generation and the workspace build. EP-2's pricing
-integration is complete too. EP-5's Astra text and deterministic tool cases passed
-live. Fable live acceptance remains outstanding because Anthropic credentials are
-unavailable. The [acceptance audit](../validation/masterplan-12/acceptance.md)
-maps requirements to inspected proof and records the remaining gap.
+integration is complete too. On 2026-09-08, EP-5's complete focused live run passed
+all Astra and Fable text/tool cases. The [acceptance audit](../validation/masterplan-12/acceptance.md)
+maps requirements to inspected proof and records the final evidence and limits.
 
 EP-3 is complete: Fable 5.1 forced-choice validation is catalog-backed and precedes transport. Two tool rounds preserve signed empty/visible and redacted state, including persisted thinking payloads and unchanged prefixes. Core 687, Claude 333 and compiled documentation pass; a fresh catalog candidate matches the committed data.
 
@@ -123,8 +122,16 @@ EP-1 confirms a fresh upstream catalog candidate preserves all endpoint restrict
 ## Outcomes & Retrospective
 
 
-The implementation and offline gates are complete, and Astra text/tool access
-passed live. The final workspace build passes. Fable live acceptance remains
-outstanding; the initiative stays incomplete until both model cases execute
-successfully. The acceptance audit preserves the proof and limitations without
-treating unavailable credentials as success.
+Complete on 2026-09-08. All five children are complete. The final prerequisite
+gate passed 783 core, 276 OpenAI, 366 Claude tests, 12 smoke-option checks and
+compiled documentation. The full focused live command then passed all four cases
+in six requests, including one actual tool dispatch and an exact timestamp match
+for each model. Correct Responses/Messages endpoint paths and observed model IDs
+are recorded in the [full result](../validation/masterplan-12/2026-09-08-full-focused.json).
+
+Local token-cost calculation for that run totals $0.01438. No reasoning blocks
+were returned; live access/tool use is proven, while signed/encrypted replay and
+pricing thresholds are proven by offline fixtures. Invoice reconciliation and
+package publication are outside this initiative. ADRs 0019/0020 retain the durable
+dispatch, replay and pricing contracts. The prior credential failure is preserved
+as history rather than replaced by the successful result.
