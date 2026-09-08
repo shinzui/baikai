@@ -31,12 +31,17 @@ A caller can register a native OpenAI Responses provider, select GPT-6 Astra, st
 - [x] (2026-09-07) Map text/images, assistant history, tools/results, structured output, effort/sampling, metadata and supported cache preferences. Add the Responses HTTP path using shared SSE framing and manager ownership.
 - [x] (2026-09-07) Request/HTTP validation: all 224 OpenAI tests pass; final exact-wire assertions pass in all 12 Responses cases. Formatter and diff checks pass.
 - [x] (2026-09-07) Add pure Responses item/content-index assembler: live deltas, ordered parallel calls, snapshot reconciliation, opaque reasoning items, partial cut-off calls and raw terminal observations. All 236 OpenAI tests pass, including 12 assembler cases.
-- [ ] Attach the assembler to the bounded HTTP worker with classified terminal errors and EOF handling.
-- [ ] Attach evidence, support per-model API overrides and activate Astra.
+- [x] (2026-09-07) Attach the assembler to the bounded HTTP worker, classify nested/in-band failures and EOF, expose explicit Responses registration and fold completion from the same stream. Prove public two-turn runToolLoop with encrypted item/call_id preservation.
+- [x] (2026-09-07) Attach exact request/normalized response commitments and observed model/IDs. Test conclusive-terminal and consumer-timeout cleanup plus a slow active consumer.
+- [x] (2026-09-07) All 248 OpenAI tests pass after worker integration; formatter and diff checks pass.
+- [ ] Extend strict evidence/byte-driver lifecycle coverage and integrate EP-4 usage availability.
+- [ ] Support per-model API overrides and activate Astra.
 - [ ] Prove two-turn tool loop, lifecycle and documentation examples.
 
 
 ## Surprises & Discoveries
+
+Worker cancellation delivers the asynchronous exception before the driver's cleanup hook necessarily finishes. The cleanup fixture therefore waits on an explicit completion signal without relying on a GC or an immediate flag read. Responses terminal events conclude the call even when the peer keeps waiting; the worker bracket then cancels that wait.
 
 
 The published SDK remains 2.5.4 with no upstream tags. Its reasoning input retains id/encrypted_content/summary, but its effort enum stops at high and its module explicitly lacks streaming transport. The source is available via mori://MercuryTechnologies/openai/packages/openai.
@@ -57,7 +62,7 @@ The full Claude suite exposed a pre-existing missing Fable 5.1 row in the provid
 ## Outcomes & Retrospective
 
 
-The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. A Responses provider is not registered or activated yet; the pure streaming assembler is implemented and tested. HTTP worker/evidence integration and runToolLoop acceptance remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
+The shared type and persistence foundation is implemented and builds throughout the workspace. Legacy thinking encodings and digest golden tests remain unchanged. The request mapper and a persisted second-request fixture are implemented; the shared HTTP driver sends POST /v1/responses. Explicit Responses registration and its worker/evidence integration are implemented. The public two-turn tool loop preserves encrypted reasoning and matching function results. Astra activation, broader strict/byte-driver lifecycle coverage, compiled documentation and EP-4 usage/cost integration remain outstanding. ADR 0019 records the implemented boundary and persistence decision.
 
 
 ## Context and Orientation

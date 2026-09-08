@@ -51,6 +51,10 @@ including an empty summary and unknown continuation fields. Summary deltas
 contain only visible text. Ordered item assembly buffers parallel later items
 to preserve Baikai's one-open-block event contract.
 
-Transport integration and catalog activation remain tracked by
+Explicit Responses registration now exposes the bounded worker and the same
+stream for completion. A scripted public two-turn tool loop proves the
+continuation reaches the next wire request unchanged.
+
+Catalog activation and remaining acceptance remain tracked by
 [plan 74](../plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md).
-A separate dispatch tag does not by itself establish an implemented provider.
+Catalog routing changes only after the remaining acceptance gates pass.

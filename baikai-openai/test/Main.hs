@@ -49,6 +49,7 @@ import PublicSurfaceSpec qualified
 import ReasoningSpec qualified
 import ResponsesAssemblerSpec qualified
 import ResponsesSpec qualified
+import ResponsesStreamSpec qualified
 import ResponsesTransportSpec qualified
 import ShapeSpec qualified
 import SseSpec qualified
@@ -104,6 +105,7 @@ main =
         ReasoningSpec.tests,
         ResponsesAssemblerSpec.tests,
         ResponsesSpec.tests,
+        ResponsesStreamSpec.tests,
         ResponsesTransportSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,

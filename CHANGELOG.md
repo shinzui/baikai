@@ -16,6 +16,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai-openai`: explicit `Baikai.Provider.OpenAI.Responses` registration and
+  stream/complete provider with stateless reasoning replay, function tool turns,
+  structured output and bounded worker cleanup. Model catalog activation and
+  cache usage/pricing integration are still in progress.
+
 - `baikai`: separate `OpenAIResponses` dispatch and compatibility types, and
   optional provider/model-scoped `ThinkingContent.replayState` with opaque
   diagnostic output and backward-compatible JSON decoding. These public sum
