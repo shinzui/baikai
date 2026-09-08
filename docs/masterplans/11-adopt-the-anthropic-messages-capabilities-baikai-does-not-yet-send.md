@@ -443,21 +443,22 @@ substituting the request preference for provider evidence. ADRs 0004, 0009 and
 All ten Cabal test suites pass, including 780 core tests and 357 Claude tests.
 Generation rejects contradictory fast-mode facts, and isolated live fetching
 reproduces the new facts for all 11 Anthropic entries. Live Anthropic smoke was
-skipped because credentials are absent; no live fast entitlement was exercised.
+initially skipped because the test process had not loaded .envrc; no live fast
+entitlement was exercised.
 
 Adaptive requests now explicitly ask for summarized thinking. Translation
 evidence records display_text, and completed unreadable thinking blocks receive
 a response-only diagnostic without altering signatures or observed effort.
-Replay acceptance passes; live Anthropic summary behavior was not exercised
-because credentials are absent.
+Replay acceptance passes. The keyed 2026-09-08 follow-up below also verifies
+live summary text and signed replay.
 
 Completed 2026-09-08: all four children are Complete. EP-4 adds the structured
 refusal category and readable explanation without changing failure semantics.
 Server-side fallbacks remain deliberately unsupported under ADR 0005.
 Final `cabal build all` and `cabal test all` pass, with all ten suites green
 (783 core, 366 Claude, 276 OpenAI and 116 agent tests). Formatting, diff checks,
-and strict profiled docs/user validation pass. Live Anthropic cases are skipped
-because credentials are absent; no live refusal behavior is claimed.
+and strict profiled docs/user validation pass. Live Anthropic cases initially
+skipped because .envrc was not loaded; no live refusal behavior is claimed.
 The error record addition requires PVP major review before publishing.
 The whole-initiative ADR review covered the living sections of all four children:
 ADRs 0004, 0009 and 0020 already hold fast capability/pricing decisions; ADR 0018
@@ -475,3 +476,13 @@ Revision 2026-09-08: implemented EP-4, recorded refusal/schema integration and
 the fallback exclusion, reconciled EP-2's stale living sections, and performed
 the whole-initiative ADR distillation review. Final integrated checks pass;
 all four children are Complete.
+
+
+Revision 2026-09-08 live acceptance: ANTHROPIC_KEY was present in .envrc;
+the previous missing-credentials claim described an unloaded test environment.
+After loading the key privately, corrected ThinkingSmoke inputs to use
+temperature 1 and a substantive calculation with high adaptive effort.
+The live smoke suite passes, including non-empty signed thinking and replay
+on Sonnet 4.5, Opus 4.6 and Sonnet 5, plus Anthropic text, streaming, image,
+tool, structured-output, sampling and cache checks. EP-3 now has live acceptance.
+Fast entitlement and refusal-category checks remain fixture-verified only.

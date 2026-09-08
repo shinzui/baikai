@@ -80,8 +80,8 @@ changed to accommodate that malformed fixture.
 
 The clean baseline is commit `5f4fb2a`, validated by all ten suites at the end
 of EP-1. Final validation passes all ten Cabal suites, including 780 core tests and
-357 Claude tests. cabal build all and nix fmt pass. Live Anthropic smoke
-checks were skipped because credentials are absent.
+357 Claude tests. cabal build all and nix fmt pass. The initial live Anthropic checks skipped because the process had not loaded
+the existing ANTHROPIC_KEY from .envrc; the keyed follow-up below closes this gap.
 
 
 ## Decision Log
@@ -134,7 +134,8 @@ translation evidence records it. Empty signed or redacted-only completed
 thinking produces a response-only diagnostic; no-block and failed streams
 do not. Replay tests verify readable text, signatures and consecutive tool
 history. All ten test suites pass (780 core, 357 Claude); the full build and
-formatting pass. Live Anthropic behavior remains untested without credentials.
+formatting pass. The 2026-09-08 keyed follow-up below verifies live summary
+text and signed replay.
 
 No catalog fact was added because the existing thinkingStyle already selects
 this request policy. ADRs 0002, 0003 and 0009 now hold the durable distinction
@@ -548,3 +549,20 @@ changes. Display text is never a replacement for the provider signature.
 Revision 2026-09-07: rebased on completed SDK/fast-mode work, corrected display
 support in budget mode, reused thinkingStyle, and specified translated display
 separately from the response-only availability diagnostic and replay guarantees.
+
+
+Revision 2026-09-08: the user identified ANTHROPIC_KEY in .envrc. The earlier
+claim that credentials were absent was incorrect: the test process had not
+loaded them. Loaded the key without printing it and supplied both Anthropic
+environment aliases to the live suite. The first run found a smoke-fixture
+HTTP 400: budget thinking rejects temperature 0. The next run showed that
+Opus 4.6 can correctly skip thinking for a trivial prompt. Updated the fixture
+to temperature 1, a modular-exponentiation task, and high adaptive effort;
+kept the assertions requiring non-empty signed thinking and accepted replay.
+This changes test inputs, not provider behavior.
+
+The final cabal test baikai-smoke:baikai-smoke --test-show-details=direct passes.
+Sonnet 4.5 budget, Opus 4.6 adaptive and Sonnet 5 adaptive each returned readable
+signed thinking and accepted the replay turn. Anthropic text, streaming, image,
+tool, structured-output, sampling-drop, verbatim-schema and cache checks also
+pass. Fast entitlement and live refusal-category behavior were not exercised.

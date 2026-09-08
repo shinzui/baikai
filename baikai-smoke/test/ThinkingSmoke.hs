@@ -33,17 +33,17 @@ runThinkingCases = do
         runAnthropicCase
           "claude-opus-4-6-thinking-adaptive"
           Models.anthropic_claude_opus_4_6
-          ThinkingMedium,
+          ThinkingHigh,
         -- The keyed proof of this plan's central fix. Before it, the
         -- prefix table did not know claude-sonnet-5 and sent it
         -- budget_tokens, which the generation rejects with a 400. The
-        -- helper also sets temperature = 0.0, which the same generation
+        -- helper also sets temperature = 1.0, which the same generation
         -- rejects, so this one call exercises the adaptive shape, the
         -- sampling drop and signed replay together.
         runAnthropicCase
           "claude-sonnet-5-thinking-adaptive"
           Models.anthropic_claude_sonnet_5
-          ThinkingMedium,
+          ThinkingHigh,
         runAnthropicSamplingCase
           "claude-sonnet-5-sampling-dropped"
           Models.anthropic_claude_sonnet_5,
@@ -65,21 +65,21 @@ runAnthropicCase caseLabel caseModel thinkingLevel = do
       let opts =
             emptyOptions
               & #thinking .~ Just thinkingLevel
-              & #temperature .~ Just 0.0
+              & #temperature .~ Just 1.0
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
           ctx =
             emptyContext
               & #systemPrompt .~ Just "Answer tersely."
               & #messages
                 .~ Vector.singleton
-                  (user "Think briefly, then answer with exactly: first-ok")
+                  (user "Compute 17^23 modulo 97 using modular exponentiation, then verify it independently. Think through the calculation carefully before answering with the residue and a brief explanation.")
       firstResp <- completeRequest caseModel ctx opts
       assertAnthropicThinking caseLabel "first turn" firstResp
       let followCtx =
             ctx
               & #messages
                 .~ Vector.fromList
-                  [ user "Think briefly, then answer with exactly: first-ok",
+                  [ user "Compute 17^23 modulo 97 using modular exponentiation, then verify it independently. Think through the calculation carefully before answering with the residue and a brief explanation.",
                     responseMessage firstResp,
                     user "Now answer with exactly: replay-ok"
                   ]
