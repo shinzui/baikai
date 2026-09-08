@@ -27,7 +27,8 @@ tests :: TestTree
 tests =
   testGroup
     "Evidence"
-    [ canonicalTests,
+    [ translationDisplayTests,
+      canonicalTests,
       digestTests,
       usageEnvelopeTests,
       deriveStrengthTests,
@@ -60,7 +61,8 @@ adjustmentJsonTests =
             ThinkingDroppedUnsupportedHost ThinkingMinimal,
             ThinkingDroppedBudgetExceeded ThinkingMax 32000 8192,
             SamplingDroppedUnsupportedModel ["temperature", "top_p"],
-            SamplingDroppedUnsupportedApi ["seed", "frequency_penalty", "presence_penalty"]
+            SamplingDroppedUnsupportedApi ["seed", "frequency_penalty", "presence_penalty"],
+            ThinkingSummaryUnavailable
           ]
       ]
         <> [ testCase "a sampling drop encodes its kind and fields and no requested level" $
@@ -269,7 +271,7 @@ usageEnvelopeTests =
   testGroup
     "usage envelope"
     [ testCase "cost basis is serialized additively without changing provider commitments" $ do
-        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.3"
+        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.4"
         let estimated = zeroUsage {cost = estimateCost [CacheWriteUsageNotReported] zeroCost}
         usageEnvelope estimated @?= usageEnvelope zeroUsage
         assertBool "usage JSON retains the local calculation basis" (Aeson.toJSON estimated /= Aeson.toJSON zeroUsage),
@@ -507,3 +509,13 @@ loadFixture = do
   case raw of
     Left err -> assertFailure ("could not read " <> fixturePath <> ": " <> err)
     Right v -> pure v
+
+translationDisplayTests :: TestTree
+translationDisplayTests = testCase "display translation is optional in legacy JSON and round-trips when present" $ do
+  let legacy = Aeson.toJSON noThinkingRequested
+      summary = noThinkingRequested {displayText = Just "summarized"}
+  case legacy of
+    Object o -> KeyMap.lookup "display_text" o @?= Nothing
+    _ -> assertFailure "translation must be an object"
+  Aeson.fromJSON legacy @?= Aeson.Success noThinkingRequested
+  Aeson.fromJSON (Aeson.toJSON summary) @?= Aeson.Success summary

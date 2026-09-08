@@ -460,6 +460,7 @@ agentThinkingTranslationTests =
                     effortText = Just wire,
                     budgetTokens = Nothing,
                     wireField = Just "--effort",
+                    displayText = Nothing,
                     adjustments = expected
                   }
           | (level, wire, expected) <-

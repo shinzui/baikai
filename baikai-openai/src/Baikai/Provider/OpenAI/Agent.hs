@@ -138,6 +138,7 @@ codexAgentThinking req = case req ^. #effort of
             effortText = Just wire,
             budgetTokens = Nothing,
             wireField = Just "model_reasoning_effort",
+            displayText = Nothing,
             adjustments = [EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
           }
 

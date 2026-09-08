@@ -182,7 +182,11 @@ including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
 Those changes introduced version 2.0. Records now say
-`baikai.model-call-evidence/2.3`. Version 2.3 adds the fast-mode drop adjustment,
+`baikai.model-call-evidence/2.4`. Version 2.4 adds optional
+`thinking.display_text` and the response-only `thinking_summary_unavailable`
+adjustment. The latter records unreadable completed thinking blocks without
+claiming an observed effort level or changing the call status. Existing digest
+rules are unchanged. Version 2.3 adds the fast-mode drop adjustment,
 `SpeedNotReported` cost estimates, and the newly supported speed field to the
 configuration fingerprint. Envelopes without speed retain their old digests. Version 2.1 added optional provider-scoped
 `replay_state` to thinking content and includes it in the response commitment.

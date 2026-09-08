@@ -259,9 +259,9 @@ instance FromJSON ThinkingMode where
 -- between the canonical 'ThinkingLevel' and the wire.
 --
 -- This is the type that makes an otherwise silent downgrade visible.
--- Every constructor corresponds to a real site in this repository
--- where a request is weakened, dropped, or made indistinguishable from
--- the provider's own default.
+-- Request adjustments correspond to sites where a request is weakened,
+-- dropped, or made indistinguishable from the provider's own default.
+-- 'ThinkingSummaryUnavailable' is instead a response-only diagnostic.
 --
 -- Levels are carried as 'ThinkingLevel' rather than text so that
 -- strict evidence mode can compare them; they render through
@@ -309,6 +309,9 @@ data ThinkingAdjustment
     SamplingDroppedUnsupportedApi ![Text]
   | -- | Fast speed was requested but the model does not support it.
     FastModeDroppedUnsupportedModel
+  | -- | Response-only diagnostic: completed thinking blocks carried no
+    -- readable summary. This says nothing about reasoning depth or billing.
+    ThinkingSummaryUnavailable
   deriving stock (Eq, Show, Generic)
 
 -- | Whether an adjustment weakens the /thinking/ the caller asked for.
@@ -328,6 +331,7 @@ weakensThinking = \case
   SamplingDroppedUnsupportedModel {} -> False
   SamplingDroppedUnsupportedApi {} -> False
   FastModeDroppedUnsupportedModel -> False
+  ThinkingSummaryUnavailable -> False
 
 -- | Adjustments encode as a tagged object whose @kind@ names the
 -- constructor in snake_case and whose @requested@ field carries the
@@ -353,6 +357,8 @@ instance ToJSON ThinkingAdjustment where
       untagged "sampling_dropped_unsupported_model" fields
     SamplingDroppedUnsupportedApi fields ->
       untagged "sampling_dropped_unsupported_api" fields
+    ThinkingSummaryUnavailable ->
+      object ["kind" .= ("thinking_summary_unavailable" :: Text)]
     FastModeDroppedUnsupportedModel ->
       object ["kind" .= ("fast_mode_dropped_unsupported_model" :: Text)]
     where
@@ -388,6 +394,7 @@ instance FromJSON ThinkingAdjustment where
           SamplingDroppedUnsupportedModel <$> o .: "fields"
         "sampling_dropped_unsupported_api" ->
           SamplingDroppedUnsupportedApi <$> o .: "fields"
+        "thinking_summary_unavailable" -> pure ThinkingSummaryUnavailable
         "fast_mode_dropped_unsupported_model" -> pure FastModeDroppedUnsupportedModel
         other -> fail ("unknown thinking adjustment: " <> show other)
     v -> typeMismatch "ThinkingAdjustment" v
@@ -428,9 +435,14 @@ data ThinkingTranslation = ThinkingTranslation
     -- in, for example @"thinking"@, @"reasoning_effort"@, or
     -- @"--effort"@. 'Nothing' when nothing was sent.
     wireField :: !(Maybe Text),
+    -- | Exact display setting sent, such as Anthropic's @summarized@.
+    -- Nothing means no display setting was sent, not a provider observation.
+    displayText :: !(Maybe Text),
     -- | Everything that happened to the request between the canonical
-    -- level and the wire, in the order it was applied. Empty means the
-    -- request was expressed exactly.
+    -- level and the wire, in the order it was applied, followed by any
+    -- response diagnostics. Empty means no adjustment or diagnostic was recorded.
+    -- The provider may append ThinkingSummaryUnavailable after successful
+    -- assembly; it never changes the request fields or observed effort.
     --
     -- Reasoning /and/ sampling changes travel here: a
     -- 'SamplingDroppedUnsupportedModel' entry can appear on a call
@@ -444,13 +456,15 @@ data ThinkingTranslation = ThinkingTranslation
 instance ToJSON ThinkingTranslation where
   toJSON t =
     object
-      [ "requested" .= fmap renderThinkingLevel (requested t),
-        "mode" .= mode t,
-        "effort_text" .= effortText t,
-        "budget_tokens" .= budgetTokens t,
-        "wire_field" .= wireField t,
-        "adjustments" .= adjustments t
-      ]
+      ( [ "requested" .= fmap renderThinkingLevel (requested t),
+          "mode" .= mode t,
+          "effort_text" .= effortText t,
+          "budget_tokens" .= budgetTokens t,
+          "wire_field" .= wireField t,
+          "adjustments" .= adjustments t
+        ]
+          <> maybe [] (\d -> ["display_text" .= d]) (displayText t)
+      )
 
 instance FromJSON ThinkingTranslation where
   parseJSON = \case
@@ -462,6 +476,7 @@ instance FromJSON ThinkingTranslation where
         <*> o .:? "effort_text"
         <*> o .:? "budget_tokens"
         <*> o .:? "wire_field"
+        <*> o .:? "display_text"
         <*> o .: "adjustments"
     v -> typeMismatch "ThinkingTranslation" v
 
@@ -483,6 +498,7 @@ noThinkingRequested =
       effortText = Nothing,
       budgetTokens = Nothing,
       wireField = Nothing,
+      displayText = Nothing,
       adjustments = []
     }
 
@@ -503,6 +519,7 @@ untranslatedThinking = \case
         effortText = Nothing,
         budgetTokens = Nothing,
         wireField = Nothing,
+        displayText = Nothing,
         adjustments = []
       }
 
@@ -895,7 +912,9 @@ evidenceSchemaVersion :: Text
 -- Version 2.3 adds fast-mode drops and speed-unreported cost estimates.
 -- Newly emitted speed fields join the configuration projection; envelopes
 -- without speed retain their existing digests.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.3"
+-- Version 2.4 adds optional thinking.display_text and a response-only
+-- thinking_summary_unavailable diagnostic; existing digest rules are unchanged.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.4"
 
 -- | Everything Baikai can say about one completed provider call.
 --

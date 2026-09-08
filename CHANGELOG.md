@@ -7,6 +7,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- `baikai-claude`: adaptive reasoning requests explicitly ask for summarized
+  thinking. Evidence schema 2.4 records the display setting and diagnoses
+  successful responses whose thinking blocks contain no readable summary.
+  Budget and absent-thinking request shapes, signed empty blocks, redacted
+  content and multi-turn replay are preserved. `ThinkingTranslation` gains
+  `displayText` and `ThinkingAdjustment` gains `ThinkingSummaryUnavailable`;
+  review these public API additions under PVP before release.
+
 ### Fixed
 
 - `baikai-claude`: price Fable cache writes using the TTL in the shaped request,

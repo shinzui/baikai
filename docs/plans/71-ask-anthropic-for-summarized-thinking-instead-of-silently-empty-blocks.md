@@ -37,7 +37,7 @@ generation returns nothing readable regardless, the evidence record says
 so in its own vocabulary rather than leaving the caller to infer it from
 an empty string.
 
-The observable outcome: a test replays a recorded stream in which the
+The observable outcome: a test replays a representative stream in which the
 provider returns summarized reasoning, and the assembled response
 contains non-empty thinking text; a second test asserts the request body
 baikai builds for `claude-opus-5` now contains `"display":"summarized"`
@@ -46,56 +46,76 @@ where it previously contained a bare `{"type":"adaptive"}`.
 
 ## Progress
 
-Use a checklist to summarize granular steps. Every stopping point must be documented here,
-even if it requires splitting a partially completed task into two ("done" vs. "remaining").
-This section must always reflect the actual current state of the work.
-
-- [ ] M1: `thinkingDisplay` (or equivalent) added to `Baikai.Compat.AnthropicMessagesCompat`
-- [ ] M1: catalog fetcher carries the fact per curated Anthropic id, with dated sources
-- [ ] M1: `baikai/data/models/anthropic.json` and `Baikai/Models/Generated.hs` regenerated
-- [ ] M1: the two pinned fact tables widened and passing
-- [ ] M2: `computeThinking` emits the display setting for generations that honour it
-- [ ] M2: request-shape tests assert the new body for an adaptive model and an older one
-- [ ] M3: a response carrying summarized reasoning assembles with non-empty text
-- [ ] M3: a generation that returns no summary is recorded in the evidence
-- [ ] M4: Haddock, `docs/user/models-and-providers.md`, and `CHANGELOG.md` updated
+- [x] (2026-09-07) M1: verified display support in current provider docs and SDK 1.5; reused catalog `thinkingStyle` instead of adding a duplicate fact
+- [x] (2026-09-07) M1: retained the catalog and pinned fact tables; adaptive request tests now require summarized display for every pinned model and level
+- [x] (2026-09-07) M2: `computeThinking` emits summarized display and records `ThinkingTranslation.displayText`
+- [x] (2026-09-07) M2: request-shape tests cover adaptive, budget, absent and renamed models
+- [x] (2026-09-07) M3: response diagnostic and replay tests implemented, including preserved signed and redacted history
+- [x] (2026-09-07) M4: Haddock, user guides, schema version, changelog and ADRs updated
+- [x] (2026-09-07) Final: all package builds/tests and formatting pass; outcomes recorded in this implementation commit
 
 
 ## Surprises & Discoveries
 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
+Current documentation and the SDK correct a planning premise: `display`
+works in both adaptive and budget objects, and SDK 1.5 supplies
+`ThinkingEnabledWithDisplay` too. Budget requests remain unchanged because
+this plan targets the adaptive default regression, not because the provider
+rejects display there. Current reference checked 2026-09-07:
+https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display.
+The dependency source was located via Mori at
+`mori://MercuryTechnologies/claude/packages/claude`; no dependency change is needed.
 
-(None yet. One item found during planning is recorded in the Context and
-Orientation section instead, because it is background rather than a
-discovery made while implementing: the display default changed silently
-between model generations, so the same baikai code produces readable
-reasoning on Claude Opus 4.6 and empty reasoning on Claude Opus 5,
-without any error or warning at any layer.)
+The catalog already carries forced-choice and fast-mode facts. This plan adds
+no new catalog field and preserves the pinned tuples from EP-1. Existing style
+tests cover every curated model at every reasoning level; their adaptive
+expectation now includes the summary display value.
+
+The summary replay fixture must send text and signatures in their own delta
+frames. Initial test fixtures put them on `content_block_start`, which the
+stream assembler initializes empty, so the fixture did not model the documented
+wire sequence. Corrected fixtures use `thinking_delta` and `signature_delta`,
+like the existing two-round tool replay. No assembler or signature behavior was
+changed to accommodate that malformed fixture.
+
+The clean baseline is commit `5f4fb2a`, validated by all ten suites at the end
+of EP-1. Final validation passes all ten Cabal suites, including 780 core tests and
+357 Claude tests. cabal build all and nix fmt pass. Live Anthropic smoke
+checks were skipped because credentials are absent.
 
 
 ## Decision Log
 
-- Decision: which display setting a generation honours is a per-model
-  fact carried by the compatibility record in the generated catalog, not
-  a constant applied to every Anthropic request.
-  Rationale: `docs/adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md`
-  requires that a fact about what the wire accepts live in the compat
-  record. The `display` key belongs inside the adaptive thinking object,
-  and the older budget-shaped generations do not take that object at all,
-  so sending it unconditionally would put an unknown key into a request
-  shape that has already earned this repository an HTTP 400 once. The
-  compat record already carries `thinkingStyle`, which is the exact fact
-  that decides which of the two shapes is built, so the new fact sits
-  beside its natural neighbour.
-  Date: 2026-08-28
+- Decision (2026-09-07): use the existing catalog `thinkingStyle` to select
+  explicit summarized display for adaptive requests. No extra compatibility
+  field, fetch edit, catalog regeneration or tuple widening is needed. A second
+  flag would duplicate the selected request policy. Budget requests preserve
+  their existing shape and provider summary default. ADR 0009 records this
+  distinction between request policy and actual field support.
+- Decision (2026-09-07): add optional `displayText` to `ThinkingTranslation`,
+  encoded as `display_text` only when present. This is a positive description
+  of the wire, not a weakening. Other adapters explicitly set Nothing, and
+  legacy translation JSON decodes with Nothing. Schema 2.4 adds the field and
+  summary diagnostic without changing digest algorithms or old golden values.
+- Decision (2026-09-07): append `ThinkingSummaryUnavailable` only after a
+  successful response with requested, enabled reasoning and at least one
+  thinking block, all unreadable. Empty text and redacted ciphertext are
+  unreadable; any visible block suppresses the diagnostic. No-block adaptive
+  responses are legitimate, and incomplete/failed streams cannot establish
+  a missing completed summary. The diagnostic never fills observed effort or
+  changes translated display, call status, signatures or billing.
+- Decision (2026-09-07): `weakensThinking ThinkingSummaryUnavailable` is False.
+  Visibility does not establish model reasoning depth; strict preflight must
+  not reject a call because a completed response might lack a summary. The
+  diagnostic is response-only and is absent from the preflight describer.
+  ADRs 0002 and 0003 record this explicit exception to the otherwise
+  request-originated adjustment list.
 
 - Decision: baikai asks for `summarized` rather than leaving the provider
-  default in place, on every generation that honours the field.
+  default in place, on adaptive generations selected by thinkingStyle.
   Rationale: a caller who set `Options.thinking` has asked to reason, and
-  the only reason to ask is to have the reasoning available. The default
-  produces blocks that are present but empty, which is the worst of both
-  outcomes — the caller pays for the reasoning tokens either way, since
+  the library should preserve the earlier availability of readable summaries. The default
+  produces blocks that are present but empty, even though the caller pays for the reasoning tokens either way, since
   display controls visibility only and not whether thinking happens or
   what it costs. Making the visible choice the default matches what
   `Options.thinking` already means everywhere else in baikai.
@@ -109,7 +129,18 @@ Compare the result against the original purpose. Before marking the plan complet
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
-(To be filled during and after implementation.)
+Completed 2026-09-07. Adaptive requests send summarized display and their
+translation evidence records it. Empty signed or redacted-only completed
+thinking produces a response-only diagnostic; no-block and failed streams
+do not. Replay tests verify readable text, signatures and consecutive tool
+history. All ten test suites pass (780 core, 357 Claude); the full build and
+formatting pass. Live Anthropic behavior remains untested without credentials.
+
+No catalog fact was added because the existing thinkingStyle already selects
+this request policy. ADRs 0002, 0003 and 0009 now hold the durable distinction
+between translated display, response diagnostics and model capabilities.
+The optional translation field and new public constructor require package
+API version review at release; wire schema 2.4 accepts older translation JSON.
 
 
 ## Context and Orientation
@@ -131,11 +162,11 @@ model decides how much to think, and the caller only hints at depth
 through a separate `output_config.effort` field. Sending the budget shape
 to an adaptive-only generation is an HTTP 400, not a degraded call.
 
-**The display setting.** Independently of which shape a model takes, the
-adaptive object accepts a `display` key controlling whether the reasoning
+**The display setting.** Both adaptive and enabled
+objects accept a `display` key controlling whether the reasoning
 comes back readable. `"summarized"` returns a human-readable summary of
 the reasoning; `"omitted"` returns thinking blocks whose text is empty.
-The raw chain of thought is never returned under any setting. Critically,
+The returned text is a provider summary. Critically,
 `display` controls visibility only — the model thinks and is billed
 identically either way.
 
@@ -178,7 +209,7 @@ essence:
 `Messages.ThinkingAdaptive` is the bare constructor with no display
 setting. That single value is the whole of the gap this plan closes.
 
-**Why this plan is blocked.** In `claude` 1.4.0 — the version this
+**The completed dependency prerequisite.** In `claude` 1.4.0 — the version this
 repository builds against before its sibling plan lands — the type is:
 
 ```haskell
@@ -187,7 +218,7 @@ data Thinking
     | ThinkingEnabled { budget_tokens :: Natural }
 ```
 
-There is no way to express a display setting. Version 1.5.0 adds
+Version 1.4.0 could not express a display setting. The now-integrated 1.5.0 adds
 `ThinkingAdaptiveWithDisplay` taking a display value, whose `ThinkingSummarized`
 constructor encodes as `{"type":"adaptive","display":"summarized"}`. This
 plan therefore has a hard dependency on
@@ -197,10 +228,10 @@ code here will not compile before it.
 
 **The compatibility record.** `Baikai.Compat.AnthropicMessagesCompat` in
 `baikai/src/Baikai/Compat.hs` holds per-model facts about what the
-Anthropic Messages API accepts for one model. Today it has five fields:
+Anthropic Messages API accepts for one model. It has seven fields:
 `supportsLongCacheRetention`, `supportsCacheControlOnTools`,
-`sendSessionAffinityHeaders`, `thinkingStyle`, and
-`supportsSamplingParameters`. `thinkingStyle` is a two-constructor sum,
+`sendSessionAffinityHeaders`, `thinkingStyle`, `supportsSamplingParameters`,
+`supportsForcedToolChoice`, and `supportsFastMode`. `thinkingStyle` is a two-constructor sum,
 `AnthropicThinkingBudget` or `AnthropicThinkingAdaptive`, and it is the
 value `computeThinking` branches on above.
 
@@ -237,6 +268,7 @@ data ThinkingContent = ThinkingContent
   { thinking :: !Text
   , signature :: !(Maybe Text)
   , redacted :: !Bool
+  , replayState :: !(Maybe ThinkingReplay)
   }
 ```
 
@@ -279,57 +311,32 @@ and Milestone 3 exists to make that gap visible rather than silent.
 `docs/masterplans/11-adopt-the-anthropic-messages-capabilities-baikai-does-not-yet-send.md`.
 It has a hard dependency on
 `docs/plans/70-upgrade-the-claude-sdk-to-1-5-and-decide-what-a-paused-turn-means.md`.
-It shares two artifacts with
-`docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md`:
-both add a field to `AnthropicMessagesCompat` and a fact to the fetcher's
-`AnthropicGenerationFacts` record, and both widen the same two pinned
-test tables. If plan 69 has already landed, read its diff first — the
-record and its helper values will have a different shape than the one
-quoted in this plan, and you should extend what is there rather than what
-is described here.
+Its soft dependency on plan 69 established the current catalog facts.
+The original plan anticipated sharing catalog edits, but implementation
+reuses thinkingStyle and preserves EP-1's record and pinned table shapes.
 
 
 ## Plan of Work
 
-Four milestones: teach the catalog the fact, send the field, prove the
+Four milestones: verify the catalog selection rule, send the field, prove the
 reasoning arrives and that its absence is recorded, then document it.
 
 ### Milestone 1 — the catalog knows which generations honour display
 
-At the end of this milestone nothing user-visible has changed, but each
-Anthropic catalog entry states whether its generation honours the display
-setting. Nothing reads the new fact yet.
+At the end of this milestone the existing catalog fact is confirmed as the
+right selection rule. Current provider documentation accepts display in both
+modes. This initiative explicitly requests summaries on adaptive models and
+leaves budget requests at their previous summary default. `thinkingStyle`
+already selects those branches, so no independent display flag is introduced.
 
-Add a field to `AnthropicMessagesCompat` in `baikai/src/Baikai/Compat.hs`
-recording it, and export its selector alongside the existing five. Prefer
-a named sum type over a bare `Bool` if you can name more than two states
-— but resist inventing states you cannot source. As of Anthropic's API
-reference cached 2026-06-24 there are exactly two behaviours worth
-modelling: generations that accept `display` inside the adaptive object,
-and generations whose thinking shape has no place to put it. Since the
-second set is exactly the budget-shaped generations that `thinkingStyle`
-already identifies, consider carefully whether the new field earns its
-place or whether `thinkingStyle` already answers the question. Record
-your conclusion in the Decision Log either way; a field that duplicates
-an existing one is worse than no field.
-
-If you keep the field, give it a default in
-`defaultAnthropicMessagesCompat` that matches Anthropic's own current
-behaviour, and thread it through the catalog exactly as
-`supportsSamplingParameters` is threaded: the `AnthropicGenerationFacts`
-record and the `anthropicInclude` table in
-`baikai/fetch/FetchModelsCore.hs`, the `compat` block emitted into
-`baikai/data/models/anthropic.json`, and the renderer in
-`baikai/gen/GenModelsCore.hs`. Every row you add or change in
-`anthropicInclude` must carry a dated comment naming its source, as every
-existing row does.
-
-Then widen the two hand-written tables that pin every Anthropic model's
-facts: `expectedAnthropicFacts` in `baikai/test/CatalogSpec.hs` and
-`anthropicModels` in `baikai-claude/test/ThinkingSpec.hs`. Their comments
-explain why they are written by hand — so that a catalog refresh cannot
-change a per-model fact without a human editing a row. Widen them; do not
-make them read the values off the record.
+Keep `AnthropicMessagesCompat`, `AnthropicGenerationFacts`, the JSON and the
+generated catalog unchanged. The pinned model facts in `CatalogSpec` and
+`ThinkingSpec` remain the authority; extend their request expectations rather
+than widening tuples with a duplicate property. In `ThinkingSpec`, every
+adaptive model at every level must encode `ThinkingAdaptiveWithDisplay
+ThinkingSummarized`, while every budget model keeps `ThinkingEnabled`.
+Run the core and Claude suites; the existing generation round-trip proves
+that the unmodified catalog remains reproducible.
 
 ### Milestone 2 — the request asks for a summary
 
@@ -343,21 +350,21 @@ the adaptive branch of `computeThinking` to build
 place of the bare `Messages.ThinkingAdaptive`, gated on the fact from
 Milestone 1. Leave the budget branch untouched.
 
-Extend the `ThinkingTranslation` this branch returns so the evidence
-record states what was asked for. The record already carries
-`wireField`, `mode`, `effortText` and `budgetTokens`; the display choice
-is a fifth thing the adapter decided and, per
-`docs/adr/0003-the-adapter-owns-the-translation-description.md`, it is
-this function's job to say so. Whether that is a new field on
-`ThinkingTranslation` or an entry in its `adjustments` list is your call
-— note that `adjustments` is documented as recording *weakenings*, and
-asking for a summary is a strengthening, so a new field is the better
-fit. Record the choice.
+Extend `ThinkingTranslation` in `baikai/src/Baikai/Evidence.hs` with
+`displayText :: Maybe Text`, placed before adjustments. Set it to
+`Just "summarized"` beside the adaptive SDK field and to Nothing on budget,
+dropped and absent requests. `dropThinking` clears it. Update the core defaults,
+OpenAI Chat/Responses builders and both CLI/agent adapters with Nothing;
+all public construction sites must compile with the added field. JSON emits
+`display_text` only when present and accepts older JSON without it. The
+positive display choice is not an adjustment or a claim of observed effort.
 
-The tests to write here are request-shape tests. `baikai-claude/test/ShapeSpec.hs`
-is the suite that asserts on the JSON body baikai produces. Assert the
-adaptive body now carries the display key, and assert a budget-shaped
-model's body is unchanged.
+In `baikai-claude/test/ShapeSpec.hs`, test complete thinking objects for adaptive
+and budget requests, absence when no preference was set, and a renamed catalog
+model. Assert the describer's display value matches the body. Existing
+`ThinkingSpec` tests cover all catalog models and reasoning levels. Add core
+JSON compatibility/round-trip tests and advance `evidenceSchemaVersion` to 2.4;
+canonical encoding and projection algorithms do not change.
 
 ### Milestone 3 — the reasoning arrives, and its absence is recorded
 
@@ -365,40 +372,35 @@ At the end of this milestone a replayed stream carrying summarized
 reasoning assembles into a response with non-empty thinking text, and a
 call whose reasoning came back empty says so in its evidence.
 
-The first half is a stream-replay test. `baikai-claude/test/SseSpec.hs`
-replays recorded server-sent-event bodies through the assembler and
-asserts on the events. Build a fixture whose content blocks include a
-thinking block with `thinking_delta` frames carrying real text, replay
-it, and assert the assembled `Baikai.Content.ThinkingContent` has
-non-empty `thinking`. This is the test that proves the feature end to
-end rather than proving that a field was set.
+The replay tests live in `baikai-claude/test/FableContractsSpec.hs`, which
+already supplies JSON event fixtures decoded through the SDK and delivered
+through the real streaming adapter. Emit thinking text in `thinking_delta`
+frames and signatures in `signature_delta` frames. A visible summary must
+assemble exactly, including its signature, and the response evidence must
+retain `display_text: summarized` while leaving observed effort Unobserved.
 
-The second half closes the loop the Purpose section opens. When a call
-requested reasoning and every thinking block came back with empty text,
-that is a gap between what baikai translated and what the provider
-returned, and
-`docs/adr/0002-requested-translated-observed-are-never-collapsed.md` says
-it must not be collapsed into silence. Add a constructor to
-`ThinkingAdjustment` in `baikai/src/Baikai/Evidence.hs` recording it,
-with a wire spelling in the renderer and its parser beside the existing
-ones, and decide whether `weakensThinking` should return `True` for it.
-Argument for `True`: the caller asked to see reasoning and cannot. Argument
-for `False`: the reasoning happened and was billed, so the model's answer
-is not weaker, only less inspectable. Both are defensible — pick one,
-record the rationale, and note that `True` means strict evidence mode
-will refuse such a call, which is a strong consequence to choose
-deliberately.
+Add `ThinkingSummaryUnavailable` to `ThinkingAdjustment`, with JSON kind
+`thinking_summary_unavailable`, a decoder branch, and `weakensThinking = False`.
+Document that it is a response-only diagnostic, unlike the other adjustments.
+In `Stream.hs`, have `observeAnthropic` append it via `summaryDiagnostics` when
+the call succeeded, the translated reasoning was enabled and requested, and
+at least one completed thinking block exists with no readable block. Redacted
+ciphertext never counts as summary text. No blocks, no preference, dropped
+reasoning, or a failed/incomplete stream must not invent this diagnosis.
+Preserve every existing translation field and leave `observedThinking` alone.
 
-Note the ordering constraint: this adjustment is discovered when the
-response is assembled, not when the request is built, so it is recorded
-in `Stream.hs` rather than in `Request.hs`. That is a departure from
-where the other adjustments originate; make sure the evidence record
-reaches the place that can set it, and if it cannot, say so in Surprises
-& Discoveries rather than dropping the requirement.
+Test empty signed blocks, redacted-only blocks, mixed unreadable blocks,
+a mixture with a visible summary, no thinking blocks, no preference and a
+failed stream. Read the real response evidence and verify call status stays
+successful for unreadable summaries. Rebuild the response as request history
+and assert the exact signed/redacted payload survives. Run the existing
+consecutive-tool-round fixture with summary requests on all three calls and
+assert history order, encrypted payloads and signatures remain intact. Core
+JSON tests and the exhaustive strict-evidence matrix cover the new constructor.
 
 ### Milestone 4 — write it down
 
-Update the Haddock on `computeThinking` and on the new compat field.
+Update the Haddock on `computeThinking` and on the reused compatibility policy.
 Update `docs/user/models-and-providers.md`, which already carries a
 section on what each provider does with `Options.thinking` and which
 generations reject which shapes — the display behaviour belongs in the
@@ -439,26 +441,10 @@ process-timing tests that occasionally fail under parallel load; if only
 that suite fails, re-run it alone with `cabal test baikai-agent` before
 treating it as real.
 
-After the Milestone 1 edits, regenerate and inspect:
-
-```bash
-cabal run baikai-gen-models
-git diff --stat baikai/src/Baikai/Models/Generated.hs
-```
-
-Run only the generator, not the fetcher: `baikai-fetch-models`
-re-downloads models.dev and would mix an unrelated upstream refresh into
-this plan's diff. Hand-edit `baikai/data/models/anthropic.json` to add
-the new `compat` key, keeping `anthropicInclude` in
-`baikai/fetch/FetchModelsCore.hs` in step, then confirm the two agree by
-running the fetcher last and checking it produces no diff:
-
-```bash
-cabal run baikai-fetch-models
-git diff --stat baikai/data/models/anthropic.json
-```
-
-An empty diff means the hand edit and the curated table agree.
+Milestone 1 changes no catalog artifacts, so no fetch or generation edits are
+needed. `cabal test baikai` runs the existing byte-identical generation check.
+Do not fetch upstream catalogs into the working tree for this request-only
+policy change.
 
 After Milestones 2 and 3:
 
@@ -486,7 +472,7 @@ Build the same options against a budget-generation model such as
 `anthropic_claude_haiku_4_5` and confirm its body still contains
 `"thinking":{"type":"enabled","budget_tokens":...}` with no display key.
 
-Second, the reasoning arrives. The stream-replay test added in Milestone 3
+Second, the reasoning arrives. The replay test in `baikai-claude/test/FableContractsSpec.hs` added in Milestone 3
 must show a `ThinkingContent` whose `thinking` field is non-empty after
 replaying a body containing `thinking_delta` frames. Name it so it states
 the outcome, for example "summarized reasoning assembles into non-empty
@@ -504,7 +490,7 @@ cabal test all
 ```
 
 In particular `baikai-test` and `baikai-claude-test` must pass, since
-both hold the pinned fact tables Milestone 1 widens.
+both hold the existing pinned facts that select the request shapes.
 
 
 ## Idempotence and Recovery
@@ -539,11 +525,8 @@ The specific constructor it consumes is
 `{"type":"adaptive","display":"summarized"}`. Neither exists in 1.4.0,
 where `Thinking` has exactly two constructors.
 
-At the end of Milestone 1, a new selector on
-`Baikai.Compat.AnthropicMessagesCompat` recording whether the model's
-generation honours the display setting — unless Milestone 1's analysis
-concludes that `thinkingStyle` already answers the question, in which
-case record that conclusion and skip the field.
+At the end of Milestone 1, the existing `thinkingStyle` selector remains the
+selection rule. No new compat field or curated fact is needed.
 
 At the end of Milestone 2, the adaptive branch of `computeThinking` in
 `baikai-claude/src/Baikai/Provider/Claude/Internal/Request.hs` produces a
@@ -553,7 +536,7 @@ At the end of Milestone 2, the adaptive branch of `computeThinking` in
 At the end of Milestone 3, one new constructor on
 `Baikai.Evidence.ThinkingAdjustment` recording reasoning that was
 requested but returned unreadable, with its wire spelling in
-`renderThinkingAdjustment` and its parser, and a deliberate answer for
+the JSON encoder and decoder, and a deliberate answer for
 `weakensThinking`.
 
 2026-09-07 integration constraint from [plan 75](75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md):
@@ -561,3 +544,7 @@ summary display must preserve signed thinking when its visible text is empty,
 redacted payloads and prior-message order. The two-round replay fixture in
 `baikai-claude/test/FableContractsSpec.hs` is an acceptance gate for summary
 changes. Display text is never a replacement for the provider signature.
+
+Revision 2026-09-07: rebased on completed SDK/fast-mode work, corrected display
+support in budget mode, reused thinkingStyle, and specified translated display
+separately from the response-only availability diagnostic and replay guarantees.

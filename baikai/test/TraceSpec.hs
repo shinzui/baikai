@@ -646,6 +646,7 @@ registerOkBudgetDescriber a =
             Ev.effortText = Nothing,
             Ev.budgetTokens = Just 1024,
             Ev.wireField = Just "thinking",
+            Ev.displayText = Nothing,
             Ev.adjustments = []
           }
    in registerApiProvider

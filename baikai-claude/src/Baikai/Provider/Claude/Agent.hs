@@ -138,6 +138,7 @@ claudeAgentThinking req = case req ^. #effort of
             effortText = Just wire,
             budgetTokens = Nothing,
             wireField = Just "--effort",
+            displayText = Nothing,
             adjustments = [EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
           }
 

@@ -418,6 +418,7 @@ describeAdjustment = \case
   SamplingDroppedUnsupportedModel fields ->
     Text.intercalate ", " fields
       <> " would be dropped, because this model generation rejects sampling parameters"
+  ThinkingSummaryUnavailable -> "the response contained thinking blocks but no readable summary"
   FastModeDroppedUnsupportedModel -> "fast mode would be dropped, because this model does not support it"
   SamplingDroppedUnsupportedApi fields ->
     Text.intercalate ", " fields

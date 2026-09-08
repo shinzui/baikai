@@ -26,7 +26,8 @@ tests :: TestTree
 tests =
   testGroup
     "Fable contracts"
-    [ testCase "forced choices fail before the driver for complete and stream, including renamed models" $
+    [ summaryTests,
+      testCase "forced choices fail before the driver for complete and stream, including renamed models" $
         forM_ [model, model & #modelId .~ "renamed-generation"] $ \m ->
           forM_ [ToolChoiceRequired, ToolChoiceSpecific "lookup"] $ \choice -> do
             sent <- newIORef False
@@ -77,7 +78,7 @@ tests =
               writeIORef requests (previous <> [call ^. #requestBody])
               send (case length previous of 0 -> toolTurn "" "sig-one" "toolu_1" True; 1 -> toolTurn "visible summary" "sig-two" "toolu_2" False; _ -> finalTurn) emit
         reg <- newProviderRegistryFrom [apiProvider AnthropicMessages (claudeMessagesStreamWith scripted)]
-        (history, response) <- runToolLoopWith reg 4 (\tc -> do xs <- readIORef executed; writeIORef executed (xs <> [tc.id_]); pure (toolResultText "found")) model context options
+        (history, response) <- runToolLoopWith reg 4 (\tc -> do xs <- readIORef executed; writeIORef executed (xs <> [tc.id_]); pure (toolResultText "found")) model context summaryOptions
         response.message.content @?= V.singleton (AssistantText (TextContent "done"))
         readIORef executed >>= (@?= ["toolu_1", "toolu_2"])
         bodies <- readIORef requests
@@ -89,12 +90,13 @@ tests =
             V.take (V.length b) c @?= b
             field "system" first @?= field "system" third
             field "tools" first @?= field "tools" third
+            forM_ bodies $ \body -> (field "thinking" body >>= field "display") @?= Just (String "summarized")
             contentAt 1 b @?= V.fromList [signed "" "sig-one", redactedItem, toolItem "toolu_1"]
             contentAt 3 c @?= V.fromList [signed "visible summary" "sig-two", toolItem "toolu_2"]
             field "tool_use_id" (contentAt 2 b V.! 0) @?= Just (String "toolu_1")
             field "tool_use_id" (contentAt 4 c V.! 0) @?= Just (String "toolu_2")
             persisted <- V.mapM persistThinking (history ^. #messages)
-            (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model (history & #messages .~ persisted) options)
+            (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model (history & #messages .~ persisted) summaryOptions)
             messages (Aeson.toJSON req) @?= c
           _ -> assertFailure "expected three requests",
       testCase "error cleanup retains completed signed thinking for persistence" $ do
@@ -176,3 +178,66 @@ persistThinking (AssistantMessage payload) = do
     persist (AssistantThinking t) = AssistantThinking <$> either assertFailure pure (Aeson.eitherDecode (Aeson.encode t))
     persist block = pure block
 persistThinking other = pure other
+
+summaryOptions :: Options
+summaryOptions = options & #thinking .~ Just ThinkingLow & #evidence .~ Just (evidenceRequest "summary-replay")
+
+summaryTests :: TestTree
+summaryTests =
+  testGroup
+    "summary visibility"
+    [ testCase "summarized reasoning assembles into non-empty thinking content" $ do
+        response <- completeFrames (toolTurn "visible summary" "signed-summary" "toolu_summary" False) summaryOptions
+        let blocks = [t | AssistantThinking t <- V.toList (response ^. #message . #content)]
+        map (^. #thinking) blocks @?= ["visible summary"]
+        map (^. #signature) blocks @?= [Just "signed-summary"]
+        ev <- evidenceOf response
+        ev ^. #thinking . #displayText @?= Just "summarized"
+        ev ^. #thinking . #adjustments @?= []
+        ev ^. #observedThinking @?= Unobserved,
+      testCase "reasoning requested but returned empty is recorded in the evidence" $ do
+        forM_ [[signed "" "empty-signature"], [redactedItem], [signed "" "empty-signature", redactedItem]] $ \blocks -> do
+          response <- completeFrames (blocksTurn blocks) summaryOptions
+          ev <- evidenceOf response
+          ev ^. #thinking . #adjustments @?= [ThinkingSummaryUnavailable]
+          ev ^. #thinking . #displayText @?= Just "summarized"
+          ev ^. #observedThinking @?= Unobserved
+          ev ^. #status @?= CallSucceeded
+          responseError response @?= Nothing
+          weakensThinking ThinkingSummaryUnavailable @?= False
+          let actual = [t | AssistantThinking t <- V.toList (response ^. #message . #content)]
+          length actual @?= length blocks
+          -- Encrypted payloads and signed empty blocks remain usable history.
+          (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model (emptyContext & #messages .~ V.singleton (AssistantMessage (response ^. #message))) summaryOptions)
+          contentAt 0 (messages (Aeson.toJSON req)) @?= V.fromList blocks,
+      testCase "one visible block among empty and redacted blocks is a readable summary" $ do
+        response <- completeFrames (blocksTurn [signed "" "empty", redactedItem, signed "visible" "visible-signature"]) summaryOptions
+        ev <- evidenceOf response
+        ev ^. #thinking . #adjustments @?= [],
+      testCase "no thinking block and no thinking preference do not invent missing summaries" $ do
+        noBlocks <- completeFrames finalTurn summaryOptions
+        ev <- evidenceOf noBlocks
+        ev ^. #thinking . #adjustments @?= []
+        noPreference <- completeFrames (blocksTurn [signed "" "sig"]) (options & #evidence .~ Just (evidenceRequest "no-thinking"))
+        ev2 <- evidenceOf noPreference
+        ev2 ^. #thinking @?= noThinkingRequested,
+      testCase "failed streams do not label partial thinking as a missing completed summary" $ do
+        let driver _ _ emit = send [start, block 0 (signed "" "sig"), stopBlock 0] emit >> emit (Left (providerError "interrupted"))
+        response <- streamingComplete (claudeMessagesStreamWith driver) model emptyContext summaryOptions
+        ev <- evidenceOf response
+        ev ^. #status @?= CallFailed
+        ev ^. #thinking . #adjustments @?= []
+        assertBool "failure retained" (responseError response /= Nothing)
+    ]
+  where
+    completeFrames frames opts = streamingComplete (claudeMessagesStreamWith (\_ _ emit -> send frames emit)) model emptyContext opts
+    blocksTurn blocks = [start] <> concat [blockFrames i b | (i, b) <- zip [0 ..] blocks] <> end "end_turn"
+    blockFrames i b = case (field "type" b, field "thinking" b, field "signature" b) of
+      (Just (String "thinking"), Just (String text), Just (String sig)) ->
+        [ block i (signed "" ""),
+          object ["type" .= ("content_block_delta" :: Text), "index" .= i, "delta" .= object ["type" .= ("thinking_delta" :: Text), "thinking" .= text]],
+          object ["type" .= ("content_block_delta" :: Text), "index" .= i, "delta" .= object ["type" .= ("signature_delta" :: Text), "signature" .= sig]],
+          stopBlock i
+        ]
+      _ -> [block i b, stopBlock i]
+    evidenceOf response = maybe (assertFailure "missing evidence" >> fail "evidence") pure (response ^. #evidence)

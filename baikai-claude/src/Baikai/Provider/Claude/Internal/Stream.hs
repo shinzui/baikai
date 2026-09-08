@@ -401,8 +401,9 @@ sealTerminal s ev
 -- unconditionally, because each costs a lookup and each improves the
 -- 'Baikai.Response.Response' for every caller.
 --
--- Nothing here consults the request. An observation the provider did not
--- make stays 'Ev.Unobserved'.
+-- Observed fields never borrow the request. An observation the provider did
+-- not make stays 'Ev.Unobserved'. The separate summary diagnostic relates
+-- the translated request to completed blocks without claiming observed effort.
 observeAnthropic ::
   Ev.CallStatus -> Assembler -> Ev.ModelCallEvidence -> Ev.ModelCallEvidence
 observeAnthropic st ass ev =
@@ -412,12 +413,30 @@ observeAnthropic st ass ev =
     & #providerRequestId .~ (ass ^. #providerRequestId)
     & #responseId .~ maybe Ev.Unobserved Ev.Observed (ass ^. #responseId)
     & #usage .~ observedUsage ass
+    & #thinking . #adjustments %~ (<> summaryDiagnostics st ass (ev ^. #thinking))
     & #responseCommitment .~ responseCommitment st ass
     & #strength
       .~ Ev.deriveStrength
         (ass ^. #observedModel)
         (ass ^. #providerRequestId)
         (maybe Ev.Unobserved Ev.Observed (ass ^. #responseId))
+
+-- | Diagnose visibility after a successful response, without inventing an
+-- observation of effort or weakening the original translation. Adaptive calls
+-- may legitimately contain no thinking blocks. Failed streams may simply have
+-- stopped before text arrived, so neither case claims an unavailable summary.
+summaryDiagnostics :: Ev.CallStatus -> Assembler -> Ev.ThinkingTranslation -> [Ev.ThinkingAdjustment]
+summaryDiagnostics st ass translation
+  | st == Ev.CallSucceeded,
+    Just _ <- translation ^. #requested,
+    translation ^. #mode `elem` [Ev.ThinkingModeAdaptive, Ev.ThinkingModeBudget],
+    not (null thinkingBlocks),
+    all unreadable thinkingBlocks =
+      [Ev.ThinkingSummaryUnavailable]
+  | otherwise = []
+  where
+    thinkingBlocks = [t | Content.AssistantThinking t <- Vector.toList (blocksInOrder ass)]
+    unreadable t = t ^. #redacted || Text.null (t ^. #thinking)
 
 -- | The token accounting, but only if Anthropic actually reported it.
 --

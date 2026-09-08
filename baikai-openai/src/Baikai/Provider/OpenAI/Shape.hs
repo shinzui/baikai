@@ -186,6 +186,7 @@ injectEffort compat modelReasons opts body =
                 effortText = Nothing,
                 budgetTokens = Nothing,
                 wireField = Nothing,
+                displayText = Nothing,
                 adjustments = [ThinkingDroppedUnsupportedModel lvl]
               }
           )
@@ -203,6 +204,7 @@ injectEffort compat modelReasons opts body =
               effortText = Nothing,
               budgetTokens = Nothing,
               wireField = Nothing,
+              displayText = Nothing,
               adjustments = [ThinkingDroppedUnsupportedHost lvl]
             }
         )
@@ -263,6 +265,7 @@ effortTranslation lvl wire field =
       effortText = Just wire,
       budgetTokens = Nothing,
       wireField = Just field,
+      displayText = Nothing,
       adjustments =
         [EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
     }
@@ -281,6 +284,7 @@ toggleTranslation lvl =
       effortText = Nothing,
       budgetTokens = Nothing,
       wireField = Just "enable_thinking",
+      displayText = Nothing,
       adjustments = [EffortCollapsedToToggle lvl]
     }
 

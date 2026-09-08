@@ -188,6 +188,7 @@ codexCliThinking opts = case opts ^. #thinking of
             effortText = Just wire,
             budgetTokens = Nothing,
             wireField = Just "model_reasoning_effort",
+            displayText = Nothing,
             adjustments = [Ev.EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
           }
 

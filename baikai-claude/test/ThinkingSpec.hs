@@ -115,7 +115,7 @@ styleTests =
             "max_tokens leaves visible-output room beyond budget"
             (req ^. #max_tokens > expectedBudget)
         AnthropicThinkingAdaptive -> do
-          requestThinking req @?= Just Messages.ThinkingAdaptive
+          requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
           req ^. #max_tokens @?= model ^. #maxOutputTokens
           (req ^. #output_config >>= Messages.effort)
             @?= adaptiveEffort level
@@ -236,7 +236,7 @@ adaptiveHigherEffortTests =
           requestFor
             anthropic_claude_opus_4_7
             (emptyOptions & #thinking .~ Just level)
-        requestThinking req @?= Just Messages.ThinkingAdaptive
+        requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
         (req ^. #output_config >>= Messages.effort) @?= Just expected
     | (name, level, expected) <-
         [ ("xhigh is preserved", ThinkingXHigh, "xhigh"),
@@ -310,7 +310,7 @@ mergedOutputConfigTest =
               .~ Just (JsonSchema (jsonSchemaFormat "answer" schema) {strict = True})
         expected = (Messages.jsonSchemaConfig schema) {Messages.effort = Just "medium"}
     req <- requestFor anthropic_claude_opus_4_6 opts
-    requestThinking req @?= Just Messages.ThinkingAdaptive
+    requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
     req ^. #output_config @?= Just expected
 
 explicitCompatOverridesDefaultTest :: TestTree
@@ -325,7 +325,7 @@ explicitCompatOverridesDefaultTest =
             & #compat .~ CompatAnthropicMessages compat
         opts = emptyOptions & #thinking .~ Just ThinkingLow
     req <- requestFor model opts
-    requestThinking req @?= Just Messages.ThinkingAdaptive
+    requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
     (req ^. #output_config >>= Messages.effort) @?= Just "low"
 
 requestFor :: Model -> Options -> IO Messages.CreateMessage

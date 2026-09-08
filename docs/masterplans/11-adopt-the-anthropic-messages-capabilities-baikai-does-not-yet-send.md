@@ -164,7 +164,7 @@ rather than a decision record.
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Send Anthropic fast mode as a catalog-gated request option | docs/plans/69-send-anthropic-fast-mode-as-a-catalog-gated-request-option.md | None | None | Complete |
 | EP-2 | Upgrade the claude SDK to 1.5 and decide what a paused turn means | docs/plans/70-upgrade-the-claude-sdk-to-1-5-and-decide-what-a-paused-turn-means.md | None | EP-1 | Complete |
-| EP-3 | Ask Anthropic for summarized thinking instead of silently empty blocks | docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md | EP-2 | EP-1 | Not Started |
+| EP-3 | Ask Anthropic for summarized thinking instead of silently empty blocks | docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md | EP-2 | EP-1 | Complete |
 | EP-4 | Carry the refusal category into the error and settle server-side fallbacks | docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md | EP-2 | EP-3 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -192,11 +192,9 @@ EP-3 has a hard dependency on EP-2. The constructor it needs,
 `Claude.V1.Messages.ThinkingAdaptiveWithDisplay`, does not exist in
 `claude` 1.4.0; the `Thinking` type there has exactly two constructors
 and neither carries a display setting. EP-3's code will not compile until
-the dependency has moved. Its soft dependency on EP-1 is again about
-review order: both plans add a field to
-`Baikai.Compat.AnthropicMessagesCompat` and a corresponding fact to the
-catalog fetcher, and doing the second one is much easier with the first
-one to copy.
+the dependency has moved. Its soft dependency on EP-1 was originally about
+sharing new catalog fields. EP-3's implementation instead reuses the existing
+thinkingStyle selector; no second compatibility field is needed.
 
 EP-4 has a hard dependency on EP-2 for the same reason: `stop_details`
 and `fallbacks` do not exist in `claude` 1.4.0. Its soft dependency on
@@ -220,28 +218,17 @@ The first is `Baikai.Compat.AnthropicMessagesCompat`, the record in
 Anthropic Messages API accepts for that model. It now has seven fields:
 `supportsLongCacheRetention`, `supportsCacheControlOnTools`,
 `sendSessionAffinityHeaders`, `thinkingStyle`, `supportsSamplingParameters`,
-`supportsForcedToolChoice` and EP-1's `supportsFastMode`. EP-3 adds another
-field describing whether the model returns reasoning summaries by default. EP-1 owns establishing
-the pattern; EP-3 follows it. Both must extend the same four places that
-`supportsSamplingParameters` already occupies: the record and its
-`default…` value in `baikai/src/Baikai/Compat.hs`, the curated facts
-table `anthropicInclude` in `baikai/fetch/FetchModelsCore.hs`, the JSON
-`compat` block emitted into `baikai/data/models/anthropic.json`, and the
-generator in `baikai/gen/GenModelsCore.hs` that renders that JSON into
-`baikai/src/Baikai/Models/Generated.hs`. Whichever plan runs second must
-read the first plan's diff before starting, because the fetcher's
-`AnthropicGenerationFacts` record and its three helper values
-(`adaptiveNoSampling`, `adaptiveWithSampling`, `budgetWithSampling`) will
-have changed shape.
+`supportsForcedToolChoice` and EP-1's `supportsFastMode`. EP-3 reuses
+thinkingStyle to request summarized display for adaptive models. Provider
+documentation supports display in both thinking modes; explicit display is a
+request policy, not another independent model capability. EP-3 leaves the
+catalog pipeline and generated artifacts unchanged.
 
-The second is the pair of hand-written test tables that pin every
-Anthropic catalog entry's facts:
-`expectedAnthropicFacts` in `baikai/test/CatalogSpec.hs` and
-`anthropicModels` in `baikai-claude/test/ThinkingSpec.hs`. Both tables
-exist precisely so that a catalog refresh cannot change a per-model fact
-without a human editing a row. EP-1 and EP-3 each widen the tuple those
-tables hold. Whichever runs second must widen the tuple the first one
-left behind rather than the one described in this MasterPlan.
+The second is the pair of pinned model fact tables in
+baikai/test/CatalogSpec.hs and baikai-claude/test/ThinkingSpec.hs.
+EP-1 widened these for fast support. EP-3 preserves their shapes and extends
+adaptive request expectations to require summarized display for every model
+and reasoning level.
 
 The third is the `Messages.Message_Stop` branch of the `translate`
 function in
@@ -272,13 +259,20 @@ and the milestone. This section provides an at-a-glance view of the entire initi
 - [x] EP-1: Fast-mode pricing is reported truthfully rather than at the standard rate
 - [x] EP-2: `claude` moves to `^>=1.5` and the package builds
 - [x] EP-2: A paused turn has a decided, tested representation
-- [ ] EP-3: Reasoning summaries are requested and arrive non-empty
-- [ ] EP-3: A model that returns no summary says so in the evidence record
+- [x] EP-3: Reasoning summaries are requested and arrive non-empty
+- [x] EP-3: A model that returns no summary says so in the evidence record
 - [ ] EP-4: A refusal carries the provider's category and explanation
 - [ ] EP-4: The server-side fallbacks question is answered in an ADR
 
 
 ## Surprises & Discoveries
+
+EP-3 integration (2026-09-07): SDK 1.5 and current provider documentation support
+display in both thinking modes. Existing thinkingStyle suffices for the chosen
+adaptive-summary policy; no new catalog field is needed. Schema 2.4 records
+translated display separately from a response-only unavailable-summary
+diagnostic. Replay tests preserve signed empty blocks, redacted payloads and
+consecutive tool history. ADRs 0002, 0003 and 0009 capture these decisions.
 
 EP-1 integration (2026-09-07): plan 76 had already added policy resolution and
 observed billing facts. Fast pricing now uses that shared path, with a premium
@@ -291,8 +285,8 @@ durable rules. The fetcher derives capability from optional curated fast rates;
 the generator checks the independent JSON fields in both directions.
 
 The compatibility record and both pinned test tables now include forced-choice
-support from another initiative as well as EP-1's fast flag. EP-3 must extend
-the current shapes, including both additions.
+support from another initiative as well as EP-1's fast flag. EP-3 preserves
+these current shapes and reuses thinkingStyle.
 
 Document cross-plan insights, dependency changes, scope adjustments, or unexpected
 interactions between child plans. Provide concise evidence.
@@ -349,6 +343,12 @@ with named tests under "the counts and stop reasons claude 1.5 reports".
 
 
 ## Decision Log
+
+- Decision (2026-09-07): EP-3 supersedes the proposed extra summary capability
+  flag with the existing thinkingStyle selector. Explicit summarized display
+  is adaptive request policy; budget requests preserve their previous shape.
+  ThinkingSummaryUnavailable diagnoses completed unreadable blocks without
+  asserting observed effort or weakening strict preflight.
 
 - Decision (2026-09-07): implement EP-1 against already completed EP-2 and the
   integrated pricing work rather than its historical SDK 1.4 assumptions.
@@ -415,22 +415,30 @@ Compare the result against the original vision. Before marking the MasterPlan co
 distill durable project context from this MasterPlan and its child ExecPlans into
 docs/adr/. Keep task-local execution and coordination details here.
 
-As of 2026-09-07, EP-1 and EP-2 are Complete (two of four children).
+As of 2026-09-07, EP-1, EP-2 and EP-3 are Complete (three of four children).
 Fast mode is available through `Options.speed`, with catalog gating, automatic
 beta headers, drop evidence and premium pricing composed with cache policy.
 The SDK upgrade supplies observed speed, and terminal costs consume it without
 substituting the request preference for provider evidence. ADRs 0004, 0009 and
 0020 capture EP-1's durable decisions; ADR 0018 captures EP-2's stop semantics.
 
-All ten Cabal test suites pass, including 748 core tests and 351 Claude tests.
+All ten Cabal test suites pass, including 780 core tests and 357 Claude tests.
 Generation rejects contradictory fast-mode facts, and isolated live fetching
 reproduces the new facts for all 11 Anthropic entries. Live Anthropic smoke was
 skipped because credentials are absent; no live fast entitlement was exercised.
 
-The next ready child is EP-3,
-`docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md`.
-EP-4 remains ready after EP-2 but is sequenced after EP-3 by its soft dependency.
-The whole-initiative ADR distillation pass remains due after those children.
+Adaptive requests now explicitly ask for summarized thinking. Translation
+evidence records display_text, and completed unreadable thinking blocks receive
+a response-only diagnostic without altering signatures or observed effort.
+Replay acceptance passes; live Anthropic summary behavior was not exercised
+because credentials are absent.
+
+The next ready child is EP-4,
+docs/plans/72-carry-the-refusal-category-into-the-error-and-settle-server-side-fallbacks.md.
+The whole-initiative ADR distillation pass remains due after that child.
 
 Revision 2026-09-07: recorded EP-1 integration with SDK 1.5 and shared pricing,
 updated current compat ownership, and distilled fast-mode decisions into ADRs.
+
+Revision 2026-09-07: completed EP-3, reconciled shared catalog ownership with
+the reused thinkingStyle policy, and recorded summary evidence validation.

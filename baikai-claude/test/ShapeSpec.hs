@@ -6,6 +6,7 @@ import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
 import Baikai.Provider.Claude.Transport qualified as Transport
 import Control.Lens ((&), (.~), (^.))
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
@@ -20,7 +21,8 @@ tests :: TestTree
 tests =
   testGroup
     "ShapeSpec"
-    [ fastSpeedTests,
+    [ summaryDisplayTest,
+      fastSpeedTests,
       verbatimToolSchemaTest,
       toolChoiceNoneTest,
       toolCacheControlTest,
@@ -168,3 +170,18 @@ fastSpeedTests =
     ]
   where
     headers m opts = Transport.requestHeaders "test-key" Nothing (anthropicMessagesCompatFor m) emptyContext m opts
+
+summaryDisplayTest :: TestTree
+summaryDisplayTest = testCase "adaptive requests ask for summarized display; budget and absent thinking retain their shapes" $ do
+  let opts = emptyOptions & #thinking .~ Just ThinkingLow
+  forM_ [Models.anthropic_claude_opus_5, Models.anthropic_claude_opus_4_6, Models.anthropic_claude_fable_5_1, Models.anthropic_claude_opus_5 & #modelId .~ "renamed"] $ \m -> do
+    body <- shapedBody m emptyContext opts
+    lookupPath ["thinking"] body @?= Just (Aeson.object ["type" .= ("adaptive" :: Text.Text), "display" .= ("summarized" :: Text.Text)])
+    describeThinkingFor m opts ^. #displayText @?= Just "summarized"
+    absent <- shapedBody m emptyContext emptyOptions
+    lookupPath ["thinking"] absent @?= Nothing
+    describeThinkingFor m emptyOptions ^. #displayText @?= Nothing
+  let budget = Models.anthropic_claude_haiku_4_5
+  body <- shapedBody budget emptyContext opts
+  lookupPath ["thinking"] body @?= Just (Aeson.object ["type" .= ("enabled" :: Text.Text), "budget_tokens" .= thinkingTokenBudget ThinkingLow])
+  describeThinkingFor budget opts ^. #displayText @?= Nothing

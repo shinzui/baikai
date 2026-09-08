@@ -146,3 +146,14 @@ direction, naming the model. Request mapping, automatic beta headers and the
 preflight evidence describer share `planSpeed`; unsupported fast preferences
 produce a non-thinking adjustment. Model and caller header overrides retain
 their existing precedence.
+
+## Summarized thinking display (2026-09-07)
+
+Adaptive thinking requests explicitly send `display: summarized`. The existing
+catalog `thinkingStyle` selects those requests; no second flag duplicates it.
+The current provider documentation permits display in both budget and adaptive
+objects. Budget requests deliberately retain their existing shape and summary
+default, and an absent thinking preference remains absent. This is a request
+policy, not a claim that display is unsupported on budget models. If a future
+provider needs a distinct display restriction, add an independently sourced
+capability fact rather than a model-id test.

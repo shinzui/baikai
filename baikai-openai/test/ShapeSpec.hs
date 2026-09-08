@@ -250,6 +250,7 @@ expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
           effortText = Nothing,
           budgetTokens = Nothing,
           wireField = Nothing,
+          displayText = Nothing,
           adjustments = [ThinkingDroppedUnsupportedHost lvl]
         },
       [],
@@ -265,6 +266,7 @@ expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
             effortText = Nothing,
             budgetTokens = Nothing,
             wireField = Just "enable_thinking",
+            displayText = Nothing,
             adjustments = [EffortCollapsedToToggle lvl]
           },
         [("enable_thinking", Bool True)],
@@ -280,6 +282,7 @@ adaptiveTranslation lvl wire field adjs =
       effortText = Just wire,
       budgetTokens = Nothing,
       wireField = Just field,
+      displayText = Nothing,
       adjustments = adjs
     }
 

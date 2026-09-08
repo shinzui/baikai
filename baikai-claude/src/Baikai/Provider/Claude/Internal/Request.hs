@@ -339,6 +339,9 @@ emptyThinkingPlan =
 -- provider-neutral description of what the caller's level became.
 --
 -- The two travel together because they are two views of one decision.
+-- Adaptive requests explicitly ask for summarized display, using the catalog
+-- thinking style. Budget requests retain their existing provider default.
+-- Display changes visibility only; it does not establish reasoning depth.
 -- Returning only the first is what this provider used to do, and it is
 -- why a caller could never tell an honoured request from a dropped one.
 computeThinking ::
@@ -356,13 +359,14 @@ computeThinking compat m (Just lvl)
             effortText = Nothing,
             budgetTokens = Nothing,
             wireField = Nothing,
+            displayText = Nothing,
             adjustments = [ThinkingDroppedUnsupportedModel lvl]
           }
       )
   | thinkingStyle compat == AnthropicThinkingAdaptive =
       let e = adaptiveEffort lvl
        in ( ThinkingPlan
-              { field = Just Messages.ThinkingAdaptive,
+              { field = Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized),
                 effort = e,
                 budget = Nothing
               },
@@ -372,6 +376,7 @@ computeThinking compat m (Just lvl)
                 effortText = e,
                 budgetTokens = Nothing,
                 wireField = Just "thinking",
+                displayText = Just "summarized",
                 adjustments = adaptiveAdjustments lvl e
               }
           )
@@ -390,6 +395,7 @@ computeThinking compat m (Just lvl)
                 -- A budget expresses the requested level exactly, so
                 -- there is nothing to adjust.
                 wireField = Just "thinking",
+                displayText = Nothing,
                 adjustments = []
               }
           )
@@ -431,6 +437,7 @@ dropThinking adj t =
     & #effortText .~ Nothing
     & #budgetTokens .~ Nothing
     & #wireField .~ Nothing
+    & #displayText .~ Nothing
     & #adjustments %~ (<> [adj])
 
 -- | Map a baikai 'Tool.Tool' into the upstream Anthropic

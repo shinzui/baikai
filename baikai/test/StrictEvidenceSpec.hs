@@ -300,7 +300,8 @@ bestEffortIsNeverRefusedTests =
                   ThinkingDroppedBudgetExceeded lvl 32000 8192,
                   SamplingDroppedUnsupportedModel ["temperature"],
                   SamplingDroppedUnsupportedApi ["seed"],
-                  FastModeDroppedUnsupportedModel
+                  FastModeDroppedUnsupportedModel,
+                  ThinkingSummaryUnavailable
                 ]
             ]
     ]
@@ -309,6 +310,7 @@ bestEffortIsNeverRefusedTests =
 -- group above is separately identifiable when it fails.
 adjustmentName :: ThinkingAdjustment -> String
 adjustmentName = \case
+  ThinkingSummaryUnavailable -> "summary unavailable"
   FastModeDroppedUnsupportedModel -> "fast mode dropped"
   EffortClamped {} -> "clamped"
   EffortCollapsedToToggle {} -> "collapsed"

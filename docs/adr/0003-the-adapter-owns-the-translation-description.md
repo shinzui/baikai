@@ -112,3 +112,10 @@ must be the provider's own declaration.
 - 2026-08-27, `docs/plans/65-make-evidence-records-truthful-and-strict-mode-strict.md`:
   stated how a path with no adapter obtains its description, and recorded
   `ApiProvider.strengthCeiling` as the second provider-owned declaration.
+
+- 2026-09-07, `docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md`:
+  `ThinkingTranslation.displayText` records the exact display setting sent.
+  The adaptive builder sets it alongside the SDK field; other paths use absent.
+  Response assembly may append the specifically response-only
+  `ThinkingSummaryUnavailable` diagnostic. It preserves all request translation
+  fields and does not re-derive or replace the adapter's preflight description.

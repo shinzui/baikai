@@ -166,6 +166,7 @@ claudeCliThinking opts = case opts ^. #thinking of
             effortText = Just wire,
             budgetTokens = Nothing,
             wireField = Just "--effort",
+            displayText = Nothing,
             adjustments = [Ev.EffortClamped lvl wire | wire /= renderThinkingLevel lvl]
           }
 

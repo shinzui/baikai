@@ -384,6 +384,20 @@ wire shape is consulted, because a host may speak a perfectly good
 reasoning dialect while the model selected on it cannot reason —
 `gpt-4o-mini` on OpenAI's own host, or `deepseek-chat` on DeepSeek's.
 
+Anthropic adaptive requests also send `thinking.display: summarized` and record
+that exact setting as `thinking.display_text` in evidence. Budget requests keep
+their previous shape and provider summary default. Leaving `Options.thinking`
+unset still sends no thinking configuration. Display changes visibility; it
+does not prove an effort level or change the reasoning-token accounting.
+
+A successful call with requested reasoning and thinking blocks that are all
+empty or redacted records `thinking_summary_unavailable` in the evidence
+adjustments. It remains a successful call, and strict thinking checks do not
+reject it. No thinking block is a legitimate adaptive outcome and receives no
+such diagnostic. Signatures and redacted payloads remain available for replay
+regardless of whether a summary is readable. See
+[Anthropic's display documentation](https://platform.claude.com/docs/en/build-with-claude/thinking#controlling-thinking-display).
+
 ### Sampling parameters
 
 `Options` carries five sampling controls. Which of them reach which API

@@ -521,6 +521,7 @@ agentThinkingTranslationTests =
                     effortText = Just (renderThinkingLevel level),
                     budgetTokens = Nothing,
                     wireField = Just "model_reasoning_effort",
+                    displayText = Nothing,
                     adjustments = []
                   }
           | level <-

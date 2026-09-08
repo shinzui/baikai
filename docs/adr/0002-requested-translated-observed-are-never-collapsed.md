@@ -101,3 +101,16 @@ question of whether any of the three was written down at all.
   `not_translated`, and added the consumer-side rule after the
   OpenTelemetry sink was found labelling a requested id as a response
   model.
+
+- 2026-09-07, `docs/plans/71-ask-anthropic-for-summarized-thinking-instead-of-silently-empty-blocks.md`:
+  schema 2.4 adds optional `thinking.display_text` and a response-only
+  `thinking_summary_unavailable` diagnostic. The latter relates an enabled
+  reasoning request to a successful response with thinking blocks but no
+  readable summary; it is not an observation of effort. It is appended to
+  `thinking.adjustments` without altering any request field or filling
+  `observedThinking`. Empty signed blocks and redacted blocks count as
+  unreadable; any visible summary prevents the diagnostic. No blocks is a
+  legitimate adaptive outcome, and failed streams may stop before text arrives,
+  so neither is labelled unavailable. The diagnostic does not weaken thinking
+  for the strict preflight gate and never converts a successful call to an
+  error. Signatures, encrypted payloads, and history order are untouched.

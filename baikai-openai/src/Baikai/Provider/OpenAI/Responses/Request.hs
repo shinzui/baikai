@@ -103,10 +103,10 @@ thinkingFields m opts = (fields, thought {E.adjustments = thought.adjustments <>
     compat = openaiResponsesCompatFor m
     (fields, thought) = case opts.thinking of
       Nothing -> ([], E.noThinkingRequested)
-      Just lvl | not m.reasoning -> ([], E.ThinkingTranslation (Just lvl) E.ThinkingModeUnsupported Nothing Nothing Nothing [E.ThinkingDroppedUnsupportedModel lvl])
+      Just lvl | not m.reasoning -> ([], E.ThinkingTranslation (Just lvl) E.ThinkingModeUnsupported Nothing Nothing Nothing Nothing [E.ThinkingDroppedUnsupportedModel lvl])
       Just lvl ->
         let effort = renderThinkingLevel (resolveSupportedEffort compat.supportedReasoningEfforts lvl)
-         in ([("reasoning", object ["effort" .= effort])], E.ThinkingTranslation (Just lvl) E.ThinkingModeAdaptive (Just effort) Nothing (Just "reasoning.effort") [E.EffortClamped lvl effort | effort /= renderThinkingLevel lvl])
+         in ([("reasoning", object ["effort" .= effort])], E.ThinkingTranslation (Just lvl) E.ThinkingModeAdaptive (Just effort) Nothing (Just "reasoning.effort") Nothing [E.EffortClamped lvl effort | effort /= renderThinkingLevel lvl])
     dropped = [name | (name, set) <- [("temperature", isJust opts.temperature), ("top_p", isJust opts.topP)], set]
     sampling = [E.SamplingDroppedUnsupportedModel dropped | not compat.supportsSamplingParameters, not (null dropped)]
 
