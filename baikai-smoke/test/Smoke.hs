@@ -20,10 +20,12 @@ import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import InteractiveSmoke qualified
 import MultiHostSmoke qualified
+import NewModelsSmoke qualified
+import SmokeOptions qualified
 import Streamly.Data.Stream qualified as Stream
 import StructuredSmoke qualified
 import System.Directory (findExecutable)
-import System.Environment (lookupEnv)
+import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 import ThinkingSmoke qualified
@@ -31,11 +33,27 @@ import ToolsSmoke qualified
 
 main :: IO ()
 main = do
+  args <- getArgs
+  selected <- either (\err -> hPutStrLn stderr err >> exitFailure) pure (SmokeOptions.parseSmokeOptions args)
   ClaudeApi.register
   OpenAIApi.register
   OpenAIResponses.register
   ClaudeCli.register
   CodexCli.register
+  if SmokeOptions.newModels selected
+    then NewModelsSmoke.runNewModels (SmokeOptions.requireKeys selected) >>= \ok -> unless ok exitFailure
+    else do
+      when (SmokeOptions.requireKeys selected) $ do
+        let groups = map caseEnvVars apiCases
+        env <- traverse (\name -> (name,) <$> lookupEnv name) (concat groups)
+        let missing = SmokeOptions.missingKeys env groups
+        unless (null missing) $ do
+          hPutStrLn stderr ("[baikai-smoke] missing required environment alternatives: " <> show missing)
+          exitFailure
+      runOrdinary
+
+runOrdinary :: IO ()
+runOrdinary = do
   hadApi <- mapM runApiCase apiCases
   hadStream <- mapM runStreamCase apiCases
   hadCli <- mapM runCliCase cliCases

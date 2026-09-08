@@ -45,7 +45,7 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 | EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | Complete |
 | EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Complete |
 | EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Complete |
-| EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | Not Started |
+| EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | In Progress |
 
 EP-2 and EP-4 also have an integration dependency: both can develop their independent fixtures, but the combined Responses terminal must use EP-4's usage and cost-basis contract before EP-5 begins.
 

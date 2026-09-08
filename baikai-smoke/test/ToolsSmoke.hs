@@ -67,7 +67,6 @@ runToolCase ApiCase {caseLabel, caseEnvVars, caseModel} = do
           opts =
             emptyOptions
               & #maxTokens .~ Just 1024
-              & #temperature .~ Just 0.0
               -- Presence is checked above for skip/logging; resolution itself
               -- goes through the chain so provider code owns fallback order.
               & #apiKey .~ Just (ApiKeyEnvChain caseEnvVars)

@@ -55,6 +55,8 @@ test-suite baikai-smoke
     CompatSmoke
     InteractiveSmoke
     MultiHostSmoke
+    NewModelsSmoke
+    SmokeOptions
     StructuredSmoke
     ThinkingSmoke
     ToolsSmoke
@@ -78,6 +80,14 @@ test-suite baikai-smoke
     , streamly-core      ^>=0.3
     , text               ^>=2.1
     , vector
+
+test-suite smoke-options
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        SmokeOptionsSpec.hs
+  other-modules:  SmokeOptions
+  build-depends:  base >=4.20 && <5
 
 -- Compiles every fenced `haskell` block under docs/capabilities/ and, when run,
 -- checks each block still matches the marked region of its Shape.CapN module.
