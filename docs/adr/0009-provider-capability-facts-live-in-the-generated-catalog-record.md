@@ -128,3 +128,10 @@ when absent. Responses compatibility has its own catalog discriminator and
 renderer. Fetch curation emits the override and endpoint facts together;
 Astra selects Responses while older OpenAI entries retain the Chat default.
 The fetch-to-generator round-trip test verifies both routes in one catalog.
+
+Anthropic forced tool choice is another independent generation fact:
+`supportsForcedToolChoice` is False for Fable 5.1 and explicitly True for the
+curated predecessors. It is preserved by fetch/generation and checked before
+request preparation. Adaptive thinking alone does not determine this flag.
+Legacy persisted compat records default the new field to True; unsupported
+required/named choices produce a local error naming auto/none alternatives.

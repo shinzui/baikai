@@ -9,6 +9,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `baikai-claude`: reject forced tool choices locally on Fable 5.1, using the
+  generated `supportsForcedToolChoice` capability. Automatic tool rounds retain
+  signed empty/visible thinking, redacted blocks and prior-message order. The
+  public compat record gains a field; legacy JSON defaults it to True.
+
 - `baikai-openai`: reject tools locally for models whose Chat Completions endpoint
   disallows them, including GPT-6 Astra. Respect generated effort policies and
   sampling restrictions, with matching translation evidence and strict refusal.

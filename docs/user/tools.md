@@ -291,3 +291,23 @@ Replay is scoped to the same API and model; another provider rejects it rather
 than treating it as an Anthropic signature. Image tool results, stop sequences,
 seed and frequency/presence penalties are currently rejected by the Responses
 mapper. Incomplete function arguments are never executed by `runToolLoop`.
+
+## Fable 5.1 history and tool choice
+
+Use `ToolChoiceAuto` (or leave the option unset) for Fable 5.1 tool loops.
+`ToolChoiceNone` disables tools for that request. Required and named choices
+fail locally with `InvalidRequest`; Baikai does not weaken them to automatic
+choice. Other generations use their own catalog capability.
+
+`runToolLoop` and `appendToolResult` retain signed thinking, including empty
+summaries, redacted payloads and the ordering of earlier messages. Retain these
+blocks unchanged when persisting the message vector. The visible summary is
+not the continuation state and is not a signal that reasoning was absent.
+
+Fable 5.1 binds thinking to the preceding system prompt, tool definitions and
+messages. Rewriting that prefix, truncating history or switching models is a
+caller-owned migration decision; the stateless adapter cannot detect arbitrary
+past edits. Follow the provider's [history migration guidance](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide).
+A rejected signature remains a classified provider error. Baikai does not
+repair or retry history automatically, or request summaries to reconstruct
+opaque state.

@@ -26,6 +26,7 @@ import Baikai.Compat
   ( AnthropicMessagesCompat
       ( sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
+        supportsForcedToolChoice,
         supportsLongCacheRetention,
         supportsSamplingParameters,
         thinkingStyle
@@ -162,13 +163,15 @@ parseAnthropicCompat o = do
   ssah <- o .:? "sendSessionAffinityHeaders" .!= d.sendSessionAffinityHeaders
   ts <- optionalField o "thinkingStyle" parseAnthropicThinkingStyle d.thinkingStyle
   ssp <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
+  forced <- o .:? "supportsForcedToolChoice" .!= d.supportsForcedToolChoice
   pure
     d
       { supportsLongCacheRetention = slcr,
         supportsCacheControlOnTools = scot,
         sendSessionAffinityHeaders = ssah,
         thinkingStyle = ts,
-        supportsSamplingParameters = ssp
+        supportsSamplingParameters = ssp,
+        supportsForcedToolChoice = forced
       }
 
 -- | The catalog dialect spells the extended-thinking wire shape as a
@@ -422,6 +425,7 @@ renderModule entries =
         "  ( AnthropicMessagesCompat",
         "      ( sendSessionAffinityHeaders,",
         "        supportsCacheControlOnTools,",
+        "        supportsForcedToolChoice,",
         "        supportsLongCacheRetention,",
         "        supportsSamplingParameters,",
         "        thinkingStyle",
@@ -600,7 +604,8 @@ renderCompat = \case
       "              supportsCacheControlOnTools = " <> renderBool c.supportsCacheControlOnTools <> ",",
       "              sendSessionAffinityHeaders = " <> renderBool c.sendSessionAffinityHeaders <> ",",
       "              thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle <> ",",
-      "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters,
+      "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
+      "              supportsForcedToolChoice = " <> renderBool c.supportsForcedToolChoice,
       "            }"
     ]
 

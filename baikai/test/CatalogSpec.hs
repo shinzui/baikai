@@ -25,6 +25,7 @@ import Baikai.Compat
   ( AnthropicMessagesCompat,
     AnthropicThinkingStyle (..),
     OpenAIResponsesCompat (supportedReasoningEfforts, supportsLongCacheRetention, supportsPromptCacheOptions, supportsSamplingParameters),
+    supportsForcedToolChoice,
     supportsSamplingParameters,
     thinkingStyle,
   )
@@ -91,19 +92,19 @@ anthropicCatalogModels = [m | m <- allModels, api m == AnthropicMessages]
 -- | The shipped thinking style and sampling support of each Anthropic
 -- catalog id, written out by hand from
 -- @baikai\/data\/models\/anthropic.json@.
-expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool))]
+expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool, Bool))]
 expectedAnthropicFacts =
-  [ ("claude-fable-5", (AnthropicThinkingAdaptive, False)),
-    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False)),
-    ("claude-haiku-4-5", (AnthropicThinkingBudget, True)),
-    ("claude-opus-4-5", (AnthropicThinkingBudget, True)),
-    ("claude-opus-4-6", (AnthropicThinkingAdaptive, True)),
-    ("claude-opus-4-7", (AnthropicThinkingAdaptive, False)),
-    ("claude-opus-4-8", (AnthropicThinkingAdaptive, False)),
-    ("claude-opus-5", (AnthropicThinkingAdaptive, False)),
-    ("claude-sonnet-4-5", (AnthropicThinkingBudget, True)),
-    ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True)),
-    ("claude-sonnet-5", (AnthropicThinkingAdaptive, False))
+  [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True)),
+    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False)),
+    ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True)),
+    ("claude-opus-4-5", (AnthropicThinkingBudget, True, True)),
+    ("claude-opus-4-6", (AnthropicThinkingAdaptive, True, True)),
+    ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True)),
+    ("claude-opus-4-8", (AnthropicThinkingAdaptive, False, True)),
+    ("claude-opus-5", (AnthropicThinkingAdaptive, False, True)),
+    ("claude-sonnet-4-5", (AnthropicThinkingBudget, True, True)),
+    ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True, True)),
+    ("claude-sonnet-5", (AnthropicThinkingAdaptive, False, True))
   ]
 
 assertFacts :: Model -> IO ()
@@ -121,5 +122,5 @@ assertFacts m = case compat m of
           <> show other
       )
   where
-    facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool)
-    facts c = (thinkingStyle c, c.supportsSamplingParameters)
+    facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool, Bool)
+    facts c = (thinkingStyle c, c.supportsSamplingParameters, c.supportsForcedToolChoice)

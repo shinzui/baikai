@@ -24,13 +24,18 @@ Claude Fable 5.1 requests with forced tool choice will fail locally with a clear
 ## Progress
 
 
-No implementation started.
+- [x] (2026-09-07) Verify current provider guidance: forced choice rejection is specific to Fable/Mythos 5.1; earlier curated generations retain support, subject to their separate manual-thinking constraints.
+- [x] (2026-09-07) Add supportsForcedToolChoice to compat, fetch curation, catalog parser/renderer and generated model facts; default absent legacy JSON to True.
+- [x] (2026-09-07) Reject required/named choices before request preparation; add complete/stream and multi-round history fixtures.
+- [x] (2026-09-07) Prove two consecutive tool rounds preserve empty signed, visible and redacted thinking, prefix order, system/tool definitions and matching tool results. Persist ThinkingContent payloads; preserve completed signed state on error.
+- [x] (2026-09-07) Document caller-owned prefix/model changes and add plan 71 integration constraint without changing its intention or parent.
+- [x] (2026-09-07) Core 687, Claude 333 and doc-shapes pass. Fresh catalogs (23 OpenAI/11 Claude models) match committed data semantically. Capability validation and formatter/diff checks pass.
 
 
 ## Surprises & Discoveries
 
 
-None recorded during implementation.
+The installed SDK source, located through mori://MercuryTechnologies/claude/packages/claude, already represents signed and redacted content (1.5.0). No dependency change is needed. Context and Message intentionally lack FromJSON; the persistence fixture round-trips ThinkingContent and reconstructs caller-owned history, rather than inventing a new storage API. Current official migration and error guidance confirms Fable 5.1 alone among the curated entries disables forced choice; the new flag is not inferred from adaptive thinking.
 
 
 ## Decision Log
@@ -44,7 +49,7 @@ None recorded during implementation.
 ## Outcomes & Retrospective
 
 
-To be filled during implementation.
+Complete. Fable 5.1 rejects forced choices locally using catalog facts; renamed models receive the same decisions. Auto/none retain their wire meaning, predecessors retain explicitly pinned capabilities, and legacy compat JSON defaults the new field to True. The existing thinking mapper needed no replay rewrite: realistic streaming deltas, context append helpers and two public tool rounds preserve all required state. Live verification remains owned by plan 77.
 
 
 ## Context and Orientation

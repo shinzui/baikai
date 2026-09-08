@@ -11,6 +11,7 @@ import Baikai.Compat
   ( AnthropicMessagesCompat
       ( sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
+        supportsForcedToolChoice,
         supportsLongCacheRetention,
         supportsSamplingParameters,
         thinkingStyle
@@ -86,7 +87,8 @@ anthropic_claude_fable_5 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = False
+              supportsSamplingParameters = False,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -117,7 +119,8 @@ anthropic_claude_fable_5_1 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = False
+              supportsSamplingParameters = False,
+              supportsForcedToolChoice = False
             }
     }
 
@@ -148,7 +151,8 @@ anthropic_claude_haiku_4_5 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingBudget,
-              supportsSamplingParameters = True
+              supportsSamplingParameters = True,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -179,7 +183,8 @@ anthropic_claude_opus_4_5 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingBudget,
-              supportsSamplingParameters = True
+              supportsSamplingParameters = True,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -210,7 +215,8 @@ anthropic_claude_opus_4_6 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = True
+              supportsSamplingParameters = True,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -241,7 +247,8 @@ anthropic_claude_opus_4_7 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = False
+              supportsSamplingParameters = False,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -272,7 +279,8 @@ anthropic_claude_opus_4_8 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = False
+              supportsSamplingParameters = False,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -303,7 +311,8 @@ anthropic_claude_opus_5 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = False
+              supportsSamplingParameters = False,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -334,7 +343,8 @@ anthropic_claude_sonnet_4_5 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingBudget,
-              supportsSamplingParameters = True
+              supportsSamplingParameters = True,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -365,7 +375,8 @@ anthropic_claude_sonnet_4_6 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = True
+              supportsSamplingParameters = True,
+              supportsForcedToolChoice = True
             }
     }
 
@@ -396,7 +407,8 @@ anthropic_claude_sonnet_5 =
               supportsCacheControlOnTools = True,
               sendSessionAffinityHeaders = False,
               thinkingStyle = AnthropicThinkingAdaptive,
-              supportsSamplingParameters = False
+              supportsSamplingParameters = False,
+              supportsForcedToolChoice = True
             }
     }
 

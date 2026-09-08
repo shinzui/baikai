@@ -43,7 +43,7 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 |---|-------|------|-----------|-----------|--------|
 | EP-1 | Make model capabilities and catalog refreshes endpoint-aware | docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md | None | None | Complete |
 | EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | In Progress |
-| EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Not Started |
+| EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Complete |
 | EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Not Started |
 | EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | Not Started |
 
@@ -81,12 +81,14 @@ Durable decisions expected during implementation are separate Responses dispatch
 
 - [x] (2026-09-07) EP-1: Persist endpoint facts, enforce request policy, and verify refresh preservation.
 - [ ] EP-2: Implement Responses and reasoning replay.
-- [ ] EP-3: Enforce Claude tool/history contracts.
+- [x] EP-3: Enforce Claude tool/history contracts.
 - [ ] EP-4: Implement truthful usage and pricing.
 - [ ] EP-5: Complete offline and live acceptance.
 
 
 ## Surprises & Discoveries
+
+EP-3 is complete: Fable 5.1 forced-choice validation is catalog-backed and precedes transport. Two tool rounds preserve signed empty/visible and redacted state, including persisted thinking payloads and unchanged prefixes. Core 687, Claude 333 and compiled documentation pass; a fresh catalog candidate matches the committed data.
 
 
 EP-2 adds provider-scoped `ThinkingReplay` on `ThinkingContent.replayState` and a separate Responses tag. Chat and Claude reject this state before dispatch. Evidence schema 2.1 preserves legacy content encodings; ADR 0019 records the contract. The Responses mapper now validates and preserves those items in the next tool request; the HTTP path is /v1/responses. Request/HTTP coverage passes 12 focused cases; another 12 pure assembler cases prove ordered deltas, parallel call identities, snapshot reconciliation, encrypted items and cut-off arguments. Explicit Responses registration, bounded worker integration and a public two-turn tool loop are implemented. All 248 OpenAI tests pass, including conclusive-terminal/consumer-cancellation cleanup and exact request evidence. Astra now selects Responses through a per-model catalog override; the live fetch candidate is semantically identical to the committed catalogs. Core 687, OpenAI 248 and compiled documentation pass. Responses strict evidence and byte-reader lifecycle acceptance now pass, including abort records, fragmented input, duplicate call rejection and completed replay validation. All 265 OpenAI tests pass. EP-2 remains open only for its EP-4 pricing integration.

@@ -23,6 +23,9 @@ requires:
   - CAP-1
 evidence:
   - kind: test
+    resource: baikai-claude/test/FableContractsSpec.hs
+    proves: "Fable 5.1 required/named choices fail before transport, auto/none retain their wire meaning, and two tool rounds preserve empty signed, visible and redacted thinking with unchanged history prefixes and matching tool results."
+  - kind: test
     resource: baikai/test/HelpersSpec.hs
     proves: "runToolLoop's full contract: it resolves repeated tool turns, leaves the final response separate from the context, returns a replay-valid context when the turn budget is exhausted, converts a synchronous dispatcher exception into an error tool result, and terminates a ToolUse response that carries no tool calls."
   - kind: test
@@ -96,3 +99,9 @@ print (responseError resp, length (finalCtx ^. #messages))
 - The offline evidence proves the mapping and the loop mechanics. That a
   particular model actually *chooses* to call a tool is proven only by
   `ToolsSmoke`, which needs a live API key.
+
+Fable 5.1 accepts automatic or disabled tool choice. Its generated
+`supportsForcedToolChoice` flag rejects required/named choices locally. Signed
+thinking is bound to the preceding history; Baikai preserves append operations,
+while caller-owned truncation, prefix edits and model switches require the
+provider's migration policy. See [tool history](../user/tools.md#fable-51-history-and-tool-choice).

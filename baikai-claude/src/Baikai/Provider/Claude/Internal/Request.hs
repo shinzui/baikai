@@ -77,6 +77,10 @@ nonEmptyStops xs = Just (Vector.fromList xs)
 mapRequest ::
   Model -> Context -> Options -> Either Text (Messages.CreateMessage, ThinkingTranslation)
 mapRequest m ctx opts = do
+  case opts ^. #toolChoice of
+    Just Tool.ToolChoiceRequired | not (anthropicMessagesCompatFor m).supportsForcedToolChoice -> unsupportedForcedChoice
+    Just (Tool.ToolChoiceSpecific _) | not (anthropicMessagesCompatFor m).supportsForcedToolChoice -> unsupportedForcedChoice
+    _ -> pure ()
   mapM_
     ( \msg -> case msg of
         Msg.AssistantMessage payload ->
@@ -128,6 +132,9 @@ mapRequest m ctx opts = do
         },
       translation
     )
+
+unsupportedForcedChoice :: Either Text ()
+unsupportedForcedChoice = Left "This model does not support forced tool choice; use ToolChoiceAuto or ToolChoiceNone"
 
 -- | The sampling parameters that will reach the wire, after the compat
 -- record's gate. 'Nothing' means the field is omitted — the SDK encodes

@@ -30,6 +30,7 @@ import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import ErrorClassSpec qualified
 import EvidenceSpec qualified
+import FableContractsSpec qualified
 import LifecycleSpec qualified
 import MidStreamSpec qualified
 import PublicSurfaceSpec qualified
@@ -77,6 +78,7 @@ main =
         CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
+        FableContractsSpec.tests,
         LifecycleSpec.tests,
         MidStreamSpec.tests,
         PublicSurfaceSpec.tests,

@@ -101,7 +101,8 @@ expectedAnthropic =
                   ( CatalogAnthropicCompat
                       ( AnthropicGenerationFacts
                           { thinkingStyle = AnthropicThinkingBudget,
-                            supportsSamplingParameters = True
+                            supportsSamplingParameters = True,
+                            supportsForcedToolChoice = True
                           }
                       )
                   )
@@ -238,7 +239,8 @@ tests =
               [ "      \"compat\": {",
                 "        \"kind\": \"anthropic-messages\",",
                 "        \"thinkingStyle\": \"budget\",",
-                "        \"supportsSamplingParameters\": true",
+                "        \"supportsSamplingParameters\": true,",
+                "        \"supportsForcedToolChoice\": true",
                 "      },"
               ]
               `Text.isInfixOf` rendered

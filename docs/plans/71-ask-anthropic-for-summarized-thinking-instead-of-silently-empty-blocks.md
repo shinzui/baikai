@@ -555,3 +555,9 @@ At the end of Milestone 3, one new constructor on
 requested but returned unreadable, with its wire spelling in
 `renderThinkingAdjustment` and its parser, and a deliberate answer for
 `weakensThinking`.
+
+2026-09-07 integration constraint from [plan 75](75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md):
+summary display must preserve signed thinking when its visible text is empty,
+redacted payloads and prior-message order. The two-round replay fixture in
+`baikai-claude/test/FableContractsSpec.hs` is an acceptance gate for summary
+changes. Display text is never a replacement for the provider signature.

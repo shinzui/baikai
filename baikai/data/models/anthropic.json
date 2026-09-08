@@ -20,7 +20,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": false
+        "supportsSamplingParameters": false,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -40,7 +41,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": false
+        "supportsSamplingParameters": false,
+        "supportsForcedToolChoice": false
       },
       "enabled": true
     },
@@ -60,7 +62,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
-        "supportsSamplingParameters": true
+        "supportsSamplingParameters": true,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -80,7 +83,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
-        "supportsSamplingParameters": true
+        "supportsSamplingParameters": true,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -100,7 +104,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": true
+        "supportsSamplingParameters": true,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -120,7 +125,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": false
+        "supportsSamplingParameters": false,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -140,7 +146,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": false
+        "supportsSamplingParameters": false,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -160,7 +167,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": false
+        "supportsSamplingParameters": false,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -180,7 +188,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
-        "supportsSamplingParameters": true
+        "supportsSamplingParameters": true,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -200,7 +209,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": true
+        "supportsSamplingParameters": true,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     },
@@ -220,7 +230,8 @@
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
-        "supportsSamplingParameters": false
+        "supportsSamplingParameters": false,
+        "supportsForcedToolChoice": true
       },
       "enabled": true
     }

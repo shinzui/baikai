@@ -54,6 +54,7 @@ module Baikai.Compat
         supportsCacheControlOnTools,
         sendSessionAffinityHeaders,
         thinkingStyle,
+        supportsForcedToolChoice,
         supportsSamplingParameters
       ),
     AnthropicThinkingStyle (..),
@@ -69,7 +70,7 @@ where
 
 import Baikai.ThinkingLevel (ThinkingLevel)
 import Baikai.Url (hostMatchesSuffix, urlHost)
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON (parseJSON), ToJSON, withObject, (.!=), (.:), (.:?))
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -268,10 +269,13 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     --   generations accept them is a fact of the generated catalog
     --   record, not of this type. Consumed by
     --   @Baikai.Provider.Claude.Internal.Request.planRequest@.
-    supportsSamplingParameters :: !Bool
+    supportsSamplingParameters :: !Bool,
+    -- | Whether this generation accepts required or named tool choice.
+    -- Defaults to True; explicit catalog facts disable unsupported choices.
+    supportsForcedToolChoice :: !Bool
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving anyclass (ToJSON)
 
 -- | Anthropic's own host: every flag at its default.
 defaultAnthropicMessagesCompat :: AnthropicMessagesCompat
@@ -281,8 +285,20 @@ defaultAnthropicMessagesCompat =
       supportsCacheControlOnTools = True,
       sendSessionAffinityHeaders = False,
       thinkingStyle = AnthropicThinkingBudget,
-      supportsSamplingParameters = True
+      supportsSamplingParameters = True,
+      supportsForcedToolChoice = True
     }
+
+-- | Older persisted models predate the forced-choice capability.
+instance FromJSON AnthropicMessagesCompat where
+  parseJSON = withObject "AnthropicMessagesCompat" $ \o ->
+    AnthropicMessagesCompat
+      <$> o .: "supportsLongCacheRetention"
+      <*> o .: "supportsCacheControlOnTools"
+      <*> o .: "sendSessionAffinityHeaders"
+      <*> o .: "thinkingStyle"
+      <*> o .: "supportsSamplingParameters"
+      <*> o .:? "supportsForcedToolChoice" .!= True
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
 -- host based on its @baseUrl@. Falls back to

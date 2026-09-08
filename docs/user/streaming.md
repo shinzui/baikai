@@ -280,3 +280,17 @@ across every `Api` tag. For the full CLI provider surface
   or thinking block is open at a time.
 - One terminal. Exactly one `EventDone` or `EventError` is emitted
   per call. There is no other way for the stream to end.
+
+### Preserving Fable thinking during tool turns
+
+Keep the full `ThinkingEndPayload.content`, including `signature` and
+`redacted`, even if `thinking` is empty. The terminal assistant message contains
+these same blocks; `responseMessage`, `addResponse` and `appendToolResult`
+retain them for subsequent tool requests. Error cleanup preserves signed blocks
+already received, but `runToolLoop` stops on the error instead of executing an
+unfinished tool call.
+
+For Fable 5.1, leave earlier messages, system instructions and tool definitions
+unchanged when replaying their thinking blocks. An omitted caller effort means
+no explicit preference; it does not assert that always-on provider reasoning
+was disabled. See [tool-history responsibilities](tools.md#fable-51-history-and-tool-choice).

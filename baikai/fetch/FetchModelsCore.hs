@@ -201,7 +201,8 @@ data CatalogCost = CatalogCost
 -- JSON into the generated 'Baikai.Compat.AnthropicMessagesCompat'.
 data AnthropicGenerationFacts = AnthropicGenerationFacts
   { thinkingStyle :: !AnthropicThinkingStyle,
-    supportsSamplingParameters :: !Bool
+    supportsSamplingParameters :: !Bool,
+    supportsForcedToolChoice :: !Bool
   }
   deriving stock (Eq, Show, Generic)
 
@@ -345,12 +346,16 @@ anthropicInclude =
       ("claude-fable-5", adaptiveNoSampling),
       -- 2026-09-07: always-on adaptive thinking; omit sampling parameters.
       -- https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1
-      ("claude-fable-5-1", adaptiveNoSampling)
+      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False)
     ]
   where
-    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False
-    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True
-    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True
+    -- 2026-09-07: all curated predecessors accept forced choice (subject to
+    -- their separate manual-thinking constraint); only Fable 5.1 rejects it.
+    -- https://platform.claude.com/docs/en/api/errors
+    -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
+    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True
+    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True
+    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True
 
 -- | OpenAI curation with a Chat default and explicit Responses overrides.
 openaiSpec :: ProviderSpec
@@ -615,7 +620,9 @@ renderModelCompat (Just (CatalogAnthropicCompat facts)) =
       <> jsonString (renderThinkingStyle (facts ^. #thinkingStyle))
       <> ",",
     "        \"supportsSamplingParameters\": "
-      <> jsonBool (facts ^. #supportsSamplingParameters),
+      <> jsonBool (facts ^. #supportsSamplingParameters)
+      <> ",",
+    "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice),
     "      },"
   ]
 renderModelCompat (Just (CatalogOpenAICompat facts)) =

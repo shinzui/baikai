@@ -89,7 +89,9 @@ rate. The catalog uses its five-minute cache-write price.
 
 Fable 5.1 thinking is always on: leaving `Options.thinking` unset leaves the
 provider default in effect. Use automatic tool choice; forced `any` or named
-tool choice is rejected by the API. Preserve thinking blocks unchanged and
+tool choice is rejected locally with `InvalidRequest`, before credentials or a
+network worker are used. The catalog records this in
+`supportsForcedToolChoice`; changing the model ID does not change the policy. Preserve thinking blocks unchanged and
 keep conversation history append-only: editing earlier turns invalidates later
 thinking blocks. See the [migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
 before switching existing conversations to this model.
