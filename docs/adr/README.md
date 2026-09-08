@@ -33,3 +33,4 @@ bundle.
 | [0017](0017-a-documented-example-compiles-in-the-test-suite.md) | A documented example compiles in the test suite, and the record and its compiled twin are checked against each other | accepted |
 | [0018](0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md) | A provider stop reason with no baikai equivalent maps to the nearest truthful one, and the sum does not widen to hold it | accepted |
 | [0019](0019-reasoning-continuation-is-scoped-to-its-provider-and-model.md) | Reasoning continuation is scoped to its provider API and originating model | accepted |
+| [0020](0020-pricing-policies-and-calculation-bases-are-explicit.md) | Pricing policies and calculation bases are explicit | accepted |

@@ -40,7 +40,7 @@ import Baikai.Content
     UserContent (..),
   )
 import Baikai.Context (Context)
-import Baikai.Cost (Cost (..), zeroCost, zeroCostBreakdown)
+import Baikai.Cost (Cost (..), providerReportedBasis, zeroCost, zeroCostBreakdown)
 import Baikai.Error (BaikaiError, decodeError)
 import Baikai.Evidence (EvidenceStrength (..), Observed (..), deriveStrength, usageEnvelope)
 import Baikai.Message
@@ -543,7 +543,7 @@ claudeUsage o = case KeyMap.lookup "usage" o of
   _ -> Nothing
   where
     reportedCost = case KeyMap.lookup "total_cost_usd" o of
-      Just (Number n) | n > 0 -> Cost {usd = toRational n, breakdown = zeroCostBreakdown}
+      Just (Number n) | n > 0 -> Cost {usd = toRational n, breakdown = zeroCostBreakdown, basis = providerReportedBasis}
       _ -> zeroCost
 
 claudeUsageKeys :: [Key]

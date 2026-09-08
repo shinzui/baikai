@@ -38,6 +38,7 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 20.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",

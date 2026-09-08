@@ -182,10 +182,13 @@ including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
 Those changes introduced version 2.0. Records now say
-`baikai.model-call-evidence/2.1`, which adds optional provider-scoped
+`baikai.model-call-evidence/2.2`. Version 2.1 added optional provider-scoped
 `replay_state` to thinking content and includes it in the response commitment.
 Absent replay state is omitted, so earlier content encodings and digests
-remain unchanged. A verifier selects its rules by
+remain unchanged. Version 2.2 adds `cost.basis`: its `sources` distinguish standard
+token calculations from provider-reported totals, and nonempty `estimate_reasons`
+identify incomplete billing knowledge. Both the amount and its local calculation
+basis remain outside the response commitment. A verifier selects its rules by
 `schema_version`: under `1.x`, `response_commitment` also covered the
 cost and `request_configuration` carried both structured-output schemas
 verbatim.

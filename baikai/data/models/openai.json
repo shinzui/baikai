@@ -276,14 +276,6 @@
     },
     {
       "id": "gpt-6-astra",
-      "api": "openai-responses",
-      "compat": {
-        "kind": "openai-responses",
-        "supportsSamplingParameters": false,
-        "supportsLongCacheRetention": false,
-        "supportsPromptCacheOptions": true,
-        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
-      },
       "name": "GPT-6 Astra",
       "reasoning": true,
       "input": ["text", "image"],
@@ -295,6 +287,15 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
+      "api": "openai-responses",
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 20.0, "output": 75.0, "cacheRead": 2.0, "cacheWrite": 25.0}}]},
+      "compat": {
+        "kind": "openai-responses",
+        "supportsSamplingParameters": false,
+        "supportsLongCacheRetention": false,
+        "supportsPromptCacheOptions": true,
+        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+      },
       "enabled": true
     },
     {

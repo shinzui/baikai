@@ -53,6 +53,7 @@ import Baikai.Compat
     defaultOpenAIResponsesCompat,
   )
 import Baikai.Model (InputModality (..))
+import Baikai.Model qualified as Model
 import Baikai.ThinkingLevel (parseThinkingLevel)
 import Data.Aeson (FromJSON (..), (.!=), (.:), (.:?))
 import Data.Aeson qualified as Aeson
@@ -239,6 +240,7 @@ data ModelEntry = ModelEntry
     entryReasoning :: !Bool,
     entryInput :: ![InputModality],
     entryCost :: !CostEntry,
+    entryPricingPolicy :: !(Maybe Model.PricingPolicy),
     entryContextWindow :: !Natural,
     entryMaxOutputTokens :: !Natural,
     entryEnabled :: !Bool,
@@ -254,6 +256,7 @@ instance FromJSON ModelEntry where
       <*> o .:? "reasoning" .!= False
       <*> (o .: "input" >>= traverse parseInputModality)
       <*> o .: "cost"
+      <*> (o .:? "pricingPolicy" >>= traverse parsePricingPolicy)
       <*> o .: "contextWindow"
       <*> o .: "maxOutputTokens"
       <*> o .:? "enabled" .!= True
@@ -277,12 +280,32 @@ data CostEntry = CostEntry
   }
 
 instance FromJSON CostEntry where
-  parseJSON = Aeson.withObject "CostEntry" $ \o ->
-    CostEntry
-      <$> o .: "input"
-      <*> o .: "output"
-      <*> o .:? "cacheRead" .!= 0
-      <*> o .:? "cacheWrite" .!= 0
+  parseJSON = Aeson.withObject "CostEntry" $ \o -> do
+    c <-
+      CostEntry
+        <$> o .: "input"
+        <*> o .: "output"
+        <*> o .:? "cacheRead" .!= 0
+        <*> o .:? "cacheWrite" .!= 0
+    if all (>= 0) [costInput c, costOutput c, costCacheRead c, costCacheWrite c]
+      then pure c
+      else fail "Cost rates must be nonnegative"
+
+-- | Catalog prices use decimal numbers; runtime policy rates are exact rationals.
+parsePricingPolicy :: Aeson.Value -> Parser Model.PricingPolicy
+parsePricingPolicy = Aeson.withObject "PricingPolicy" $ \o -> do
+  tiers <- o .:? "inputTiers" .!= [] >>= traverse parseTier
+  long <- fmap toRational <$> (o .:? "longCacheWriteCost" :: Parser (Maybe Scientific))
+  let policy = Model.PricingPolicy tiers long
+  either (fail . Text.unpack) (const (pure policy)) (Model.validatePricingPolicy policy)
+  where
+    parseTier = Aeson.withObject "InputPriceTier" $ \o ->
+      Model.InputPriceTier <$> o .: "inputAbove" <*> (o .: "rates" >>= parseCompleteRates)
+    parseCompleteRates = Aeson.withObject "Complete tier rates" $ \o ->
+      toModelCost <$> (CostEntry <$> o .: "input" <*> o .: "output" <*> o .: "cacheRead" <*> o .: "cacheWrite")
+
+toModelCost :: CostEntry -> Model.ModelCost
+toModelCost c = Model.ModelCost (toRational (costInput c)) (toRational (costOutput c)) (toRational (costCacheRead c)) (toRational (costCacheWrite c))
 
 -- * Flattening ---------------------------------------------------------
 
@@ -299,6 +322,7 @@ data GeneratedEntry = GeneratedEntry
     reasoning :: !Bool,
     input :: ![InputModality],
     cost :: !CostEntry,
+    pricingPolicy :: !(Maybe Model.PricingPolicy),
     contextWindow :: !Natural,
     maxOutputTokens :: !Natural,
     compat :: !CatalogCompat
@@ -321,6 +345,7 @@ flattenEntries c =
               reasoning = entryReasoning m,
               input = entryInput m,
               cost = entryCost m,
+              pricingPolicy = entryPricingPolicy m,
               contextWindow = entryContextWindow m,
               maxOutputTokens = entryMaxOutputTokens m,
               compat =
@@ -454,8 +479,10 @@ renderModule entries =
         "import Baikai.Model",
         "  ( Compat (..),",
         "    InputModality (..),",
+        "    InputPriceTier (..),",
         "    Model,",
         "    ModelCost (..),",
+        "    PricingPolicy (..),",
         "    api,",
         "    baseUrl,",
         "    compat,",
@@ -467,6 +494,7 @@ renderModule entries =
         "    maxOutputTokens,",
         "    modelId,",
         "    name,",
+        "    pricingPolicy,",
         "    provider,",
         "    reasoning,",
         "  )",
@@ -509,6 +537,7 @@ renderEntry g =
     "      input = " <> renderInputList g.input <> ",",
     "      cost =",
     renderCost g.cost <> ",",
+    "      pricingPolicy = " <> renderPolicy g.pricingPolicy <> ",",
     "      contextWindow = " <> Text.pack (show g.contextWindow) <> ",",
     "      maxOutputTokens = " <> Text.pack (show g.maxOutputTokens) <> ",",
     "      headers = Map.empty,"
@@ -555,6 +584,13 @@ renderCost c =
       "            cacheWriteCost = " <> renderRational (toRational (costCacheWrite c)),
       "          }"
     ]
+
+renderPolicy :: Maybe Model.PricingPolicy -> Text
+renderPolicy Nothing = "Nothing"
+renderPolicy (Just p) = "Just (PricingPolicy [" <> Text.intercalate ", " (map tier (Model.inputTiers p)) <> "] " <> maybe "Nothing" (\r -> "(Just (" <> renderRational r <> "))") (Model.longCacheWriteCost p) <> ")"
+  where
+    tier t = "InputPriceTier " <> Text.pack (show (Model.inputAbove t)) <> " (" <> rates (Model.rates t) <> ")"
+    rates c = "ModelCost " <> Text.unwords (map (\r -> "(" <> renderRational r <> ")") [Model.inputCost c, Model.outputCost c, Model.cacheReadCost c, Model.cacheWriteCost c])
 
 renderRational :: Rational -> Text
 renderRational r =

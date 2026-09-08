@@ -40,8 +40,10 @@ import Baikai.Compat
 import Baikai.Model
   ( Compat (..),
     InputModality (..),
+    InputPriceTier (..),
     Model,
     ModelCost (..),
+    PricingPolicy (..),
     api,
     baseUrl,
     compat,
@@ -53,6 +55,7 @@ import Baikai.Model
     maxOutputTokens,
     modelId,
     name,
+    pricingPolicy,
     provider,
     reasoning,
   )
@@ -77,6 +80,7 @@ anthropic_claude_fable_5 =
             cacheReadCost = 1 % 1,
             cacheWriteCost = 25 % 2
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -109,6 +113,7 @@ anthropic_claude_fable_5_1 =
             cacheReadCost = 1 % 4,
             cacheWriteCost = 25 % 2
           },
+      pricingPolicy = Just (PricingPolicy [] (Just (20 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -141,6 +146,7 @@ anthropic_claude_haiku_4_5 =
             cacheReadCost = 1 % 10,
             cacheWriteCost = 5 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
@@ -173,6 +179,7 @@ anthropic_claude_opus_4_5 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
@@ -205,6 +212,7 @@ anthropic_claude_opus_4_6 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -237,6 +245,7 @@ anthropic_claude_opus_4_7 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -269,6 +278,7 @@ anthropic_claude_opus_4_8 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -301,6 +311,7 @@ anthropic_claude_opus_5 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 25 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -333,6 +344,7 @@ anthropic_claude_sonnet_4_5 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 64000,
       headers = Map.empty,
@@ -365,6 +377,7 @@ anthropic_claude_sonnet_4_6 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -397,6 +410,7 @@ anthropic_claude_sonnet_5 =
             cacheReadCost = 1 % 5,
             cacheWriteCost = 5 % 2
           },
+      pricingPolicy = Nothing,
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -429,6 +443,7 @@ deepseek_deepseek_chat =
             cacheReadCost = 7 % 100,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 64000,
       maxOutputTokens = 8192,
       headers = Map.empty,
@@ -452,6 +467,7 @@ deepseek_deepseek_reasoner =
             cacheReadCost = 7 % 50,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 64000,
       maxOutputTokens = 8192,
       headers = Map.empty,
@@ -475,6 +491,7 @@ openai_gpt_4_1 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1047576,
       maxOutputTokens = 32768,
       headers = Map.empty,
@@ -498,6 +515,7 @@ openai_gpt_4_1_mini =
             cacheReadCost = 1 % 10,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1047576,
       maxOutputTokens = 32768,
       headers = Map.empty,
@@ -521,6 +539,7 @@ openai_gpt_4_1_nano =
             cacheReadCost = 1 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1047576,
       maxOutputTokens = 32768,
       headers = Map.empty,
@@ -544,6 +563,7 @@ openai_gpt_4o =
             cacheReadCost = 5 % 4,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,
       headers = Map.empty,
@@ -567,6 +587,7 @@ openai_gpt_4o_mini =
             cacheReadCost = 3 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,
       headers = Map.empty,
@@ -590,6 +611,7 @@ openai_gpt_5 =
             cacheReadCost = 1 % 8,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -613,6 +635,7 @@ openai_gpt_5_1 =
             cacheReadCost = 1 % 8,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -636,6 +659,7 @@ openai_gpt_5_2 =
             cacheReadCost = 7 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -659,6 +683,7 @@ openai_gpt_5_4 =
             cacheReadCost = 1 % 4,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -682,6 +707,7 @@ openai_gpt_5_4_mini =
             cacheReadCost = 3 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -705,6 +731,7 @@ openai_gpt_5_4_nano =
             cacheReadCost = 1 % 50,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -728,6 +755,7 @@ openai_gpt_5_5 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -751,6 +779,7 @@ openai_gpt_5_6 =
             cacheReadCost = 2 % 5,
             cacheWriteCost = 5 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -774,6 +803,7 @@ openai_gpt_5_6_luna =
             cacheReadCost = 1 % 50,
             cacheWriteCost = 1 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -797,6 +827,7 @@ openai_gpt_5_6_sol =
             cacheReadCost = 2 % 5,
             cacheWriteCost = 5 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -820,6 +851,7 @@ openai_gpt_5_6_terra =
             cacheReadCost = 1 % 5,
             cacheWriteCost = 5 % 2
           },
+      pricingPolicy = Nothing,
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -843,6 +875,7 @@ openai_gpt_5_mini =
             cacheReadCost = 1 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -866,6 +899,7 @@ openai_gpt_5_nano =
             cacheReadCost = 1 % 200,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -889,6 +923,7 @@ openai_gpt_6_astra =
             cacheReadCost = 1 % 1,
             cacheWriteCost = 25 % 2
           },
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (20 % 1) (75 % 1) (2 % 1) (25 % 1))] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -919,6 +954,7 @@ openai_o1 =
             cacheReadCost = 15 % 2,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
@@ -942,6 +978,7 @@ openai_o3 =
             cacheReadCost = 1 % 2,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
@@ -965,6 +1002,7 @@ openai_o3_mini =
             cacheReadCost = 11 % 20,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
@@ -988,6 +1026,7 @@ openai_o4_mini =
             cacheReadCost = 11 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
@@ -1011,6 +1050,7 @@ openrouter_anthropic_claude_sonnet_4 =
             cacheReadCost = 3 % 10,
             cacheWriteCost = 15 % 4
           },
+      pricingPolicy = Nothing,
       contextWindow = 200000,
       maxOutputTokens = 8192,
       headers = Map.empty,
@@ -1034,6 +1074,7 @@ openrouter_openai_gpt_4o_mini =
             cacheReadCost = 3 % 40,
             cacheWriteCost = 0 % 1
           },
+      pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,
       headers = Map.empty,

@@ -21,6 +21,7 @@ module Baikai.Model
     reasoning,
     input,
     cost,
+    pricingPolicy,
     contextWindow,
     maxOutputTokens,
     headers,
@@ -31,6 +32,9 @@ module Baikai.Model
     -- * Cost rates
     ModelCost (..),
     zeroModelCost,
+    PricingPolicy (..),
+    InputPriceTier (..),
+    validatePricingPolicy,
 
     -- * Capabilities
     InputModality (..),
@@ -54,13 +58,18 @@ import Baikai.Compat
     defaultOpenAIResponsesCompat,
   )
 import Baikai.Header (HeaderName)
+import Control.Monad (unless)
 import Data.Aeson
-  ( FromJSON,
+  ( FromJSON (parseJSON),
     ToJSON (toEncoding, toJSON),
     defaultOptions,
     genericToEncoding,
     genericToJSON,
+    withObject,
+    (.!=),
+    (.:?),
   )
+import Data.List (nub, sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -84,6 +93,37 @@ data ModelCost = ModelCost
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+-- | An exclusive input-context threshold. Its complete rate record
+-- applies to every token category in the call once total input exceeds it.
+data InputPriceTier = InputPriceTier
+  { inputAbove :: !Natural,
+    rates :: !ModelCost
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- | Optional catalog policy layered over Model.cost. Long cache-write
+-- pricing is an absolute per-million rate, selected only for a shaped
+-- long-duration request. It overrides the selected tier's write rate.
+data PricingPolicy = PricingPolicy
+  { inputTiers :: ![InputPriceTier],
+    longCacheWriteCost :: !(Maybe Rational)
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
+instance FromJSON PricingPolicy where
+  parseJSON = withObject "PricingPolicy" $ \o -> do
+    p <- PricingPolicy <$> o .:? "inputTiers" .!= [] <*> o .:? "longCacheWriteCost"
+    either (fail . show) (const (pure p)) (validatePricingPolicy p)
+
+validatePricingPolicy :: PricingPolicy -> Either Text ()
+validatePricingPolicy p = do
+  let thresholds = map inputAbove (inputTiers p)
+      validRates r = all (>= 0) [inputCost r, outputCost r, cacheReadCost r, cacheWriteCost r]
+  unless (thresholds == sort (nub thresholds)) (Left "Pricing thresholds must be strictly increasing")
+  unless (all (validRates . rates) (inputTiers p) && maybe True (>= 0) (longCacheWriteCost p)) (Left "Pricing rates must be nonnegative")
 
 -- | Per-API compatibility shim. 'CompatNone' tells the provider to
 -- pick a sensible record by inspecting 'baseUrl'; the two real
@@ -143,6 +183,7 @@ data Model = Model
     reasoning :: !Bool,
     input :: ![InputModality],
     cost :: !ModelCost,
+    pricingPolicy :: !(Maybe PricingPolicy),
     contextWindow :: !Natural,
     -- | The provider's cap on output tokens for this model, or @0@
     -- when it is unknown (a hand-rolled model built from
@@ -191,6 +232,7 @@ instance Show Model where
         . next "reasoning" (reasoning m)
         . next "input" (input m)
         . next "cost" (cost m)
+        . next "pricingPolicy" (pricingPolicy m)
         . next "contextWindow" (contextWindow m)
         . next "maxOutputTokens" (maxOutputTokens m)
         . next "headers" (Auth.redactHeaderValues (headers m))
@@ -240,6 +282,7 @@ emptyModel =
       reasoning = False,
       input = [InputText],
       cost = zeroModelCost,
+      pricingPolicy = Nothing,
       contextWindow = 0,
       maxOutputTokens = 0,
       headers = Map.empty,

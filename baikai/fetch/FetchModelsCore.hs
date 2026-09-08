@@ -67,6 +67,7 @@ where
 
 import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
+import Baikai.Model qualified as Model
 import Baikai.Prelude
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Data.Aeson (Value (String), eitherDecode, encode, withObject, (.!=), (.:), (.:?))
@@ -79,7 +80,7 @@ import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
-import Data.Scientific (FPFormat (Fixed), Scientific, formatScientific)
+import Data.Scientific (FPFormat (Fixed), Scientific, formatScientific, fromRationalRepetendUnlimited)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -221,6 +222,7 @@ data CatalogModel = CatalogModel
     reasoning :: !Bool,
     input :: ![InputModality],
     cost :: !CatalogCost,
+    pricingPolicy :: !(Maybe Model.PricingPolicy),
     contextWindow :: !Integer,
     maxOutputTokens :: !Integer,
     apiOverride :: !(Maybe Text),
@@ -419,6 +421,7 @@ normalizeProvider spec upstream =
                 cacheReadCost = fromMaybe 0 (m ^. #cacheReadCost),
                 cacheWriteCost = fromMaybe 0 (m ^. #cacheWriteCost)
               },
+          pricingPolicy = Map.lookup (spec ^. #provider, m ^. #modelId) pricingPolicies,
           contextWindow = fromMaybe 0 (m ^. #contextWindow),
           maxOutputTokens = fromMaybe 0 (m ^. #maxOutputTokens),
           apiOverride = (spec ^. #apiFor) (m ^. #modelId),
@@ -600,12 +603,31 @@ renderModel m =
     "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ","
   ]
     ++ maybe [] (\a -> ["      \"api\": " <> jsonString a <> ","]) (m ^. #apiOverride)
+    ++ maybe [] (\p -> ["      \"pricingPolicy\": " <> renderPricingPolicy p <> ","]) (m ^. #pricingPolicy)
     ++ renderModelCompat (m ^. #compat)
     ++ [ "      \"enabled\": true",
          "    }"
        ]
   where
     c = m ^. #cost
+
+-- | Provider documentation verified 2026-09-07. These rules supplement base
+-- models.dev rates, which do not describe the full request billing policy.
+-- https://developers.openai.com/api/docs/models/gpt-6-astra
+-- https://platform.claude.com/docs/en/models/fable-5-1/overview
+pricingPolicies :: Map (Text, Text) Model.PricingPolicy
+pricingPolicies =
+  Map.fromList
+    [ (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
+      (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20))
+    ]
+
+renderPricingPolicy :: Model.PricingPolicy -> Text
+renderPricingPolicy p = "{\"inputTiers\": [" <> Text.intercalate ", " (map tier (Model.inputTiers p)) <> "]" <> maybe "" (\r -> ", \"longCacheWriteCost\": " <> num r) (Model.longCacheWriteCost p) <> "}"
+  where
+    num = renderNum . fst . fromRationalRepetendUnlimited
+    tier t = "{\"inputAbove\": " <> Text.pack (show (Model.inputAbove t)) <> ", \"rates\": " <> rates (Model.rates t) <> "}"
+    rates c = "{\"input\": " <> num (Model.inputCost c) <> ", \"output\": " <> num (Model.outputCost c) <> ", \"cacheRead\": " <> num (Model.cacheReadCost c) <> ", \"cacheWrite\": " <> num (Model.cacheWriteCost c) <> "}"
 
 -- | Render the per-model @compat@ block, if the provider spec supplied
 -- one. The block sits between @maxOutputTokens@ and @enabled@ so a

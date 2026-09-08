@@ -193,6 +193,7 @@ test-suite baikai-test
     GenModelsSpec
     HelpersSpec
     InteractiveSpec
+    PricingPolicySpec
     PublicSurfaceSpec
     StreamSpec
     StreamWorkerSpec

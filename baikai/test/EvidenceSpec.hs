@@ -6,7 +6,7 @@
 -- through.
 module EvidenceSpec (tests) where
 
-import Baikai.Cost (Cost (..), zeroCost)
+import Baikai.Cost (Cost (..), CostEstimateReason (CacheWriteUsageNotReported), estimateCost, zeroCost)
 import Baikai.Evidence
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.ThinkingLevel (ThinkingLevel (..))
@@ -262,7 +262,12 @@ usageEnvelopeTests :: TestTree
 usageEnvelopeTests =
   testGroup
     "usage envelope"
-    [ testCase "two usages differing only in cost produce the same envelope" $ do
+    [ testCase "cost basis is serialized additively without changing provider commitments" $ do
+        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.2"
+        let estimated = zeroUsage {cost = estimateCost [CacheWriteUsageNotReported] zeroCost}
+        usageEnvelope estimated @?= usageEnvelope zeroUsage
+        assertBool "usage JSON retains the local calculation basis" (Aeson.toJSON estimated /= Aeson.toJSON zeroUsage),
+      testCase "two usages differing only in cost produce the same envelope" $ do
         -- The cost is computed here from the caller's catalog rates, not
         -- read off the response, so a verifier holding only the response
         -- could not recompute a digest that covered it — and the digest

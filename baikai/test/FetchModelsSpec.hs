@@ -6,7 +6,9 @@ module FetchModelsSpec (tests) where
 
 import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
+import Baikai.Model qualified as Model
 import Baikai.Prelude
+import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BSL
@@ -58,6 +60,7 @@ expectedOpenAI =
               reasoning = True,
               input = [InputText, InputImage],
               cost = CatalogCost 0.05 0.4 0 0,
+              pricingPolicy = Nothing,
               contextWindow = 400000,
               maxOutputTokens = 128000,
               apiOverride = Nothing,
@@ -69,6 +72,7 @@ expectedOpenAI =
               reasoning = True,
               input = [InputText, InputImage],
               cost = CatalogCost 2.5 15 0.25 0,
+              pricingPolicy = Nothing,
               contextWindow = 1050000,
               maxOutputTokens = 128000,
               apiOverride = Nothing,
@@ -93,6 +97,7 @@ expectedAnthropic =
               reasoning = True,
               input = [InputText, InputImage],
               cost = CatalogCost 5 25 1.5 6.25,
+              pricingPolicy = Nothing,
               contextWindow = 200000,
               maxOutputTokens = 64000,
               apiOverride = Nothing,
@@ -153,6 +158,15 @@ tests =
         map (^. #apiOverride) (refreshed ^. #models) @?= [Just "openai-responses"]
         map (^. #compat) (refreshed ^. #models) @?= [expected]
         assertBool "explicit compat survives rendering" ("openai-responses" `Text.isInfixOf` decodeUtf8 (renderCatalog refreshed)),
+      testCase "curated pricing survives fetch rendering and generator parsing" $ do
+        upstream <- loadUpstream
+        let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
+        forM_ [(openaiSpec, "gpt-6-astra", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing), (anthropicSpec, "claude-fable-5-1", Model.PricingPolicy [] (Just 20))] $ \(spec, mid, policy) -> do
+          let refreshed = normalizeProvider spec (Map.singleton mid (sample & #modelId .~ mid))
+          map (^. #pricingPolicy) (refreshed ^. #models) @?= [Just policy]
+          case Aeson.eitherDecode (BSL.fromStrict (renderCatalog refreshed)) of
+            Left err -> assertFailure err
+            Right catalog -> map (Gen.pricingPolicy . snd) (Gen.flattenEntries catalog) @?= [Just policy],
       testCase "OpenAI normalization filters, curates, and maps fields" $ do
         upstream <- loadUpstream
         catalogFor upstream openaiSpec @?= expectedOpenAI,
@@ -201,6 +215,7 @@ tests =
                           reasoning = False,
                           input = [InputText],
                           cost = CatalogCost 0 0 0 0,
+                          pricingPolicy = Nothing,
                           contextWindow = 1,
                           maxOutputTokens = 1,
                           apiOverride = Nothing,

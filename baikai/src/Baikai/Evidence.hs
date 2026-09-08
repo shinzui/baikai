@@ -880,7 +880,9 @@ evidenceSchemaVersion :: Text
 -- Version 2.1 adds optional provider-scoped replay_state to thinking
 -- content. It participates in content commitments, but is omitted when
 -- absent, preserving every pre-existing content encoding and digest.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.1"
+-- Version 2.2 adds the local cost calculation basis to serialized usage.
+-- Like the local numeric cost, this basis is excluded from response commitments.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.2"
 
 -- | Everything Baikai can say about one completed provider call.
 --

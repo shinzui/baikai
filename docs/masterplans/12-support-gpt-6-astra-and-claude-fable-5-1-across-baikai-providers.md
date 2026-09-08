@@ -44,7 +44,7 @@ Relevant local decisions are [ADR 0009](../adr/0009-provider-capability-facts-li
 | EP-1 | Make model capabilities and catalog refreshes endpoint-aware | docs/plans/73-make-model-capabilities-and-catalog-refreshes-endpoint-aware.md | None | None | Complete |
 | EP-2 | Add an OpenAI Responses provider with tool and reasoning replay | docs/plans/74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md | EP-1 | None | In Progress |
 | EP-3 | Enforce Claude Fable 5.1 tool-choice and thinking-history contracts | docs/plans/75-enforce-claude-fable-5-1-tool-choice-and-thinking-history-contracts.md | None | EP-1 | Complete |
-| EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | Not Started |
+| EP-4 | Account for cache writes and context-tier model pricing | docs/plans/76-account-for-cache-writes-and-context-tier-model-pricing.md | None | EP-1 | In Progress |
 | EP-5 | Prove new-model compatibility with focused offline and live checks | docs/plans/77-prove-new-model-compatibility-with-focused-offline-and-live-checks.md | EP-1, EP-2, EP-3, EP-4 | None | Not Started |
 
 EP-2 and EP-4 also have an integration dependency: both can develop their independent fixtures, but the combined Responses terminal must use EP-4's usage and cost-basis contract before EP-5 begins.
@@ -87,6 +87,8 @@ Durable decisions expected during implementation are separate Responses dispatch
 
 
 ## Surprises & Discoveries
+
+EP-4 now has validated catalog pricing policies and explicit calculation bases. Generated Astra prices the whole request at higher rates above 272000 input tokens; the duration-aware helper supports Fable's one-hour write price. Cost aggregation preserves estimation reasons. Fresh fetches preserve the policies. Adapter billing availability, observed service-tier/duration integration and downstream presentation remain open; no live billing claim is made.
 
 EP-3 is complete: Fable 5.1 forced-choice validation is catalog-backed and precedes transport. Two tool rounds preserve signed empty/visible and redacted state, including persisted thinking payloads and unchanged prefixes. Core 687, Claude 333 and compiled documentation pass; a fresh catalog candidate matches the committed data.
 

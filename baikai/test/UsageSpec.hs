@@ -1,6 +1,6 @@
 module UsageSpec (tests) where
 
-import Baikai.Cost (Cost (..), CostBreakdown (..), zeroCost, zeroCostBreakdown)
+import Baikai.Cost (Cost (..), CostBreakdown (..), standardCostBasis, zeroCost, zeroCostBreakdown)
 import Baikai.Usage (Usage (..), sumUsage, zeroUsage)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
@@ -35,7 +35,8 @@ u0 =
 costOf :: Rational -> Rational -> Rational -> Rational -> Cost
 costOf i o ci cw =
   Cost
-    { usd = (i + o + ci + cw) / 100,
+    { basis = standardCostBasis,
+      usd = (i + o + ci + cw) / 100,
       breakdown =
         CostBreakdown
           { inputUsd = i / 100,

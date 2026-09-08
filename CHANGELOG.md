@@ -21,6 +21,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: optional `Model.pricingPolicy`, exact whole-request context tiers,
+  and an explicit cache-duration rate resolver. Generated Astra pricing changes
+  above 272000 input tokens; Fable exposes its one-hour write price. `Cost.basis`
+  preserves calculation sources and estimation reasons when summed. These public
+  record additions require PVP review. Evidence schema 2.2 serializes the local
+  basis without changing provider response commitments. Adapter billing-fact
+  integration remains in progress.
+
 - `baikai-openai`: explicit `Baikai.Provider.OpenAI.Responses` registration and
   stream/complete provider with stateless reasoning replay, function tool turns,
   structured output and bounded worker cleanup. Astra now selects this

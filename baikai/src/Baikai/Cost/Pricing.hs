@@ -1,30 +1,38 @@
 -- | Cost computation from a 'Baikai.Model.Model' and a 'Usage'.
 --
--- The previous map-based lookup (@Map Text PricingRate@) is gone.
--- Pricing rates live on 'Baikai.Model.Model.cost' directly, so the
--- computation collapses to a record-field access. Models without
--- published pricing carry a zero 'Baikai.Model.ModelCost' (the
--- default in 'emptyModel'), producing a zero 'Cost'.
+-- Base prices and optional context/duration policies live on the model.
+-- Arithmetic stays exact, and unavailable pricing carries an estimate reason.
 module Baikai.Cost.Pricing
   ( computeCost,
     attachCost,
+    resolveRates,
+    computeCostWith,
   )
 where
 
-import Baikai.Cost (Cost (..), CostBreakdown (..))
+import Baikai.CacheRetention (CacheRetention (..))
+import Baikai.Cost (Cost (..), CostBreakdown (..), CostEstimateReason (..), estimateCost, standardCostBasis)
 import Baikai.Message (AssistantPayload (..))
-import Baikai.Model (Model, ModelCost (..))
+import Baikai.Model (InputPriceTier (..), Model, ModelCost (..), PricingPolicy (..), validatePricingPolicy, zeroModelCost)
 import Baikai.Prelude
 import Baikai.Response (Response (..))
 import Baikai.Usage (Usage (..))
 
 -- | Compute a 'Cost' from a model's per-million-token rates and a
--- 'Usage'. Returns a zero 'Cost' when the model carries zero rates,
--- which is the truthful signal for providers without published
--- pricing (CLI providers, custom hosts).
+-- 'Usage'. Zero rates retain the old numeric total and now mark pricing
+-- unavailable. This entry point assumes the standard cache duration.
 computeCost :: Model -> Usage -> Cost
-computeCost m u =
-  let rates = m ^. #cost
+computeCost = computeCostWith Nothing
+
+-- | Duration must be the value selected by request shaping, not merely
+-- requested by the caller. Service-tier and usage availability are supplied
+-- by adapters as estimation reasons on the resulting cost.
+computeCostWith :: Maybe CacheRetention -> Model -> Usage -> Cost
+computeCostWith duration m u =
+  let resolved = resolveRates duration m u
+      selected = either (const zeroModelCost) id resolved
+      problems = [InvalidPricingPolicy | Left _ <- [resolved]] <> [PricingUnavailable | selected == ModelCost 0 0 0 0]
+      rates = selected
       inRate = inputCost rates
       outRate = outputCost rates
       crRate = cacheReadCost rates
@@ -34,16 +42,34 @@ computeCost m u =
       cachedUsd = toRational (u ^. #cacheReadTokens) * crRate / 1_000_000
       cacheWriteUsd = toRational (u ^. #cacheWriteTokens) * cwRate / 1_000_000
       total = inUsd + outUsd + cachedUsd + cacheWriteUsd
-   in Cost
-        { usd = total,
-          breakdown =
-            CostBreakdown
-              { inputUsd = inUsd,
-                outputUsd = outUsd,
-                cachedInputUsd = cachedUsd,
-                cachedWriteUsd = cacheWriteUsd
-              }
-        }
+   in estimateCost
+        problems
+        Cost
+          { usd = total,
+            basis = standardCostBasis,
+            breakdown =
+              CostBreakdown
+                { inputUsd = inUsd,
+                  outputUsd = outUsd,
+                  cachedInputUsd = cachedUsd,
+                  cachedWriteUsd = cacheWriteUsd
+                }
+          }
+
+-- | Choose one complete rate record. Thresholds are exclusive and use
+-- disjoint normalized input categories, including both cache counters.
+resolveRates :: Maybe CacheRetention -> Model -> Usage -> Either Text ModelCost
+resolveRates duration m u = do
+  validatePricingPolicy (PricingPolicy [InputPriceTier 0 (m ^. #cost)] Nothing)
+  case m ^. #pricingPolicy of
+    Nothing -> pure (m ^. #cost)
+    Just policy -> do
+      validatePricingPolicy policy
+      let totalInput = (u ^. #inputTokens) + (u ^. #cacheReadTokens) + (u ^. #cacheWriteTokens)
+          selected = foldl' (\current tier -> if totalInput > inputAbove tier then rates tier else current) (m ^. #cost) (inputTiers policy)
+      pure $ case (duration, longCacheWriteCost policy) of
+        (Just CacheRetentionLong, Just price) -> selected {cacheWriteCost = price}
+        _ -> selected
 
 -- | Replace the assistant response payload's embedded 'Cost' with one
 -- computed from the supplied model.
