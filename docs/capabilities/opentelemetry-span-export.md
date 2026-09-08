@@ -88,4 +88,15 @@ resp <- withTrace sink model ctx' opts
 - Like all tracing here, it is opt-in per call site: a call that does not go
   through `withTrace` produces no span.
 - The package's release history is mostly dependency-bound widening; its own API
-  is a single sink and has not changed since 0.1.0.0.
+  is a single sink and has not changed since 0.1.0.0. **0.4.0.1 adds two span
+  attributes and fills in a third case** without changing that API: successful
+  and failed spans now carry `baikai.cost.basis` and
+  `baikai.usage.availability` as canonically encoded JSON, and a *failed* span
+  carries the token counts and `baikai.cost.usd` that `baikai 0.7.0.0` retains
+  on `CallFailed` — previously a failed call exported only its latency and error.
+  A consumer reading spans from an older release sees the same attributes minus
+  these; nothing was renamed or removed.
+- The two JSON attributes are **strings**, not structured attributes: OTel's
+  attribute model has no nested type, so a backend that wants to query inside a
+  cost basis has to parse the value. The encoding is canonical, so it is at
+  least stable byte-for-byte across runs.

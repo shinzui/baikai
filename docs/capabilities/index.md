@@ -26,11 +26,12 @@ breaking changes to the core — they are enumerated in `CHANGELOG.md` and each 
 took a major bump. A consumer should expect to read the changelog on every
 upgrade and should pin accordingly.
 
-Four records are `experimental` because their surface is genuinely outside that
-promise: `baikai-agent` (CAP-17, CAP-18) is at 0.1.0.0 and has not been through a
-compatibility cycle, `baikai-kit` (CAP-21) is at 0.1.0.x, and model-call evidence
+Five records are `experimental` because their surface is genuinely outside that
+promise: `baikai-agent` (CAP-17, CAP-18) and `baikai-kit` (CAP-21) are both at
+0.2.0.x and have not been through a compatibility cycle, model-call evidence
 (CAP-19) rests substantially on `Baikai.Provider.Cli.Internal`, which is
-documented as outside the PVP contract.
+documented as outside the PVP contract, and the OpenAI Responses backend
+(CAP-23) is new in 0.7.0.0 with its replay-state encoding still likely to move.
 
 ## What baikai provides
 
@@ -58,6 +59,8 @@ documented as outside the PVP contract.
 | [effectful binding for the transport](effectful-binding.md) | CAP-20 | `baikai-effectful` | 0.1.0.0 | A dynamic `Baikai` effect with three operations and swappable interpreters |
 | [Kit installer for agent skills and subagents](kit-installer.md) | CAP-21 | `baikai-kit` | 0.1.0.1 | The shared `kit` command lifecycle for git-hosted agent assets |
 | [Provider-native agent-asset layouts](agent-asset-layouts.md) | CAP-22 | `baikai` | 0.1.0.0 | Pure path rules for where each tool discovers skills and agents |
+| [OpenAI Responses API backend](openai-responses-backend.md) | CAP-23 | `baikai-openai` | 0.7.0.0 | The native Responses protocol, registered explicitly, with stateless reasoning replay |
+| [Inference speed preference and speed-aware pricing](inference-speed-control.md) | CAP-24 | `baikai` | 0.7.0.0 | One `Options.speed`, catalog-gated fast mode, cost priced at the observed speed |
 
 ## Deliberately excluded
 

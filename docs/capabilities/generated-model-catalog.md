@@ -89,3 +89,16 @@ $ cabal test baikai               # CatalogSpec proves the two agree
   `build-tool-depends` entry supplies during `cabal test` and nowhere else.
 - `Generated.hs` is excluded from the repository's formatter at the pre-commit
   hook level, because formatting it breaks the byte-identity round trip.
+- **What a `compat` block must state grows with the release**, and each addition
+  is a curated fact rather than an inferred one. baikai 0.7.0.0 adds
+  `supportsForcedToolChoice` (legacy JSON defaults it to `True`),
+  `supportsFastMode` (defaults to `False`, and gates
+  [CAP-24](inference-speed-control.md)), and per-endpoint capability facts that
+  survive a refresh — which is what lets a provider reject a tool call locally
+  for a model whose endpoint disallows it. A model entry also gained an optional
+  `pricingPolicy` carrying whole-request context tiers and fast rates. The
+  release adds GPT-6 Astra and Claude Fable 5.1, and Astra's entry carries an
+  `OpenAIResponses` dispatch override — see [CAP-23](openai-responses-backend.md)
+  for what that requires of a caller.
+- The refresh pipeline is driven by the repository's `update-models` skill, which
+  is a maintainer tool in this repository and not something a consumer runs.

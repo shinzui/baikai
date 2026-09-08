@@ -101,3 +101,23 @@ withCallLog (callLogConfig "/tmp/baikai.jsonl") $ \h -> do
   either release counts the same tokens once.
 - The log is append-only JSONL with no rotation, no size bound, and no schema
   version. Operating the file is the consumer's job.
+- **baikai 0.7.0.0 makes the honesty of a number inspectable.** `Cost.basis`
+  records where a figure came from and why it might be wrong — the estimation
+  reasons survive summing — and `Usage.availability` distinguishes a provider
+  that reported zero from one that reported nothing at all. Both are additions:
+  the token counts and USD totals a consumer on 0.6.x reads are unchanged, and
+  legacy JSON decodes with the metadata absent. What that release does *not*
+  give you is the ability to tell those two zeroes apart, which is precisely the
+  mistake the fourth bullet above warns about.
+- The same release adds optional `Model.pricingPolicy`, so a model can price
+  exact whole-request context tiers and name a cache-write duration rate rather
+  than carrying one flat rate per token class. Generated Astra pricing changes
+  above 272000 input tokens as a result. Cost figures for such a model computed
+  on 0.6.x are wrong at the top of the context window, not merely less detailed.
+- Speed-aware pricing lives in [CAP-24](inference-speed-control.md): a call runs
+  at an observed speed and is priced at that speed's rates, with an explicit
+  estimate reason where the provider reports no speed.
+- A cumulative usage snapshot is merged without double counting, and inclusive
+  versus exclusive input conventions are normalized in one place
+  (`Baikai.Usage.Normalize`) rather than per transport. A reasoning-token count
+  remains an informational subset of `outputTokens` under both conventions.

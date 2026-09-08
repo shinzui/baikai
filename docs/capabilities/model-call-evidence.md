@@ -127,6 +127,15 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   is the default: the job must **capture** output, and the tool must be told to
   print a structured format (`--output-format json` for `claude`, `--json` for
   `codex exec`). Without both, the record honestly says `"unobserved"`.
+- **The schema version moves with the release, and a verifier must branch on
+  it.** baikai 0.7.0.0 ships `2.5`. Along the way `2.2` added provider-scoped
+  reasoning replay state and the optional billing facts to the commitment while
+  preserving legacy encodings when those fields are absent, `2.4` added the
+  thinking *display* setting a transport asked for plus the
+  `thinking_summary_unavailable` diagnosis for a successful response whose
+  thinking blocks carry no readable summary, and `2.5` added
+  `refusal_category`. None of these changed the digest inputs, so a record
+  produced on an older release still verifies under its own `schema_version`.
 - The `adjustments` list carries **sampling** changes as well as reasoning ones:
   `sampling_dropped_unsupported_model` and `sampling_dropped_unsupported_api`
   name parameters removed because the model generation or the API rejects them.

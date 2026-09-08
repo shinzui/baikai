@@ -7,50 +7,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Changed
-
-- `baikai-claude`: refusal messages include the reported category and explanation,
-  retaining the original message when neither exists. Classification remains
-  non-retryable `ContentFiltered`. Server-side fallbacks remain deliberately
-  unsupported, as recorded in ADR 0005.
-
-- `baikai-claude`: adaptive reasoning requests explicitly ask for summarized
-  thinking. Evidence schema 2.4 records the display setting and diagnoses
-  successful responses whose thinking blocks contain no readable summary.
-  Budget and absent-thinking request shapes, signed empty blocks, redacted
-  content and multi-turn replay are preserved. `ThinkingTranslation` gains
-  `displayText` and `ThinkingAdjustment` gains `ThinkingSummaryUnavailable`;
-  review these public API additions under PVP before release.
-
-### Fixed
-
-- `baikai-claude`: price Fable cache writes using the TTL in the shaped request,
-  including compatibility downgrades. Missing write-duration context is explicit
-  in the cost basis.
-
-- `baikai-claude`: reject forced tool choices locally on Fable 5.1, using the
-  generated `supportsForcedToolChoice` capability. Automatic tool rounds retain
-  signed empty/visible thinking, redacted blocks and prior-message order. The
-  public compat record gains a field; legacy JSON defaults it to True.
-
-- `baikai-openai`: reject tools locally for models whose Chat Completions endpoint
-  disallows them, including GPT-6 Astra. Respect generated effort policies and
-  sampling restrictions, with matching translation evidence and strict refusal.
-- `baikai`: preserve OpenAI endpoint capability facts through catalog refreshes.
+## [baikai 0.7.0.0] - 2026-09-08
 
 ### Added
 
-- `baikai`: `BaikaiError.refusalCategory` preserves an Anthropic refusal's
+- `BaikaiError.refusalCategory` preserves an Anthropic refusal's
   provider category. JSON adds `refusal_category`; older errors still decode.
   Evidence schema 2.5 records the addition without changing digest inputs.
-  This public record addition requires PVP major review before release.
+  __Breaking__ to construct a `BaikaiError` from its full field list.
 
-- `baikai`: add `Speed`, `Options.speed`, catalog-owned fast rates and
+- `Speed`, `Options.speed`, catalog-owned fast rates and
   `computeCostAtSpeed`. Anthropic gates fast mode by model capability, adds the
   beta header and records unsupported drops. Terminal pricing uses observed
   speed, including cache duration; unreported speed is an explicit estimate.
-  Public records and sum types gain fields/constructors (PVP major review
-  required before release); older Model JSON defaults the new fields safely.
+  Older `Model` JSON defaults the new fields safely. __Breaking__: public
+  records and sum types gain fields and constructors.
 
 - API usage now records observed service tiers, inference speed and server-tool
   use in optional billing facts covered by evidence schema 2.2. Missing service
@@ -58,52 +29,160 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `computeCostForService` separates requested and observed service, while
   `computeCostAtRates` prices a resolved rate set once for future speed policies.
   Empty billing facts preserve legacy availability JSON; a CLI-reported zero
-  cost retains its reported-total source. The public vocabulary
-  and record additions require PVP review.
+  cost retains its reported-total source. __Breaking__: the public vocabulary
+  and records gain members.
 
 - Failed trace terminals now retain partial response token counts, cost basis,
-  usage availability and USD totals. OpenTelemetry exports these alongside the
-  error status. Synthetic aborts leave unreported billing absent; legacy failed
-  trace JSON still decodes. The expanded public record requires PVP review.
+  usage availability and USD totals. Synthetic aborts leave unreported billing
+  absent; legacy failed trace JSON still decodes. __Breaking__: `TraceEvent`'s
+  `CallFailed` gains fields. See `baikai-trace-otel 0.4.0.1` for the export.
 
 - Successful trace terminals and call-log records carry optional cost basis and
-  usage availability; call logs also carry cache-write counts. OpenTelemetry
-  exports the same basis alongside USD totals. Old JSON decodes with absent
-  metadata and empty additive-zero bases stay omitted from traces. These public
-  record additions require PVP review.
+  usage availability; call logs also carry cache-write counts. Old JSON decodes
+  with absent metadata and empty additive-zero bases stay omitted from traces.
+  __Breaking__: `CallFinished` and the call-log record gain fields.
 
-- `baikai`: optional `Usage.availability` and shared inclusive/exclusive billing
-  normalization. OpenAI Chat/Responses and Claude preserve missing cache counters
-  as explicit estimation reasons, distinguish reported zeroes, and merge
-  cumulative usage without double-counting. Schema 2.2 commits provider
-  availability while preserving legacy usage digests. This public record change
-  requires PVP review.
+- Optional `Usage.availability` and shared inclusive/exclusive billing
+  normalization, in the new `Baikai.Usage.Normalize`. OpenAI Chat/Responses and
+  Claude preserve missing cache counters as explicit estimation reasons,
+  distinguish reported zeroes, and merge cumulative usage without
+  double-counting. Schema 2.2 commits provider availability while preserving
+  legacy usage digests. __Breaking__: `Usage` gains a field.
 
-- `baikai`: optional `Model.pricingPolicy`, exact whole-request context tiers,
+- Optional `Model.pricingPolicy`, exact whole-request context tiers,
   and an explicit cache-duration rate resolver. Generated Astra pricing changes
   above 272000 input tokens; Fable exposes its one-hour write price. `Cost.basis`
-  preserves calculation sources and estimation reasons when summed. These public
-  record additions require PVP review. Evidence schema 2.2 serializes the local
-  basis without including local pricing metadata in provider commitments.
+  preserves calculation sources and estimation reasons when summed. Evidence
+  schema 2.2 serializes the local basis without including local pricing metadata
+  in provider commitments. __Breaking__: `Model` and `Cost` gain fields.
 
-- `baikai-openai`: explicit `Baikai.Provider.OpenAI.Responses` registration and
-  stream/complete provider with stateless reasoning replay, function tool turns,
-  structured output and bounded worker cleanup. Astra now selects this
-  provider through a per-model catalog override; callers must register it
-  explicitly. Cache writes, billing availability and context pricing are integrated.
-
-- `baikai`: separate `OpenAIResponses` dispatch and compatibility types, and
+- Separate `OpenAIResponses` dispatch and compatibility types, and
   optional provider/model-scoped `ThinkingContent.replayState` with opaque
-  diagnostic output and backward-compatible JSON decoding. These public sum
-  and record additions require PVP review before release. Evidence schema 2.2
+  diagnostic output and backward-compatible JSON decoding. Evidence schema 2.2
   includes replay state and optional billing facts in commitments while preserving
-  legacy encodings when those fields are absent.
-- Chat and Claude reject provider-scoped reasoning replay they cannot encode.
+  legacy encodings when those fields are absent. __Breaking__ for a `case` over
+  `Api` that is exhaustive without a wildcard.
 
-- `baikai`: GPT-6 Astra and Claude Fable 5.1 catalog bindings, with verified
+- `Baikai.Evidence.ThinkingTranslation` gains `displayText` and
+  `ThinkingAdjustment` gains `ThinkingSummaryUnavailable`, so a transport can
+  record the thinking display setting it asked for and diagnose a successful
+  response whose thinking blocks carry no readable summary. `Baikai.Compat`
+  gains `supportsForcedToolChoice`; legacy JSON defaults it to True.
+  __Breaking__ for an exhaustive `case` over `ThinkingAdjustment`.
+
+- GPT-6 Astra and Claude Fable 5.1 catalog bindings, with verified
   pricing, token limits, and Anthropic thinking/sampling compatibility.
+
 - Repository `update-models` skill for verifying provider releases and refreshing
   the curated JSON and generated Haskell catalog.
+
+### Fixed
+
+- Preserve OpenAI endpoint capability facts through catalog refreshes.
+
+- Chat and Claude reject provider-scoped reasoning replay they cannot encode.
+
+- Widened the `http-client-tls` bound to admit 0.4 (carried forward from the
+  tagged but never-published 0.6.0.1).
+
+## [baikai-claude 0.7.0.0] - 2026-09-08
+
+### Changed
+
+- Refusal messages include the reported category and explanation,
+  retaining the original message when neither exists. Classification remains
+  non-retryable `ContentFiltered`. Server-side fallbacks remain deliberately
+  unsupported, as recorded in ADR 0005.
+
+- Adaptive reasoning requests explicitly ask for summarized
+  thinking. Evidence schema 2.4 records the display setting and diagnoses
+  successful responses whose thinking blocks contain no readable summary.
+  Budget and absent-thinking request shapes, signed empty blocks, redacted
+  content and multi-turn replay are preserved.
+
+- Fast mode is gated by the generated model capability: it adds the Anthropic
+  beta header for a model that advertises it and records an evidence adjustment
+  for one that does not.
+
+### Fixed
+
+- Price Fable cache writes using the TTL in the shaped request,
+  including compatibility downgrades. Missing write-duration context is explicit
+  in the cost basis.
+
+- Reject forced tool choices locally on Fable 5.1, using the
+  generated `supportsForcedToolChoice` capability. Automatic tool rounds retain
+  signed empty/visible thinking, redacted blocks and prior-message order.
+
+- Widened the `http-client-tls` bound to admit 0.4 (carried forward from the
+  tagged but never-published 0.6.0.1).
+
+### Changed (dependencies)
+
+- Requires `baikai ^>=0.7.0`.
+
+## [baikai-openai 0.7.0.0] - 2026-09-08
+
+### Added
+
+- Explicit `Baikai.Provider.OpenAI.Responses` registration and
+  stream/complete provider with stateless reasoning replay, function tool turns,
+  structured output and bounded worker cleanup, across the new
+  `Baikai.Provider.OpenAI.Responses.{Request,Stream,Assembler}` modules. Astra
+  now selects this provider through a per-model catalog override; callers must
+  register it explicitly. Cache writes, billing availability and context pricing
+  are integrated.
+
+- `Baikai.Provider.OpenAI.Internal.Usage`, the shared usage mapping both the
+  Chat Completions and Responses transports read.
+
+### Fixed
+
+- Reject tools locally for models whose Chat Completions endpoint
+  disallows them, including GPT-6 Astra. Respect generated effort policies and
+  sampling restrictions, with matching translation evidence and strict refusal.
+
+- Validate Responses terminals and enforce the stream contracts.
+
+- Widened the `http-client-tls` bound to admit 0.4 (carried forward from the
+  tagged but never-published 0.6.0.1).
+
+### Changed (dependencies)
+
+- Requires `baikai ^>=0.7.0`.
+
+## [baikai-trace-otel 0.4.0.1] - 2026-09-08
+
+### Added
+
+- Successful and failed spans export `baikai.cost.basis` and
+  `baikai.usage.availability` as canonically encoded JSON. A failed span now
+  also carries the input/output token counts and USD total that
+  `baikai 0.7.0.0` retains on `CallFailed`, alongside its error status.
+
+### Changed (dependencies)
+
+- Requires `baikai ^>=0.7.0`, and now depends on `aeson ^>=2.2` to encode the
+  two new attributes.
+
+## [baikai-effectful 0.4.0.1] - 2026-09-08
+
+### Changed (dependencies)
+
+- Requires `baikai ^>=0.7.0`. No API change.
+
+## [baikai-kit 0.2.0.1] - 2026-09-08
+
+### Changed (dependencies)
+
+- Requires `baikai ^>=0.7.0`. No API change.
+
+## [baikai-agent 0.2.0.1] - 2026-09-08
+
+### Changed (dependencies)
+
+- Requires `baikai ^>=0.7.0`, `baikai-claude ^>=0.7` and
+  `baikai-openai ^>=0.7`. No API change.
 
 ## [baikai 0.6.0.1] - 2026-08-30
 

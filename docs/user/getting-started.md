@@ -23,7 +23,7 @@ record you pass.
 |-----------------|-------------------------------------------------------------------------------|
 | `baikai`        | The core surface: `Model`, `Context`, `Options`, `Tool`, the event stream, the registry, the generated model catalog. |
 | `baikai-claude` | Anthropic Messages API + `claude -p` CLI providers. Exposes `register :: IO ()` per provider. |
-| `baikai-openai` | OpenAI Chat Completions API + `codex exec` CLI providers. Same `register` shape. |
+| `baikai-openai` | OpenAI Chat Completions API, native Responses API, and `codex exec` CLI providers. Same `register` shape — each is registered separately. |
 | `baikai-trace-otel` | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`): one OTel span per provider call, with GenAI semantic-convention attributes plus baikai's cost and latency. |
 | `baikai-effectful` | A thin, policy-free `effectful` binding: the dynamic `Baikai` effect and interpreters over a real or fake provider. |
 | `baikai-kit`    | Shared kit installer for tools that install local AI-agent skills and subagents from a git repository. |

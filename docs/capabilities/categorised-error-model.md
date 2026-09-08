@@ -105,6 +105,13 @@ case responseError resp of
   must change what it sent. Before 0.6.0.0 both landed in `OtherError` and the
   only way to tell a filter from any other failure was to match on the message
   text.
+- **baikai 0.7.0.0 adds `refusalCategory`**, which preserves the provider's own
+  category for an Anthropic refusal alongside the shared `ContentFiltered`
+  classification, and encodes as `refusal_category`. The category is optional
+  and absent for every other provider and every other failure, so a consumer on
+  0.6.x loses granularity, not the classification. Older serialized errors still
+  decode. Server-side fallbacks remain deliberately unsupported (ADR 0005), so
+  no category describes one.
 - Category assignment for a non-OpenAI, non-Anthropic host depends on that host
   imitating the status conventions of the API it is emulating. A compatible host
   with idiosyncratic statuses lands in `OtherError`.

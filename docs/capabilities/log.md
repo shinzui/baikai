@@ -1,5 +1,85 @@
 # Bundle Update Log
 
+## 2026-09-08
+
+* **New**: CAP-23 (OpenAI Responses API backend), `baikai-openai 0.7.0.0`. This
+  is a second OpenAI protocol, not a better version of CAP-14: `/v1/responses`
+  returns reasoning items — a plaintext summary plus an encrypted blob — and
+  accepts them back on the next request, so a tool round trip resumes the model's
+  own reasoning instead of restarting it. Chat Completions cannot express that at
+  all, which is why this is a new record rather than growth of CAP-14: a consumer
+  pinned to 0.6.x cannot do the thing, not merely do it less well. The provider is
+  stateless by choice — it never sets `store` and never relies on a server-side
+  conversation ID — so the `Context` stays the single source of truth. It is
+  `experimental`: first release, no compatibility cycle, and the replay-state
+  encoding is the part most likely to move. Registration is deliberately
+  explicit, because making it automatic would mean core deciding which OpenAI
+  protocol a consumer's models use; the practical consequence is that a program
+  calling GPT-6 Astra must add `Responses.register` on upgrade or dispatch fails.
+
+* **New**: CAP-24 (inference speed preference and speed-aware pricing),
+  `baikai 0.7.0.0`. `Options.speed` is one provider-neutral knob over what is
+  really three coupled problems — a request field plus a beta header, a catalog
+  question about which models offer fast inference, and a billing question
+  because fast tokens cost more. The asymmetry is the design decision worth
+  recording: a model whose catalog entry sets `supportsFastMode` gets the field
+  and the header, and one that does not gets **neither**, plus a
+  `FastModeDroppedUnsupportedModel` adjustment on its CAP-19 record. Failing the
+  call would make `speed` unusable in any program that talks to more than one
+  model; sending an unrecognised field to a model that does not support it is
+  the kind of thing a provider accepts today and rejects later. Pricing follows
+  the same honesty rule as CAP-7: a request is a preference, only the usage
+  report says which speed ran, and an unreported speed leaves the cost an
+  explicit estimate rather than a standard-rate number presented as fact.
+
+* **Update**: CAP-3 (generated model catalog) records that a `compat` block now
+  carries `supportsForcedToolChoice`, `supportsFastMode` and per-endpoint
+  capability facts that survive a refresh, and that a model entry gained an
+  optional `pricingPolicy` with whole-request context tiers and fast rates. Each
+  is curated rather than inferred, consistent with the existing rule that
+  `baikai-gen-models` refuses an entry that omits a fact it cannot recover. GPT-6
+  Astra and Claude Fable 5.1 are added, and Astra's entry carries the
+  `OpenAIResponses` dispatch override CAP-23 describes. `since` is unchanged: the
+  catalog capability itself dates to 0.1.0.0.
+
+* **Update**: CAP-7 (usage and cost accounting) records `Cost.basis` and
+  `Usage.availability`, which make the *honesty* of a number inspectable — where
+  a figure came from, why it might be wrong, and whether a provider reported zero
+  or reported nothing. That distinction is exactly the mistake the record's
+  existing "missing billing metadata is not proof of a free call" limit warns
+  about, so it grows that limit rather than replacing it. `Model.pricingPolicy`
+  is the one part that is not purely additive in effect: generated Astra pricing
+  changes above 272000 input tokens, so a cost computed on 0.6.x for that model
+  is wrong at the top of the context window rather than merely less detailed.
+  `since` stays 0.1.0.0 — a consumer pinned there still gets usage and cost
+  accounting, and that is who the field is for.
+
+* **Update**: CAP-8 (categorised error model) records `refusalCategory`, which
+  preserves an Anthropic refusal's own category alongside the shared
+  `ContentFiltered` classification added in 0.6.0.0. Additive and optional: a
+  consumer on 0.6.x loses granularity, not the classification, so `since` stays
+  0.2.0.0.
+
+* **Update**: CAP-10 (OpenTelemetry span export) records two new span attributes
+  — `baikai.cost.basis` and `baikai.usage.availability` — and the fact that a
+  *failed* span now carries token counts and a USD total, where it previously
+  exported only latency and an error. The package's own Haskell API is still a
+  single sink, unchanged since 0.1.0.0, which is why 0.4.0.1 is a patch. Noted as
+  a limit: both new attributes are JSON strings, because OTel's attribute model
+  has no nested type.
+
+* **Update**: CAP-19 (verifiable model-call evidence) records the schema moving
+  to 2.5 across this release train — 2.2 adding reasoning replay state and
+  optional billing facts, 2.4 adding the thinking display setting and the
+  `thinking_summary_unavailable` diagnosis, 2.5 adding `refusal_category`. None
+  changed the digest inputs, so an older record still verifies under its own
+  `schema_version`; the record now says so explicitly, since a verifier that
+  assumes one rule set across versions is the failure mode this bundle exists to
+  prevent.
+
+* **Note**: no record's `since` moved. Two were added at 0.7.0.0 and five grew in
+  place.
+
 ## 2026-08-27
 
 * **Update**: CAP-13 (Anthropic Messages backend) and CAP-7 (usage and cost
