@@ -55,7 +55,7 @@ library
   build-depends:
     , baikai          ^>=0.7.0
     , base            >=4.20   && <5
-    , effectful-core  ^>=2.6
+    , effectful-core  ^>=2.7
     , streamly-core   >=0.3    && <0.5
     , text            ^>=2.1
     , vector          ^>=0.13

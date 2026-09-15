@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed (dependencies)
+
+- `baikai-effectful` requires `effectful-core ^>=2.7` (was `^>=2.6`). No
+  source changes: none of the 2.7 breaking APIs (`LocalEnv`'s second type
+  parameter, `SharedSuffix`, `KnownEffects`, the ticked strict modules) are
+  used.
+
 ## [baikai 0.7.0.0] - 2026-09-08
 
 ### Added

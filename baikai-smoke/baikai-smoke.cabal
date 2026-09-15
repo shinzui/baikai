@@ -134,7 +134,7 @@ test-suite doc-shapes
     , base                  >=4.20 && <5
     , containers
     , directory
-    , effectful-core        ^>=2.6
+    , effectful-core        ^>=2.7
     , filepath
     , generic-lens
     , hs-opentelemetry-api  >=1.0  && <1.1
