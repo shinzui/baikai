@@ -2,6 +2,7 @@
 import { parseArgs } from "node:util";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { modelHelp, modelOptions, resolveModel } from "../exec-plan/provenance-model.ts";
 
 const USAGE = `Usage: bun init-masterplan.ts --title "<title>" [options]
 
@@ -11,6 +12,7 @@ skeleton, then prints the created file path to stdout.
 Options:
   --title <text>          (required) Human-readable initiative title.
   --intention <id>        Intention ID to record in frontmatter.
+${modelHelp}
   --dir <path>            Directory to write into. Defaults to docs/masterplans.
   -h, --help              Show this message.
 
@@ -31,6 +33,7 @@ const { values } = (() => {
       options: {
         title: { type: "string" },
         intention: { type: "string" },
+        ...modelOptions,
         dir: { type: "string", default: "docs/masterplans" },
         help: { type: "boolean", short: "h" },
       },
@@ -53,6 +56,14 @@ if (!title || !title.trim()) {
   console.error(USAGE);
   die("--title is required");
 }
+
+const identity = (() => {
+  try {
+    return resolveModel(values);
+  } catch (e) {
+    die((e as Error).message);
+  }
+})();
 
 const dir = values.dir!;
 
@@ -96,6 +107,12 @@ fm.push(`title: ${yamlString(title)}`);
 fm.push(`kind: master-plan`);
 fm.push(`created_at: ${createdAt}`);
 if (values.intention) fm.push(`intention: ${yamlString(values.intention)}`);
+fm.push("provenance:");
+fm.push("  created_by:");
+fm.push(`    model: ${yamlString(identity.model)}`);
+if (identity.harness) fm.push(`    harness: ${yamlString(identity.harness)}`);
+fm.push(`    at: ${createdAt}`);
+if (identity.note) fm.push(`    note: ${yamlString(identity.note)}`);
 fm.push("---");
 fm.push("");
 fm.push("");
