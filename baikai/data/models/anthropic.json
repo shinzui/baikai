@@ -186,6 +186,30 @@
       "enabled": true
     },
     {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 4.0,
+        "output": 20.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 5.0
+      },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "fastModeCost": {"input": 8.0, "output": 40.0, "cacheRead": 0.4, "cacheWrite": 10.0},
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 8.0},
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false,
+        "supportsFastMode": true,
+        "supportsForcedToolChoice": false
+      },
+      "enabled": true
+    },
+    {
       "id": "claude-sonnet-4-5",
       "name": "Claude Sonnet 4.5",
       "reasoning": true,

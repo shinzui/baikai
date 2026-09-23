@@ -259,13 +259,19 @@ data ProviderSpec = ProviderSpec
   }
   deriving stock (Generic)
 
--- | Curation include set for OpenAI: the chat-completions-compatible
--- current line. Responses-API-only ids (@*-pro@, @*-codex@,
--- @*-deep-research@) are deliberately absent.
+-- | Curation include set for OpenAI's current Chat and Responses lines.
+-- Responses-only ids outside the text and function-tool scope
+-- (@*-pro@, @*-codex@, @*-deep-research@) are deliberately absent.
 openaiInclude :: Map Text (Maybe CatalogModelCompat)
 openaiInclude =
-  Map.insert "gpt-6-astra" (Just (CatalogResponsesCompat astraResponsesFacts)) $
-    Map.fromList
+  Map.union
+    ( Map.fromList
+        [ ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
+          ("gpt-6-sol", Just (CatalogResponsesCompat gpt6ResponsesFacts)),
+          ("gpt-6-luna", Just (CatalogResponsesCompat gpt6ResponsesFacts))
+        ]
+    )
+    $ Map.fromList
       [ (model, Nothing)
       | model <-
           [ "gpt-5.6",
@@ -293,6 +299,11 @@ openaiInclude =
           ]
       ]
   where
+    -- 2026-09-23: Sol and Luna require Responses for function calling at
+    -- their default reasoning effort; Chat permits it only at effort none.
+    -- https://developers.openai.com/api/docs/models/gpt-6-sol
+    -- https://developers.openai.com/api/docs/models/gpt-6-luna
+    gpt6ResponsesFacts = astraResponsesFacts
     -- 2026-09-07: native tools require Responses; only modern 30m cache TTL.
     -- https://developers.openai.com/api/docs/guides/latest-model
     astraResponsesFacts =
@@ -322,6 +333,13 @@ anthropicInclude =
       -- docs/plans/60-... named this id as the one the include set did not
       -- yet carry, and stated the facts it would have to arrive with.
       ("claude-opus-5", fastAdaptive),
+      -- 2026-09-23: always-on adaptive thinking; forced tool choice is
+      -- rejected. Nondefault sampling is rejected on Claude 4.7 and later;
+      -- fast mode is supported on the Claude API.
+      -- https://platform.claude.com/docs/en/models/opus-5-5/whats-new-opus-5-5
+      -- https://platform.claude.com/docs/en/claude_api_primer
+      -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
+      ("claude-opus-5-5", opus55Facts),
       -- 2026-08-27: adaptive-only, sampling parameters rejected with a
       -- 400 — same source.
       ("claude-opus-4-8", fastAdaptive),
@@ -353,8 +371,9 @@ anthropicInclude =
       ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False)
     ]
   where
-    -- 2026-09-07: all curated predecessors accept forced choice (subject to
-    -- their separate manual-thinking constraint); only Fable 5.1 rejects it.
+    opus55Facts = adaptiveNoSampling & #supportsForcedToolChoice .~ False & #fastModeCost ?~ CatalogCost 8 40 0.4 10
+    -- 2026-09-23: Fable 5.1 and Opus 5.5 reject forced choice; older curated
+    -- models accept it subject to their separate manual-thinking constraint.
     -- https://platform.claude.com/docs/en/api/errors
     -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
     -- 2026-09-07: Opus 5 and 4.8 only; cache multipliers stack on fast rates.
@@ -620,17 +639,23 @@ renderModel m =
   where
     c = m ^. #cost
 
--- | Provider documentation verified 2026-09-07. These rules supplement base
+-- | Provider documentation verified 2026-09-23. These rules supplement base
 -- models.dev rates, which do not describe the full request billing policy.
 -- https://developers.openai.com/api/docs/models/gpt-6-astra
+-- https://developers.openai.com/api/docs/models/gpt-6-sol
+-- https://developers.openai.com/api/docs/models/gpt-6-luna
 -- https://platform.claude.com/docs/en/models/fable-5-1/overview
+-- https://platform.claude.com/docs/en/models/opus-5-5/overview
 -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
 pricingPolicies :: Map (Text, Text) Model.PricingPolicy
 pricingPolicies =
   Map.fromList
-    [ (("anthropic", "claude-opus-5"), Model.PricingPolicy [] (Just 10)),
+    [ (("anthropic", "claude-opus-5-5"), Model.PricingPolicy [] (Just 8)),
+      (("anthropic", "claude-opus-5"), Model.PricingPolicy [] (Just 10)),
       (("anthropic", "claude-opus-4-8"), Model.PricingPolicy [] (Just 10)),
       (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
+      (("openai", "gpt-6-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5)] Nothing),
+      (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25)] Nothing),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20))
     ]
 

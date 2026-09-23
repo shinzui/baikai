@@ -361,6 +361,49 @@ anthropic_claude_opus_5 =
             }
     }
 
+anthropic_claude_opus_5_5 :: Model
+anthropic_claude_opus_5_5 =
+  emptyModel
+    { modelId = "claude-opus-5-5",
+      name = "Claude Opus 5.5",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 4 % 1,
+            outputCost = 20 % 1,
+            cacheReadCost = 1 % 5,
+            cacheWriteCost = 5 % 1
+          },
+      fastModeCost =
+        Just
+          ( ModelCost
+              { inputCost = 8 % 1,
+                outputCost = 40 % 1,
+                cacheReadCost = 2 % 5,
+                cacheWriteCost = 10 % 1
+              }
+          ),
+      pricingPolicy = Just (PricingPolicy [] (Just (8 % 1))),
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False,
+              supportsFastMode = True,
+              supportsForcedToolChoice = False
+            }
+    }
+
 anthropic_claude_sonnet_4_5 :: Model
 anthropic_claude_sonnet_4_5 =
   emptyModel
@@ -998,6 +1041,70 @@ openai_gpt_6_astra =
             }
     }
 
+openai_gpt_6_luna :: Model
+openai_gpt_6_luna =
+  emptyModel
+    { modelId = "gpt-6-luna",
+      name = "GPT-6 Luna",
+      api = OpenAIResponses,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 1 % 10,
+            outputCost = 1 % 2,
+            cacheReadCost = 1 % 100,
+            cacheWriteCost = 1 % 8
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (1 % 5) (3 % 4) (1 % 50) (1 % 4))] Nothing),
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsSamplingParameters = False,
+              supportsLongCacheRetention = False,
+              supportsPromptCacheOptions = True
+            }
+    }
+
+openai_gpt_6_sol :: Model
+openai_gpt_6_sol =
+  emptyModel
+    { modelId = "gpt-6-sol",
+      name = "GPT-6 Sol",
+      api = OpenAIResponses,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 2 % 1,
+            outputCost = 10 % 1,
+            cacheReadCost = 1 % 5,
+            cacheWriteCost = 5 % 2
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (2 % 5) (5 % 1))] Nothing),
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsSamplingParameters = False,
+              supportsLongCacheRetention = False,
+              supportsPromptCacheOptions = True
+            }
+    }
+
 openai_o1 :: Model
 openai_o1 =
   emptyModel
@@ -1159,6 +1266,7 @@ allModels =
     anthropic_claude_opus_4_7,
     anthropic_claude_opus_4_8,
     anthropic_claude_opus_5,
+    anthropic_claude_opus_5_5,
     anthropic_claude_sonnet_4_5,
     anthropic_claude_sonnet_4_6,
     anthropic_claude_sonnet_5,
@@ -1183,6 +1291,8 @@ allModels =
     openai_gpt_5_mini,
     openai_gpt_5_nano,
     openai_gpt_6_astra,
+    openai_gpt_6_luna,
+    openai_gpt_6_sol,
     openai_o1,
     openai_o3,
     openai_o3_mini,

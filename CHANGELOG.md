@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Curated GPT-6 Sol and Luna on OpenAI Responses and Claude Opus 5.5 on
+  Anthropic Messages, with endpoint compatibility and standard, long-context,
+  cache-duration, and fast-mode prices where applicable. Live acceptance for
+  these three bindings remains outstanding.
+
 ## [baikai-kit 0.3.0.0] - 2026-09-23
 
 Closes four improvement requests from the tools that ship `baikai-kit` as their

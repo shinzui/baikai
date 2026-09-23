@@ -162,12 +162,15 @@ tests =
         map (^. #apiOverride) (refreshed ^. #models) @?= [Just "openai-responses"]
         map (^. #compat) (refreshed ^. #models) @?= [expected]
         assertBool "explicit compat survives rendering" ("openai-responses" `Text.isInfixOf` decodeUtf8 (renderCatalog refreshed)),
-      testCase "fast rates and capability survive fetch and generator on exactly two curated models" $ do
+      testCase "fast rates and capability survive fetch and generator on curated models" $ do
         upstream <- loadUpstream
         let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
         forM_ (Map.keys anthropicInclude) $ \mid -> do
           let refreshed = normalizeProvider anthropicSpec (Map.singleton mid (sample & #modelId .~ mid))
-              expected = if mid `elem` ["claude-opus-5", "claude-opus-4-8"] then Just (CatalogCost 10 50 1 12.5) else Nothing
+              expected
+                | mid == "claude-opus-5-5" = Just (CatalogCost 8 40 0.4 10)
+                | mid `elem` ["claude-opus-5", "claude-opus-4-8"] = Just (CatalogCost 10 50 1 12.5)
+                | otherwise = Nothing
           map (^. #fastModeCost) (refreshed ^. #models) @?= [expected]
           case Aeson.eitherDecode (BSL.fromStrict (renderCatalog refreshed)) of
             Left err -> assertFailure err
@@ -175,12 +178,19 @@ tests =
       testCase "curated pricing survives fetch rendering and generator parsing" $ do
         upstream <- loadUpstream
         let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
-        forM_ [(openaiSpec, "gpt-6-astra", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing), (anthropicSpec, "claude-fable-5-1", Model.PricingPolicy [] (Just 20))] $ \(spec, mid, policy) -> do
-          let refreshed = normalizeProvider spec (Map.singleton mid (sample & #modelId .~ mid))
-          map (^. #pricingPolicy) (refreshed ^. #models) @?= [Just policy]
-          case Aeson.eitherDecode (BSL.fromStrict (renderCatalog refreshed)) of
-            Left err -> assertFailure err
-            Right catalog -> map (Gen.pricingPolicy . snd) (Gen.flattenEntries catalog) @?= [Just policy],
+        forM_
+          [ (openaiSpec, "gpt-6-astra", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
+            (openaiSpec, "gpt-6-sol", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5)] Nothing),
+            (openaiSpec, "gpt-6-luna", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25)] Nothing),
+            (anthropicSpec, "claude-fable-5-1", Model.PricingPolicy [] (Just 20)),
+            (anthropicSpec, "claude-opus-5-5", Model.PricingPolicy [] (Just 8))
+          ]
+          $ \(spec, mid, policy) -> do
+            let refreshed = normalizeProvider spec (Map.singleton mid (sample & #modelId .~ mid))
+            map (^. #pricingPolicy) (refreshed ^. #models) @?= [Just policy]
+            case Aeson.eitherDecode (BSL.fromStrict (renderCatalog refreshed)) of
+              Left err -> assertFailure err
+              Right catalog -> map (Gen.pricingPolicy . snd) (Gen.flattenEntries catalog) @?= [Just policy],
       testCase "OpenAI normalization filters, curates, and maps fields" $ do
         upstream <- loadUpstream
         catalogFor upstream openaiSpec @?= expectedOpenAI,

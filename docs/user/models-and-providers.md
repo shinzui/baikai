@@ -73,7 +73,7 @@ JSON sources and the committed `Baikai.Models.Generated`.
 For a provider release refresh, use the repository's
 [update-models skill](../../agents/skills/update-models/SKILL.md).
 
-The September 2026 additions are `openai_gpt_6_astra` and
+The September 2026 additions include `openai_gpt_6_astra` and
 `anthropic_claude_fable_5_1`. [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
 uses `OpenAIResponses`, with a 1,050,000-token context and 128,000-token output
 limit. Register `Baikai.Provider.OpenAI.Responses` to use this binding for text,
@@ -99,6 +99,38 @@ network worker are used. The catalog records this in
 keep conversation history append-only: editing earlier turns invalidates later
 thinking blocks. See the [migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
 before switching existing conversations to this model.
+
+The September 23 refresh also adds `openai_gpt_6_sol`,
+`openai_gpt_6_luna`, and `anthropic_claude_opus_5_5`. Sol and Luna select
+`OpenAIResponses` for function tools at their default reasoning effort; their
+Chat Completions route supports function calling only with effort `none`.
+They each have a 1,050,000-token context and 128,000-token output limit.
+Baikai exposes low through max on this Responses route; its thinking-level
+vocabulary has no `none` value, so callers cannot request the models' optional
+no-reasoning mode through these bindings. Sampling options are omitted at the
+supported efforts and recorded as adjustments.
+Their standard short-context prices per million input, cached input, cache
+write, and output tokens are respectively $2/$0.20/$2.50/$10 for
+[Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) and
+$0.10/$0.01/$0.125/$0.50 for
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna). Above
+272,000 input tokens, whole-request rates double for input and cache and
+rise 1.5 times for output. Baikai's pricing policy applies that threshold.
+
+[Claude Opus 5.5](https://platform.claude.com/docs/en/models/opus-5-5/overview)
+uses Messages, has a 1,000,000-token context and 128,000-token output limit,
+and standard rates of $4/$0.20/$5/$20 in the same category order. One-hour
+cache writes cost $8/M and the catalog selects that rate when the shaped
+request uses it. Fast mode is supported with separate $8/$0.40/$10/$40 rates;
+it requires account access. Thinking is always on and defaults to medium
+effort when unset. Forced `any` and named tool choices are rejected locally;
+preserve signed thinking blocks and append to conversation history for tool
+replay. See the [migration guide](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide).
+
+The September 23 models.dev snapshot includes all three new IDs. The fetcher
+renders them only after they enter the curated include sets; their facts and
+prices were checked against the official pages. Live text and tool acceptance
+for the three new bindings remains outstanding.
 
 ### Focused compatibility checks
 

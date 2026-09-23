@@ -60,6 +60,19 @@ tests =
             c.supportsSamplingParameters @?= False
             c.supportedReasoningEfforts @?= Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
           _ -> assertFailure "Astra needs explicit OpenAI endpoint facts",
+      testCase "Sol and Luna select Responses with explicit endpoint facts" $
+        mapM_
+          ( \mid -> do
+              [api m | m <- allModels, modelId m == mid] @?= [OpenAIResponses]
+              case [compat m | m <- allModels, modelId m == mid] of
+                [CompatOpenAIResponses c] -> do
+                  c.supportsPromptCacheOptions @?= True
+                  c.supportsLongCacheRetention @?= False
+                  c.supportsSamplingParameters @?= False
+                  c.supportedReasoningEfforts @?= Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
+                _ -> assertFailure "GPT-6 Sol/Luna need explicit OpenAI Responses facts"
+          )
+          ["gpt-6-sol", "gpt-6-luna"],
       testCase "regenerating from data/models produces no diff" $
         withSystemTempDirectory "baikai-catalog-spec" $ \tmpDir -> do
           let regenPath = tmpDir <> "/Generated.hs"
@@ -103,6 +116,7 @@ expectedAnthropicFacts =
     ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True, False)),
     ("claude-opus-4-8", (AnthropicThinkingAdaptive, False, True, True)),
     ("claude-opus-5", (AnthropicThinkingAdaptive, False, True, True)),
+    ("claude-opus-5-5", (AnthropicThinkingAdaptive, False, False, True)),
     ("claude-sonnet-4-5", (AnthropicThinkingBudget, True, True, False)),
     ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True, True, False)),
     ("claude-sonnet-5", (AnthropicThinkingAdaptive, False, True, False))
