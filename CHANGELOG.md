@@ -7,6 +7,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai-kit`: `KitConfig.projectRoot :: IO FilePath` says where project scope
+  lives. Install, status, update, uninstall and `agentDirsForSession` all derive
+  project-scope paths from it, so they agree whichever subdirectory a command
+  runs from. `kitConfig` builds a configuration with every optional field at its
+  default (project scope is the current directory, as before);
+  `projectRootByMarkers [".git", ".mytool"]` is a ready-made resolver that walks
+  up to the nearest marker and falls back to the current directory, and
+  `findProjectRoot` is the underlying walk. Resolves IR-8.
+
+### Changed
+
+- `baikai-kit`: `KitConfig` gains the strict field `projectRoot`, so a record
+  literal must set it; build the configuration with
+  `kitConfig toolName repoUrl providers` instead and override fields with record
+  update syntax. `KitConfig`'s `Show` instance is now hand-written and prints
+  `<IO FilePath>` for the resolver. __Breaking__.
+
 ## [baikai-effectful 0.4.0.2] - 2026-09-15
 
 ### Changed (dependencies)

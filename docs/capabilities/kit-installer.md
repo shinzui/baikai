@@ -4,7 +4,7 @@ type: Capability
 description: "Give a command-line tool a real `kit` command: clone or update a git-hosted kit repository, read its manifest, install skills and subagents in each provider's native layout with sidecar metadata, report per-item status, and uninstall — refusing symbolic links and escaping paths in the untrusted manifest, returning every failure as a typed `KitError` rather than exiting, and restoring what was there when a write fails partway."
 generated:
   by: claude-code/opus-5
-  at: "2026-08-27T00:00:00Z"
+  at: "2026-09-23T00:00:00Z"
 capabilityId: CAP-21
 provider: mori://shinzui/baikai
 status: shipped
@@ -29,10 +29,10 @@ requires:
 evidence:
   - kind: test
     resource: baikai-kit/test/Main.hs
-    proves: "The whole lifecycle, its path safety and its failure shapes: manifest decoding, an order-independent content hash that changes when content changes, the status derivation including the new refused state, a skill and an agent round-tripping through both Claude and Codex layouts with sidecars, CRLF frontmatter normalised on every branch, uninstall reporting actual assets versus stale metadata. Path safety: safeRelativePath rejects zip-slip, absolute paths, backslashes and NUL, safeItemName rejects multi-component and hidden names, install refuses a manifest path escaping the install root, uninstall refuses a traversal name, and a kit checkout containing a symbolic link has that source refused by install (which writes nothing), by the content hash, and by status. Typed failures: loadManifest returns missing and invalid manifests as values, installItem returns KitItemNotFound, kit status offline on a fresh HOME exits 0 while reporting the unavailable upstream, and runKit still exits 1 on an unsafe install or uninstall. Install fidelity: a multi-file agent installs every listed file for both providers and uninstall removes its resource directory, a failure in the rename phase restores the previous files and leaves no temporary or backup residue, a destination that is a directory is refused before any write, an unsupported manifest version is refused, a sidecar written before the installed-file fields still decodes, and update skips a locally modified item unless forced."
+    proves: "The whole lifecycle, its path safety and its failure shapes: manifest decoding, an order-independent content hash that changes when content changes, the status derivation including the new refused state, a skill and an agent round-tripping through both Claude and Codex layouts with sidecars, CRLF frontmatter normalised on every branch, uninstall reporting actual assets versus stale metadata. Path safety: safeRelativePath rejects zip-slip, absolute paths, backslashes and NUL, safeItemName rejects multi-component and hidden names, install refuses a manifest path escaping the install root, uninstall refuses a traversal name, and a kit checkout containing a symbolic link has that source refused by install (which writes nothing), by the content hash, and by status. Typed failures: loadManifest returns missing and invalid manifests as values, installItem returns KitItemNotFound, kit status offline on a fresh HOME exits 0 while reporting the unavailable upstream, and runKit still exits 1 on an unsafe install or uninstall. Install fidelity: a multi-file agent installs every listed file for both providers and uninstall removes its resource directory, a failure in the rename phase restores the previous files and leaves no temporary or backup residue, a destination that is a directory is refused before any write, an unsupported manifest version is refused, a sidecar written before the installed-file fields still decodes, and update skips a locally modified item unless forced. Project scope: findProjectRoot walks up from a nested directory, accepts a start that is the root, and returns Nothing without a marker; with a configured projectRoot an install from a nested subdirectory is found by status, session discovery, and uninstall from a sibling one, the same holds with projectRootByMarkers, and without a resolver project scope stays the current directory."
   - kind: guide
     resource: docs/user/kit.md
-    proves: "The adoption path: KitConfig, the kit.json manifest, wiring the command, and what each subcommand does."
+    proves: "The adoption path: KitConfig and kitConfig, how project scope is located, the kit.json manifest, wiring the command, and what each subcommand does."
 ---
 
 # Kit installer for agent skills and subagents
@@ -41,7 +41,10 @@ A tool that ships its own AI-agent skills and subagents needs the same six thing
 every time: clone or update a git-hosted kit, read `kit.json`, install
 provider-native files, track what it installed, report drift, and remove it
 again. `baikai-kit` is that lifecycle, factored out so each tool supplies only a
-`KitConfig` — its name, its kit repository URL, and which providers it targets.
+`KitConfig` — its name, its kit repository URL, which providers it targets, and
+optionally how to find its project root. Every project-scope path derives from
+that one root, so install, status, update, uninstall, and session discovery
+agree whichever subdirectory a command runs from.
 
 Installation is provider-native. A skill and a custom agent land where Claude
 Code and Codex actually discover them, in the format each expects, with a sidecar
@@ -82,10 +85,8 @@ import Baikai.Kit
 
 myKitConfig :: KitConfig
 myKitConfig =
-  KitConfig
-    { toolName = "mytool",
-      repoUrl = "https://github.com/example/mytool-kit.git",
-      providers = [InteractiveClaude, InteractiveCodex]
+  (kitConfig "mytool" "https://github.com/example/mytool-kit.git" [InteractiveClaude, InteractiveCodex])
+    { projectRoot = projectRootByMarkers [".git", ".mytool"]
     }
 ```
 

@@ -11,7 +11,7 @@ import Baikai.Kit
     KitItem (..),
     KitItemKind (..),
     KitManifest (..),
-    KitScope (UserScope),
+    KitScope (..),
     KitState (..),
     OverwritePolicy (..),
     PlannedWrite (..),
@@ -21,13 +21,17 @@ import Baikai.Kit
     SkillEntry (..),
     UpstreamAvailability (..),
     WriteContent (..),
+    agentDirsForSession,
     classify,
     collectStatus,
     computeKitHash,
     executePlanWith,
+    findProjectRoot,
     installItem,
+    kitConfig,
     kitStatus,
     loadManifest,
+    projectRootByMarkers,
     pullKitRepo,
     readSidecar,
     reinstallPresent,
@@ -45,21 +49,25 @@ import Baikai.Kit
   )
 import Baikai.Prelude
 import Control.Exception (finally, try)
+import Control.Monad (void)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
 import Data.List (find, isSuffixOf)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import System.Directory
-  ( createDirectoryIfMissing,
+  ( canonicalizePath,
+    createDirectoryIfMissing,
     createDirectoryLink,
     doesDirectoryExist,
     doesFileExist,
     doesPathExist,
+    getCurrentDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
     renameFile,
+    withCurrentDirectory,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
@@ -84,7 +92,8 @@ main =
           statusFilesystemTests,
           installRoundTripTests,
           typedErrorTests,
-          installFidelityTests
+          installFidelityTests,
+          projectRootTests
         ]
 
 manifestTests :: TestTree
@@ -563,13 +572,95 @@ mkAgentItem n mVersion =
         files = Nothing
       }
 
+projectRootTests :: TestTree
+projectRootTests =
+  testGroup
+    "Project root"
+    [ testCase "findProjectRoot walks up from a nested directory" $
+        withMarkedTree $ \root -> do
+          found <- findProjectRoot [rootMarker] (root </> "a" </> "b")
+          found @?= Just root,
+      testCase "findProjectRoot accepts a start directory that is itself the root" $
+        withMarkedTree $ \root -> do
+          found <- findProjectRoot [rootMarker] root
+          found @?= Just root,
+      testCase "findProjectRoot returns Nothing when no marker exists" $
+        withMarkedTree $ \root -> do
+          found <- findProjectRoot [".testkit-no-such-marker"] (root </> "a")
+          found @?= Nothing
+          withCurrentDirectory (root </> "a") $ do
+            resolved <- projectRootByMarkers [".testkit-no-such-marker"]
+            cwd <- getCurrentDirectory
+            resolved @?= cwd,
+      testCase "a configured root puts project scope in one place" $
+        withPreparedKitHome $ \_home _cache ->
+          withProjectTree $ \proj -> do
+            let config = testConfig & #projectRoot .~ pure proj
+                claudeSkill = proj </> ".testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
+            withCurrentDirectory (proj </> "src" </> "deep") $
+              void (assertRight =<< installItem config "demo" ProjectScope)
+            assertFileExists (claudeSkill </> "SKILL.md")
+            assertFileExists (proj </> ".agents" </> "skills" </> "demo" </> "SKILL.md")
+            assertDirectoryMissing (proj </> "src" </> "deep" </> ".testkit")
+            withCurrentDirectory (proj </> "docs") $ do
+              assertProjectRow config
+              dirs <- agentDirsForSession config
+              assertBool
+                ("expected the project agents dir in " <> show dirs)
+                ((proj </> ".testkit" </> "agents") `elem` dirs)
+              outcomes <- assertRight =<< uninstallItem config "demo" ProjectScope
+              let rendered = renderUninstallReport "demo" ProjectScope outcomes
+              assertBool
+                ("unexpected uninstall report: " <> Text.unpack rendered)
+                ("Uninstalled skill 'demo' from project scope" `Text.isPrefixOf` rendered)
+            assertDirectoryMissing claudeSkill
+            let markerConfig = testConfig & #projectRoot .~ projectRootByMarkers [rootMarker]
+            withCurrentDirectory (proj </> "src" </> "deep") $
+              void (assertRight =<< installItem markerConfig "demo" ProjectScope)
+            assertFileExists (claudeSkill </> "SKILL.md")
+            withCurrentDirectory (proj </> "docs") $ assertProjectRow markerConfig,
+      testCase "without a resolver, project scope is the current directory" $
+        withPreparedKitHome $ \_home _cache ->
+          withProjectTree $ \proj ->
+            withCurrentDirectory (proj </> "src" </> "deep") $ do
+              _ <- assertRight =<< installItem testConfig "demo" ProjectScope
+              cwd <- getCurrentDirectory
+              assertFileExists (cwd </> ".testkit" </> "agents" </> ".claude" </> "skills" </> "demo" </> "SKILL.md")
+              assertDirectoryMissing (proj </> ".testkit")
+    ]
+  where
+    assertProjectRow config = do
+      report <- kitStatus config
+      let projectRows = filter (\row -> row ^. #name == "demo" && row ^. #scope == "project") (report ^. #rows)
+      assertBool "expected a project-scope status row for demo" (not (null projectRows))
+
+-- | A marker no real directory above the system temporary directory can
+--   hold, so a walk to the filesystem root cannot find someone's @.git@.
+rootMarker :: FilePath
+rootMarker = ".testkit-root-marker"
+
+-- | @root/.testkit-root-marker@ and @root/a/b@, with @root@ canonical so
+--   it compares equal to paths the resolver builds.
+withMarkedTree :: (FilePath -> IO a) -> IO a
+withMarkedTree action =
+  withSystemTempDirectory "baikai-kit-root" $ \tmp -> do
+    root <- (</> "root") <$> canonicalizePath tmp
+    createDirectoryIfMissing True (root </> "a" </> "b")
+    BS.writeFile (root </> rootMarker) ""
+    action root
+
+-- | A project with a root marker, @src/deep@, and @docs@.
+withProjectTree :: (FilePath -> IO a) -> IO a
+withProjectTree action =
+  withSystemTempDirectory "baikai-kit-project" $ \tmp -> do
+    proj <- (</> "proj") <$> canonicalizePath tmp
+    createDirectoryIfMissing True (proj </> "src" </> "deep")
+    createDirectoryIfMissing True (proj </> "docs")
+    BS.writeFile (proj </> rootMarker) ""
+    action proj
+
 testConfig :: KitConfig
-testConfig =
-  KitConfig
-    { toolName = "testkit",
-      repoUrl = "file:///not-used",
-      providers = [InteractiveClaude, InteractiveCodex]
-    }
+testConfig = kitConfig "testkit" "file:///not-used" [InteractiveClaude, InteractiveCodex]
 
 withPreparedKitHome :: (FilePath -> FilePath -> IO a) -> IO a
 withPreparedKitHome action =

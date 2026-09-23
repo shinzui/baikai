@@ -1,5 +1,16 @@
 # Bundle Update Log
 
+## 2026-09-23
+
+* **Update**: CAP-21 (kit installer) records `KitConfig.projectRoot`, the
+  `kitConfig` smart constructor, and the `projectRootByMarkers` and
+  `findProjectRoot` resolvers (IR-8). Project scope used to be whatever
+  directory a command ran in, so an install from `src/` was invisible to
+  `kit status` at the root; now every project-scope path derives from one
+  resolved root. The Shape block builds the configuration with `kitConfig`,
+  because `KitConfig` gained a strict field and a record literal must now set
+  every field — the change is breaking and ships in `baikai-kit 0.3.0.0`.
+
 ## 2026-09-08
 
 * **New**: CAP-23 (OpenAI Responses API backend), `baikai-openai 0.7.0.0`. This

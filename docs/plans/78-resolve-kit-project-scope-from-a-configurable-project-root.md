@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-23T14:11:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-23T14:24:17Z
+      mode: "implement"
+      note: "Milestones 1 and 2 implemented"
 ---
 
 # Resolve kit project scope from a configurable project root
@@ -45,16 +51,24 @@ This plan implements [IR-8](../improvement-requests/resolve-kit-project-scope-fr
 
 ## Progress
 
-- [ ] Milestone 1: add `projectRoot` to `KitConfig`, the `kitConfig` smart constructor, the hand-written `Show` instance, `findProjectRoot`, and `projectRootByMarkers`; route `projectAgentsDir` and the Codex project base through `projectRoot`.
-- [ ] Milestone 1: switch the test suite's `testConfig` to `kitConfig`; add the three resolver tests; `cabal test baikai-kit` green.
-- [ ] Milestone 2: add the configured-root round-trip test and the unchanged-default test; `cabal test baikai-kit` green.
-- [ ] Milestone 2: update CAP-21's Shape block and `baikai-smoke/doc-shapes/Shape/Cap21.hs` together; `cabal test baikai-smoke:test:doc-shapes` green.
-- [ ] Milestone 2: document project scope in `docs/user/kit.md`; add the changelog entry, the ADR, and the bundle log entries; validators green; `cabal build all --enable-tests` green.
+- [x] (2026-09-23 14:40Z) Milestone 1: add `projectRoot` to `KitConfig`, the `kitConfig` smart constructor, the hand-written `Show` instance, `findProjectRoot`, and `projectRootByMarkers`; route `projectAgentsDir` and the Codex project base through `projectRoot`.
+- [x] (2026-09-23 14:40Z) Milestone 1: switch the test suite's `testConfig` to `kitConfig`; add the three resolver tests; `cabal test baikai-kit` green (49 tests).
+- [x] (2026-09-23 14:40Z) Milestone 2: add the configured-root round-trip test and the unchanged-default test; `cabal test baikai-kit` green.
+- [x] (2026-09-23 14:50Z) Milestone 2: update CAP-21's Shape block and `baikai-smoke/doc-shapes/Shape/Cap21.hs` together; `cabal test baikai-smoke:test:doc-shapes` green.
+- [x] (2026-09-23 15:00Z) Milestone 2: document project scope in `docs/user/kit.md`; add the changelog entry, ADR 0021, and the bundle log entries; validators green; `cabal build all --enable-tests` green.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `okf log add` rewrites the whole `log.md` it appends to: it reflowed every existing entry
+  in `docs/capabilities/log.md` (a 651-line diff for one new entry). The entries were
+  reverted and inserted by hand instead. Later plans should do the same.
+- The two milestones landed as one commit. Milestone 1 alone breaks
+  `cabal test baikai-smoke:test:doc-shapes`, because the CAP-21 twin builds `KitConfig` as a
+  record literal and ADR 0017 requires the record and twin to change with the code.
+- The configured-root test canonicalises the temporary directory up front
+  (`canonicalizePath tmp`), so paths built from it compare equal to paths derived from
+  `getCurrentDirectory` (which reports macOS's `/private/var/…` form).
 
 
 ## Decision Log
@@ -89,10 +103,28 @@ This plan implements [IR-8](../improvement-requests/resolve-kit-project-scope-fr
   an exception thrown by a consumer's resolver propagates.
   Date: 2026-09-23
 
+- Decision: Commit both milestones together, and write the CHANGELOG entry under
+  `## [Unreleased]` with `### Added` and `### Changed` subsections.
+  Rationale: the doc-shapes suite fails between the milestones (see Surprises). The
+  changelog's recent releases use `### Added`/`### Changed` with a trailing `__Breaking__`
+  marker; later plans in the initiative add their bullets to the same subsections.
+  Date: 2026-09-23
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+IR-8's four acceptance criteria hold. `KitConfig` has a `projectRoot` resolver; `kitConfig`
+defaults it to the current directory, and `projectRootByMarkers` / `findProjectRoot` supply the
+marker walk. `getCurrentDirectory` appears in `baikai-kit/src` only inside `kitConfig` and
+`projectRootByMarkers`. Five new tests in the "Project root" group prove the walk, the
+cross-subdirectory agreement of install, `kitStatus`, `agentDirsForSession`, and
+`uninstallItem` (with both a fixed root and the marker resolver), and the unchanged default.
+`docs/user/kit.md` gained a Project Scope section, CAP-21's Shape block and its twin use
+`kitConfig`, and ADR 0021 records the boundary. `docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md`
+can now extend `kitConfig` and the `Show` instance with its `chooseItem` field.
+
+Lesson: when the first compiled change touches a documented shape, the milestone split has
+to bend to ADR 0017's same-commit rule.
 
 
 ## Context and Orientation

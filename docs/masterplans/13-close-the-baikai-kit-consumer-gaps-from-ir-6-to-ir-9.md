@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-23T14:11:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-23T14:24:17Z
+      mode: "implement"
+      note: "Coordinate EP-1..EP-4 implementation; registry, progress, and discoveries updated"
 ---
 
 # Close the baikai-kit consumer gaps from IR-6 to IR-9
@@ -133,7 +139,7 @@ No cross-repository ADR in the Mori registry governs `baikai-kit`'s surface.
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 1 | Resolve kit project scope from a configurable project root (IR-8) | docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md | None | None | Not Started |
+| 1 | Resolve kit project scope from a configurable project root (IR-8) | docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md | None | None | Complete |
 | 2 | Report local edits and upstream drift as separate kit status conditions (IR-7) | docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md | None | None | Not Started |
 | 3 | Let kit install choose an item through a caller-supplied chooser (IR-6) | docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md | EP-1 | None | Not Started |
 | 4 | Add versioned JSON output to kit list, status, and update (IR-9), and prepare baikai-kit 0.3.0.0 | docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md | EP-2, EP-3 | EP-1 | Not Started |
@@ -229,8 +235,8 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
 
 ## Progress
 
-- [ ] EP-1: Milestone 1 — `projectRoot`, `kitConfig`, the marker resolver, and resolver tests.
-- [ ] EP-1: Milestone 2 — install, status, uninstall, and session discovery agree across subdirectories; docs, CAP-21 Shape and twin, changelog, ADR.
+- [x] EP-1: Milestone 1 — `projectRoot`, `kitConfig`, the marker resolver, and resolver tests.
+- [x] EP-1: Milestone 2 — install, status, uninstall, and session discovery agree across subdirectories; docs, CAP-21 Shape and twin, changelog, ADR.
 - [ ] EP-2: Milestone 1 — shared local-edit check and the `KitCondition` vocabulary, existing drift tests kept under new names.
 - [ ] EP-2: Milestone 2 — `kit status` reports local edits; agreement test with `kit update`; docs, changelog, ADR.
 - [ ] EP-3: Milestone 1 — `KitCommand` derives `Eq`, optional install name, config-aware parser and help text.
@@ -256,6 +262,13 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
 - `runKitCommand` prints `Fetched <tool>-kit.` to stdout when it clones the cache
   (`withRepo` in `baikai-kit/src/Baikai/Kit/Command.hs`), which would corrupt a JSON document on
   a first run. EP-4 must move that line to stderr in JSON mode.
+- (EP-1) `okf log add` reflows every existing entry of the `log.md` it appends to. Every plan
+  that appends to `docs/capabilities/log.md` or `docs/user/log.md` should insert the dated
+  entry by hand. ADR 0021 was taken by EP-1, so the next free ADR number is 0022.
+- (EP-1) A change to `KitConfig` cannot be committed separately from the CAP-21 Shape block
+  and twin; EP-3's field addition should expect to land its milestone 2 docs with the code.
+  `CHANGELOG.md` `## [Unreleased]` now has `### Added` and `### Changed` subsections for later
+  plans to append to.
 
 
 ## Decision Log

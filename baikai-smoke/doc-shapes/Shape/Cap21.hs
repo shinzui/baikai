@@ -7,10 +7,8 @@ import Baikai.Kit
 -- BEGIN CAP-21
 myKitConfig :: KitConfig
 myKitConfig =
-  KitConfig
-    { toolName = "mytool",
-      repoUrl = "https://github.com/example/mytool-kit.git",
-      providers = [InteractiveClaude, InteractiveCodex]
+  (kitConfig "mytool" "https://github.com/example/mytool-kit.git" [InteractiveClaude, InteractiveCodex])
+    { projectRoot = projectRootByMarkers [".git", ".mytool"]
     }
 
 -- END CAP-21

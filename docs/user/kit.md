@@ -6,7 +6,7 @@ docId: DOC-5
 tags: [kits, skills, agents, installation, lifecycle]
 generated:
   by: human:nadeem
-  at: 2026-08-27T20:05:09Z
+  at: 2026-09-23T00:00:00Z
 ---
 
 # Kit Packages
@@ -53,7 +53,10 @@ Applications that also use Claude or OpenAI providers will usually pin
 
 ## KitConfig
 
-Every application supplies a small `KitConfig`:
+Every application supplies a small `KitConfig`. Build it with
+`kitConfig`, which takes the three required values and sets every optional
+field to its default, then override what you need with record update
+syntax:
 
 ```haskell
 import Baikai.Interactive (InteractiveProvider (..))
@@ -61,26 +64,57 @@ import Baikai.Kit
 
 myKitConfig :: KitConfig
 myKitConfig =
-  KitConfig
-    { toolName = "mytool"
-    , repoUrl = "https://github.com/example/mytool-kit.git"
-    , providers = [InteractiveClaude, InteractiveCodex]
+  (kitConfig "mytool" "https://github.com/example/mytool-kit.git" [InteractiveClaude, InteractiveCodex])
+    { projectRoot = projectRootByMarkers [".git", ".mytool"]
     }
 ```
+
+A record literal (`KitConfig { … }`) still compiles, but it must set every
+field, including ones later releases add; `kitConfig` does not.
 
 `toolName` controls the cache, agent base directories, and sidecar file:
 
 ```text
 ~/.cache/mytool/kit
 ~/.config/mytool/agents
-<cwd>/.mytool/agents
+<project root>/.mytool/agents
 .mytool-kit.json
 ```
+
+`projectRoot` is an `IO FilePath` action that returns the directory project
+scope lives under; see Project Scope below.
 
 Claude Code assets install below the tool's agent base so the launcher
 can mount that directory with `--add-dir`. Codex assets install into
 Codex-native discovery roots: `$HOME/.agents`, `$HOME/.codex`, `.agents`,
 and `.codex`.
+
+## Project Scope
+
+`--project` installs into the project rather than the user's home. Which
+directory is "the project" is the tool's `projectRoot`. With `kitConfig`'s
+default it is the current directory, exactly as in earlier releases. Most
+tools want the repository root instead, so that `mytool kit install review
+--project` run from `src/` and `mytool kit status` run from the root see
+the same item; one line configures that:
+
+```haskell
+myKitConfig = (kitConfig "mytool" url providers) {projectRoot = projectRootByMarkers [".git", ".mytool"]}
+```
+
+`projectRootByMarkers markers` walks up from the current directory to the
+nearest directory containing any of `markers` (a file or a directory) and
+falls back to the current directory when none does, so the tool still
+works outside a project. It does not resolve symbolic links. The walk
+itself is exported as `findProjectRoot markers start`, which returns
+`Nothing` when no marker is found, for a tool that wants its own fallback.
+A tool with its own notion of a root can supply any `IO FilePath`; an
+exception it throws propagates to the caller.
+
+Every project-scope operation uses that one root: install, status, update,
+uninstall, and `agentDirsForSession`. Claude Code files go under
+`<project root>/.<tool>/agents/.claude`, and Codex files under
+`<project root>/.agents` and `<project root>/.codex`.
 
 ## Manifest
 
@@ -268,8 +302,12 @@ launch = do
 
 ```text
 ~/.config/<tool>/agents
-<cwd>/.<tool>/agents
+<project root>/.<tool>/agents
 ```
+
+The project directory comes from the same `projectRoot` the installer
+uses, so a session started from a subdirectory mounts the skills a
+project-scope install put at the root.
 
 Those directories are useful for Claude Code because its provider-native
 layout lives under the tool agent base. Codex also receives the extra
