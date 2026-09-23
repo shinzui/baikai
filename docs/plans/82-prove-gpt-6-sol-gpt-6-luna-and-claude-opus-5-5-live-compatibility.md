@@ -33,7 +33,7 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 - [x] 2026-09-23 17:12 UTC: Add three model pairs and six named cases to the existing focused smoke mode; all ten selectors and provider-key preflights pass without network access.
 - [x] 2026-09-23 17:12 UTC: Add offline assertions for case selection, request shaping, replay, and pricing; the full prescribed offline gate passes.
 - [x] 2026-09-23 17:15 UTC: Run required-key live text and tool checks and preserve dated redacted output in `docs/validation/plan-82/2026-09-23-live-summary.json`; Sol and Luna passed both cases.
-- [ ] Retry only `opus55-text` and `opus55-tools` after a working Anthropic credential is available; both currently return HTTP 401 before model execution. The existing Fable cases also returned HTTP 401 in the full run.
+- [ ] Retry only `opus55-text` and `opus55-tools` after a working Anthropic credential is available. A 2026-09-23 18:00 UTC `direnv reload` and selected retry still returned HTTP 401 for both cases; preserve that result in `docs/validation/plan-82/2026-09-23-opus55-retry.json`. The existing Fable cases also returned HTTP 401 in the full run.
 - [x] 2026-09-23 17:15 UTC: Update `docs/user/models-and-providers.md` with the ten-case command and observed scope.
 - [ ] Close the plan after Opus live text and tool cases pass and the evidence is updated.
 
@@ -45,6 +45,8 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 2026-09-23: The Anthropic SDK's typed request omits `tool_choice` for `ToolChoiceNone`; Baikai's transport shaper inserts the wire-level `none` choice. The Opus binding test therefore checks the captured transport request, which is the behavior the provider receives. The first offline run exposed this fixture mismatch; the corrected full gate passed.
 
 2026-09-23: The required-key run had both credential alternatives present, but Anthropic returned `auth_error` with HTTP 401 for Fable and Opus 5.5. No Anthropic model or usage was observed. Sol and Luna each passed text and a two-call tool case with one dispatcher invocation; the runner verified the fixed timestamp in each final answer. The redacted evidence removes provider request and response IDs while retaining endpoints, observed models, cost bases, and status. A present credential is not proof of account access.
+
+2026-09-23 18:00 UTC: Reloading `direnv` renewed its cache, and the selected Opus text and tool calls each reached `/v1/messages`; both still received `auth_error` HTTP 401 with no observed model. In the reloaded environment `ANTHROPIC_KEY` was set and `ANTHROPIC_API_KEY` absent. The credential is present but still rejected. The two-case retry artifact is redacted and dated.
 
 
 ## Decision Log
@@ -58,7 +60,7 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 
 ## Outcomes & Retrospective
 
-Partial outcome on 2026-09-23: The six new cases are selectable and the prescribed offline suite passes. Sol text, Sol tools, Luna text, and Luna tools passed live through `/v1/responses` with requested and observed model IDs equal, standard token-rate cost bases, and one dispatcher invocation in each tool case. Opus text and tools reached `/v1/messages` but failed with HTTP 401 before model execution; their live compatibility remains unproven. The full run also found the same authentication failure for existing Fable cases. No protocol or catalog architecture changed, so ADRs 0009, 0019, and 0020 still carry the durable decisions. Finish by retrying the two Opus cases with a working Anthropic credential and appending redacted evidence.
+Partial outcome on 2026-09-23: The six new cases are selectable and the prescribed offline suite passes. Sol text, Sol tools, Luna text, and Luna tools passed live through `/v1/responses` with requested and observed model IDs equal, standard token-rate cost bases, and one dispatcher invocation in each tool case. Opus text and tools reached `/v1/messages` but failed with HTTP 401 before model execution, including after a `direnv reload` and selected retry; their live compatibility remains unproven. The full run also found the same authentication failure for existing Fable cases. No protocol or catalog architecture changed, so ADRs 0009, 0019, and 0020 still carry the durable decisions. Finish by retrying the two Opus cases with a working Anthropic credential and appending redacted evidence.
 
 
 ## Context and Orientation
@@ -123,3 +125,5 @@ Use `SmokeOptions.caseNames :: [String]` and `NewModelsSmoke.runNewModels :: Boo
 ## Revision note
 
 2026-09-23: Implemented the selectors, binding checks, offline validation, and live probe. Sol and Luna passed; Opus could not pass because the available Anthropic credential returned HTTP 401. The plan remains open for two targeted retries.
+
+2026-09-23: After the user reloaded `direnv`, reran only the two Opus cases. The credential was present but the provider again returned HTTP 401, so acceptance remains open. Added a separate redacted retry artifact rather than overwriting the first live record.

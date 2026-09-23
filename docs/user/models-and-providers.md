@@ -134,6 +134,9 @@ passed live text and tool cases through Responses. Opus 5.5 reached Messages,
 but Anthropic returned HTTP 401 before a model response, so its live acceptance
 remains outstanding. The [redacted result](../validation/plan-82/2026-09-23-live-summary.json)
 records the exact scope.
+After a `direnv reload`, both selected Opus cases still returned HTTP 401;
+the [redacted retry](../validation/plan-82/2026-09-23-opus55-retry.json)
+records that result without repeating the successful OpenAI calls.
 
 ### Focused compatibility checks
 
