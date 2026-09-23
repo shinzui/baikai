@@ -62,8 +62,8 @@ are complete (and therefore also
 - [x] (2026-09-23 16:30Z) Milestone 1: add `installedCopies` to `Baikai.Kit.Status`; add the `Baikai.Kit.Json` module with `kitJsonFormatVersion`, `listDocument`, `statusDocument`, and `updateDocument`; register it in the cabal file and the umbrella module.
 - [x] (2026-09-23 16:45Z) Milestone 1: build the golden fixture, the stdout-capture helper, the normaliser, and the accept mode; generate and review `test/golden/{list,status,update}.json`; `cabal test baikai-kit` green.
 - [x] (2026-09-23 16:45Z) Milestone 2: add `OutputFormat` and `--json` to `list`, `status`, and `update`; route JSON-mode warnings and the clone notice to stderr; update the quoted existing call sites; stdout-discipline tests green (72 tests, three consecutive runs).
-- [ ] Milestone 3: document the three documents and the format version in `docs/user/kit.md`; write the ADR; changelog entries.
-- [ ] Milestone 3: prepare `baikai-kit 0.3.0.0` — cabal version, changelog section, CAP-21 record and log; `cabal test all` and validators green.
+- [x] (2026-09-23 17:10Z) Milestone 3: document the three documents and the format version in `docs/user/kit.md`; write ADR 0024; changelog entries.
+- [x] (2026-09-23 17:30Z) Milestone 3: prepare `baikai-kit 0.3.0.0` — cabal version, changelog section, README version table, CAP-21 record and log; validators, `doc-shapes`, and `cabal build all --enable-tests` green; `cabal test all` green for every keyless suite (see Surprises for `baikai-smoke` and `baikai-agent`).
 
 
 ## Surprises & Discoveries
@@ -87,6 +87,16 @@ are complete (and therefore also
   layout whenever the file is staged (`Error: unexpected changes detected, --fail-on-change is
   enabled`). Other packages' `.cabal` files keep the old layout only because they have not been
   touched since the formatter changed. The reflowed layout is kept.
+- `cabal test all` at release time: every suite passed except two outside this change.
+  `baikai-smoke` (the live suite, which runs batch CLI cases whenever `claude` is on `PATH`)
+  failed on a live `claude-haiku-4-5-20251001` call; it does not import `Baikai.Kit` (only the
+  separate `doc-shapes` suite does, and it passed). `baikai-agent-test` reported 2 of 116
+  failures under the parallel `cabal test all` load and passed 116/116 when rerun alone
+  (`cabal test baikai-agent`), consistent with its timing-sensitive process tests; it does not
+  depend on `baikai-kit`.
+- The release follows the repository's release commits (for example
+  `chore(release): baikai-effectful 0.4.0.2`), which also bump the package's row in the
+  `README.md` version table; that row now reads 0.3.0.0.
 - A golden was checked to bite: renaming `"modified"` to `"edited"` in `status.json` fails
   "kit-status document matches the golden" and nothing else.
 
@@ -139,6 +149,18 @@ are complete (and therefore also
   is this plan's last milestone; uploading to Hackage is not part of it.
   Rationale: this is the final plan of the initiative that makes the breaking changes; publishing
   is a separate, deliberate act by the maintainer.
+  Date: 2026-09-23
+
+- Decision: Keep the `` `baikai-kit`: `` prefix on the bullets moved under
+  `## [baikai-kit 0.3.0.0]`, rather than dropping it as Milestone 3 first said.
+  Rationale: the earlier package sections the plan meant to match (for example
+  `## [baikai-kit 0.2.0.0]`) keep that prefix, so keeping it is what matches.
+  Date: 2026-09-23
+
+- Decision: Implement the command's JSON branches (Milestone 2) before generating the goldens,
+  and commit Milestones 1 and 2 together.
+  Rationale: test 10 compares the command's output with the encoder's golden; with both in
+  place a single accept run produced goldens that the command and the encoders agree on.
   Date: 2026-09-23
 
 

@@ -7,6 +7,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai-kit 0.3.0.0] - 2026-09-23
+
+Closes four improvement requests from the tools that ship `baikai-kit` as their
+`kit` command: project scope resolves from a configurable root (IR-8),
+`kit status` reports local edits separately from upstream drift (IR-7),
+`kit install` without a name asks a tool-supplied chooser (IR-6), and `list`,
+`status` and `update` print versioned JSON (IR-9). A consumer raising its bound
+builds `KitConfig` with `kitConfig`, passes it to `kitCommandParser`, and
+matches on `StatusRow.conditions`; each break is at a call site the compiler
+names.
+
 ### Added
 
 - `baikai-kit`: `KitConfig.projectRoot :: IO FilePath` says where project scope
@@ -35,6 +46,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `KitCommand` derives `Eq`, and `kit install --help` names the tool's
   `.<tool>/agents` directory. Resolves IR-6.
 
+- `baikai-kit`: `kit list`, `kit status` and `kit update` accept `--json` and
+  print exactly one versioned JSON document on stdout
+  (`{"formatVersion": 1, "document": "kit-list" | "kit-status" | "kit-update", …}`);
+  warnings and the first-clone notice go to stderr, and a failed command writes
+  nothing to stdout. The shapes are written by explicit encoders —
+  `Baikai.Kit.Json.listDocument`, `statusDocument`, `updateDocument`, and
+  `kitJsonFormatVersion` — so library callers get the same values, and they are
+  pinned by golden tests. `Baikai.Kit.Command.OutputFormat` selects the mode,
+  and `Baikai.Kit.Status.InstalledCopy` / `installedCopies` report where each
+  item is installed. Resolves IR-9.
+
 ### Changed
 
 - `baikai-kit`: `KitConfig` gains the strict field `projectRoot`, so a record
@@ -56,6 +78,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `kitCommandParser` takes the `KitConfig` (migration: `kitCommandParser`
   becomes `kitCommandParser myKitConfig`), `KitConfig` gains the `chooseItem`
   field (set by `kitConfig`), and `KitError` gains `KitItemNameRequired`.
+  __Breaking__.
+
+- `baikai-kit`: `KitList`, `KitStatus` and `KitUpdate` gain a trailing
+  `OutputFormat` field (`HumanOutput` for the previous behaviour).
   __Breaking__.
 
 ## [baikai-effectful 0.4.0.2] - 2026-09-15

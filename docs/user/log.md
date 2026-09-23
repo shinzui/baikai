@@ -17,6 +17,11 @@
   missing-chooser behaviour, and that `kitCommandParser` now takes the
   configuration so its help names `.<tool>/agents`.
 
+* **Update**: Kit Packages adds Machine-Readable Output: `--json` on `kit list`,
+  `kit status`, and `kit update`, the three document shapes and every key, the
+  `formatVersion` rule, the stdout contract (one document on success, nothing on
+  failure, warnings on stderr), and the `Baikai.Kit.Json` encoders.
+
 ## 2026-09-08
 * **Update**: Getting Started's package table lists `baikai-openai`'s native
   Responses API provider alongside Chat Completions and `codex exec`, and says

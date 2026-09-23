@@ -6,7 +6,7 @@ docId: DOC-5
 tags: [kits, skills, agents, installation, lifecycle]
 generated:
   by: human:nadeem
-  at: 2026-09-23T16:00:00Z
+  at: 2026-09-23T17:00:00Z
 ---
 
 # Kit Packages
@@ -195,11 +195,11 @@ main = do
 The built-in parser supports:
 
 ```text
-kit list
+kit list [--json]
 kit install [NAME] [--project]
-kit update [NAME] [--force]
+kit update [NAME] [--force] [--json]
 kit uninstall NAME [--project]
-kit status
+kit status [--json]
 ```
 
 `kit update` reinstalls every item that is already installed. It skips an
@@ -271,6 +271,123 @@ tool that wants its own exit codes can map it. `KitError` also has an
 `either throwIO pure`. No function in `baikai-kit` other than `runKit`
 exits the process — see
 [ADR 0013](../adr/0013-library-code-never-calls-exitfailure.md).
+
+## Machine-Readable Output
+
+`kit list`, `kit status`, and `kit update` accept `--json`. With it, a
+successful command prints exactly one JSON document on stdout, followed by
+a newline, and nothing else; a failed command prints nothing on stdout,
+prints `Error: …` on stderr, and exits 1. So "exit 0" means "stdout is one
+complete document". Warnings — a stale cache, an unreachable repository,
+the `Fetched <tool>-kit.` notice after a first clone — go to stderr, and
+the document itself records whether the upstream was consulted. The
+document is written as UTF-8 whatever the locale.
+
+```bash
+mytool kit status --json | jq '.items[] | select(.conditions | index("modified")) | .name'
+```
+
+Every document carries two keys that never change meaning:
+`formatVersion`, an integer (`1` in this release), and `document`, which
+names the shape (`kit-list`, `kit-status`, or `kit-update`). Adding a key
+keeps the format version; removing or renaming a key, or changing what a
+value means, increments it. Every key below is always present; a value
+that does not exist is `null`, never an omitted key. Key order is not
+part of the contract.
+
+`kit list --json`:
+
+```json
+{
+  "formatVersion": 1,
+  "document": "kit-list",
+  "upstream": {"state": "ready", "detail": null},
+  "items": [
+    {
+      "name": "review",
+      "kind": "skill",
+      "description": "Review a change",
+      "version": "0.1.0",
+      "installed": [
+        {"scope": "user", "provider": "claude", "version": "0.1.0", "path": "/home/me/.config/mytool/agents/.claude/skills/review"},
+        {"scope": "user", "provider": "codex", "version": "0.1.0", "path": "/home/me/.agents/skills/review"}
+      ]
+    }
+  ]
+}
+```
+
+- `upstream.state` is `ready` (the cache was cloned or refreshed), `stale`
+  (the refresh failed and the cached copy was used), or `unavailable`;
+  `upstream.detail` is `null` when ready, and otherwise git's or the
+  engine's message.
+- `items` lists what the kit offers: the manifest's skills in manifest
+  order, then its agents. An installed item the manifest no longer lists
+  is not here; `kit status` reports it as `delisted`.
+- `kind` is `skill` or `agent`; `version` is the manifest version or
+  `null`.
+- `installed` holds one entry per installed copy — `scope` (`user` or
+  `project`), `provider` (`claude` or `codex`), the installed `version`
+  from its sidecar (`null` without a readable one), and the `path` of the
+  skill directory or agent file — sorted user before project, then by
+  provider. It is `[]` when the item is not installed.
+
+`kit status --json`:
+
+```json
+{
+  "formatVersion": 1,
+  "document": "kit-status",
+  "upstream": {"state": "stale", "detail": "fatal: unable to access …"},
+  "items": [
+    {
+      "name": "review",
+      "kind": "skill",
+      "scope": "project",
+      "provider": "claude",
+      "installedVersion": "0.1.0",
+      "latestVersion": "0.2.0",
+      "conditions": ["outdated", "modified"],
+      "upToDate": false
+    }
+  ]
+}
+```
+
+- `items` has one entry per installed copy — item, scope, and provider —
+  never merged across providers the way the table merges them, sorted by
+  name, kind, scope, and provider.
+- `installedVersion` comes from the sidecar and `latestVersion` from the
+  manifest; either may be `null`.
+- `conditions` uses the labels in Status And Sidecars — `unknown`,
+  `delisted`, `refused`, `outdated`, `changed-upstream`, `modified`,
+  `edits-unknown` — in that order, and `upToDate` is `true` exactly when
+  the list is empty.
+
+`kit update --json`:
+
+```json
+{
+  "formatVersion": 1,
+  "document": "kit-update",
+  "refresh": "pulled",
+  "updated": [{"name": "planner", "scope": "user"}],
+  "skipped": [{"name": "review", "scope": "user", "reason": "locally-modified"}]
+}
+```
+
+- `refresh` is `cloned`, `pulled`, `stale`, or `null` when no refresh was
+  attempted (the library's `reinstallPresent`).
+- `updated` and `skipped` are in the order the update ran. `reason` is
+  `locally-modified`, the only reason an item is skipped today; a new
+  reason would be a new value, not a new key.
+
+Library callers get the identical values without running the command:
+`listDocument`, `statusDocument`, and `updateDocument` in
+`Baikai.Kit.Json` return an aeson `Value`, and `kitJsonFormatVersion` is
+the format version. `installedCopies` in `Baikai.Kit.Status` returns the
+install locations the list document reports. The shapes are pinned by the
+golden files in `baikai-kit/test/golden/`.
 
 ## Offline Behaviour
 

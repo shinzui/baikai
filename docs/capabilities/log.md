@@ -19,6 +19,16 @@
   installed-file check `kit update` uses to skip an item, now exported as
   `checkLocalEdits`, so a test can assert that status and update agree.
 
+* **Update**: CAP-21 (kit installer) records `baikai-kit 0.3.0.0`, which closes
+  IR-6 through IR-9. `kit install` without a name asks a chooser the tool
+  supplies through `KitConfig.chooseItem`; the engine still ships no terminal
+  UI. `kit list`, `kit status` and `kit update` accept `--json` and print one
+  versioned document written by the new `Baikai.Kit.Json` encoders, added to
+  `interface`; the evidence now names the golden documents and the stdout
+  discipline tests. The Limits bullet about the surface lists the 0.3 breaks,
+  replacing the one about the 2026-08 hardening pass, and notes that the JSON
+  documents are the one part with an explicit compatibility rule.
+
 ## 2026-09-08
 
 * **New**: CAP-23 (OpenAI Responses API backend), `baikai-openai 0.7.0.0`. This
