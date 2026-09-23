@@ -11,6 +11,14 @@
   because `KitConfig` gained a strict field and a record literal must now set
   every field — the change is breaking and ships in `baikai-kit 0.3.0.0`.
 
+* **Update**: CAP-21 (kit installer) records that `kit status` reports local
+  edits (IR-7). The status vocabulary is now a list of composable conditions
+  rather than one enumerated state, and `dirty` — which meant the upstream
+  sources changed without a version bump, the opposite of what most readers
+  assume — is renamed `changed-upstream`. `modified` comes from the very
+  installed-file check `kit update` uses to skip an item, now exported as
+  `checkLocalEdits`, so a test can assert that status and update agree.
+
 ## 2026-09-08
 
 * **New**: CAP-23 (OpenAI Responses API backend), `baikai-openai 0.7.0.0`. This

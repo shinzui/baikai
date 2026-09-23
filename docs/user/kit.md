@@ -6,7 +6,7 @@ docId: DOC-5
 tags: [kits, skills, agents, installation, lifecycle]
 generated:
   by: human:nadeem
-  at: 2026-09-23T00:00:00Z
+  at: 2026-09-23T12:00:00Z
 ---
 
 # Kit Packages
@@ -253,30 +253,53 @@ against to notice a local edit; a sidecar written by an older release has
 neither and is updated without the check.
 
 `kitStatus` scans user and project scopes and prints rows grouped by
-item, kind, scope, version, state, and provider coverage:
+item, kind, scope, version, conditions, and provider coverage:
 
 ```text
-NAME    TYPE   SCOPE    PROVIDERS     INSTALLED  LATEST  STATE
-review  skill  project  claude,codex  0.1.0      0.1.0   up-to-date
+NAME    TYPE   SCOPE    PROVIDERS  INSTALLED  LATEST  STATE
+review  skill  project  codex      0.1.0      0.2.0   outdated
+review  skill  project  claude     0.1.0      0.2.0   outdated+modified
 ```
 
-States are:
+Each row carries a list of conditions. A row with none reads
+`up-to-date`; otherwise the `STATE` column joins them with `+`, always in
+the order below, so a skill with a newer version upstream, changed
+sources, and a hand-edited copy reads `outdated+changed-upstream+modified`.
+The conditions are:
 
-- `up-to-date`: the installed sidecar matches the current manifest item.
-- `outdated`: the sidecar version differs from the current manifest
-  version.
-- `dirty`: the cached upstream file hash differs from the sidecar hash.
-- `dirty+outdated`: both the version and cached upstream file hash differ.
+- `unknown`: the sidecar is missing or unreadable, so nothing can be
+  compared.
 - `delisted`: the sidecar is valid, but the item is no longer present in
   the current manifest.
 - `refused`: the cached upstream item now lists a source the installer
   refuses — a symbolic link, or a path outside the kit. Fix the kit before
   updating.
-- `unknown`: the sidecar is missing or unreadable.
+- `outdated`: the sidecar version differs from the current manifest
+  version.
+- `changed-upstream`: the kit's sources for the item changed since it was
+  installed, without a version change. (Before `baikai-kit` 0.3 this was
+  called `dirty`.)
+- `modified`: files this tool installed were edited, or removed, since
+  they were installed.
+- `edits-unknown`: the sidecar was written by a release older than 0.2,
+  which recorded no installed-file hash, so local edits cannot be
+  detected. Reinstalling the item records one.
 
-The dirty check compares sidecar metadata with the cached upstream item
-hash. It does not hash provider-installed target files; the check that
-does is the local-edit check `kit update` runs, described above.
+Two separate checks produce these. The upstream check compares the
+sidecar's upstream hash and version with the cached kit checkout; it
+yields `outdated` and `changed-upstream`, and `kit update` acts on it by
+reinstalling. The local-edit check hashes the installed files and compares
+them with the sidecar's `installedHash`; it yields `modified` and
+`edits-unknown`, and it is the very check `kit update` uses to skip an
+item unless `--force` — so whatever `kit update` would skip, `kit status`
+has already reported as `modified`. Both checks read only local files, so
+`kit status` still needs no network.
+
+Library callers get the conditions as `StatusRow.conditions ::
+[KitCondition]`, spelled by `conditionLabel` and joined by
+`renderConditions`. The local-edit check is exported on its own as
+`checkLocalEdits`, returning `Unedited`, `Edited`, or `EditsUnknown` for
+one provider's copy.
 
 A crash between the two write phases can leave `*.baikai-kit-tmp` or
 `*.baikai-kit-bak` files in a target directory. They are harmless to both

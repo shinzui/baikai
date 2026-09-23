@@ -4,7 +4,7 @@ type: Capability
 description: "Give a command-line tool a real `kit` command: clone or update a git-hosted kit repository, read its manifest, install skills and subagents in each provider's native layout with sidecar metadata, report per-item status, and uninstall — refusing symbolic links and escaping paths in the untrusted manifest, returning every failure as a typed `KitError` rather than exiting, and restoring what was there when a write fails partway."
 generated:
   by: claude-code/opus-5
-  at: "2026-09-23T00:00:00Z"
+  at: "2026-09-23T12:00:00Z"
 capabilityId: CAP-21
 provider: mori://shinzui/baikai
 status: shipped
@@ -29,7 +29,7 @@ requires:
 evidence:
   - kind: test
     resource: baikai-kit/test/Main.hs
-    proves: "The whole lifecycle, its path safety and its failure shapes: manifest decoding, an order-independent content hash that changes when content changes, the status derivation including the new refused state, a skill and an agent round-tripping through both Claude and Codex layouts with sidecars, CRLF frontmatter normalised on every branch, uninstall reporting actual assets versus stale metadata. Path safety: safeRelativePath rejects zip-slip, absolute paths, backslashes and NUL, safeItemName rejects multi-component and hidden names, install refuses a manifest path escaping the install root, uninstall refuses a traversal name, and a kit checkout containing a symbolic link has that source refused by install (which writes nothing), by the content hash, and by status. Typed failures: loadManifest returns missing and invalid manifests as values, installItem returns KitItemNotFound, kit status offline on a fresh HOME exits 0 while reporting the unavailable upstream, and runKit still exits 1 on an unsafe install or uninstall. Install fidelity: a multi-file agent installs every listed file for both providers and uninstall removes its resource directory, a failure in the rename phase restores the previous files and leaves no temporary or backup residue, a destination that is a directory is refused before any write, an unsupported manifest version is refused, a sidecar written before the installed-file fields still decodes, and update skips a locally modified item unless forced. Project scope: findProjectRoot walks up from a nested directory, accepts a start that is the root, and returns Nothing without a marker; with a configured projectRoot an install from a nested subdirectory is found by status, session discovery, and uninstall from a sibling one, the same holds with projectRootByMarkers, and without a resolver project scope stays the current directory."
+    proves: "The whole lifecycle, its path safety and its failure shapes: manifest decoding, an order-independent content hash that changes when content changes, the status derivation as composable conditions including refused, a skill and an agent round-tripping through both Claude and Codex layouts with sidecars, CRLF frontmatter normalised on every branch, uninstall reporting actual assets versus stale metadata. Path safety: safeRelativePath rejects zip-slip, absolute paths, backslashes and NUL, safeItemName rejects multi-component and hidden names, install refuses a manifest path escaping the install root, uninstall refuses a traversal name, and a kit checkout containing a symbolic link has that source refused by install (which writes nothing), by the content hash, and by status. Typed failures: loadManifest returns missing and invalid manifests as values, installItem returns KitItemNotFound, kit status offline on a fresh HOME exits 0 while reporting the unavailable upstream, and runKit still exits 1 on an unsafe install or uninstall. Install fidelity: a multi-file agent installs every listed file for both providers and uninstall removes its resource directory, a failure in the rename phase restores the previous files and leaves no temporary or backup residue, a destination that is a directory is refused before any write, an unsupported manifest version is refused, a sidecar written before the installed-file fields still decodes, and update skips a locally modified item unless forced. Project scope: findProjectRoot walks up from a nested directory, accepts a start that is the root, and returns Nothing without a marker; with a configured projectRoot an install from a nested subdirectory is found by status, session discovery, and uninstall from a sibling one, the same holds with projectRootByMarkers, and without a resolver project scope stays the current directory. Local edits: an installed item reports no conditions until one of its files is edited and then reports modified for that provider only, a legacy sidecar reports edits-unknown, modified composes with outdated and changed-upstream, and the set kit status reports as modified equals the set kit update skips."
   - kind: guide
     resource: docs/user/kit.md
     proves: "The adoption path: KitConfig and kitConfig, how project scope is located, the kit.json manifest, wiring the command, and what each subcommand does."
@@ -50,11 +50,13 @@ Installation is provider-native. A skill and a custom agent land where Claude
 Code and Codex actually discover them, in the format each expects, with a sidecar
 file recording the installed version, the upstream content hash, and the files
 this tool wrote for that provider with their hash. That sidecar is what makes
-`status` meaningful — an item can be up-to-date, outdated, drifted from the
-cached upstream (`dirty`), both, delisted, refused, or unknown, and the
-derivation is pinned by tests rather than inferred at a glance — and it is what
-lets `update` notice a file the user edited by hand and skip it rather than
-overwrite it.
+`status` meaningful — an item can be up to date, outdated, changed upstream
+without a version bump (`changed-upstream`), edited locally (`modified`), too old
+to check for edits (`edits-unknown`), delisted, refused, or unknown, and these
+compose (`outdated+changed-upstream+modified`), with the derivation pinned by
+tests rather than inferred at a glance. The local-edit check is the same one
+`update` runs to notice a file the user edited by hand and skip it rather than
+overwrite it, so the two commands cannot disagree about what was edited.
 
 The installer treats the manifest as untrusted input, and checks it both
 lexically and physically. Lexically: zip-slip, absolute paths, backslashes, NUL
@@ -97,8 +99,9 @@ myKitConfig =
 - Only Claude Code and Codex layouts are supported, because those are the layouts
   `Baikai.AgentAssets` describes.
 - The content hash detects drift and local modification, but there is no merge or
-  conflict resolution: a `dirty` item is reported, and a locally modified one is
-  skipped by `update` until `--force`, not reconciled.
+  conflict resolution: a `changed-upstream` item is reported and reinstalled by
+  `update`, and a `modified` one is reported and skipped by `update` until
+  `--force`, not reconciled. There is no diff or restore command.
 - **The symbolic-link check is check-then-read.** A process with write access to
   `~/.cache/<tool>/kit` could swap a plain file for a link between the check and
   the read. That directory is owned by the invoking user and written only by

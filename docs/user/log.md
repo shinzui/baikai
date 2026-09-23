@@ -7,6 +7,11 @@
   default), and that install, status, update, uninstall and session discovery
   all use it.
 
+* **Update**: Kit Packages documents `kit status` conditions: they compose,
+  `dirty` is renamed `changed-upstream`, `modified` and `edits-unknown` report
+  local edits, and the two checks (upstream and local-edit) are described with
+  the command that acts on each.
+
 ## 2026-09-08
 * **Update**: Getting Started's package table lists `baikai-openai`'s native
   Responses API provider alongside Chat Completions and `codex exec`, and says

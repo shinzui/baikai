@@ -18,6 +18,8 @@ module Baikai.Kit.Install
     UpdateReport (..),
     updateKit,
     reinstallPresent,
+    LocalEdits (..),
+    checkLocalEdits,
     listAvailable,
     renderAvailable,
     PlannedWrite (..),
@@ -29,7 +31,8 @@ module Baikai.Kit.Install
 where
 
 import Baikai.AgentAssets
-  ( CodexCustomAgent (..),
+  ( AgentAssetProvider,
+    CodexCustomAgent (..),
     agentTargetPath,
     codexCustomAgentToml,
     skillTargetPath,
@@ -424,30 +427,54 @@ reinstallPresentIO config repoDir manifest mName policy = do
         map (view #name) (manifest ^. #skills)
           ++ map (view #name) (manifest ^. #agents)
 
--- | Do this item's installed files still hash to what its sidecar
---   recorded? A file that cannot be read counts as modified; a sidecar
---   without the recorded names and hash is not checked.
+-- | Whether one provider's installed copy of an item still matches what
+--   was installed.
+data LocalEdits
+  = -- | Every recorded file reads back with the recorded hash.
+    Unedited
+  | -- | A recorded file differs, or cannot be read.
+    Edited
+  | -- | There is nothing to compare against: no sidecar, or a sidecar
+    --   written before @installedFiles@ and @installedHash@ existed.
+    EditsUnknown
+  deriving stock (Eq, Show)
+
+-- | Do one provider's installed files for an item still hash to what its
+--   sidecar recorded? This is the one local-edit check: @kit update@ skips
+--   an 'Edited' item under 'KeepLocalEdits', and @kit status@ reports it
+--   as modified. Reads only local files.
+checkLocalEdits ::
+  KitConfig -> AgentAssetProvider -> KitScope -> KitItemKind -> Text -> IO (Either KitError LocalEdits)
+checkLocalEdits config provider scope kind n = kitTry (localEditsIO config provider scope kind n)
+
+localEditsIO :: KitConfig -> AgentAssetProvider -> KitScope -> KitItemKind -> Text -> IO LocalEdits
+localEditsIO config provider scope kind n = do
+  safeName <- orThrow (KitUnsafeName n) (safeItemName n)
+  providerBase <- providerAgentsBase config provider scope
+  let root = installedRoot config provider providerBase kind safeName
+  mSidecar <- readSidecar (sidecarPath provider kind (Text.pack safeName) providerBase (sidecarFileName config))
+  case mSidecar of
+    Nothing -> pure EditsUnknown
+    Just sidecar ->
+      case (sidecar ^. #installedFiles, sidecar ^. #installedHash) of
+        (Just recorded, Just expected) -> do
+          entries <- forM recorded $ \rel -> do
+            bytes <- try @IOException (BS.readFile (root </> Text.unpack rel))
+            pure (either (const Nothing) (Just . (Text.unpack rel,)) (bytes :: Either IOException BS.ByteString))
+          pure $ case sequence entries of
+            Nothing -> Edited
+            Just pairs
+              | hashEntries pairs /= expected -> Edited
+              | otherwise -> Unedited
+        _ -> pure EditsUnknown
+
+-- | Was any provider's copy of this item edited locally? A missing or
+--   legacy sidecar is not an edit.
 locallyModified :: KitConfig -> KitItem -> KitScope -> IO Bool
 locallyModified config item scope = do
-  safeName <- orThrow (KitUnsafeName (itemName item)) (safeItemName (itemName item))
-  checks <- forM (config ^. #providers) $ \provider -> do
-    providerBase <- providerAgentsBase config provider scope
-    let kind = kitItemKind item
-        root = installedRoot config provider providerBase kind safeName
-    mSidecar <- readSidecar (sidecarPath provider kind (Text.pack safeName) providerBase (sidecarFileName config))
-    case mSidecar of
-      Nothing -> pure False
-      Just sidecar ->
-        case (sidecar ^. #installedFiles, sidecar ^. #installedHash) of
-          (Just recorded, Just expected) -> do
-            entries <- forM recorded $ \rel -> do
-              bytes <- try @IOException (BS.readFile (root </> Text.unpack rel))
-              pure (either (const Nothing) (Just . (Text.unpack rel,)) (bytes :: Either IOException BS.ByteString))
-            pure $ case sequence entries of
-              Nothing -> True
-              Just pairs -> hashEntries pairs /= expected
-          _ -> pure False
-  pure (or checks)
+  checks <- forM (config ^. #providers) $ \provider ->
+    localEditsIO config provider scope (kitItemKind item) (itemName item)
+  pure (Edited `elem` checks)
 
 doInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> IO ()
 doInstall config repoDir item scope = do

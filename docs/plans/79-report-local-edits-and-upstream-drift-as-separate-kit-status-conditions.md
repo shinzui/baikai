@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-23T14:11:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-23T15:41:56Z
+      mode: "implement"
+      note: "Milestones 1 and 2 implemented"
 ---
 
 # Report local edits and upstream drift as separate kit status conditions
@@ -44,15 +50,22 @@ This plan implements [IR-7](../improvement-requests/report-local-edits-in-kit-st
 
 ## Progress
 
-- [ ] Milestone 1: factor the local-edit check into the exported `LocalEdits` / `checkLocalEdits`, re-express `locallyModified` through it; existing update tests green.
-- [ ] Milestone 1: replace `KitState` with `KitCondition`, `StatusRow.state` with `StatusRow.conditions`; add `conditionLabel` and `renderConditions`; rewrite the quoted existing assertions; `cabal test baikai-kit` green.
-- [ ] Milestone 2: evaluate local edits in `collectStatus`; add the unmodified/modified pair, the edits-unknown test, the composition test, and the status/update agreement test; `cabal test baikai-kit` green.
-- [ ] Milestone 2: update `docs/user/kit.md`, CAP-21 prose and Limits, `CHANGELOG.md`, the bundle logs, and write the ADR; validators and `cabal build all --enable-tests` green.
+- [x] (2026-09-23 15:50Z) Milestone 1: factor the local-edit check into the exported `LocalEdits` / `checkLocalEdits`, re-express `locallyModified` through it; existing update tests green.
+- [x] (2026-09-23 15:55Z) Milestone 1: replace `KitState` with `KitCondition`, `StatusRow.state` with `StatusRow.conditions`; add `conditionLabel` and `renderConditions`; rewrite the quoted existing assertions; `cabal test baikai-kit` green.
+- [x] (2026-09-23 16:00Z) Milestone 2: evaluate local edits in `collectStatus`; add the unmodified/modified pair, the edits-unknown test, the composition test, and the status/update agreement test; `cabal test baikai-kit` green (55 tests).
+- [x] (2026-09-23 16:10Z) Milestone 2: update `docs/user/kit.md`, CAP-21 prose and Limits, `CHANGELOG.md`, the bundle logs, and write ADR 0022; validators and `cabal build all --enable-tests` green.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `reinstallPresent` scans both scopes, and with the default `projectRoot` its project-scope
+  pass looks at the process's current directory (the repository checkout during
+  `cabal test`). The agreement test therefore sets `projectRoot` to a directory inside the
+  temporary `HOME` and passes both scopes to `collectStatus`, so the two commands compare over
+  exactly the same, hermetic set of locations. This uses the field added by
+  `docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md`.
+- Both milestones landed in one commit: the milestone 1 rename alone leaves the user guide
+  and CAP-21 describing `dirty`, which the plan requires to change with the code.
 
 
 ## Decision Log
@@ -94,10 +107,30 @@ This plan implements [IR-7](../improvement-requests/report-local-edits-in-kit-st
   nothing to compare, which `unknown` already says.
   Date: 2026-09-23
 
+- Decision: `checkLocalEdits` returns `EditsUnknown` (not `Edited`) for a missing sidecar,
+  and `collectStatus` maps a `Left` from it (for example an unsafe scanned name) to
+  `edits-unknown` rather than dropping the row or failing the report.
+  Rationale: status must never fail because one item cannot be checked; `edits-unknown` is
+  the honest "could not tell". `kit update` is unaffected because it treats only `Edited` as a
+  reason to skip.
+  Date: 2026-09-23
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+IR-7's acceptance criteria hold. `kit status` reports `modified` for an edited copy (only the
+provider whose copy was edited), `edits-unknown` for a legacy sidecar, and composes conditions
+(`outdated+changed-upstream+modified`). The old `dirty` coverage survives under the renamed
+tests "hash mismatch => changed-upstream" and "version and cached hash drift reports
+outdated+changed-upstream". "status reports modified for exactly what update would skip"
+proves agreement with `kit update`, which now runs the same exported `checkLocalEdits`.
+`docs/user/kit.md` describes both checks and which command acts on each; `CHANGELOG.md`
+records the rename as breaking; ADR 0022 records the shared check. The one remaining mention
+of `dirty` in the docs is the rename note in `docs/user/kit.md`.
+
+`conditionLabel` is exported for
+`docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md`, which must use it
+for the JSON condition strings.
 
 
 ## Context and Orientation

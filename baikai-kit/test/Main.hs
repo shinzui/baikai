@@ -6,13 +6,13 @@ import Baikai.Interactive (InteractiveProvider (InteractiveClaude, InteractiveCo
 import Baikai.Kit
   ( AgentEntry (..),
     KitCommand (..),
+    KitCondition (..),
     KitConfig (..),
     KitError (..),
     KitItem (..),
     KitItemKind (..),
     KitManifest (..),
     KitScope (..),
-    KitState (..),
     OverwritePolicy (..),
     PlannedWrite (..),
     PullResult (..),
@@ -25,6 +25,7 @@ import Baikai.Kit
     classify,
     collectStatus,
     computeKitHash,
+    conditionLabel,
     executePlanWith,
     findProjectRoot,
     installItem,
@@ -35,7 +36,7 @@ import Baikai.Kit
     pullKitRepo,
     readSidecar,
     reinstallPresent,
-    renderState,
+    renderConditions,
     renderUninstallReport,
     runKit,
     safeItemName,
@@ -52,7 +53,7 @@ import Control.Exception (finally, try)
 import Control.Monad (void)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
-import Data.List (find, isSuffixOf)
+import Data.List (find, isSuffixOf, nub, sort)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import System.Directory
@@ -140,39 +141,42 @@ classifyTests =
   testGroup
     "Status.classify"
     [ testCase "no sidecar => unknown" $
-        classify Nothing (Just (mkSkillItem "foo" (Just "1.0"))) (Just "h") @?= KitUnknown,
+        classify Nothing (Just (mkSkillItem "foo" (Just "1.0"))) (Just "h") @?= [KitUnknown],
       testCase "no upstream entry with a sidecar => delisted" $
-        classify (Just (mkSidecar (Just "1.0") "h")) Nothing (Just "h") @?= KitDelisted,
+        classify (Just (mkSidecar (Just "1.0") "h")) Nothing (Just "h") @?= [KitDelisted],
       testCase "version mismatch => outdated" $
         classify
           (Just (mkSidecar (Just "1.0") "h"))
           (Just (mkSkillItem "foo" (Just "2.0")))
           (Just "h")
-          @?= KitOutdated,
-      testCase "version and hash mismatch => dirty+outdated" $
+          @?= [KitOutdated],
+      testCase "version and hash mismatch => outdated+changed-upstream" $
         classify
           (Just (mkSidecar (Just "1.0") "h1"))
           (Just (mkSkillItem "foo" (Just "2.0")))
           (Just "h2")
-          @?= KitDirtyOutdated,
-      testCase "hash mismatch => dirty" $
+          @?= [KitOutdated, KitChangedUpstream],
+      testCase "hash mismatch => changed-upstream" $
         classify
           (Just (mkSidecar (Just "1.0") "h1"))
           (Just (mkSkillItem "foo" (Just "1.0")))
           (Just "h2")
-          @?= KitDirty,
+          @?= [KitChangedUpstream],
       testCase "version and hash match => up-to-date" $
         classify
           (Just (mkSidecar (Just "1.0") "h"))
           (Just (mkSkillItem "foo" (Just "1.0")))
           (Just "h")
-          @?= KitUpToDate,
+          @?= [],
       testCase "no upstream hash on matching version => up-to-date" $
         classify
           (Just (mkSidecar (Just "1.0") "h"))
           (Just (mkAgentItem "foo" (Just "1.0")))
           Nothing
-          @?= KitUpToDate
+          @?= [],
+      testCase "renderConditions joins labels in order" $ do
+        renderConditions [] @?= "up-to-date"
+        renderConditions [KitOutdated, KitChangedUpstream, KitLocallyModified] @?= "outdated+changed-upstream+modified"
     ]
 
 pathSafetyTests :: TestTree
@@ -245,9 +249,9 @@ symlinkSafetyTests =
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
           assertBool "expected demo status rows" (not (null demoRows))
-          mapM_ (\row -> row ^. #state @?= KitUpstreamRefused) demoRows,
-      testCase "renderState names the refused state" $
-        renderState KitUpstreamRefused @?= "refused"
+          mapM_ (\row -> row ^. #conditions @?= [KitUpstreamRefused]) demoRows,
+      testCase "conditionLabel names the refused condition" $
+        conditionLabel KitUpstreamRefused @?= "refused"
     ]
 
 frontmatterTests :: TestTree
@@ -286,9 +290,9 @@ statusFilesystemTests =
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
           assertBool "expected demo status rows" (not (null demoRows))
-          mapM_ (\row -> row ^. #state @?= KitDelisted) demoRows
+          mapM_ (\row -> row ^. #conditions @?= [KitDelisted]) demoRows
           mapM_ (\row -> row ^. #installedVersion @?= Just "0.1.0") demoRows,
-      testCase "version and cached hash drift reports dirty+outdated" $
+      testCase "version and cached hash drift reports outdated+changed-upstream" $
         withPreparedKitHome $ \_home cache -> do
           _ <- assertRight =<< installItem testConfig "demo" UserScope
           BS.writeFile (cache </> "skills" </> "demo" </> "SKILL.md") "changed instructions\n"
@@ -296,8 +300,64 @@ statusFilesystemTests =
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
           assertBool "expected demo status rows" (not (null demoRows))
-          mapM_ (\row -> row ^. #state @?= KitDirtyOutdated) demoRows
+          mapM_ (\row -> row ^. #conditions @?= [KitOutdated, KitChangedUpstream]) demoRows,
+      testCase "an installed item reports no conditions before an edit" $
+        withPreparedKitHome $ \_home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          let demoRows = filter ((== "demo") . view #name) rows
+          assertBool "expected demo status rows" (not (null demoRows))
+          mapM_ (\row -> row ^. #conditions @?= []) demoRows,
+      testCase "editing an installed file reports modified" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          BS.writeFile (userClaudeSkill home </> "SKILL.md") "my edits"
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          demoConditions rows "claude" >>= (@?= [KitLocallyModified])
+          demoConditions rows "codex" >>= (@?= []),
+      testCase "a legacy sidecar reports edits-unknown" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          BS.writeFile (userClaudeSkill home </> ".testkit-kit.json") legacySidecarJson
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          conditions <- demoConditions rows "claude"
+          assertBool ("expected edits-unknown in " <> show conditions) (KitLocalEditsUnknown `elem` conditions)
+          assertBool ("expected no modified in " <> show conditions) (KitLocallyModified `notElem` conditions),
+      testCase "modified composes with outdated and changed-upstream" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          BS.writeFile (userClaudeSkill home </> "SKILL.md") "my edits"
+          BS.writeFile (cache </> "skills" </> "demo" </> "SKILL.md") "changed instructions\n"
+          BS.writeFile (cache </> "kit.json") manifestWithDemoVersionJson
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          demoConditions rows "claude" >>= (@?= [KitOutdated, KitChangedUpstream, KitLocallyModified]),
+      testCase "status reports modified for exactly what update would skip" $
+        withPreparedKitHome $ \home cache -> do
+          -- Keep project scope inside the temporary HOME so the update's
+          -- project-scope scan never looks at the working directory.
+          let config = testConfig & #projectRoot .~ pure (home </> "project")
+          _ <- assertRight =<< installItem config "demo" UserScope
+          _ <- assertRight =<< installItem config "reviewer" UserScope
+          BS.writeFile (userClaudeSkill home </> "SKILL.md") "my edits"
+          rows <- collectStatus config cache [(UserScope, "user"), (ProjectScope, "project")]
+          let toScope scopeText = if scopeText == "project" then ProjectScope else UserScope
+              modifiedByStatus =
+                nub
+                  [ (row ^. #name, toScope (row ^. #scope))
+                  | row <- rows,
+                    KitLocallyModified `elem` row ^. #conditions
+                  ]
+          manifest <- assertRight =<< loadManifest cache
+          report <- assertRight =<< reinstallPresent config cache manifest Nothing KeepLocalEdits
+          sort (report ^. #skipped) @?= sort modifiedByStatus
+          modifiedByStatus @?= [("demo", UserScope)]
     ]
+  where
+    userClaudeSkill home = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
+    demoConditions rows providerText =
+      case filter (\row -> row ^. #name == "demo" && row ^. #providers == providerText) rows of
+        [row] -> pure (row ^. #conditions)
+        other -> assertFailure ("expected one " <> Text.unpack providerText <> " demo row, got " <> show other)
 
 installRoundTripTests :: TestTree
 installRoundTripTests =

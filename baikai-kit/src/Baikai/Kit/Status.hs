@@ -1,12 +1,13 @@
 module Baikai.Kit.Status
-  ( KitState (..),
+  ( KitCondition (..),
     StatusReport (..),
     StatusRow (..),
     UpstreamAvailability (..),
     classify,
     collectStatus,
     kitStatus,
-    renderState,
+    conditionLabel,
+    renderConditions,
     renderStatusTable,
   )
 where
@@ -15,27 +16,42 @@ import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
 import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
 import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, providerLabel, sidecarFileName)
 import Baikai.Kit.Error (KitError (..))
-import Baikai.Kit.Install (loadManifestMaybe, lookupItem)
+import Baikai.Kit.Install (LocalEdits (..), checkLocalEdits, loadManifestMaybe, lookupItem)
 import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemSources, itemVersion, kindLabel)
 import Baikai.Kit.Repo (RepoRefresh (..), ensureKitRepo)
 import Baikai.Kit.Sidecar (SidecarMeta, computeKitHash, readSidecar, sidecarPath)
 import Baikai.Prelude
 import Control.Monad (forM)
 import Data.List (groupBy, isPrefixOf, isSuffixOf, nub, sort, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text qualified as Text
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, (</>))
 
-data KitState
-  = KitUpToDate
-  | KitOutdated
-  | KitDirty
-  | KitDirtyOutdated
-  | KitDelisted
-  | KitUpstreamRefused
-  | KitUnknown
-  deriving stock (Eq, Ord, Show)
+-- | One thing @kit status@ can say about an installed copy. A row carries
+--   a sorted, duplicate-free list of these; an empty list means the copy
+--   is up to date. The order of the constructors is the order the labels
+--   are rendered in.
+data KitCondition
+  = -- | @unknown@: no readable sidecar, so nothing can be compared.
+    KitUnknown
+  | -- | @delisted@: the manifest no longer lists the item.
+    KitDelisted
+  | -- | @refused@: the upstream lists a source the installer refuses — a
+    --   symbolic link, or a path outside the kit.
+    KitUpstreamRefused
+  | -- | @outdated@: the manifest version differs from the installed one.
+    KitOutdated
+  | -- | @changed-upstream@: the upstream sources changed since install
+    --   without a version change. @kit update@ reinstalls it.
+    KitChangedUpstream
+  | -- | @modified@: installed files were edited since install. @kit update@
+    --   skips it unless @--force@.
+    KitLocallyModified
+  | -- | @edits-unknown@: the sidecar predates the installed-file hash, so
+    --   local edits cannot be detected.
+    KitLocalEditsUnknown
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | Whether the cached upstream could be consulted for this report.
 data UpstreamAvailability
@@ -63,35 +79,43 @@ data StatusRow = StatusRow
     providers :: !Text,
     installedVersion :: !(Maybe Text),
     latestVersion :: !(Maybe Text),
-    state :: !KitState
+    -- | Sorted and duplicate-free; empty means up to date.
+    conditions :: ![KitCondition]
   }
   deriving stock (Eq, Generic, Show)
 
-renderState :: KitState -> Text
-renderState = \case
-  KitUpToDate -> "up-to-date"
-  KitOutdated -> "outdated"
-  KitDirty -> "dirty"
-  KitDirtyOutdated -> "dirty+outdated"
+-- | The stable spelling of a condition, shared by the status table and any
+--   machine-readable output.
+conditionLabel :: KitCondition -> Text
+conditionLabel = \case
+  KitUnknown -> "unknown"
   KitDelisted -> "delisted"
   KitUpstreamRefused -> "refused"
-  KitUnknown -> "unknown"
+  KitOutdated -> "outdated"
+  KitChangedUpstream -> "changed-upstream"
+  KitLocallyModified -> "modified"
+  KitLocalEditsUnknown -> "edits-unknown"
 
-classify :: Maybe SidecarMeta -> Maybe KitItem -> Maybe Text -> KitState
-classify Nothing _ _ = KitUnknown
-classify (Just _) Nothing _ = KitDelisted
+-- | @up-to-date@ for no conditions; otherwise the labels in constructor
+--   order joined with @+@, e.g. @outdated+changed-upstream+modified@.
+renderConditions :: [KitCondition] -> Text
+renderConditions [] = "up-to-date"
+renderConditions conds = Text.intercalate "+" (map conditionLabel (sort (nub conds)))
+
+-- | The conditions that compare an installed copy with the upstream:
+--   whether it is known, listed, outdated, or changed upstream. Local
+--   edits are checked separately, by 'checkLocalEdits'.
+classify :: Maybe SidecarMeta -> Maybe KitItem -> Maybe Text -> [KitCondition]
+classify Nothing _ _ = [KitUnknown]
+classify (Just _) Nothing _ = [KitDelisted]
 classify (Just sm) (Just it) mUpstreamHash =
   let outdated = case itemVersion it of
         Just latest -> sm ^. #version /= Just latest
         Nothing -> False
-      dirty = case mUpstreamHash of
+      changed = case mUpstreamHash of
         Just up -> up /= sm ^. #hash
         Nothing -> False
-   in case (outdated, dirty) of
-        (True, True) -> KitDirtyOutdated
-        (True, False) -> KitOutdated
-        (False, True) -> KitDirty
-        (False, False) -> KitUpToDate
+   in [KitOutdated | outdated] ++ [KitChangedUpstream | changed]
 
 -- | Collect the status of everything installed. Needs no network: a kit
 --   repository that cannot be reached is reported as
@@ -127,9 +151,18 @@ collectStatus config cacheDir scopes = do
       let mItem = lookupItem itemName' =<< mManifest
       mSidecar <- readSidecar (sidecarPath provider scannedKind itemName' baseDir (sidecarFileName config))
       upstream <- upstreamHash cacheDir mItem
-      let state' = case upstream of
-            Left _ -> KitUpstreamRefused
+      let upstreamConditions = case upstream of
+            Left _ -> KitUpstreamRefused : [KitUnknown | isNothing mSidecar]
             Right mUpstreamHash -> classify mSidecar mItem mUpstreamHash
+      localConditions <- case mSidecar of
+        Nothing -> pure []
+        Just _ -> do
+          edits <- checkLocalEdits config provider scope scannedKind itemName'
+          pure $ case edits of
+            Right Unedited -> []
+            Right Edited -> [KitLocallyModified]
+            Right EditsUnknown -> [KitLocalEditsUnknown]
+            Left _ -> [KitLocalEditsUnknown]
       pure
         StatusRow
           { name = itemName',
@@ -138,7 +171,7 @@ collectStatus config cacheDir scopes = do
             providers = providerLabel provider,
             installedVersion = mSidecar >>= (^. #version),
             latestVersion = mItem >>= itemVersion,
-            state = state'
+            conditions = sort (nub (upstreamConditions ++ localConditions))
           }
 
 -- | The hash of an item's sources as they are in the cached checkout.
@@ -221,7 +254,7 @@ renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows)
         <> Text.justifyLeft (providersW + 2) ' ' (row ^. #providers)
         <> Text.justifyLeft (instW + 2) ' ' (renderMVer (row ^. #installedVersion))
         <> Text.justifyLeft (latW + 2) ' ' (renderMVer (row ^. #latestVersion))
-        <> renderState (row ^. #state)
+        <> renderConditions (row ^. #conditions)
 
 aggregateStatusRows :: [StatusRow] -> [StatusRow]
 aggregateStatusRows rows =
@@ -234,7 +267,7 @@ aggregateStatusRows rows =
         row ^. #scope,
         row ^. #installedVersion,
         row ^. #latestVersion,
-        row ^. #state
+        row ^. #conditions
       )
     sameKey a b = rowKey a == rowKey b
     summarize groupRows@(firstRow : _) =

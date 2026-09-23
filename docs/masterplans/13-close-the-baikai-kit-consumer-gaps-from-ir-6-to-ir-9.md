@@ -140,7 +140,7 @@ No cross-repository ADR in the Mori registry governs `baikai-kit`'s surface.
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 1 | Resolve kit project scope from a configurable project root (IR-8) | docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md | None | None | Complete |
-| 2 | Report local edits and upstream drift as separate kit status conditions (IR-7) | docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md | None | None | Not Started |
+| 2 | Report local edits and upstream drift as separate kit status conditions (IR-7) | docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md | None | None | Complete |
 | 3 | Let kit install choose an item through a caller-supplied chooser (IR-6) | docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md | EP-1 | None | Not Started |
 | 4 | Add versioned JSON output to kit list, status, and update (IR-9), and prepare baikai-kit 0.3.0.0 | docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md | EP-2, EP-3 | EP-1 | Not Started |
 
@@ -237,8 +237,8 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
 
 - [x] EP-1: Milestone 1 — `projectRoot`, `kitConfig`, the marker resolver, and resolver tests.
 - [x] EP-1: Milestone 2 — install, status, uninstall, and session discovery agree across subdirectories; docs, CAP-21 Shape and twin, changelog, ADR.
-- [ ] EP-2: Milestone 1 — shared local-edit check and the `KitCondition` vocabulary, existing drift tests kept under new names.
-- [ ] EP-2: Milestone 2 — `kit status` reports local edits; agreement test with `kit update`; docs, changelog, ADR.
+- [x] EP-2: Milestone 1 — shared local-edit check and the `KitCondition` vocabulary, existing drift tests kept under new names.
+- [x] EP-2: Milestone 2 — `kit status` reports local edits; agreement test with `kit update`; docs, changelog, ADR.
 - [ ] EP-3: Milestone 1 — `KitCommand` derives `Eq`, optional install name, config-aware parser and help text.
 - [ ] EP-3: Milestone 2 — `chooseItem` wired into install, cancel and missing-chooser paths tested; docs, changelog, ADR.
 - [ ] EP-4: Milestone 1 — explicit encoders and golden tests for list, status, and update documents.
@@ -269,6 +269,11 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
   and twin; EP-3's field addition should expect to land its milestone 2 docs with the code.
   `CHANGELOG.md` `## [Unreleased]` now has `### Added` and `### Changed` subsections for later
   plans to append to.
+- (EP-2) `KitCondition`'s constructor order is the render order, and `StatusRow.conditions`
+  is always `sort . nub`-normalised in `collectStatus`, so EP-4 can encode the list as-is.
+  ADR 0022 was taken; the next free ADR number is 0023. `reinstallPresent` scans the
+  project scope too, so any test that compares status with update should set `projectRoot`
+  to a temporary directory.
 
 
 ## Decision Log

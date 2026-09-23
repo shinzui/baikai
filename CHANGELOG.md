@@ -18,6 +18,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   up to the nearest marker and falls back to the current directory, and
   `findProjectRoot` is the underlying walk. Resolves IR-8.
 
+- `baikai-kit`: `kit status` reports local edits. It runs the same
+  installed-file check `kit update` uses to skip an item, and shows
+  `modified` for an edited copy and `edits-unknown` for one whose sidecar
+  predates the installed-file hash. The check is exported as
+  `checkLocalEdits`, returning `LocalEdits` (`Unedited`, `Edited`,
+  `EditsUnknown`). Resolves IR-7.
+
 ### Changed
 
 - `baikai-kit`: `KitConfig` gains the strict field `projectRoot`, so a record
@@ -25,6 +32,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `kitConfig toolName repoUrl providers` instead and override fields with record
   update syntax. `KitConfig`'s `Show` instance is now hand-written and prints
   `<IO FilePath>` for the resolver. __Breaking__.
+
+- `baikai-kit`: `kit status` conditions compose, and `dirty` is renamed
+  `changed-upstream` (it meant the upstream sources changed without a version
+  bump, not local edits); `dirty+outdated` now reads
+  `outdated+changed-upstream`. `StatusRow.state :: KitState` is replaced by
+  `StatusRow.conditions :: [KitCondition]` (sorted; empty means up to date),
+  `renderState` by `conditionLabel` and `renderConditions`, and `classify`
+  returns `[KitCondition]`. `KitUpToDate`, `KitDirty` and `KitDirtyOutdated`
+  are gone; match on the list instead. __Breaking__.
 
 ## [baikai-effectful 0.4.0.2] - 2026-09-15
 
