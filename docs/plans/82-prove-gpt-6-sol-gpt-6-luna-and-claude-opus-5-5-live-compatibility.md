@@ -33,7 +33,7 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 - [x] 2026-09-23 17:12 UTC: Add three model pairs and six named cases to the existing focused smoke mode; all ten selectors and provider-key preflights pass without network access.
 - [x] 2026-09-23 17:12 UTC: Add offline assertions for case selection, request shaping, replay, and pricing; the full prescribed offline gate passes.
 - [x] 2026-09-23 17:15 UTC: Run required-key live text and tool checks and preserve dated redacted output in `docs/validation/plan-82/2026-09-23-live-summary.json`; Sol and Luna passed both cases.
-- [ ] Retry only `opus55-text` and `opus55-tools` after a working Anthropic credential is available. A 2026-09-23 18:00 UTC `direnv reload` and selected retry still returned HTTP 401 for both cases; preserve that result in `docs/validation/plan-82/2026-09-23-opus55-retry.json`. The existing Fable cases also returned HTTP 401 in the full run.
+- [ ] Retry only `opus55-text` and `opus55-tools` after configuring `ANTHROPIC_WORKSPACE_ID` for the replacement multi-workspace key, or using a workspace-scoped key. The replacement key cleared HTTP 401 but returned HTTP 400 because no workspace was selected; see `docs/validation/plan-82/2026-09-23-workspace-required.json`.
 - [x] 2026-09-23 17:15 UTC: Update `docs/user/models-and-providers.md` with the ten-case command and observed scope.
 - [ ] Close the plan after Opus live text and tool cases pass and the evidence is updated.
 
@@ -48,6 +48,8 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 
 2026-09-23 18:00 UTC: Reloading `direnv` renewed its cache, and the selected Opus text and tool calls each reached `/v1/messages`; both still received `auth_error` HTTP 401 with no observed model. In the reloaded environment `ANTHROPIC_KEY` was set and `ANTHROPIC_API_KEY` absent. The credential is present but still rejected. The two-case retry artifact is redacted and dated.
 
+2026-09-23: A replacement key cleared authentication but `opus55-text` returned `invalid_request_error` HTTP 400. A minimal direct Messages probe exposed the safe error: the key is not workspace-scoped and requires `anthropic-workspace-id`. The List Workspaces API returned an empty list; Anthropic's documentation says it omits the Default Workspace. No model or usage was observed, so this is an account-routing prerequisite rather than evidence of an Opus wire incompatibility.
+
 
 ## Decision Log
 
@@ -57,10 +59,12 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 
 2026-09-23: Leave the plan open after the Anthropic 401 response and retry only its failed named cases once authentication is repaired. The response contains no model observation or usage, so it cannot support an Opus compatibility claim or a provider wire change.
 
+2026-09-23: Let the focused smoke runner read optional `ANTHROPIC_WORKSPACE_ID` and send it as an Anthropic-only per-call header through the existing `Options.headers` path. Workspace-scoped keys still work without it, and the ID never enters smoke output. This uses the public header override interface without adding a provider-model branch.
+
 
 ## Outcomes & Retrospective
 
-Partial outcome on 2026-09-23: The six new cases are selectable and the prescribed offline suite passes. Sol text, Sol tools, Luna text, and Luna tools passed live through `/v1/responses` with requested and observed model IDs equal, standard token-rate cost bases, and one dispatcher invocation in each tool case. Opus text and tools reached `/v1/messages` but failed with HTTP 401 before model execution, including after a `direnv reload` and selected retry; their live compatibility remains unproven. The full run also found the same authentication failure for existing Fable cases. No protocol or catalog architecture changed, so ADRs 0009, 0019, and 0020 still carry the durable decisions. Finish by retrying the two Opus cases with a working Anthropic credential and appending redacted evidence.
+Partial outcome on 2026-09-23: The six new cases are selectable and the prescribed offline suite passes. Sol text, Sol tools, Luna text, and Luna tools passed live through `/v1/responses` with requested and observed model IDs equal, standard token-rate cost bases, and one dispatcher invocation in each tool case. The first Anthropic key expired; its replacement requires an explicit workspace header. Opus remains unproven until the two selected cases pass with a workspace ID or workspace-scoped key. No protocol or catalog architecture changed, so ADRs 0009, 0019, and 0020 still carry the durable decisions.
 
 
 ## Context and Orientation
@@ -127,3 +131,5 @@ Use `SmokeOptions.caseNames :: [String]` and `NewModelsSmoke.runNewModels :: Boo
 2026-09-23: Implemented the selectors, binding checks, offline validation, and live probe. Sol and Luna passed; Opus could not pass because the available Anthropic credential returned HTTP 401. The plan remains open for two targeted retries.
 
 2026-09-23: After the user reloaded `direnv`, reran only the two Opus cases. The credential was present but the provider again returned HTTP 401, so acceptance remains open. Added a separate redacted retry artifact rather than overwriting the first live record.
+
+2026-09-23: The replacement key returned HTTP 400 requiring an explicit workspace ID. Added optional smoke-runner header support and a redacted error record; live acceptance remains open pending workspace selection.

@@ -137,6 +137,17 @@ records the exact scope.
 After a `direnv reload`, both selected Opus cases still returned HTTP 401;
 the [redacted retry](../validation/plan-82/2026-09-23-opus55-retry.json)
 records that result without repeating the successful OpenAI calls.
+The replacement Anthropic key cleared authentication, but it is not scoped to
+a workspace. Anthropic then returned HTTP 400 asking for an
+`anthropic-workspace-id` header. Set `ANTHROPIC_WORKSPACE_ID` to the workspace's
+`wrkspc_...` ID when using such a key; the focused smoke runner sends it only
+on Anthropic calls. A key scoped to one workspace needs no workspace variable.
+The [redacted workspace error](../validation/plan-82/2026-09-23-workspace-required.json)
+records the request boundary. The workspace ID is available in Claude Console
+under Settings → Workspaces. The Default Workspace does not appear in the List
+Workspaces API response, so an empty list does not mean this header is optional.
+See [Anthropic's authentication guide](https://platform.claude.com/docs/en/manage-claude/authentication)
+for workspace-scoped and multi-workspace keys.
 
 ### Focused compatibility checks
 

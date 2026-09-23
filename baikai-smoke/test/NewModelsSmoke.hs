@@ -14,6 +14,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBS
 import Data.Generics.Labels ()
 import Data.IORef
+import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -42,6 +43,7 @@ keysFor _ = []
 runNewModels :: Bool -> Maybe String -> IO Bool
 runNewModels required selected = do
   env <- traverse (\name -> (name,) <$> lookupEnv name) (concat credentialGroups)
+  workspace <- lookupEnv "ANTHROPIC_WORKSPACE_ID"
   let selectedCases =
         [ (name, (model, keysFor provider, tool))
         | (name, (model, tool)) <- zip (selectCaseNames Nothing) [(model, tool) | model <- cases, tool <- [False, True]],
@@ -59,12 +61,12 @@ runNewModels required selected = do
         let status = if preflightFailed then "failed" else "skipped"
             reason = if preflightFailed then "required_credentials_missing" else "credentials_missing"
         report model toolsCase status False reason 0 0 []
-      else runCase model keys toolsCase
+      else runCase model keys workspace toolsCase
   LBS.putStrLn (Aeson.encode (Aeson.object ["schema" .= ("baikai.new-model-smoke/1" :: Text), "results" .= map snd results, "missing_environment_alternatives" .= missing]))
   pure (all fst results)
 
-runCase :: Model -> [String] -> Bool -> IO (Bool, Aeson.Value)
-runCase model keys toolsCase = do
+runCase :: Model -> [String] -> Maybe String -> Bool -> IO (Bool, Aeson.Value)
+runCase model keys workspace toolsCase = do
   dispatched <- newIORef (0 :: Int)
   attempted <- newIORef (0 :: Int)
   observations <- newIORef ([] :: [Aeson.Value])
@@ -75,6 +77,9 @@ runCase model keys toolsCase = do
           & #thinking .~ Just ThinkingLow
           & #timeoutMs .~ Just 120000
           & #apiKey .~ Just (ApiKeyEnvChain keys)
+          & #headers .~ case (model ^. #api, workspace) of
+            (AnthropicMessages, Just value) | not (null value) -> Map.singleton "anthropic-workspace-id" (Text.pack value)
+            _ -> Map.empty
           & #evidence .~ Just (Ev.evidenceRequest "new-model-smoke")
       timestamp = "2041-03-17T09:26:53Z" :: Text
       timeTool =
