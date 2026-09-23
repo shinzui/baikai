@@ -36,3 +36,4 @@ bundle.
 | [0020](0020-pricing-policies-and-calculation-bases-are-explicit.md) | Pricing policies and calculation bases are explicit | accepted |
 | [0021](0021-kit-project-scope-is-one-resolved-root.md) | Kit project scope is one resolved root, and every project-scope path derives from it | accepted |
 | [0022](0022-kit-status-and-update-share-one-local-edit-check.md) | Kit status and kit update share one local-edit check, and upstream drift and local edits are separate conditions | accepted |
+| [0023](0023-the-kit-engine-ships-no-terminal-ui.md) | The kit engine ships no terminal UI; interactive choice is injected through `KitConfig` | accepted |

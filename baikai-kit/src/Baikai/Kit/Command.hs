@@ -12,7 +12,7 @@ module Baikai.Kit.Command
 where
 
 import Baikai.Kit.Config (KitConfig, KitScope (..), scopeLabel)
-import Baikai.Kit.Error (KitError, renderKitError)
+import Baikai.Kit.Error (KitError (..), renderKitError)
 import Baikai.Kit.Install
   ( OverwritePolicy (..),
     UpdateReport,
@@ -23,7 +23,7 @@ import Baikai.Kit.Install
     uninstallItem,
     updateKit,
   )
-import Baikai.Kit.Manifest (itemKind, itemName)
+import Baikai.Kit.Manifest (KitManifest, itemKind, itemName)
 import Baikai.Kit.Repo (KitRepo, RepoRefresh (..), ensureKitRepo)
 import Baikai.Kit.Status (StatusReport, UpstreamAvailability (..), kitStatus, renderStatusTable)
 import Baikai.Prelude
@@ -35,19 +35,22 @@ import System.IO (stderr)
 
 data KitCommand
   = KitList
-  | KitInstall !Text !KitScope
+  | -- | 'Nothing' asks the configured 'Baikai.Kit.Config.chooseItem'.
+    KitInstall !(Maybe Text) !KitScope
   | KitUpdate !(Maybe Text) !OverwritePolicy
   | KitUninstall !Text !KitScope
   | KitStatus
-  deriving stock (Show)
+  deriving stock (Eq, Show)
 
-kitCommandParser :: Parser KitCommand
-kitCommandParser =
+-- | The @kit@ subcommands. Takes the configuration so help text can name
+--   the tool's own project directory.
+kitCommandParser :: KitConfig -> Parser KitCommand
+kitCommandParser config =
   hsubparser
     ( command "list" (info (pure KitList) (progDesc "List available skills and subagents"))
-        <> command "install" (info installParser (progDesc "Install a skill or subagent"))
+        <> command "install" (info (installParser config) (progDesc "Install a skill or subagent"))
         <> command "update" (info updateParser (progDesc "Update installed skills and subagents"))
-        <> command "uninstall" (info uninstallParser (progDesc "Uninstall a skill or subagent"))
+        <> command "uninstall" (info (uninstallParser config) (progDesc "Uninstall a skill or subagent"))
         <> command "status" (info (pure KitStatus) (progDesc "Show installed skills and subagents"))
     )
     <|> pure KitList
@@ -59,11 +62,19 @@ runKitCommand config = \case
   KitList -> withRepo $ \repo ->
     loadManifest (repo ^. #dir) `thenE` \manifest ->
       printed (renderAvailable manifest)
-  KitInstall n scope -> withRepo $ \repo ->
+  KitInstall (Just n) scope -> withRepo $ \repo ->
     loadManifest (repo ^. #dir) `thenE` \manifest ->
-      installFrom config (repo ^. #dir) manifest n scope `thenE` \item ->
-        printed $
-          "Installed " <> itemKind item <> " '" <> itemName item <> "' to " <> scopeLabel scope <> " scope."
+      installNamed repo manifest n scope
+  -- Without a chooser nothing the refresh could do changes the outcome,
+  -- so fail before touching the network.
+  KitInstall Nothing scope -> case config ^. #chooseItem of
+    Nothing -> pure (Left KitItemNameRequired)
+    Just choose -> withRepo $ \repo ->
+      loadManifest (repo ^. #dir) `thenE` \manifest -> do
+        picked <- choose manifest
+        case picked of
+          Nothing -> printed "No item chosen; nothing installed."
+          Just n -> installNamed repo manifest n scope
   KitUpdate n policy ->
     updateKit config n policy `thenE` (printed . renderUpdateReport)
   KitUninstall n scope ->
@@ -74,6 +85,12 @@ runKitCommand config = \case
     Text.IO.putStrLn (renderStatusTable (report ^. #rows))
     pure (Right ())
   where
+    installNamed :: KitRepo -> KitManifest -> Text -> KitScope -> IO (Either KitError ())
+    installNamed repo manifest n scope =
+      installFrom config (repo ^. #dir) manifest n scope `thenE` \item ->
+        printed $
+          "Installed " <> itemKind item <> " '" <> itemName item <> "' to " <> scopeLabel scope <> " scope."
+
     -- List and install need the manifest, so a repository they cannot
     -- reach is an error; a stale cache is a warning and the work goes on.
     withRepo :: (KitRepo -> IO (Either KitError ())) -> IO (Either KitError ())
@@ -152,11 +169,16 @@ renderUpdateReport report =
       | null (report ^. #skipped) = []
       | otherwise = ["Skipped " <> Text.pack (show (length (report ^. #skipped))) <> " item(s)."]
 
-installParser :: Parser KitCommand
-installParser =
+installParser :: KitConfig -> Parser KitCommand
+installParser config =
   KitInstall
-    <$> strArgument (metavar "NAME" <> help "Name of the skill or subagent to install")
-    <*> scopeParser "Install to project scope instead of user scope"
+    <$> optional
+      ( strArgument
+          ( metavar "NAME"
+              <> help "Name of the skill or subagent to install; omit it to choose interactively if this tool offers a chooser"
+          )
+      )
+    <*> scopeParser ("Install to project scope (" <> projectDirLabel config <> " under the project root) instead of user scope")
 
 updateParser :: Parser KitCommand
 updateParser =
@@ -167,12 +189,16 @@ updateParser =
       OverwriteLocalEdits
       (long "force" <> help "Reinstall items even if their installed files were modified locally")
 
-uninstallParser :: Parser KitCommand
-uninstallParser =
+uninstallParser :: KitConfig -> Parser KitCommand
+uninstallParser config =
   KitUninstall
     <$> strArgument (metavar "NAME" <> help "Name of the skill or subagent to uninstall")
-    <*> scopeParser "Uninstall from project scope instead of user scope"
+    <*> scopeParser ("Uninstall from project scope (" <> projectDirLabel config <> ") instead of user scope")
 
 scopeParser :: String -> Parser KitScope
 scopeParser helpText =
   flag UserScope ProjectScope (long "project" <> help helpText)
+
+-- | The tool's project directory as help text shows it, e.g. @.mytool/agents@.
+projectDirLabel :: KitConfig -> String
+projectDirLabel config = "." <> Text.unpack (config ^. #toolName) <> "/agents"

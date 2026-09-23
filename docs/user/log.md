@@ -12,6 +12,11 @@
   local edits, and the two checks (upstream and local-edit) are described with
   the command that acts on each.
 
+* **Update**: Kit Packages documents `kit install` without a name: the
+  `chooseItem` field, what the chooser receives and returns, the cancel and
+  missing-chooser behaviour, and that `kitCommandParser` now takes the
+  configuration so its help names `.<tool>/agents`.
+
 ## 2026-09-08
 * **Update**: Getting Started's package table lists `baikai-openai`'s native
   Responses API provider alongside Chat Completions and `codex exec`, and says

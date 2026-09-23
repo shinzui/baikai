@@ -17,6 +17,7 @@ where
 
 import Baikai.AgentAssets (AgentAssetProvider)
 import Baikai.Interactive (InteractiveProvider (..))
+import Baikai.Kit.Manifest (KitManifest)
 import Baikai.Prelude
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
@@ -36,7 +37,16 @@ data KitConfig = KitConfig
     --   default ('kitConfig') is the current directory; 'projectRootByMarkers'
     --   walks up to the nearest marker such as @.git@. An exception thrown
     --   by this action propagates to the caller.
-    projectRoot :: !(IO FilePath)
+    projectRoot :: !(IO FilePath),
+    -- | Called by @kit install@ when no name is given, with the whole
+    --   manifest. 'Just' a name installs that item (a name the manifest
+    --   does not list fails with 'Baikai.Kit.Error.KitItemNotFound');
+    --   'Nothing' means the user cancelled, and nothing is installed. When
+    --   this field is 'Nothing', @kit install@ without a name fails with
+    --   'Baikai.Kit.Error.KitItemNameRequired'. The engine ships no picker:
+    --   the tool owns presentation. An exception thrown by the chooser
+    --   propagates to the caller.
+    chooseItem :: !(Maybe (KitManifest -> IO (Maybe Text)))
   }
   deriving stock (Generic)
 
@@ -49,13 +59,22 @@ instance Show KitConfig where
         . shows (config ^. #repoUrl)
         . showString ", providers = "
         . shows (config ^. #providers)
-        . showString ", projectRoot = <IO FilePath>}"
+        . showString ", projectRoot = <IO FilePath>, chooseItem = "
+        . showString (maybe "Nothing" (const "Just <chooser>") (config ^. #chooseItem))
+        . showString "}"
 
 -- | A configuration with every optional behaviour at its default:
---   project scope is the current directory.
+--   project scope is the current directory, and @kit install@ requires a
+--   name (no chooser).
 kitConfig :: Text -> Text -> [AgentAssetProvider] -> KitConfig
 kitConfig toolName repoUrl providers =
-  KitConfig {toolName, repoUrl, providers, projectRoot = getCurrentDirectory}
+  KitConfig
+    { toolName,
+      repoUrl,
+      providers,
+      projectRoot = getCurrentDirectory,
+      chooseItem = Nothing
+    }
 
 -- | The nearest directory, starting at @start@ and walking towards the
 --   filesystem root, that contains any of @markers@ (a file or a

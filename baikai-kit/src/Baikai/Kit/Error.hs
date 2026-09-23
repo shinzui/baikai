@@ -24,6 +24,9 @@ data KitError
     KitManifestVersionUnsupported FilePath Int
   | -- | No skill or agent of that name is listed.
     KitItemNotFound Text
+  | -- | @kit install@ was given no name and the tool supplies no chooser
+    --   ('Baikai.Kit.Config.chooseItem' is 'Nothing').
+    KitItemNameRequired
   | -- | The item lists no source files.
     KitItemHasNoFiles Text
   | -- | An item name failed 'Baikai.Kit.Path.safeItemName'; the second
@@ -70,6 +73,8 @@ renderKitError = \case
       <> Text.pack (show n)
       <> "; this installer supports versions 1 and 2."
   KitItemNotFound n -> "'" <> n <> "' not found in kit manifest."
+  KitItemNameRequired ->
+    "no item name given: pass NAME to 'kit install' (run 'kit list' to see what is available)."
   KitItemHasNoFiles n -> "'" <> n <> "' lists no source files."
   KitUnsafeName raw reason -> "unsafe item name '" <> raw <> "': " <> reason
   KitUnsafePath raw reason -> "unsafe manifest path '" <> raw <> "': " <> reason

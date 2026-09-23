@@ -6,7 +6,7 @@ docId: DOC-5
 tags: [kits, skills, agents, installation, lifecycle]
 generated:
   by: human:nadeem
-  at: 2026-09-23T12:00:00Z
+  at: 2026-09-23T16:00:00Z
 ---
 
 # Kit Packages
@@ -188,7 +188,7 @@ import Options.Applicative
 
 main :: IO ()
 main = do
-  command <- execParser (info (Kit.kitCommandParser <**> helper) mempty)
+  command <- execParser (info (Kit.kitCommandParser myKitConfig <**> helper) mempty)
   Kit.runKit myKitConfig command
 ```
 
@@ -196,7 +196,7 @@ The built-in parser supports:
 
 ```text
 kit list
-kit install NAME [--project]
+kit install [NAME] [--project]
 kit update [NAME] [--force]
 kit uninstall NAME [--project]
 kit status
@@ -212,6 +212,46 @@ Skipped 'review' (user): installed files were modified locally; run 'kit update 
 
 A skip is not a failure: the command still exits 0. `--force` reinstalls
 anyway and discards those edits.
+
+`kitCommandParser` takes the configuration so its help text can name the
+tool's own directory: `mytool kit install --help` describes `--project` as
+installing under `.mytool/agents`. `KitCommand` derives `Eq`, so a tool
+can test its parsing by comparing parsed commands.
+
+### Choosing an item interactively
+
+`kit install` with no `NAME` asks the tool to choose. A tool opts in by
+setting `chooseItem`, a function that receives the whole loaded manifest
+(every skill and agent, with names, descriptions and versions) and returns
+the chosen name, or `Nothing` when the user cancelled:
+
+```haskell
+myKitConfig :: KitConfig
+myKitConfig =
+  (kitConfig "mytool" "https://github.com/example/mytool-kit.git" [InteractiveClaude, InteractiveCodex])
+    { chooseItem = Just pickWithFzf
+    }
+
+-- Owned by the tool: render the manifest however it likes and return the
+-- chosen name, or Nothing when the user cancels.
+pickWithFzf :: KitManifest -> IO (Maybe Text)
+```
+
+The engine refreshes the kit, loads the manifest, calls the chooser, and
+installs the result exactly as if it had been typed; a name the manifest
+does not list fails with the usual `'<name>' not found in kit manifest.`
+A cancelled choice prints `No item chosen; nothing installed.` and exits 0.
+An exception the chooser throws propagates.
+
+Without a chooser (`kitConfig`'s default), `kit install` with no name
+fails before touching the network with the `KitItemNameRequired` error:
+
+```text
+Error: no item name given: pass NAME to 'kit install' (run 'kit list' to see what is available).
+```
+
+`baikai-kit` ships no picker and depends on no terminal-UI library; the
+tool owns presentation, and the engine owns everything around the choice.
 
 If your tool has custom UI around one command, keep your own parser and
 call the lower-level functions. Every one of them returns

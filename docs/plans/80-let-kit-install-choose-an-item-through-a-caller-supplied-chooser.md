@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-23T14:11:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-23T15:52:52Z
+      mode: "implement"
+      note: "Milestones 1 and 2 implemented"
 ---
 
 # Let kit install choose an item through a caller-supplied chooser
@@ -52,14 +58,31 @@ provides).
 
 ## Progress
 
-- [ ] Milestone 1: `KitCommand` derives `Eq`; `KitInstall` takes `Maybe Text`; `kitCommandParser` takes the `KitConfig` and names `.<tool>/agents` in help; existing call sites and tests updated; parser tests added; `cabal test baikai-kit` green.
-- [ ] Milestone 2: `chooseItem` added to `KitConfig`, `kitConfig`, and the `Show` instance; `KitItemNameRequired` added to `KitError`; `runKitCommand` handles an absent name; chooser, cancel, and missing-chooser tests green.
-- [ ] Milestone 2: `docs/user/kit.md`, `CHANGELOG.md`, `docs/user/log.md`, and the ADR updated; validators and `cabal build all --enable-tests` green.
+- [x] (2026-09-23 16:00Z) Milestone 1: `KitCommand` derives `Eq`; `KitInstall` takes `Maybe Text`; `kitCommandParser` takes the `KitConfig` and names `.<tool>/agents` in help; existing call sites and tests updated; parser tests added; `cabal test baikai-kit` green.
+- [x] (2026-09-23 16:00Z) Milestone 2: `chooseItem` added to `KitConfig`, `kitConfig`, and the `Show` instance; `KitItemNameRequired` added to `KitError`; `runKitCommand` handles an absent name; chooser, cancel, and missing-chooser tests green (61 tests).
+- [x] (2026-09-23 16:15Z) Milestone 2: `docs/user/kit.md`, `CHANGELOG.md`, `docs/user/log.md`, and ADR 0023 updated; validators and `cabal build all --enable-tests` green.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The milestones were implemented together and committed once: Milestone 1's temporary
+  `KitInstall Nothing _ -> Left KitItemNameRequired` branch is exactly Milestone 2's
+  no-chooser branch, so there was no intermediate state worth committing separately.
+- The rendered help, as a consumer sees it (built with `kitConfig "mytool" …`):
+
+  ```text
+  Usage: mytool kit install [NAME] [--project]
+
+  Available options:
+    NAME                     Name of the skill or subagent to install; omit it to
+                             choose interactively if this tool offers a chooser
+    --project                Install to project scope (.mytool/agents under the
+                             project root) instead of user scope
+  ```
+
+- CAP-21's Shape block needed no change: it uses record-update syntax on `kitConfig`, so the
+  new field is filled by the constructor, which is what the smart constructor from
+  `docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md` was for.
 
 
 ## Decision Log
@@ -95,7 +118,18 @@ provides).
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+IR-6's acceptance criteria 1–3 hold in `baikai-kit/test/Main.hs`'s "Command" group: a stub
+chooser sees the whole manifest (`["demo", "reviewer"]`) and its pick is installed; a cancelled
+choice installs nothing and `runKit` returns normally (exit 0); no chooser yields
+`KitItemNameRequired`, and `runKit` exits 1 with a message naming `NAME`; parsed commands are
+compared with `==`; help names `.testkit/agents`. Criteria 4 and 5 are shown by the API shape: a
+consumer's integration is `kitConfig … {chooseItem = Just picker}`, `kitCommandParser config`,
+and `runKit config`. The deletions in `mori://shinzui/rei` and `mori://shinzui/okf` wait for
+them to adopt `baikai-kit ^>=0.3`. ADR 0023 records the no-terminal-UI boundary.
+
+`docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md` extends the
+`KitCommand` shape defined here; it must keep `deriving stock (Eq, Show)` and the
+`KitConfig -> Parser KitCommand` signature.
 
 
 ## Context and Orientation

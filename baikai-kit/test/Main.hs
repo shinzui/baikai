@@ -29,6 +29,7 @@ import Baikai.Kit
     executePlanWith,
     findProjectRoot,
     installItem,
+    kitCommandParser,
     kitConfig,
     kitStatus,
     loadManifest,
@@ -39,6 +40,7 @@ import Baikai.Kit
     renderConditions,
     renderUninstallReport,
     runKit,
+    runKitCommand,
     safeItemName,
     safeRelativePath,
     safeSourcePath,
@@ -53,9 +55,20 @@ import Control.Exception (finally, try)
 import Control.Monad (void)
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
-import Data.List (find, isSuffixOf, nub, sort)
+import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.List (find, isInfixOf, isSuffixOf, nub, sort)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Options.Applicative
+  ( ParserResult (..),
+    defaultPrefs,
+    execParserPure,
+    getParseResult,
+    helper,
+    info,
+    renderFailure,
+    (<**>),
+  )
 import System.Directory
   ( canonicalizePath,
     createDirectoryIfMissing,
@@ -94,7 +107,8 @@ main =
           installRoundTripTests,
           typedErrorTests,
           installFidelityTests,
-          projectRootTests
+          projectRootTests,
+          commandTests
         ]
 
 manifestTests :: TestTree
@@ -200,7 +214,7 @@ pathSafetyTests =
           result <- installItem testConfig "evil" UserScope
           assertKitError "KitUnsafePath" isUnsafePath result
           assertFileMissing (takeDirectory home </> "escape.txt")
-          exitResult <- try @ExitCode (runKit testConfig (KitInstall "evil" UserScope))
+          exitResult <- try @ExitCode (runKit testConfig (KitInstall (Just "evil") UserScope))
           exitResult @?= Left (ExitFailure 1),
       testCase "uninstall refuses a traversal name" $
         withPreparedKitHome $ \home _cache -> do
@@ -631,6 +645,55 @@ mkAgentItem n mVersion =
         path = "agents/foo.md",
         files = Nothing
       }
+
+commandTests :: TestTree
+commandTests =
+  testGroup
+    "Command"
+    [ testCase "install parses with and without a name" $ do
+        parse ["install"] @?= Just (KitInstall Nothing UserScope)
+        parse ["install", "demo", "--project"] @?= Just (KitInstall (Just "demo") ProjectScope)
+        parse [] @?= Just KitList,
+      testCase "install help names the tool's project directory" $
+        case execParserPure defaultPrefs (info (kitCommandParser testConfig <**> helper) mempty) ["install", "--help"] of
+          Failure failure -> do
+            let rendered = fst (renderFailure failure "kit")
+            assertBool ("expected .testkit/agents in help:\n" <> rendered) (".testkit/agents" `isInfixOf` rendered)
+          _ -> assertFailure "expected --help to produce help text",
+      testCase "install with no name and no chooser is a KitItemNameRequired error" $ do
+        result <- runKitCommand testConfig (KitInstall Nothing UserScope)
+        result @?= Left KitItemNameRequired
+        exitResult <- try @ExitCode (runKit testConfig (KitInstall Nothing UserScope))
+        exitResult @?= Left (ExitFailure 1),
+      testCase "install with no name installs what the chooser returns" $
+        withPreparedKitHome $ \home _cache -> do
+          seen <- newIORef []
+          let chooser manifest = do
+                writeIORef seen (map (view #name) (manifest ^. #skills) ++ map (view #name) (manifest ^. #agents))
+                pure (Just "demo")
+              config = testConfig & #chooseItem .~ Just chooser
+          result <- runKitCommand config (KitInstall Nothing UserScope)
+          result @?= Right ()
+          assertFileExists (userClaudeDemo home </> "SKILL.md")
+          readIORef seen >>= (@?= ["demo", "reviewer"]),
+      testCase "a cancelled choice installs nothing and succeeds" $
+        withPreparedKitHome $ \home _cache -> do
+          let config = testConfig & #chooseItem .~ Just (\_ -> pure Nothing)
+          result <- runKitCommand config (KitInstall Nothing UserScope)
+          result @?= Right ()
+          assertDirectoryMissing (userClaudeDemo home)
+          exitResult <- try @ExitCode (runKit config (KitInstall Nothing UserScope))
+          exitResult @?= Right ()
+          assertDirectoryMissing (userClaudeDemo home),
+      testCase "a chosen name the manifest lacks is KitItemNotFound" $
+        withPreparedKitHome $ \_home _cache -> do
+          let config = testConfig & #chooseItem .~ Just (\_ -> pure (Just "nope"))
+          result <- runKitCommand config (KitInstall Nothing UserScope)
+          result @?= Left (KitItemNotFound "nope")
+    ]
+  where
+    parse = getParseResult . execParserPure defaultPrefs (info (kitCommandParser testConfig) mempty)
+    userClaudeDemo home = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
 
 projectRootTests :: TestTree
 projectRootTests =

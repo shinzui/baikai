@@ -141,7 +141,7 @@ No cross-repository ADR in the Mori registry governs `baikai-kit`'s surface.
 |---|-------|------|-----------|-----------|--------|
 | 1 | Resolve kit project scope from a configurable project root (IR-8) | docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md | None | None | Complete |
 | 2 | Report local edits and upstream drift as separate kit status conditions (IR-7) | docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md | None | None | Complete |
-| 3 | Let kit install choose an item through a caller-supplied chooser (IR-6) | docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md | EP-1 | None | Not Started |
+| 3 | Let kit install choose an item through a caller-supplied chooser (IR-6) | docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md | EP-1 | None | Complete |
 | 4 | Add versioned JSON output to kit list, status, and update (IR-9), and prepare baikai-kit 0.3.0.0 | docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md | EP-2, EP-3 | EP-1 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
@@ -239,8 +239,8 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
 - [x] EP-1: Milestone 2 — install, status, uninstall, and session discovery agree across subdirectories; docs, CAP-21 Shape and twin, changelog, ADR.
 - [x] EP-2: Milestone 1 — shared local-edit check and the `KitCondition` vocabulary, existing drift tests kept under new names.
 - [x] EP-2: Milestone 2 — `kit status` reports local edits; agreement test with `kit update`; docs, changelog, ADR.
-- [ ] EP-3: Milestone 1 — `KitCommand` derives `Eq`, optional install name, config-aware parser and help text.
-- [ ] EP-3: Milestone 2 — `chooseItem` wired into install, cancel and missing-chooser paths tested; docs, changelog, ADR.
+- [x] EP-3: Milestone 1 — `KitCommand` derives `Eq`, optional install name, config-aware parser and help text.
+- [x] EP-3: Milestone 2 — `chooseItem` wired into install, cancel and missing-chooser paths tested; docs, changelog, ADR.
 - [ ] EP-4: Milestone 1 — explicit encoders and golden tests for list, status, and update documents.
 - [ ] EP-4: Milestone 2 — `--json` flags, stdout discipline under stale and unreachable caches.
 - [ ] EP-4: Milestone 3 — documentation, ADR, CAP-21 refresh, and `baikai-kit 0.3.0.0` release preparation.
@@ -274,6 +274,11 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
   ADR 0022 was taken; the next free ADR number is 0023. `reinstallPresent` scans the
   project scope too, so any test that compares status with update should set `projectRoot`
   to a temporary directory.
+- (EP-3) `KitCommand` now derives `Eq`, `KitInstall` takes `Maybe Text`, and
+  `kitCommandParser :: KitConfig -> Parser KitCommand`; `runKitCommand` factors the install
+  tail into a local `installNamed`. ADR 0023 was taken; the next free ADR number is 0024. The
+  `Fetched <tool>-kit.` line still goes to stdout via `withRepo`, which EP-4 must redirect in
+  JSON mode.
 
 
 ## Decision Log

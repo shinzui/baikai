@@ -25,6 +25,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `checkLocalEdits`, returning `LocalEdits` (`Unedited`, `Edited`,
   `EditsUnknown`). Resolves IR-7.
 
+- `baikai-kit`: `kit install` with no name asks a chooser the tool supplies in
+  the new `KitConfig.chooseItem :: Maybe (KitManifest -> IO (Maybe Text))`
+  field. The engine refreshes the kit, passes the whole manifest, and installs
+  what the chooser returns; a cancelled choice prints
+  `No item chosen; nothing installed.` and exits 0. With no chooser (the
+  `kitConfig` default) the command fails with the new `KitItemNameRequired`
+  error, which tells the user to pass `NAME`. The engine ships no picker.
+  `KitCommand` derives `Eq`, and `kit install --help` names the tool's
+  `.<tool>/agents` directory. Resolves IR-6.
+
 ### Changed
 
 - `baikai-kit`: `KitConfig` gains the strict field `projectRoot`, so a record
@@ -41,6 +51,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `renderState` by `conditionLabel` and `renderConditions`, and `classify`
   returns `[KitCondition]`. `KitUpToDate`, `KitDirty` and `KitDirtyOutdated`
   are gone; match on the list instead. __Breaking__.
+
+- `baikai-kit`: `KitInstall` takes `Maybe Text` (`Nothing` asks the chooser),
+  `kitCommandParser` takes the `KitConfig` (migration: `kitCommandParser`
+  becomes `kitCommandParser myKitConfig`), `KitConfig` gains the `chooseItem`
+  field (set by `kitConfig`), and `KitError` gains `KitItemNameRequired`.
+  __Breaking__.
 
 ## [baikai-effectful 0.4.0.2] - 2026-09-15
 
