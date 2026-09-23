@@ -4,9 +4,10 @@ title: Resolve kit project scope from the project root
 description: >-
   Let KitConfig say how to find the project root, so project-scope installs and session
   discovery use the same directory no matter which subdirectory the tool was run from.
-timestamp: 2026-09-23T13:49:07Z
+timestamp: 2026-09-23T17:40:00Z
 requestId: IR-8
-status: accepted
+status: completed
+completedAt: "2026-09-23T00:00:00Z"
 targetPlan: docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md
 origin: mori://shinzui/mori
 ---
@@ -14,6 +15,27 @@ origin: mori://shinzui/mori
 # Improvement Request: Resolve Kit Project Scope from the Project Root
 
 ## Status
+
+Completed on 2026-09-23 by
+[docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md](../plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md)
+(commit `ea4113e`). `KitConfig` gained `projectRoot :: IO FilePath`, built by the `kitConfig`
+smart constructor with the current directory as default; `projectRootByMarkers` and
+`findProjectRoot` supply the marker walk. Evidence per criterion, all in the "Project root"
+group of `baikai-kit/test/Main.hs`:
+
+1. "a configured root puts project scope in one place" installs `demo` at project scope from
+   `proj/src/deep`, asserts the files are under `proj`, and from `proj/docs` finds it with
+   `kitStatus`, `agentDirsForSession`, and `uninstallItem`; it repeats the install and status
+   steps with `projectRootByMarkers`.
+2. "findProjectRoot walks up from a nested directory", "… accepts a start directory that is
+   itself the root", and "… returns Nothing when no marker exists" (which also checks that
+   `projectRootByMarkers` falls back to the current directory).
+3. "without a resolver, project scope is the current directory".
+4. `docs/user/kit.md` has a Project Scope section. The boundary is recorded in
+   [ADR 0021](../adr/0021-kit-project-scope-is-one-resolved-root.md).
+
+Released as `baikai-kit 0.3.0.0`, prepared in commit `d1329de` (`chore(release): baikai-kit
+0.3.0.0`) and not yet uploaded to Hackage; a consumer can depend on it from git until then.
 
 Accepted and planned on 2026-09-23. The accepted design is EP-1,
 [docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md](../plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md),

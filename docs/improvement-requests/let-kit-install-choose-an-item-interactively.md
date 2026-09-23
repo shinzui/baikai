@@ -5,9 +5,10 @@ description: >-
   Make the NAME argument of `kit install` optional and give KitConfig a caller-supplied
   chooser, so a tool can offer an interactive picker without re-implementing the kit
   command type, parser, and install flow around baikai-kit.
-timestamp: 2026-09-23T13:49:07Z
+timestamp: 2026-09-23T17:40:00Z
 requestId: IR-6
-status: accepted
+status: completed
+completedAt: "2026-09-23T00:00:00Z"
 targetPlan: docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md
 origin: mori://shinzui/mori
 ---
@@ -15,6 +16,29 @@ origin: mori://shinzui/mori
 # Improvement Request: Let Kit Install Choose an Item Interactively
 
 ## Status
+
+Completed on 2026-09-23 by
+[docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md](../plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md)
+(commit `044ab1b`). Evidence per criterion, in the "Command" group of `baikai-kit/test/Main.hs`:
+
+1. "install with no name installs what the chooser returns" uses a stub chooser over the
+   local fixture kit, asserts it received the whole manifest (`demo`, `reviewer`), and finds
+   the installed skill; no fzf binary is involved.
+2. "a cancelled choice installs nothing and succeeds" (`Right ()` and `runKit` returns
+   normally), and "install with no name and no chooser is a KitItemNameRequired error", whose
+   message is `no item name given: pass NAME to 'kit install' …`.
+3. "install parses with and without a name" compares parsed `KitCommand`s with `==`; "install
+   help names the tool's project directory" finds `.testkit/agents` in the help text.
+4. and 5. are met by the API's shape rather than by a change in this repository: a consumer's
+   whole kit integration is `kitConfig … { chooseItem = Just picker }`,
+   `kitCommandParser config`, and `runKit config`, so nothing in `mori://shinzui/rei`'s
+   `Rei.Cli.Commands.Kit.{Types,Parser,Handler}` or `mori://shinzui/okf`'s `KitCommand` mirror
+   is needed any more. The deletions themselves are made in those repositories when they raise
+   their bound to `baikai-kit ^>=0.3`. The boundary is recorded in
+   [ADR 0023](../adr/0023-the-kit-engine-ships-no-terminal-ui.md).
+
+Released as `baikai-kit 0.3.0.0`, prepared in commit `d1329de` (`chore(release): baikai-kit
+0.3.0.0`) and not yet uploaded to Hackage; a consumer can depend on it from git until then.
 
 Accepted and planned on 2026-09-23. The accepted design is EP-3,
 [docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md](../plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md),

@@ -2,6 +2,14 @@
 
 ## 2026-09-23
 
+* **Completion**: IR-6, IR-7, IR-8, and IR-9 are `completed`, closed by the four ExecPlans of
+  `docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md` and prepared
+  for release as `baikai-kit 0.3.0.0` (not yet uploaded to Hackage). Each record's Status
+  section maps every acceptance criterion to the test or document that shows it. IR-6's
+  criteria 4 and 5 are met by the new API's shape; the deletions they describe belong to
+  `mori://shinzui/rei` and `mori://shinzui/okf` and happen when those tools adopt
+  `baikai-kit ^>=0.3`. ADRs 0021–0024 record the durable decisions.
+
 * **Planned**: IR-6, IR-7, IR-8, and IR-9 are `accepted`, each linked through `targetPlan` to
   its ExecPlan under
   `docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md`, which ships

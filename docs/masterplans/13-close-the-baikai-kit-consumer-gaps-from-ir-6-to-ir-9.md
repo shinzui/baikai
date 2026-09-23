@@ -142,7 +142,7 @@ No cross-repository ADR in the Mori registry governs `baikai-kit`'s surface.
 | 1 | Resolve kit project scope from a configurable project root (IR-8) | docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md | None | None | Complete |
 | 2 | Report local edits and upstream drift as separate kit status conditions (IR-7) | docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md | None | None | Complete |
 | 3 | Let kit install choose an item through a caller-supplied chooser (IR-6) | docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md | EP-1 | None | Complete |
-| 4 | Add versioned JSON output to kit list, status, and update (IR-9), and prepare baikai-kit 0.3.0.0 | docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md | EP-2, EP-3 | EP-1 | In Progress |
+| 4 | Add versioned JSON output to kit list, status, and update (IR-9), and prepare baikai-kit 0.3.0.0 | docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md | EP-2, EP-3 | EP-1 | Complete |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix (e.g., EP-1, EP-3).
@@ -241,10 +241,10 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
 - [x] EP-2: Milestone 2 — `kit status` reports local edits; agreement test with `kit update`; docs, changelog, ADR.
 - [x] EP-3: Milestone 1 — `KitCommand` derives `Eq`, optional install name, config-aware parser and help text.
 - [x] EP-3: Milestone 2 — `chooseItem` wired into install, cancel and missing-chooser paths tested; docs, changelog, ADR.
-- [ ] EP-4: Milestone 1 — explicit encoders and golden tests for list, status, and update documents.
-- [ ] EP-4: Milestone 2 — `--json` flags, stdout discipline under stale and unreachable caches.
-- [ ] EP-4: Milestone 3 — documentation, ADR, CAP-21 refresh, and `baikai-kit 0.3.0.0` release preparation.
-- [ ] Mark IR-6, IR-7, IR-8, and IR-9 completed with per-criterion evidence.
+- [x] EP-4: Milestone 1 — explicit encoders and golden tests for list, status, and update documents.
+- [x] EP-4: Milestone 2 — `--json` flags, stdout discipline under stale and unreachable caches.
+- [x] EP-4: Milestone 3 — documentation, ADR, CAP-21 refresh, and `baikai-kit 0.3.0.0` release preparation.
+- [x] Mark IR-6, IR-7, IR-8, and IR-9 completed with per-criterion evidence.
 
 
 ## Surprises & Discoveries
@@ -279,6 +279,11 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
   tail into a local `installNamed`. ADR 0023 was taken; the next free ADR number is 0024. The
   `Fetched <tool>-kit.` line still goes to stdout via `withRepo`, which EP-4 must redirect in
   JSON mode.
+- (EP-4) The `treefmt` pre-commit hook enforces a reflowed layout on any staged `.cabal` file;
+  `baikai-kit/baikai-kit.cabal` now uses it (commit `044ab1b`), while untouched packages keep
+  the old one. A capture of stdout inside the `tasty` suite races the reporter thread and must
+  pause before redirecting. `cabal test all` shows `baikai-smoke` (live `claude` CLI) and,
+  under parallel load only, `baikai-agent-test` failing; neither involves `baikai-kit`.
 
 
 ## Decision Log
@@ -327,6 +332,48 @@ Cross-plan decisions that deserve ADRs, and the plan responsible for writing eac
   Date: 2026-09-23
 
 
+- Decision: No ADR beyond 0021–0024 at completion.
+  Rationale: the distillation pass found the durable decisions already recorded there; the tool
+  gotchas (`okf log add`, the cabal formatter, the tasty capture race) are properties of the
+  toolchain rather than of the project's architecture, and stay in the plans' discoveries.
+  Date: 2026-09-23
+
+
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All four child plans are complete, and IR-6 through IR-9 are `completed` with per-criterion
+evidence in their records. A tool now configures `baikai-kit` with one value built by
+`kitConfig` and gets, without owning kit code: project scope resolved from a root it describes
+(`projectRoot`, `projectRootByMarkers`), status conditions that report local edits
+(`modified`, `edits-unknown`) separately from upstream drift (`changed-upstream`) and compose,
+`kit install` without a name through a chooser it supplies, and `--json` on `list`, `status`,
+and `update`. The `baikai-kit` suite grew from 44 to 72 tests. `baikai-kit 0.3.0.0` is
+prepared (commit `d1329de`) and not uploaded to Hackage, which stays the maintainer's step.
+
+Commits, in order: `ea4113e` (EP-1), `7936ba5` (EP-2), `044ab1b` (EP-3), `4745a0e` and
+`d1329de` (EP-4), plus the plan and record updates that close the initiative.
+
+What remains, outside this repository: `mori://shinzui/rei` and `mori://shinzui/okf` can delete
+their `KitCommand` mirrors and parsers, and `mori://shinzui/mori` passes its config to
+`kitCommandParser`, once each raises its bound to `baikai-kit ^>=0.3`. That is IR-6 criteria 4
+and 5 in practice.
+
+What went well: the decomposition held with no plan changes. The ordering decisions (EP-1
+owns the `KitConfig` reshape; EP-3 owns the `KitCommand` reshape; EP-4 encodes only after
+EP-2 renamed the status vocabulary) meant each later plan extended a shape rather than
+reworking one, and EP-3's field needed no CAP-21 change at all because EP-1 introduced the
+smart constructor. What cost time: two tool behaviours, `okf log add` reflowing whole log
+files and the `treefmt` hook's new cabal layout, and the stdout-capture race with tasty's
+reporter. All three are recorded in Surprises & Discoveries above.
+
+ADR distillation. The four cross-plan decisions this plan named became
+[ADR 0021](../adr/0021-kit-project-scope-is-one-resolved-root.md) (one resolved project root),
+[ADR 0022](../adr/0022-kit-status-and-update-share-one-local-edit-check.md) (one local-edit
+check; drift and edits are separate conditions),
+[ADR 0023](../adr/0023-the-kit-engine-ships-no-terminal-ui.md) (no terminal UI; choice is
+injected), and [ADR 0024](../adr/0024-machine-readable-kit-output-is-a-versioned-contract.md)
+(versioned JSON by explicit encoders; stdout carries only the document). The remaining durable
+point — optional `KitConfig` behaviour is added as a defaulted field in `kitConfig`, so it does
+not break consumers a second time — is in ADR 0021's Consequences, and ADR 0023 applies it to
+future interactive steps. The rest of the Decision Logs and discoveries are execution detail and
+stay in the plans.

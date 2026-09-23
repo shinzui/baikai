@@ -5,9 +5,10 @@ description: >-
   Make `kit status` run the same installed-file check `kit update` already runs, so an item
   that has been edited in place is reported before an update skips it, and rename the state
   that currently calls upstream drift "dirty".
-timestamp: 2026-09-23T13:49:07Z
+timestamp: 2026-09-23T17:40:00Z
 requestId: IR-7
-status: accepted
+status: completed
+completedAt: "2026-09-23T00:00:00Z"
 targetPlan: docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md
 origin: mori://shinzui/mori
 ---
@@ -15,6 +16,25 @@ origin: mori://shinzui/mori
 # Improvement Request: Report Local Edits in Kit Status
 
 ## Status
+
+Completed on 2026-09-23 by
+[docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md](../plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md)
+(commit `7936ba5`). Evidence per criterion, in `baikai-kit/test/Main.hs`:
+
+1. "editing an installed file reports modified" (the edited provider's row is `[modified]`,
+   the other `[]`) and its companion "an installed item reports no conditions before an edit".
+2. The drift tests are kept as "hash mismatch => changed-upstream" and "version and cached
+   hash drift reports outdated+changed-upstream".
+3. "status reports modified for exactly what update would skip" compares the set `kit status`
+   reports as `modified` with `UpdateReport.skipped` under `KeepLocalEdits`; both commands call
+   the one exported `checkLocalEdits`.
+4. `docs/user/kit.md` describes the upstream check and the local-edit check and which command
+   acts on each; `CHANGELOG.md` records the `dirty` → `changed-upstream` rename as breaking.
+   The shared check is recorded in
+   [ADR 0022](../adr/0022-kit-status-and-update-share-one-local-edit-check.md).
+
+Released as `baikai-kit 0.3.0.0`, prepared in commit `d1329de` (`chore(release): baikai-kit
+0.3.0.0`) and not yet uploaded to Hackage; a consumer can depend on it from git until then.
 
 Accepted and planned on 2026-09-23. The accepted design is EP-2,
 [docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md](../plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md),

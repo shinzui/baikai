@@ -166,7 +166,22 @@ are complete (and therefore also
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+IR-9's acceptance criteria hold. `kit list --json`, `kit status --json`, and
+`kit update --json` print one versioned document each, written by explicit encoders in the new
+`Baikai.Kit.Json` and pinned by `baikai-kit/test/golden/{list,status,update}.json` over a
+fixture that covers every status condition, both scopes, both providers, and both kinds. The
+command's status document equals the encoder's. Stdout is one document under a stale cache and
+an unreachable repository, empty when `list` cannot clone or `update` cannot pull, and free of
+the first-clone notice. `docs/user/kit.md` documents every key and the `formatVersion` rule, and
+ADR 0024 records the contract. The suite has 72 tests.
+
+`baikai-kit 0.3.0.0` is prepared (cabal version, changelog section, README row, CAP-21) and not
+uploaded; that is the maintainer's step. After uploading, poll the Hackage index before
+concluding that a consumer's resolver error is a bad bound: the index lags an upload.
+
+Lessons: a test that captures stdout in a `tasty` suite shares the handle with tasty's
+reporter thread, and has to let the reporter finish first. Writing the command path before
+accepting goldens let one accept run serve both the encoder and the command tests.
 
 
 ## Context and Orientation

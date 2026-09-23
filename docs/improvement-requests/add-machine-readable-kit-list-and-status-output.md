@@ -5,9 +5,10 @@ description: >-
   Give `kit list` and `kit status` a `--json` mode backed by stable encodings of the
   manifest and status rows, so scripts, agents, and other tools can consume kit state
   without parsing a column-aligned table.
-timestamp: 2026-09-23T13:49:07Z
+timestamp: 2026-09-23T17:40:00Z
 requestId: IR-9
-status: accepted
+status: completed
+completedAt: "2026-09-23T00:00:00Z"
 targetPlan: docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md
 origin: mori://shinzui/mori
 ---
@@ -15,6 +16,28 @@ origin: mori://shinzui/mori
 # Improvement Request: Add Machine-Readable Kit List and Status Output
 
 ## Status
+
+Completed on 2026-09-23 by
+[docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md](../plans/81-add-versioned-json-output-to-kit-list-status-and-update.md)
+(commits `4745a0e` and `d1329de`). Evidence per criterion, in the "JSON" group of
+`baikai-kit/test/Main.hs`:
+
+1. "kit-list document matches the golden", "kit-status document matches the golden", and
+   "kit-update document matches the golden" pin `baikai-kit/test/golden/{list,status,update}.json`
+   over a fixture with five skills and two agents across both scopes and both providers, covering
+   `unknown`, `delisted`, `refused`, `outdated`, `changed-upstream`, `modified`,
+   `edits-unknown`, and up to date. "the command and the encoder agree" checks the `--json`
+   command against the same status golden.
+2. "status --json parses as one document when the cache is stale" and "… when the repository
+   is unreachable"; in addition, "list --json writes nothing to stdout when the repository is
+   unreachable", "update --json writes nothing to stdout when the pull fails", and "list --json
+   keeps the first-clone notice off stdout".
+3. `docs/user/kit.md` has a Machine-Readable Output section documenting every key and the
+   `formatVersion` rule. The contract is recorded in
+   [ADR 0024](../adr/0024-machine-readable-kit-output-is-a-versioned-contract.md).
+
+Released as `baikai-kit 0.3.0.0`, prepared in commit `d1329de` (`chore(release): baikai-kit
+0.3.0.0`) and not yet uploaded to Hackage; a consumer can depend on it from git until then.
 
 Accepted and planned on 2026-09-23. The accepted design is EP-4,
 [docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md](../plans/81-add-versioned-json-output-to-kit-list-status-and-update.md),
