@@ -1,5 +1,34 @@
 # Bundle Update Log
 
+## 2026-09-23
+
+* **Addition**: IR-6 asks `kit install` to take an optional name and `KitConfig` to take a
+  caller-supplied chooser, so a tool can offer an interactive picker without rebuilding the
+  command around the engine. Of the three tools that ship `kit` on `baikai-kit`, only
+  `mori://shinzui/mori` uses the engine's parser unchanged. `mori://shinzui/rei`
+  re-implements the command type, the parser, and the install flow to add an fzf picker,
+  and `mori://shinzui/okf` mirrors the parser verbatim to derive `Eq` and name its project
+  directory in help text. The request also asks `KitCommand` to derive `Eq` and the help to
+  be derived from `toolName`, which removes okf's reasons for its mirror.
+
+* **Addition**: IR-7 asks `kit status` to report local edits. `status` compares the
+  sidecar's upstream-source hash with the cached checkout and calls a mismatch `dirty`,
+  which means the kit changed upstream without a version bump. The installed-file hash
+  that `kit update` checks through `locallyModified` is never read by `status`. An item
+  edited in place is therefore shown as `up-to-date` until `update` skips it. The behaviour
+  is documented, so this is a reporting gap rather than a defect. The request also asks
+  that `dirty` stop meaning upstream drift.
+
+* **Addition**: IR-8 asks `KitConfig` to say how the project root is found, because every
+  project-scope path, including `agentDirsForSession`, is derived from the current
+  directory. A `--project` install from a subdirectory lands in that subdirectory, and a
+  session started from one finds no project skills. The request keeps the current behaviour
+  as the default and asks for a marker-walking resolver out of the box.
+
+* **Addition**: IR-9 asks for `--json` output on `kit list`, `kit status`, and `kit update`,
+  backed by versioned encodings of the manifest, status report, and update report, all of
+  which are already structured types without `ToJSON` instances.
+
 ## 2026-08-11
 
 * **Addition**: IR-5 asks the interactive launchers to delegate Ctrl-C to the session they
