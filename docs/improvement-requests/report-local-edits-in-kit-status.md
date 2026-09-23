@@ -7,7 +7,8 @@ description: >-
   that currently calls upstream drift "dirty".
 timestamp: 2026-09-23T13:49:07Z
 requestId: IR-7
-status: proposed
+status: accepted
+targetPlan: docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md
 origin: mori://shinzui/mori
 ---
 
@@ -15,9 +16,22 @@ origin: mori://shinzui/mori
 
 ## Status
 
-Proposed. This is a reporting gap, not a defect. The current behaviour is documented in
-`docs/user/kit.md`. The problem is that `status` and `update` disagree about whether an
-item has been modified, and `status` is the command a user runs to find out.
+Accepted and planned on 2026-09-23. The accepted design is EP-2,
+[docs/plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md](../plans/79-report-local-edits-and-upstream-drift-as-separate-kit-status-conditions.md),
+of the MasterPlan
+[docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md](../masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md),
+which ships IR-6 through IR-9 together as `baikai-kit 0.3.0.0`.
+
+The names left to review are settled as `modified` (local edits), `changed-upstream` (upstream
+sources changed without a version bump), and `edits-unknown` (a sidecar written before
+`installedHash` existed); `unknown`, `delisted`, `refused`, `outdated`, and `up-to-date` keep
+their meanings. `KitState` is replaced by a sorted list of `KitCondition` flags on
+`StatusRow.conditions`, which is how the conditions compose. The installed-file comparison is
+factored into one exported check that both `kit status` and `kit update` call.
+
+This is a reporting gap, not a defect. The current behaviour is documented in
+`docs/user/kit.md`. The problem is that `status` and `update` disagree about whether an item has
+been modified, and `status` is the command a user runs to find out.
 
 ## Context
 

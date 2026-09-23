@@ -2,6 +2,19 @@
 
 ## 2026-09-23
 
+* **Planned**: IR-6, IR-7, IR-8, and IR-9 are `accepted`, each linked through `targetPlan` to
+  its ExecPlan under
+  `docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md`, which ships
+  all four as `baikai-kit 0.3.0.0`. IR-8 is `docs/plans/78` and IR-7 is `docs/plans/79`; both
+  can proceed at once. IR-6 is `docs/plans/80` and follows IR-8, because both add a field to
+  `KitConfig` and the IR-8 plan introduces the `kitConfig` smart constructor the second field
+  extends. IR-9 is `docs/plans/81` and comes last, because its status document encodes IR-7's
+  new condition vocabulary and its `--json` flags extend IR-6's reshaped command type. One
+  correction is recorded against IR-8: a new `KitConfig` field cannot be additive for callers
+  that build the record literally, so "supplies nothing" is honoured through the smart
+  constructor and the release is a major version. IR-6's criteria 4 and 5 are met by the new
+  API's shape and closed when `mori://shinzui/rei` and `mori://shinzui/okf` adopt it.
+
 * **Addition**: IR-6 asks `kit install` to take an optional name and `KitConfig` to take a
   caller-supplied chooser, so a tool can offer an interactive picker without rebuilding the
   command around the engine. Of the three tools that ship `kit` on `baikai-kit`, only

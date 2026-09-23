@@ -7,7 +7,8 @@ description: >-
   without parsing a column-aligned table.
 timestamp: 2026-09-23T13:49:07Z
 requestId: IR-9
-status: proposed
+status: accepted
+targetPlan: docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md
 origin: mori://shinzui/mori
 ---
 
@@ -15,8 +16,22 @@ origin: mori://shinzui/mori
 
 ## Status
 
-Proposed. This is a convenience rather than a blocker, but it is cheap because the data is
-already structured.
+Accepted and planned on 2026-09-23. The accepted design is EP-4,
+[docs/plans/81-add-versioned-json-output-to-kit-list-status-and-update.md](../plans/81-add-versioned-json-output-to-kit-list-status-and-update.md),
+of the MasterPlan
+[docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md](../masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md).
+It is sequenced after the IR-7 plan, because the status document encodes the condition
+vocabulary that plan introduces, and after the IR-6 plan, because it extends the command type
+that plan reshapes. Its final milestone prepares the `baikai-kit 0.3.0.0` release.
+
+The shapes are exposed as explicit encoder functions (`listDocument`, `statusDocument`,
+`updateDocument` in a new `Baikai.Kit.Json` module) rather than `ToJSON` instances, so renaming
+a Haskell field cannot silently change the contract. Each document carries `formatVersion` and
+`document`, every documented key is always present, and a failed command writes nothing to
+stdout.
+
+This is a convenience rather than a blocker, but it is cheap because the data is already
+structured.
 
 ## Context
 

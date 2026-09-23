@@ -7,7 +7,8 @@ description: >-
   command type, parser, and install flow around baikai-kit.
 timestamp: 2026-09-23T13:49:07Z
 requestId: IR-6
-status: proposed
+status: accepted
+targetPlan: docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md
 origin: mori://shinzui/mori
 ---
 
@@ -15,9 +16,24 @@ origin: mori://shinzui/mori
 
 ## Status
 
-Proposed. Nothing is blocked: every consumer can install by name today. The cost is
-duplication. Of the three tools that ship a `kit` command on `baikai-kit`, only one uses the
-engine's command surface unchanged, and the other two each keep a local copy of it.
+Accepted and planned on 2026-09-23. The accepted design is EP-3,
+[docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md](../plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md),
+of the MasterPlan
+[docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md](../masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md),
+which also carries IR-7, IR-8, and IR-9 and ships them together as `baikai-kit 0.3.0.0`.
+
+The plan meets the contract as written, with these resolutions. `kitCommandParser` becomes
+`KitConfig -> Parser KitCommand`, so one parser can name `.<tool>/agents` in its help; the one
+consumer that uses the engine's parser directly (`mori://shinzui/mori`) passes its config. With
+no name and no chooser, `kit install` fails with the new `KitItemNameRequired` before touching
+the network. A cancelled choice prints `No item chosen; nothing installed.` and exits 0. The
+chooser is offered to `install` only. Acceptance criteria 4 and 5 are met by the shape of the
+new API; the deletions they describe are made in `mori://shinzui/rei` and `mori://shinzui/okf`
+after those tools raise their bound to `baikai-kit ^>=0.3`, outside this repository.
+
+Nothing is blocked: every consumer can install by name today. The cost is duplication. Of the
+three tools that ship a `kit` command on `baikai-kit`, only one uses the engine's command
+surface unchanged, and the other two each keep a local copy of it.
 
 ## Context
 

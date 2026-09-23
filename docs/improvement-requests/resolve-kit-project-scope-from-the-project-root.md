@@ -6,7 +6,8 @@ description: >-
   discovery use the same directory no matter which subdirectory the tool was run from.
 timestamp: 2026-09-23T13:49:07Z
 requestId: IR-8
-status: proposed
+status: accepted
+targetPlan: docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md
 origin: mori://shinzui/mori
 ---
 
@@ -14,8 +15,22 @@ origin: mori://shinzui/mori
 
 ## Status
 
-Proposed. Every consumer inherits this behaviour, and no consumer currently has a way to
-override it.
+Accepted and planned on 2026-09-23. The accepted design is EP-1,
+[docs/plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md](../plans/78-resolve-kit-project-scope-from-a-configurable-project-root.md),
+of the MasterPlan
+[docs/masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md](../masterplans/13-close-the-baikai-kit-consumer-gaps-from-ir-6-to-ir-9.md),
+which ships IR-6 through IR-9 together as `baikai-kit 0.3.0.0`.
+
+One correction to the contract. Item 4 asks for a change that is additive for existing callers,
+but every consumer builds `KitConfig` as a record literal, and in Haskell omitting a strict field
+is a compile error rather than a default. The plan therefore adds `projectRoot :: IO FilePath`
+together with a smart constructor, `kitConfig`, whose default is today's current-directory
+behaviour: a consumer that switches to `kitConfig` and supplies nothing sees no behaviour change,
+but the release is a major version. The ready-made resolver is `projectRootByMarkers`, built on
+`findProjectRoot`; it does not canonicalise paths and falls back to the current directory when
+no marker is found.
+
+Every consumer inherits this behaviour, and no consumer currently has a way to override it.
 
 ## Context
 
