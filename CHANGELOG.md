@@ -7,12 +7,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.7.1.0] - 2026-09-23
+
 ### Added
 
 - Curated GPT-6 Sol and Luna on OpenAI Responses and Claude Opus 5.5 on
-  Anthropic Messages, with endpoint compatibility and standard, long-context,
-  cache-duration, and fast-mode prices where applicable. Live acceptance for
-  these three bindings remains outstanding.
+  Anthropic Messages (`openai_gpt_6_sol`, `openai_gpt_6_luna`,
+  `anthropic_claude_opus_5_5`), with endpoint compatibility and standard,
+  long-context, cache-duration, and fast-mode prices where applicable. All
+  three passed live acceptance on 2026-09-23. Sol and Luna dispatch to
+  `OpenAIResponses`, so calling them requires the
+  `Baikai.Provider.OpenAI.Responses.register` call that `baikai-openai 0.7.0.0`
+  introduced.
 
 ## [baikai-kit 0.3.0.0] - 2026-09-23
 

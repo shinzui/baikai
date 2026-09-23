@@ -65,6 +65,7 @@ import Baikai.Cost.Log
     summarizeContext,
   )
 import Baikai.Error (BaikaiError, providerError)
+
 -- 'Baikai.Evidence.CallStatus' has a @CallFailed@ constructor and so
 -- does 'Baikai.Trace.Event.TraceEvent'. They mean different things and
 -- both belong in this module, so the status constructors stay behind

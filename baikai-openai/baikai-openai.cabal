@@ -1,27 +1,33 @@
-cabal-version:   3.4
-name:            baikai-openai
-version:         0.7.0.0
-synopsis:        OpenAI providers for the baikai abstraction
+cabal-version: 3.4
+name: baikai-openai
+version: 0.7.0.0
+synopsis: OpenAI providers for the baikai abstraction
 description:
   OpenAI-compatible backends for baikai: Chat Completions over SSE against OpenAI and
   any host that emulates it, the codex exec batch provider, a launcher for interactive
   Codex sessions, and the renderer for unattended codex runs driven by baikai-agent.
 
-category:        AI
-license:         BSD-3-Clause
-license-file:    LICENSE
-author:          Nadeem Bitar
-maintainer:      nadeem@gmail.com
-copyright:       (c) 2026 Nadeem Bitar
-build-type:      Simple
-tested-with:     GHC ==9.12.4
+category: AI
+license: BSD-3-Clause
+license-file: LICENSE
+author: Nadeem Bitar
+maintainer: nadeem@gmail.com
+copyright: (c) 2026 Nadeem Bitar
+build-type: Simple
+tested-with: ghc ==9.12.4
 extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
-    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
-    -Wincomplete-record-updates -Wredundant-constraints
-    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
     -Wmissing-deriving-strategies
 
   -- Exhaustiveness is an error, not a warning. A non-exhaustive match
@@ -36,10 +42,11 @@ common common-options
   -- fail the build on warnings that are stylistic or that a future GHC
   -- invents, and would push people toward blanket suppression.
   ghc-options:
-    -Werror=incomplete-patterns -Werror=incomplete-uni-patterns
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
     -Werror=incomplete-record-updates
 
-  default-language:   GHC2024
+  default-language: GHC2024
   default-extensions:
     DeriveAnyClass
     DuplicateRecordFields
@@ -47,8 +54,8 @@ common common-options
     OverloadedStrings
 
 library
-  import:          common-options
-  hs-source-dirs:  src
+  import: common-options
+  hs-source-dirs: src
   exposed-modules:
     Baikai.Provider.OpenAI.Agent
     Baikai.Provider.OpenAI.Api
@@ -66,36 +73,36 @@ library
     Baikai.Provider.OpenAI.Sse
     Baikai.Provider.OpenAI.Transport
 
-  other-modules:   Paths_baikai_openai
+  other-modules: Paths_baikai_openai
   autogen-modules: Paths_baikai_openai
   build-depends:
-    , aeson              ^>=2.2
-    , baikai             ^>=0.7.0
-    , base               >=4.20   && <5
-    , base64-bytestring  ^>=1.2
-    , bytestring         ^>=0.12
-    , case-insensitive   ^>=1.2
-    , containers         ^>=0.7
-    , generic-lens       ^>=2.3
-    , http-client        ^>=0.7
-    , http-client-tls    >=0.3    && <0.5
-    , http-types         ^>=0.12
-    , lens               ^>=5.3
-    , openai             ^>=2.5
-    , process            ^>=1.6
-    , scientific         ^>=0.3
-    , servant-client     ^>=0.20
-    , streamly           >=0.11   && <0.13
-    , streamly-core      >=0.3    && <0.5
-    , text               ^>=2.1
-    , time               ^>=1.14
-    , vector             ^>=0.13
+    aeson ^>=2.2,
+    baikai ^>=0.7.0,
+    base >=4.20 && <5,
+    base64-bytestring ^>=1.2,
+    bytestring ^>=0.12,
+    case-insensitive ^>=1.2,
+    containers ^>=0.7,
+    generic-lens ^>=2.3,
+    http-client ^>=0.7,
+    http-client-tls >=0.3 && <0.5,
+    http-types ^>=0.12,
+    lens ^>=5.3,
+    openai ^>=2.5,
+    process ^>=1.6,
+    scientific ^>=0.3,
+    servant-client ^>=0.20,
+    streamly >=0.11 && <0.13,
+    streamly-core >=0.3 && <0.5,
+    text ^>=2.1,
+    time ^>=1.14,
+    vector ^>=0.13,
 
 test-suite baikai-openai-test
-  import:         common-options
-  type:           exitcode-stdio-1.0
+  import: common-options
+  type: exitcode-stdio-1.0
   hs-source-dirs: test
-  main-is:        Main.hs
+  main-is: Main.hs
   other-modules:
     BillingSpec
     CliEvidenceSpec
@@ -117,28 +124,28 @@ test-suite baikai-openai-test
     TransportSpec
 
   build-depends:
-    , aeson
-    , baikai            ^>=0.7.0
-    , baikai-openai
-    , base              >=4.20   && <5
-    , bytestring
-    , case-insensitive
-    , containers
-    , directory
-    , filepath
-    , generic-lens
-    , http-client
-    , http-types
-    , lens              ^>=5.3
-    , network
-    , openai
-    , servant-client
-    , stm
-    , streamly-core     >=0.3    && <0.5
-    , tasty
-    , tasty-hunit
-    , temporary
-    , text              ^>=2.1
-    , time
-    , tls
-    , vector
+    aeson,
+    baikai ^>=0.7.0,
+    baikai-openai,
+    base >=4.20 && <5,
+    bytestring,
+    case-insensitive,
+    containers,
+    directory,
+    filepath,
+    generic-lens,
+    http-client,
+    http-types,
+    lens ^>=5.3,
+    network,
+    openai,
+    servant-client,
+    stm,
+    streamly-core >=0.3 && <0.5,
+    tasty,
+    tasty-hunit,
+    temporary,
+    text ^>=2.1,
+    time,
+    tls,
+    vector,

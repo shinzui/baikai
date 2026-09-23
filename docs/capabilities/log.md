@@ -2,6 +2,13 @@
 
 ## 2026-09-23
 
+* **Update**: CAP-3 (generated model catalog) and CAP-23 (OpenAI Responses API
+  backend) record `baikai 0.7.1.0`, which adds `openai_gpt_6_sol`,
+  `openai_gpt_6_luna`, and `anthropic_claude_opus_5_5`. Sol and Luna carry the
+  `OpenAIResponses` dispatch override, so CAP-23's upgrade note now names them
+  beside Astra. The catalog grew without a new `compat` field, so both records
+  keep their `since`.
+
 * **Update**: CAP-21 (kit installer) records `KitConfig.projectRoot`, the
   `kitConfig` smart constructor, and the `projectRootByMarkers` and
   `findProjectRoot` resolvers (IR-8). Project scope used to be whatever

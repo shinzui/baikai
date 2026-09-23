@@ -74,7 +74,8 @@ the other.
 GPT-6 Astra carries `OpenAIResponses` in the generated catalog, so a program that
 upgrades to `baikai-openai 0.7.0.0` and calls Astra **must** add the second
 `register` call or dispatch fails. This is the one upgrade step this release
-asks for.
+asks for. GPT-6 Sol and Luna, added in `baikai 0.7.1.0`, carry the same
+override and need the same call.
 
 ## Shape
 

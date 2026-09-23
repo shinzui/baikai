@@ -15,9 +15,7 @@ packages:
 -- All dependencies resolve from Hackage: claude, openai, cradle,
 -- hs-opentelemetry-api, hs-opentelemetry-sdk, hs-opentelemetry-exporter-in-memory,
 -- and the streamly / streamly-core pair (latest released 0.11 / 0.3).
-
 test-show-details: direct
 tests: True
-
 -- Parallel module compilation
 jobs: $ncpus

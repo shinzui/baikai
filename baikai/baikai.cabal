@@ -1,7 +1,7 @@
-cabal-version:   3.4
-name:            baikai
-version:         0.7.0.0
-synopsis:        Unified Haskell interface for multiple AI providers
+cabal-version: 3.4
+name: baikai
+version: 0.7.1.0
+synopsis: Unified Haskell interface for multiple AI providers
 description:
   baikai provides a unified, provider-agnostic Haskell interface for working
   with multiple AI providers. It abstracts chat and streaming completions, tool
@@ -9,21 +9,27 @@ description:
   concrete provider implementations supplied by companion packages such as
   @baikai-claude@ and @baikai-openai@.
 
-category:        AI
-license:         BSD-3-Clause
-license-file:    LICENSE
-author:          Nadeem Bitar
-maintainer:      nadeem@gmail.com
-copyright:       (c) 2026 Nadeem Bitar
-build-type:      Simple
-tested-with:     GHC ==9.12.4
+category: AI
+license: BSD-3-Clause
+license-file: LICENSE
+author: Nadeem Bitar
+maintainer: nadeem@gmail.com
+copyright: (c) 2026 Nadeem Bitar
+build-type: Simple
+tested-with: ghc ==9.12.4
 extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
-    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
-    -Wincomplete-record-updates -Wredundant-constraints
-    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
     -Wmissing-deriving-strategies
 
   -- Exhaustiveness is an error, not a warning. A non-exhaustive match
@@ -38,10 +44,11 @@ common common-options
   -- fail the build on warnings that are stylistic or that a future GHC
   -- invents, and would push people toward blanket suppression.
   ghc-options:
-    -Werror=incomplete-patterns -Werror=incomplete-uni-patterns
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
     -Werror=incomplete-record-updates
 
-  default-language:   GHC2024
+  default-language: GHC2024
   default-extensions:
     DeriveAnyClass
     DuplicateRecordFields
@@ -49,8 +56,8 @@ common common-options
     OverloadedStrings
 
 library
-  import:          common-options
-  hs-source-dirs:  src
+  import: common-options
+  hs-source-dirs: src
   exposed-modules:
     Baikai
     Baikai.Agent
@@ -100,84 +107,90 @@ library
   -- it so an evidence record can name the build that produced it,
   -- centrally rather than through a literal in each of the five
   -- packages that construct evidence.
-  other-modules:   Paths_baikai
+  other-modules: Paths_baikai
   autogen-modules: Paths_baikai
   build-depends:
-    , aeson              ^>=2.2
-    , base               >=4.20  && <5
-    , base16-bytestring  ^>=1.0
-    , base64-bytestring  ^>=1.2
-    , bytestring         ^>=0.12
-    , case-insensitive   ^>=1.2
-    , containers         ^>=0.7
-    , cryptohash-sha256  ^>=0.11
-    , directory          ^>=1.3
-    , filepath           ^>=1.5
-    , generic-lens       ^>=2.3
-    , http-client        ^>=0.7
-    , http-client-tls    >=0.3   && <0.5
-    , http-types         ^>=0.12
-    , lens               ^>=5.3
-    , openai             ^>=2.5
-    , process            ^>=1.6
-    , scientific         ^>=0.3
-    , servant-client     ^>=0.20
-    , stm                ^>=2.5
-    , streamly           >=0.11  && <0.13
-    , streamly-core      >=0.3   && <0.5
-    , text               ^>=2.1
-    , time               ^>=1.14
-    , tls                >=2.2   && <2.5
-    , unliftio-core      ^>=0.2
-    , vector             ^>=0.13
+    aeson ^>=2.2,
+    base >=4.20 && <5,
+    base16-bytestring ^>=1.0,
+    base64-bytestring ^>=1.2,
+    bytestring ^>=0.12,
+    case-insensitive ^>=1.2,
+    containers ^>=0.7,
+    cryptohash-sha256 ^>=0.11,
+    directory ^>=1.3,
+    filepath ^>=1.5,
+    generic-lens ^>=2.3,
+    http-client ^>=0.7,
+    http-client-tls >=0.3 && <0.5,
+    http-types ^>=0.12,
+    lens ^>=5.3,
+    openai ^>=2.5,
+    process ^>=1.6,
+    scientific ^>=0.3,
+    servant-client ^>=0.20,
+    stm ^>=2.5,
+    streamly >=0.11 && <0.13,
+    streamly-core >=0.3 && <0.5,
+    text ^>=2.1,
+    time ^>=1.14,
+    tls >=2.2 && <2.5,
+    unliftio-core ^>=0.2,
+    vector ^>=0.13,
 
 executable baikai-gen-models
-  import:         common-options
+  import: common-options
   hs-source-dirs: gen
-  main-is:        GenModels.hs
-  other-modules:  GenModelsCore
+  main-is: GenModels.hs
+  other-modules: GenModelsCore
   build-depends:
-    , aeson       ^>=2.2
-    , baikai
-    , base        >=4.20  && <5
-    , bytestring  ^>=0.12
-    , containers  ^>=0.7
-    , directory   ^>=1.3
-    , filepath    ^>=1.5
-    , scientific  ^>=0.3
-    , text        ^>=2.1
+    aeson ^>=2.2,
+    baikai,
+    base >=4.20 && <5,
+    bytestring ^>=0.12,
+    containers ^>=0.7,
+    directory ^>=1.3,
+    filepath ^>=1.5,
+    scientific ^>=0.3,
+    text ^>=2.1,
 
 executable baikai-fetch-models
-  import:         common-options
+  import: common-options
   hs-source-dirs: fetch
-  main-is:        FetchModels.hs
-  other-modules:  FetchModelsCore
-
+  main-is: FetchModels.hs
+  other-modules: FetchModelsCore
   -- The main module is named @FetchModels@ (not @Main@) so the pure
   -- core can be compiled into the test suite alongside its own
   -- @Main.hs@ without a module-name clash.
-  ghc-options:    -main-is FetchModels
+  ghc-options:
+    -main-is
+    FetchModels
+
   build-depends:
-    , aeson            ^>=2.2
-    , baikai
-    , base             >=4.20  && <5
-    , bytestring       ^>=0.12
-    , containers       ^>=0.7
-    , directory        ^>=1.3
-    , filepath         ^>=1.5
-    , generic-lens     ^>=2.3
-    , http-client      ^>=0.7
-    , http-client-tls  >=0.3   && <0.5
-    , lens             ^>=5.3
-    , scientific       ^>=0.3
-    , text             ^>=2.1
-    , vector           ^>=0.13
+    aeson ^>=2.2,
+    baikai,
+    base >=4.20 && <5,
+    bytestring ^>=0.12,
+    containers ^>=0.7,
+    directory ^>=1.3,
+    filepath ^>=1.5,
+    generic-lens ^>=2.3,
+    http-client ^>=0.7,
+    http-client-tls >=0.3 && <0.5,
+    lens ^>=5.3,
+    scientific ^>=0.3,
+    text ^>=2.1,
+    vector ^>=0.13,
 
 test-suite baikai-test
-  import:             common-options
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test fetch gen
-  main-is:            Main.hs
+  import: common-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    test
+    fetch
+    gen
+
+  main-is: Main.hs
   other-modules:
     AgentAssetsSpec
     AgentSpec
@@ -209,29 +222,29 @@ test-suite baikai-test
 
   build-tool-depends: baikai:baikai-gen-models
   build-depends:
-    , aeson
-    , baikai
-    , base
-    , bytestring
-    , case-insensitive
-    , containers
-    , directory
-    , filepath
-    , generic-lens
-    , http-client
-    , http-types
-    , lens
-    , openai
-    , process
-    , scientific
-    , servant-client
-    , stm
-    , streamly-core     >=0.3 && <0.5
-    , tasty
-    , tasty-hunit
-    , tasty-quickcheck
-    , temporary
-    , text
-    , time
-    , tls
-    , vector
+    aeson,
+    baikai,
+    base,
+    bytestring,
+    case-insensitive,
+    containers,
+    directory,
+    filepath,
+    generic-lens,
+    http-client,
+    http-types,
+    lens,
+    openai,
+    process,
+    scientific,
+    servant-client,
+    stm,
+    streamly-core >=0.3 && <0.5,
+    tasty,
+    tasty-hunit,
+    tasty-quickcheck,
+    temporary,
+    text,
+    time,
+    tls,
+    vector,

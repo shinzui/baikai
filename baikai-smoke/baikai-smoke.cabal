@@ -1,26 +1,32 @@
-cabal-version:   3.4
-name:            baikai-smoke
-version:         0.1.0.0
-synopsis:        Live smoke tests across baikai providers
+cabal-version: 3.4
+name: baikai-smoke
+version: 0.1.0.0
+synopsis: Live smoke tests across baikai providers
 description:
   Runs minimal real-network requests against every shipped baikai provider when the
   corresponding API key environment variable is set. Skips, never fails, when keys
   are absent.
 
-license:         BSD-3-Clause
-license-file:    LICENSE
-author:          Nadeem Bitar
-maintainer:      nadeem@gmail.com
-copyright:       (c) 2026 Nadeem Bitar
-build-type:      Simple
-tested-with:     GHC ==9.12.4
+license: BSD-3-Clause
+license-file: LICENSE
+author: Nadeem Bitar
+maintainer: nadeem@gmail.com
+copyright: (c) 2026 Nadeem Bitar
+build-type: Simple
+tested-with: ghc ==9.12.4
 extra-doc-files: CHANGELOG.md
 
 common common-options
   ghc-options:
-    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
-    -Wincomplete-record-updates -Wredundant-constraints
-    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wincomplete-uni-patterns
+    -Wincomplete-record-updates
+    -Wredundant-constraints
+    -fhide-source-paths
+    -Wmissing-export-lists
+    -Wpartial-fields
     -Wmissing-deriving-strategies
 
   -- Exhaustiveness is an error, not a warning. A non-exhaustive match
@@ -35,10 +41,11 @@ common common-options
   -- fail the build on warnings that are stylistic or that a future GHC
   -- invents, and would push people toward blanket suppression.
   ghc-options:
-    -Werror=incomplete-patterns -Werror=incomplete-uni-patterns
+    -Werror=incomplete-patterns
+    -Werror=incomplete-uni-patterns
     -Werror=incomplete-record-updates
 
-  default-language:   GHC2024
+  default-language: GHC2024
   default-extensions:
     DeriveAnyClass
     DuplicateRecordFields
@@ -46,10 +53,10 @@ common common-options
     OverloadedStrings
 
 test-suite baikai-smoke
-  import:         common-options
-  type:           exitcode-stdio-1.0
+  import: common-options
+  type: exitcode-stdio-1.0
   hs-source-dirs: test
-  main-is:        Smoke.hs
+  main-is: Smoke.hs
   other-modules:
     CacheSmoke
     CompatSmoke
@@ -62,41 +69,44 @@ test-suite baikai-smoke
     ToolsSmoke
 
   -- cradle (used by Baikai.Provider.Claude.Cli) requires the threaded RTS.
-  ghc-options:    -threaded -with-rtsopts=-N
+  ghc-options:
+    -threaded
+    -with-rtsopts=-N
+
   build-depends:
-    , aeson
-    , baikai
-    , baikai-claude
-    , baikai-openai
-    , base               >=4.20  && <5
-    , base64-bytestring
-    , bytestring
-    , containers
-    , directory
-    , generic-lens
-    , lens               ^>=5.3
-    , process
-    , streamly           ^>=0.11
-    , streamly-core      ^>=0.3
-    , text               ^>=2.1
-    , vector
+    aeson,
+    baikai,
+    baikai-claude,
+    baikai-openai,
+    base >=4.20 && <5,
+    base64-bytestring,
+    bytestring,
+    containers,
+    directory,
+    generic-lens,
+    lens ^>=5.3,
+    process,
+    streamly ^>=0.11,
+    streamly-core ^>=0.3,
+    text ^>=2.1,
+    vector,
 
 test-suite smoke-options
-  import:         common-options
-  type:           exitcode-stdio-1.0
+  import: common-options
+  type: exitcode-stdio-1.0
   hs-source-dirs: test
-  main-is:        SmokeOptionsSpec.hs
-  other-modules:  SmokeOptions
-  build-depends:  base >=4.20 && <5
+  main-is: SmokeOptionsSpec.hs
+  other-modules: SmokeOptions
+  build-depends: base >=4.20 && <5
 
 -- Compiles every fenced `haskell` block under docs/capabilities/ and, when run,
 -- checks each block still matches the marked region of its Shape.CapN module.
 -- Never contacts a provider; every fixture is an error thunk.
 test-suite doc-shapes
-  import:         common-options
-  type:           exitcode-stdio-1.0
+  import: common-options
+  type: exitcode-stdio-1.0
   hs-source-dirs: doc-shapes
-  main-is:        DocShapes.hs
+  main-is: DocShapes.hs
   other-modules:
     Shape.Cap1
     Shape.Cap10
@@ -123,23 +133,23 @@ test-suite doc-shapes
     Shape.Fixtures
 
   build-depends:
-    , aeson
-    , baikai
-    , baikai-agent
-    , baikai-claude
-    , baikai-effectful
-    , baikai-kit
-    , baikai-openai
-    , baikai-trace-otel
-    , base                  >=4.20 && <5
-    , containers
-    , directory
-    , effectful-core        ^>=2.7
-    , filepath
-    , generic-lens
-    , hs-opentelemetry-api  >=1.0  && <1.1
-    , lens                  ^>=5.3
-    , settei-env            ^>=0.2
-    , streamly-core         ^>=0.3
-    , text                  ^>=2.1
-    , vector
+    aeson,
+    baikai,
+    baikai-agent,
+    baikai-claude,
+    baikai-effectful,
+    baikai-kit,
+    baikai-openai,
+    baikai-trace-otel,
+    base >=4.20 && <5,
+    containers,
+    directory,
+    effectful-core ^>=2.7,
+    filepath,
+    generic-lens,
+    hs-opentelemetry-api >=1.0 && <1.1,
+    lens ^>=5.3,
+    settei-env ^>=0.2,
+    streamly-core ^>=0.3,
+    text ^>=2.1,
+    vector,

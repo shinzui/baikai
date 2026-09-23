@@ -61,6 +61,7 @@ import Foreign.C.Error
     ePIPE,
     eTIMEDOUT,
   )
+
 -- Qualified: its 'IOErrorType' has a constructor named @OtherError@,
 -- which collides with the 'ErrorCategory' constructor of that name.
 import GHC.IO.Exception qualified as IOE
