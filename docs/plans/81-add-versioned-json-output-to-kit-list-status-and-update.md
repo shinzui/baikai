@@ -11,6 +11,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-23T14:11:21Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-23T16:14:22Z
+      mode: "implement"
+      note: "Milestones 1-3 implemented; baikai-kit 0.3.0.0 prepared"
 ---
 
 # Add versioned JSON output to kit list, status, and update
@@ -53,16 +59,36 @@ are complete (and therefore also
 
 ## Progress
 
-- [ ] Milestone 1: add `installedCopies` to `Baikai.Kit.Status`; add the `Baikai.Kit.Json` module with `kitJsonFormatVersion`, `listDocument`, `statusDocument`, and `updateDocument`; register it in the cabal file and the umbrella module.
-- [ ] Milestone 1: build the golden fixture, the stdout-capture helper, the normaliser, and the accept mode; generate and review `test/golden/{list,status,update}.json`; `cabal test baikai-kit` green.
-- [ ] Milestone 2: add `OutputFormat` and `--json` to `list`, `status`, and `update`; route JSON-mode warnings and the clone notice to stderr; update the quoted existing call sites; stdout-discipline tests green.
+- [x] (2026-09-23 16:30Z) Milestone 1: add `installedCopies` to `Baikai.Kit.Status`; add the `Baikai.Kit.Json` module with `kitJsonFormatVersion`, `listDocument`, `statusDocument`, and `updateDocument`; register it in the cabal file and the umbrella module.
+- [x] (2026-09-23 16:45Z) Milestone 1: build the golden fixture, the stdout-capture helper, the normaliser, and the accept mode; generate and review `test/golden/{list,status,update}.json`; `cabal test baikai-kit` green.
+- [x] (2026-09-23 16:45Z) Milestone 2: add `OutputFormat` and `--json` to `list`, `status`, and `update`; route JSON-mode warnings and the clone notice to stderr; update the quoted existing call sites; stdout-discipline tests green (72 tests, three consecutive runs).
 - [ ] Milestone 3: document the three documents and the format version in `docs/user/kit.md`; write the ADR; changelog entries.
 - [ ] Milestone 3: prepare `baikai-kit 0.3.0.0` — cabal version, changelog section, CAP-21 record and log; `cabal test all` and validators green.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- tasty's console reporter writes to stdout from its own thread, and prints the previous
+  test's `OK` and the current test's name at about the moment the current test starts (earlier
+  runs show a test's stderr interleaved mid-word with the reporter's `OK`). A capture that
+  redirects stdout immediately could record the reporter's text. `captureStdout` therefore
+  pauses 200 ms before redirecting; the reporter then blocks on the running test's result, so
+  nothing else writes to stdout during the capture. Three consecutive full runs were clean.
+- `kit-list` lists only what the manifest offers, so an installed item the manifest has
+  dropped (the fixture's `delta`) appears in `kit-status` as `delisted` but not in `kit-list`.
+  That is what `kit list` has always meant; the user guide says so.
+- `Baikai.Prelude` re-exports lens's `.=` and generic-lens's `field`, which clash with aeson's
+  `.=` and a test helper named `field`. `Baikai.Kit.Json` imports the prelude
+  `hiding ((.=))`, and the test helper is named `jsonKey`.
+- `baikai-kit/baikai-kit.cabal` was reflowed (single-space `field: value`, lower-case
+  `ghc`, trailing-comma dependency lists) in commit `044ab1b` when
+  `docs/plans/80-let-kit-install-choose-an-item-through-a-caller-supplied-chooser.md` formatted
+  it. That is the repository's current formatter: the `treefmt` pre-commit hook rejects the old
+  layout whenever the file is staged (`Error: unexpected changes detected, --fail-on-change is
+  enabled`). Other packages' `.cabal` files keep the old layout only because they have not been
+  touched since the formatter changed. The reflowed layout is kept.
+- A golden was checked to bite: renaming `"modified"` to `"edited"` in `status.json` fails
+  "kit-status document matches the golden" and nothing else.
 
 
 ## Decision Log

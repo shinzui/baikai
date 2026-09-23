@@ -5,6 +5,7 @@
 --   see @docs/adr/0013-library-code-never-calls-exitfailure.md@.
 module Baikai.Kit.Command
   ( KitCommand (..),
+    OutputFormat (..),
     kitCommandParser,
     runKit,
     runKitCommand,
@@ -23,23 +24,34 @@ import Baikai.Kit.Install
     uninstallItem,
     updateKit,
   )
+import Baikai.Kit.Json (listDocument, statusDocument, updateDocument)
 import Baikai.Kit.Manifest (KitManifest, itemKind, itemName)
 import Baikai.Kit.Repo (KitRepo, RepoRefresh (..), ensureKitRepo)
-import Baikai.Kit.Status (StatusReport, UpstreamAvailability (..), kitStatus, renderStatusTable)
+import Baikai.Kit.Status (StatusReport, UpstreamAvailability (..), installedCopies, kitStatus, renderStatusTable)
 import Baikai.Prelude
+import Data.Aeson (Value)
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as LBS
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Options.Applicative
 import System.Exit (ExitCode (ExitFailure), exitWith)
-import System.IO (stderr)
+import System.IO (Handle, stderr, stdout)
+
+-- | How @list@, @status@ and @update@ print their result: the terminal
+--   table, or exactly one JSON document on stdout (see "Baikai.Kit.Json").
+data OutputFormat
+  = HumanOutput
+  | JsonOutput
+  deriving stock (Eq, Show)
 
 data KitCommand
-  = KitList
+  = KitList !OutputFormat
   | -- | 'Nothing' asks the configured 'Baikai.Kit.Config.chooseItem'.
     KitInstall !(Maybe Text) !KitScope
-  | KitUpdate !(Maybe Text) !OverwritePolicy
+  | KitUpdate !(Maybe Text) !OverwritePolicy !OutputFormat
   | KitUninstall !Text !KitScope
-  | KitStatus
+  | KitStatus !OutputFormat
   deriving stock (Eq, Show)
 
 -- | The @kit@ subcommands. Takes the configuration so help text can name
@@ -47,43 +59,50 @@ data KitCommand
 kitCommandParser :: KitConfig -> Parser KitCommand
 kitCommandParser config =
   hsubparser
-    ( command "list" (info (pure KitList) (progDesc "List available skills and subagents"))
+    ( command "list" (info (KitList <$> formatParser) (progDesc "List available skills and subagents"))
         <> command "install" (info (installParser config) (progDesc "Install a skill or subagent"))
         <> command "update" (info updateParser (progDesc "Update installed skills and subagents"))
         <> command "uninstall" (info (uninstallParser config) (progDesc "Uninstall a skill or subagent"))
-        <> command "status" (info (pure KitStatus) (progDesc "Show installed skills and subagents"))
+        <> command "status" (info (KitStatus <$> formatParser) (progDesc "Show installed skills and subagents"))
     )
-    <|> pure KitList
+    <|> pure (KitList HumanOutput)
 
 -- | Run one verb and print its normal output. Never exits, so a consumer
 --   that wants its own exit codes can map the 'KitError' itself.
 runKitCommand :: KitConfig -> KitCommand -> IO (Either KitError ())
 runKitCommand config = \case
-  KitList -> withRepo $ \repo ->
+  KitList HumanOutput -> withRepo HumanOutput $ \repo ->
     loadManifest (repo ^. #dir) `thenE` \manifest ->
       printed (renderAvailable manifest)
-  KitInstall (Just n) scope -> withRepo $ \repo ->
+  KitList JsonOutput -> withRepo JsonOutput $ \repo ->
+    loadManifest (repo ^. #dir) `thenE` \manifest -> do
+      copies <- installedCopies config
+      emit (listDocument (repoAvailability repo) manifest copies)
+  KitInstall (Just n) scope -> withRepo HumanOutput $ \repo ->
     loadManifest (repo ^. #dir) `thenE` \manifest ->
       installNamed repo manifest n scope
   -- Without a chooser nothing the refresh could do changes the outcome,
   -- so fail before touching the network.
   KitInstall Nothing scope -> case config ^. #chooseItem of
     Nothing -> pure (Left KitItemNameRequired)
-    Just choose -> withRepo $ \repo ->
+    Just choose -> withRepo HumanOutput $ \repo ->
       loadManifest (repo ^. #dir) `thenE` \manifest -> do
         picked <- choose manifest
         case picked of
           Nothing -> printed "No item chosen; nothing installed."
           Just n -> installNamed repo manifest n scope
-  KitUpdate n policy ->
+  KitUpdate n policy HumanOutput ->
     updateKit config n policy `thenE` (printed . renderUpdateReport)
+  KitUpdate n policy JsonOutput ->
+    updateKit config n policy `thenE` (emit . updateDocument)
   KitUninstall n scope ->
     uninstallItem config n scope `thenE` (printed . renderUninstallReport n scope)
-  KitStatus -> do
+  KitStatus format -> do
     report <- kitStatus config
     noteUpstream report
-    Text.IO.putStrLn (renderStatusTable (report ^. #rows))
-    pure (Right ())
+    case format of
+      HumanOutput -> printed (renderStatusTable (report ^. #rows))
+      JsonOutput -> emit (statusDocument report)
   where
     installNamed :: KitRepo -> KitManifest -> Text -> KitScope -> IO (Either KitError ())
     installNamed repo manifest n scope =
@@ -93,8 +112,10 @@ runKitCommand config = \case
 
     -- List and install need the manifest, so a repository they cannot
     -- reach is an error; a stale cache is a warning and the work goes on.
-    withRepo :: (KitRepo -> IO (Either KitError ())) -> IO (Either KitError ())
-    withRepo next = do
+    -- In JSON mode stdout carries only the document, so the clone notice
+    -- goes to stderr with the warnings.
+    withRepo :: OutputFormat -> (KitRepo -> IO (Either KitError ())) -> IO (Either KitError ())
+    withRepo format next = do
       repo <- ensureKitRepo config
       case repo of
         Left err -> pure (Left err)
@@ -103,7 +124,8 @@ runKitCommand config = \case
             RepoStale err ->
               Text.IO.hPutStrLn stderr $
                 "Warning: kit repository could not be refreshed (" <> Text.strip err <> "); using the cached copy."
-            RepoCloned -> Text.IO.putStrLn ("Fetched " <> (config ^. #toolName) <> "-kit.")
+            RepoCloned ->
+              Text.IO.hPutStrLn (noticeHandle format) ("Fetched " <> (config ^. #toolName) <> "-kit.")
             RepoPulled -> pure ()
           next resolved
 
@@ -126,6 +148,20 @@ runKitCommand config = \case
 
     printed :: Text -> IO (Either KitError ())
     printed message = Right <$> Text.IO.putStrLn message
+
+    -- One document, UTF-8 encoded whatever the locale (ADR 0007).
+    emit :: Value -> IO (Either KitError ())
+    emit document = Right <$> LBS.hPut stdout (Aeson.encode document <> "\n")
+
+    noticeHandle :: OutputFormat -> Handle
+    noticeHandle HumanOutput = stdout
+    noticeHandle JsonOutput = stderr
+
+    repoAvailability :: KitRepo -> UpstreamAvailability
+    repoAvailability repo = case repo ^. #refresh of
+      RepoStale err -> UpstreamStale err
+      RepoCloned -> UpstreamReady
+      RepoPulled -> UpstreamReady
 
 -- | The command adapter: 'runKitCommand', then on 'Left' print
 --   @Error: \<renderKitError e\>@ to stderr and exit 1. This is the only
@@ -188,6 +224,10 @@ updateParser =
       KeepLocalEdits
       OverwriteLocalEdits
       (long "force" <> help "Reinstall items even if their installed files were modified locally")
+    <*> formatParser
+
+formatParser :: Parser OutputFormat
+formatParser = flag HumanOutput JsonOutput (long "json" <> help "Print one JSON document on stdout")
 
 uninstallParser :: KitConfig -> Parser KitCommand
 uninstallParser config =

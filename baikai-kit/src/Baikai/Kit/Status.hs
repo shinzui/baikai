@@ -1,10 +1,12 @@
 module Baikai.Kit.Status
   ( KitCondition (..),
+    InstalledCopy (..),
     StatusReport (..),
     StatusRow (..),
     UpstreamAvailability (..),
     classify,
     collectStatus,
+    installedCopies,
     kitStatus,
     conditionLabel,
     renderConditions,
@@ -172,6 +174,40 @@ collectStatus config cacheDir scopes = do
             installedVersion = mSidecar >>= (^. #version),
             latestVersion = mItem >>= itemVersion,
             conditions = sort (nub (upstreamConditions ++ localConditions))
+          }
+
+-- | One item at one scope for one provider, and where it is.
+data InstalledCopy = InstalledCopy
+  { name :: !Text,
+    kind :: !KitItemKind,
+    scope :: !KitScope,
+    provider :: !AgentAssetProvider,
+    -- | The skill directory or the agent file.
+    path :: !FilePath,
+    -- | From the sidecar; 'Nothing' without a readable one.
+    version :: !(Maybe Text)
+  }
+  deriving stock (Eq, Generic, Show)
+
+-- | Every installed copy at user and project scope, in filesystem order.
+--   Reads only local files.
+installedCopies :: KitConfig -> IO [InstalledCopy]
+installedCopies config =
+  fmap concat . forM [UserScope, ProjectScope] $ \scope -> do
+    items <- scanInstalled config scope
+    forM items $ \(provider, baseDir, itemName', scannedKind) -> do
+      mSidecar <- readSidecar (sidecarPath provider scannedKind itemName' baseDir (sidecarFileName config))
+      let relative = case scannedKind of
+            SkillKind -> skillTargetPath provider InteractiveProjectScope (Text.unpack itemName')
+            AgentKind -> agentTargetPath provider InteractiveProjectScope (Text.unpack itemName')
+      pure
+        InstalledCopy
+          { name = itemName',
+            kind = scannedKind,
+            scope,
+            provider,
+            path = baseDir </> relative,
+            version = mSidecar >>= (^. #version)
           }
 
 -- | The hash of an item's sources as they are in the cached checkout.

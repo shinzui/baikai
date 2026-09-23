@@ -13,10 +13,12 @@ import Baikai.Kit
     KitItemKind (..),
     KitManifest (..),
     KitScope (..),
+    OutputFormat (..),
     OverwritePolicy (..),
     PlannedWrite (..),
     PullResult (..),
     RemovalOutcome (..),
+    RepoRefresh (..),
     SidecarMeta (..),
     SkillEntry (..),
     UpstreamAvailability (..),
@@ -29,9 +31,12 @@ import Baikai.Kit
     executePlanWith,
     findProjectRoot,
     installItem,
+    installedCopies,
     kitCommandParser,
     kitConfig,
+    kitJsonFormatVersion,
     kitStatus,
+    listDocument,
     loadManifest,
     projectRootByMarkers,
     pullKitRepo,
@@ -46,19 +51,27 @@ import Baikai.Kit
     safeSourcePath,
     sidecarFileName,
     sidecarPath,
+    statusDocument,
     stripYamlFrontmatter,
     uninstallItem,
+    updateDocument,
     updateKit,
   )
 import Baikai.Prelude
+import Control.Concurrent (threadDelay)
 import Control.Exception (finally, try)
-import Control.Monad (void)
+import Control.Monad (forM_, void)
+import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
+import Data.Foldable (toList)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (find, isInfixOf, isSuffixOf, nub, sort)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Options.Applicative
   ( ParserResult (..),
     defaultPrefs,
@@ -86,9 +99,11 @@ import System.Directory
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
-import System.IO.Temp (withSystemTempDirectory)
+import System.IO (hClose, hFlush, stdout)
+import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, defaultMain, localOption, testGroup)
-import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 import Test.Tasty.Runners (NumThreads (NumThreads))
 
 main :: IO ()
@@ -108,7 +123,8 @@ main =
           typedErrorTests,
           installFidelityTests,
           projectRootTests,
-          commandTests
+          commandTests,
+          jsonTests
         ]
 
 manifestTests :: TestTree
@@ -487,7 +503,7 @@ typedErrorTests =
           createDirectoryIfMissing True home
           setEnv "HOME" home
           flip finally (restoreHome oldHome) $ do
-            exitResult <- try @ExitCode (runKit config KitStatus)
+            exitResult <- try @ExitCode (runKit config (KitStatus HumanOutput))
             exitResult @?= Right ()
             report <- kitStatus config
             (report ^. #rows) @?= []
@@ -646,6 +662,265 @@ mkAgentItem n mVersion =
         files = Nothing
       }
 
+jsonTests :: TestTree
+jsonTests =
+  testGroup
+    "JSON"
+    [ testCase "kit-status document matches the golden" $
+        withStatusFixture $ \home proj config -> do
+          document <- statusDocument <$> kitStatus config
+          golden "status.json" (normalise home proj document),
+      testCase "kit-list document matches the golden" $
+        withStatusFixture $ \home proj config -> do
+          manifest <- assertRight =<< loadManifest (fixtureCache home)
+          copies <- installedCopies config
+          golden "list.json" (normalise home proj (listDocument (UpstreamStale "x") manifest copies)),
+      testCase "kit-update document matches the golden" $
+        withPreparedKitHome $ \home cache -> do
+          let config = testConfig & #projectRoot .~ pure (home </> "project")
+          _ <- assertRight =<< installItem config "demo" UserScope
+          _ <- assertRight =<< installItem config "reviewer" UserScope
+          BS.writeFile (home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo" </> "SKILL.md") "my edits"
+          manifest <- assertRight =<< loadManifest cache
+          report <- assertRight =<< reinstallPresent config cache manifest Nothing KeepLocalEdits
+          golden "update.json" (updateDocument report)
+          jsonKey "refresh" (updateDocument (report & #refresh .~ Just RepoPulled)) @?= Just (String "pulled"),
+      testCase "every document names its format version" $
+        withStatusFixture $ \home _proj config -> do
+          manifest <- assertRight =<< loadManifest (fixtureCache home)
+          copies <- installedCopies config
+          statusDoc <- statusDocument <$> kitStatus config
+          report <- assertRight =<< reinstallPresent config (fixtureCache home) manifest (Just "no-such-item") KeepLocalEdits
+          let documents =
+                [ ("kit-list", listDocument UpstreamReady manifest copies),
+                  ("kit-status", statusDoc),
+                  ("kit-update", updateDocument report)
+                ]
+          forM_ documents $ \(name, document) -> do
+            jsonKey "formatVersion" document @?= Just (Aeson.toJSON kitJsonFormatVersion)
+            jsonKey "document" document @?= Just (String name),
+      testCase "status --json parses as one document when the cache is stale" $
+        withPreparedKitHome $ \_home _cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          (result, out) <- captureStdout (runKitCommand testConfig (KitStatus JsonOutput))
+          result @?= Right ()
+          document <- decodeDocument out
+          (jsonKey "upstream" document >>= jsonKey "state") @?= Just (String "stale"),
+      testCase "status --json parses as one document when the repository is unreachable" $
+        withFreshHome $ \_home -> do
+          let config = testConfig & #repoUrl .~ "file:///nonexistent-kit"
+          (result, out) <- captureStdout (runKitCommand config (KitStatus JsonOutput))
+          result @?= Right ()
+          document <- decodeDocument out
+          (jsonKey "upstream" document >>= jsonKey "state") @?= Just (String "unavailable")
+          jsonKey "items" document @?= Just (Array mempty),
+      testCase "list --json writes nothing to stdout when the repository is unreachable" $
+        withFreshHome $ \_home -> do
+          let config = testConfig & #repoUrl .~ "file:///nonexistent-kit"
+          (result, out) <- captureStdout (runKitCommand config (KitList JsonOutput))
+          assertKitError "KitCloneFailed" isCloneFailed result
+          out @?= "",
+      testCase "list --json keeps the first-clone notice off stdout" $
+        withFreshHome $ \home -> do
+          let repoDir = takeDirectory home </> "kit-repo"
+          createDirectoryIfMissing True (repoDir </> "skills" </> "demo")
+          createDirectoryIfMissing True (repoDir </> "agents")
+          BS.writeFile (repoDir </> "skills" </> "demo" </> "SKILL.md") "skill instructions\n"
+          BS.writeFile (repoDir </> "agents" </> "reviewer.md") "---\nname: reviewer\n---\nReview carefully.\n"
+          BS.writeFile (repoDir </> "kit.json") manifestJson
+          git repoDir ["init", "--quiet"]
+          git repoDir ["add", "."]
+          git repoDir ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "kit"]
+          let config = testConfig & #repoUrl .~ ("file://" <> Text.pack repoDir)
+          (result, out) <- captureStdout (runKitCommand config (KitList JsonOutput))
+          result @?= Right ()
+          document <- decodeDocument out
+          (jsonKey "upstream" document >>= jsonKey "state") @?= Just (String "ready")
+          case jsonKey "items" document of
+            Just (Array items) -> map (jsonKey "name") (toList items) @?= [Just (String "demo"), Just (String "reviewer")]
+            other -> assertFailure ("expected an items array, got " <> show other),
+      testCase "update --json writes nothing to stdout when the pull fails" $
+        withPreparedKitHome $ \_home _cache -> do
+          (result, out) <- captureStdout (runKitCommand testConfig (KitUpdate Nothing KeepLocalEdits JsonOutput))
+          assertKitError "KitPullFailed" isPullFailed result
+          out @?= "",
+      testCase "the command and the encoder agree" $
+        withStatusFixture $ \home proj config -> do
+          (result, out) <- captureStdout (runKitCommand config (KitStatus JsonOutput))
+          result @?= Right ()
+          document <- decodeDocument out
+          golden "status.json" (normalise home proj document),
+      testCase "--json parses on list, status, and update only" $ do
+        let parse = getParseResult . execParserPure defaultPrefs (info (kitCommandParser testConfig) mempty)
+        parse ["list", "--json"] @?= Just (KitList JsonOutput)
+        parse ["status", "--json"] @?= Just (KitStatus JsonOutput)
+        parse ["update", "--json"] @?= Just (KitUpdate Nothing KeepLocalEdits JsonOutput)
+        parse ["install", "demo", "--json"] @?= Nothing
+    ]
+  where
+    isCloneFailed = \case
+      KitCloneFailed _ _ -> True
+      _ -> False
+    git dir args = do
+      (code, _out, err) <- readProcessWithExitCode "git" ("-C" : dir : args) ""
+      assertBool ("git " <> unwords args <> " failed: " <> err) (code == ExitSuccess)
+    decodeDocument out = case Aeson.eitherDecodeStrict' out of
+      Right document -> pure document
+      Left err -> assertFailure ("stdout is not one JSON document (" <> err <> "): " <> show out)
+
+-- | A temporary, empty @HOME@ for the duration of the action.
+withFreshHome :: (FilePath -> IO a) -> IO a
+withFreshHome action =
+  withSystemTempDirectory "baikai-kit-fresh" $ \tmp -> do
+    oldHome <- lookupEnv "HOME"
+    let home = tmp </> "home"
+    createDirectoryIfMissing True home
+    setEnv "HOME" home
+    action home `finally` restoreHome oldHome
+
+fixtureCache :: FilePath -> FilePath
+fixtureCache home = home </> ".cache" </> "testkit" </> "kit"
+
+-- | Seven items covering every status condition, both kinds, both scopes,
+--   and both providers. The action gets @HOME@, the project root, and a
+--   config whose project scope is that root.
+withStatusFixture :: (FilePath -> FilePath -> KitConfig -> IO a) -> IO a
+withStatusFixture action =
+  withPreparedKitHome $ \home cache -> do
+    let proj = takeDirectory home </> "project"
+        config = testConfig & #projectRoot .~ pure proj
+        skills = ["alpha", "beta", "gamma", "delta", "epsilon"]
+        agents = ["reviewer", "planner"]
+        claudeBase = home </> ".config" </> "testkit" </> "agents" </> ".claude"
+    createDirectoryIfMissing True proj
+    forM_ skills $ \n -> do
+      createDirectoryIfMissing True (cache </> "skills" </> n)
+      BS.writeFile (cache </> "skills" </> n </> "SKILL.md") ("the " <> Text.Encoding.encodeUtf8 (Text.pack n) <> " skill\n")
+    forM_ agents $ \n ->
+      BS.writeFile (cache </> "agents" </> (n <> ".md")) ("---\nname: " <> Text.Encoding.encodeUtf8 (Text.pack n) <> "\n---\nBe helpful.\n")
+    BS.writeFile (cache </> "kit.json") (fixtureManifest [] [])
+    forM_ ["alpha", "gamma", "epsilon", "reviewer"] $ \n ->
+      void (assertRight =<< installItem config n UserScope)
+    forM_ ["beta", "delta", "planner"] $ \n ->
+      void (assertRight =<< installItem config n ProjectScope)
+    -- alpha: the Codex copy loses its sidecar => unknown.
+    removeFile (home </> ".agents" </> "skills" </> "alpha" </> ".testkit-kit.json")
+    -- gamma: upstream sources change without a version bump => changed-upstream.
+    BS.writeFile (cache </> "skills" </> "gamma" </> "SKILL.md") "the gamma skill, revised\n"
+    -- epsilon: upstream now lists a file through a symbolic link => refused.
+    let outsideDir = takeDirectory home </> "outside"
+    createDirectoryIfMissing True outsideDir
+    BS.writeFile (outsideDir </> "secret.txt") "top secret\n"
+    createDirectoryLink outsideDir (cache </> "skills" </> "epsilon" </> "sub")
+    -- reviewer: the Claude copy is edited => modified.
+    BS.writeFile (claudeBase </> "agents" </> "reviewer.md") "my own reviewer\n"
+    -- planner: the Claude sidecar predates the installed-file hash => edits-unknown.
+    let plannerSidecar = proj </> ".testkit" </> "agents" </> ".claude" </> "agents" </> "planner.testkit-kit.json"
+    sidecar <- maybe (assertFailure "expected the planner sidecar") pure =<< readSidecar plannerSidecar
+    LBS.writeFile plannerSidecar (Aeson.encode (sidecar & #installedFiles .~ Nothing & #installedHash .~ Nothing))
+    -- beta: version bump => outdated; delta: removed => delisted.
+    BS.writeFile (cache </> "kit.json") (fixtureManifest ["beta"] ["delta"])
+    action home proj config
+
+-- | The fixture manifest: every item at 0.1.0 except those in @bumped@
+--   (0.2.0), without those in @removed@; once anything is bumped, epsilon
+--   also lists a file below its symlinked @sub@ directory.
+fixtureManifest :: [Text] -> [Text] -> BS.ByteString
+fixtureManifest bumped removed =
+  Text.Encoding.encodeUtf8 $
+    "{\"version\":2,\"skills\":["
+      <> Text.intercalate "," [skill n | n <- ["alpha", "beta", "gamma", "delta", "epsilon"], n `notElem` removed]
+      <> "],\"agents\":["
+      <> Text.intercalate "," [agent n | n <- ["reviewer", "planner"], n `notElem` removed]
+      <> "]}"
+  where
+    final = not (null bumped)
+    version n = if n `elem` bumped then "0.2.0" else "0.1.0"
+    files n
+      | n == "epsilon" && final = "[\"SKILL.md\",\"sub/secret.txt\"]"
+      | otherwise = "[\"SKILL.md\"]"
+    skill n =
+      "{\"name\":\""
+        <> n
+        <> "\",\"description\":\"The "
+        <> n
+        <> " skill\",\"version\":\""
+        <> version n
+        <> "\",\"path\":\"skills/"
+        <> n
+        <> "\",\"files\":"
+        <> files n
+        <> "}"
+    agent n =
+      "{\"name\":\""
+        <> n
+        <> "\",\"description\":\"The "
+        <> n
+        <> " agent\",\"version\":\""
+        <> version n
+        <> "\",\"path\":\"agents/"
+        <> n
+        <> ".md\"}"
+
+-- | Run an action with stdout sent to a file, and return what it wrote.
+--   The pause first lets tasty's reporter finish writing the test name,
+--   which it does on stdout from another thread as the test starts.
+captureStdout :: IO a -> IO (a, BS.ByteString)
+captureStdout action =
+  withSystemTempFile "baikai-kit-stdout" $ \file fileHandle -> do
+    threadDelay 200000
+    hFlush stdout
+    saved <- hDuplicate stdout
+    hDuplicateTo fileHandle stdout
+    result <-
+      action `finally` do
+        hFlush stdout
+        hDuplicateTo saved stdout
+        hClose saved
+        hClose fileHandle
+    out <- BS.readFile file
+    pure (result, out)
+
+-- | Replace the temporary directories in every string with @$HOME@ and
+--   @$PROJECT@, and any upstream detail (git's message, which names paths
+--   and varies by git version) with @<detail>@.
+normalise :: FilePath -> FilePath -> Value -> Value
+normalise home proj = go
+  where
+    go = \case
+      String t -> String (Text.replace (Text.pack proj) "$PROJECT" (Text.replace (Text.pack home) "$HOME" t))
+      Array values -> Array (fmap go values)
+      Object o -> Object (KeyMap.mapWithKey (\key value -> if key == "upstream" then upstream value else go value) o)
+      other -> other
+    upstream = \case
+      Object o -> Object (KeyMap.mapWithKey (\key value -> if key == "detail" && value /= Null then String "<detail>" else value) o)
+      other -> other
+
+-- | Compare with @test/golden/<file>@, or write it when
+--   @BAIKAI_KIT_ACCEPT_GOLDEN@ is set. Values are compared decoded, so key
+--   order and whitespace are not part of the contract.
+golden :: FilePath -> Value -> Assertion
+golden file value = do
+  let path = "test" </> "golden" </> file
+  accept <- lookupEnv "BAIKAI_KIT_ACCEPT_GOLDEN"
+  case accept of
+    Just _ -> do
+      createDirectoryIfMissing True ("test" </> "golden")
+      LBS.writeFile path (Aeson.encode value <> "\n")
+    Nothing -> do
+      expected <- Aeson.eitherDecodeFileStrict' path
+      case expected of
+        Left err -> assertFailure ("cannot read golden " <> path <> ": " <> err)
+        Right expectedValue ->
+          assertBool
+            ("golden " <> path <> " differs.\nexpected: " <> show (Aeson.encode expectedValue) <> "\nactual:   " <> show (Aeson.encode value))
+            (expectedValue == (value :: Value))
+
+jsonKey :: Aeson.Key -> Value -> Maybe Value
+jsonKey key = \case
+  Object o -> KeyMap.lookup key o
+  _ -> Nothing
+
 commandTests :: TestTree
 commandTests =
   testGroup
@@ -653,7 +928,7 @@ commandTests =
     [ testCase "install parses with and without a name" $ do
         parse ["install"] @?= Just (KitInstall Nothing UserScope)
         parse ["install", "demo", "--project"] @?= Just (KitInstall (Just "demo") ProjectScope)
-        parse [] @?= Just KitList,
+        parse [] @?= Just (KitList HumanOutput),
       testCase "install help names the tool's project directory" $
         case execParserPure defaultPrefs (info (kitCommandParser testConfig <**> helper) mempty) ["install", "--help"] of
           Failure failure -> do
