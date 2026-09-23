@@ -1,19 +1,19 @@
-# Dev shell, built from the haskell-nix-dev base flake's mkDevShell (GHC 9.12.4 +
-# cabal + HLS). Add project-specific dev tools via
-# `haskellProject.extraDevPackages` from ../flake.module.nix, or directly in the
-# extraNativeBuildInputs list below.
-#
-# mkDevShell already provides: the GHC compiler, cabal, HLS (when withHls),
-# pkg-config, and zlib, plus a LANG=en_US.UTF-8 export. Only list tools BEYOND
-# those in extraNativeBuildInputs.
+# Haskell project wiring: dev shells (via the haskell-nix-dev base flake) and the
+# project package (via callCabal2nix). seihou-managed — to add project-specific
+# dev tools without editing this file, set `haskellProject.extraDevPackages` from
+# ./flake.module.nix (see flake.module.nix.example).
 { inputs, lib, flake-parts-lib, ... }:
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption ({ ... }: {
     options.haskellProject.extraDevPackages = lib.mkOption {
       type = lib.types.listOf lib.types.package;
       default = [ ];
-      example = lib.literalExpression "[ pkgs.ghciwatch ]";
-      description = "Extra packages to add to the dev shell.";
+      example = lib.literalExpression "[ pkgs.ghciwatch pkgs.haskellPackages.hpack ]";
+      description = ''
+        Extra packages to add to the dev shell. Set this from ./flake.module.nix
+        to add project-specific tooling without editing the generated
+        ./nix/haskell.nix.
+      '';
     };
   });
 
@@ -21,29 +21,25 @@
     let
       hsdev = inputs.haskell-nix-dev.lib.${system};
 
+      baseDevPackages = [
+        pkgs.zlib
+        pkgs.just
+        pkgs.pkg-config
+      ];
+
+      shellHook = ''
+        ${config.pre-commit.installationScript}
+      '';
+
       mkProjectShell = ghc: hsdev.mkDevShell {
         inherit ghc;
+        extraNativeBuildInputs = baseDevPackages ++ config.haskellProject.extraDevPackages;
         withHls = true;
-        extraNativeBuildInputs =
-          [
-            # project dev tools beyond the mkDevShell defaults:
-            # Automation reactions run as `nix develop --command`, and the
-            # daemon's own PATH does not carry ~/.nix-profile/bin. Without git
-            # here, scripts/record-release.sh dies on `git for-each-ref` with
-            # "tool 'git' not found". An interactive shell hides this by
-            # inheriting git from the ambient profile; the shell must supply
-            # its own.
-            pkgs.git
-            pkgs.just
-          ]
-          ++ config.haskellProject.extraDevPackages;
-        shellHook = ''
-          ${config.pre-commit.installationScript}
-        '';
+        inherit shellHook;
       };
     in
     {
       devShells.default = mkProjectShell "ghc9124";
-      devShells.ghc9124 = mkProjectShell "ghc9124";
+      devShells."ghc9124" = mkProjectShell "ghc9124";
     };
 }

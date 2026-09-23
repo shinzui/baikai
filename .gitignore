@@ -3,6 +3,7 @@
 .mina/
 .seihou/manifest.json.tmp
 .envrc
+.envrc.local
 dist
 dist-*
 cabal-dev
