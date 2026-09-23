@@ -18,20 +18,36 @@ import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
-import SmokeOptions (caseNames, missingKeys)
+import SmokeOptions (caseProvider, missingKeys, selectCaseNames)
 import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
 
 credentialGroups :: [[String]]
 credentialGroups = [["OPENAI_KEY", "OPENAI_API_KEY"], ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]]
 
-cases :: [(Model, [String])]
-cases = zip [Models.openai_gpt_6_astra, Models.anthropic_claude_fable_5_1] credentialGroups
+cases :: [Model]
+cases =
+  [ Models.openai_gpt_6_astra,
+    Models.anthropic_claude_fable_5_1,
+    Models.openai_gpt_6_sol,
+    Models.openai_gpt_6_luna,
+    Models.anthropic_claude_opus_5_5
+  ]
+
+keysFor :: String -> [String]
+keysFor "openai" = ["OPENAI_KEY", "OPENAI_API_KEY"]
+keysFor "anthropic" = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
+keysFor _ = []
 
 runNewModels :: Bool -> Maybe String -> IO Bool
 runNewModels required selected = do
   env <- traverse (\name -> (name,) <$> lookupEnv name) (concat credentialGroups)
-  let selectedCases = filter (\(name, _) -> maybe True (== name) selected) (zip caseNames [(model, keys, tool) | (model, keys) <- cases, tool <- [False, True]])
+  let selectedCases =
+        [ (name, (model, keysFor provider, tool))
+        | (name, (model, tool)) <- zip (selectCaseNames Nothing) [(model, tool) | model <- cases, tool <- [False, True]],
+          name `elem` selectCaseNames selected,
+          Just provider <- [caseProvider name]
+        ]
       missing = missingKeys env [keys | keys <- credentialGroups, any (\(_, (_, group, _)) -> group == keys) selectedCases]
       preflightFailed = required && not (null missing)
   if preflightFailed

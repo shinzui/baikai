@@ -1,4 +1,4 @@
-module SmokeOptions (SmokeOptions (..), parseSmokeOptions, missingKeys, keyPresent, caseNames) where
+module SmokeOptions (SmokeOptions (..), parseSmokeOptions, missingKeys, keyPresent, caseNames, caseProvider, selectCaseNames) where
 
 data SmokeOptions = SmokeOptions
   { newModels :: Bool,
@@ -21,7 +21,16 @@ parseSmokeOptions = go (SmokeOptions False False Nothing)
     go _ (arg : _) = Left ("unknown smoke option: " <> arg)
 
 caseNames :: [String]
-caseNames = ["astra-text", "astra-tools", "fable-text", "fable-tools"]
+caseNames = ["astra-text", "astra-tools", "fable-text", "fable-tools", "sol-text", "sol-tools", "luna-text", "luna-tools", "opus55-text", "opus55-tools"]
+
+selectCaseNames :: Maybe String -> [String]
+selectCaseNames selected = filter (\name -> maybe True (== name) selected) caseNames
+
+caseProvider :: String -> Maybe String
+caseProvider name
+  | name `elem` ["astra-text", "astra-tools", "sol-text", "sol-tools", "luna-text", "luna-tools"] = Just "openai"
+  | name `elem` ["fable-text", "fable-tools", "opus55-text", "opus55-tools"] = Just "anthropic"
+  | otherwise = Nothing
 
 -- Empty values cannot authenticate. Keep this pure so missing-key tests never
 -- consult the process environment or expose credential values.

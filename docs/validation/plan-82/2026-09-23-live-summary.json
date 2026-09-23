@@ -1,0 +1,638 @@
+{
+  "schema": "baikai.new-model-smoke/1",
+  "date_utc": "2026-09-23",
+  "command": "direnv exec . cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'",
+  "result": "failed: Anthropic HTTP 401",
+  "missing_environment_alternatives": [],
+  "results": [
+    {
+      "api": "OpenAIResponses",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-astra",
+      "status": "passed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00013,
+              "output_usd": 0.00025
+            },
+            "usd": 0.00038
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "Stop"
+        }
+      ]
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-astra",
+      "status": "passed",
+      "tool_dispatch_count": 1,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00062,
+              "output_usd": 0.0007
+            },
+            "usd": 0.00132
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ToolUse"
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.001,
+              "output_usd": 0.00085
+            },
+            "usd": 0.00185
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-astra"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "Stop"
+        }
+      ]
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "text",
+      "detail": "provider_error",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-fable-5-1",
+      "status": "failed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [
+                {
+                  "tag": "usage_not_reported"
+                },
+                {
+                  "tag": "service_tier_not_reported"
+                }
+              ],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0,
+              "output_usd": 0
+            },
+            "usd": 0
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.0.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": "auth_error",
+          "http_status": 401,
+          "observed_model": "unobserved",
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ErrorReason"
+        }
+      ]
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "tools",
+      "detail": "provider_error",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-fable-5-1",
+      "status": "failed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [
+                {
+                  "tag": "usage_not_reported"
+                },
+                {
+                  "tag": "service_tier_not_reported"
+                }
+              ],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0,
+              "output_usd": 0
+            },
+            "usd": 0
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.0.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": "auth_error",
+          "http_status": 401,
+          "observed_model": "unobserved",
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ErrorReason"
+        }
+      ]
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-sol",
+      "status": "passed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 2.6e-05,
+              "output_usd": 5e-05
+            },
+            "usd": 7.6e-05
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-sol"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "Stop"
+        }
+      ]
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-sol",
+      "status": "passed",
+      "tool_dispatch_count": 1,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.000124,
+              "output_usd": 0.00014
+            },
+            "usd": 0.000264
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-sol"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ToolUse"
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.0002,
+              "output_usd": 0.00017
+            },
+            "usd": 0.00037
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-sol"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "Stop"
+        }
+      ]
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-luna",
+      "status": "passed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 1.3e-06,
+              "output_usd": 2.5e-06
+            },
+            "usd": 3.8e-06
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-luna"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "Stop"
+        }
+      ]
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6-luna",
+      "status": "passed",
+      "tool_dispatch_count": 1,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 6.2e-06,
+              "output_usd": 7e-06
+            },
+            "usd": 1.32e-05
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-luna"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ToolUse"
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 1e-05,
+              "output_usd": 8.5e-06
+            },
+            "usd": 1.85e-05
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.0.0",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6-luna"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "Stop"
+        }
+      ]
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "text",
+      "detail": "provider_error",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-opus-5-5",
+      "status": "failed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [
+                {
+                  "tag": "usage_not_reported"
+                },
+                {
+                  "tag": "service_tier_not_reported"
+                }
+              ],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0,
+              "output_usd": 0
+            },
+            "usd": 0
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.0.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": "auth_error",
+          "http_status": 401,
+          "observed_model": "unobserved",
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ErrorReason"
+        }
+      ]
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "tools",
+      "detail": "provider_error",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-opus-5-5",
+      "status": "failed",
+      "tool_dispatch_count": 0,
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [
+                {
+                  "tag": "usage_not_reported"
+                },
+                {
+                  "tag": "service_tier_not_reported"
+                }
+              ],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0,
+              "output_usd": 0
+            },
+            "usd": 0
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.0.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.0.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": "auth_error",
+          "http_status": 401,
+          "observed_model": "unobserved",
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "stop_reason": "ErrorReason"
+        }
+      ]
+    }
+  ]
+}

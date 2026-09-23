@@ -3,7 +3,7 @@
 module FableContractsSpec (tests) where
 
 import Baikai hiding (messages, model)
-import Baikai.Models.Generated (anthropic_claude_fable_5_1)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_opus_5_5)
 import Baikai.Provider.Claude.Internal.Request qualified as R
 import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
 import Claude.V1.Messages qualified as C
@@ -27,6 +27,32 @@ tests =
   testGroup
     "Fable contracts"
     [ summaryTests,
+      testCase "Opus 5.5 rejects forced tools and replays signed empty thinking" $ do
+        let opus = anthropic_claude_opus_5_5
+        opus.api @?= AnthropicMessages
+        forM_ [ToolChoiceRequired, ToolChoiceSpecific "lookup"] $ \choice ->
+          case R.mapRequest opus context (options & #toolChoice .~ Just choice) of
+            Left _ -> pure ()
+            Right _ -> assertFailure "Opus accepted forced tool choice"
+        forM_ [(ToolChoiceAuto, "auto"), (ToolChoiceNone, "none")] $ \(choice, expected) -> do
+          body <- newIORef Null
+          let capture call _ emit = writeIORef body (call ^. #requestBody) >> send finalTurn emit
+          _ <- streamingComplete (claudeMessagesStreamWith capture) opus context (options & #toolChoice .~ Just choice)
+          raw <- readIORef body
+          (field "tool_choice" raw >>= field "type") @?= Just (String expected)
+        let response =
+              emptyResponse
+                & #message . #content .~ V.fromList [AssistantThinking (emptyThinkingContent & #signature .~ Just "sig-one"), AssistantToolCall (ToolCall "toolu_1" "lookup" (object []))]
+                & #message . #stopReason .~ ToolUse
+        next <- appendToolResult context response (\_ -> pure (toolResultText "found"))
+        (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest opus next options)
+        let raw = Aeson.toJSON req
+            replayed = messages raw
+        (firstReq, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest opus context options)
+        field "system" raw @?= field "system" (Aeson.toJSON firstReq)
+        field "tools" raw @?= field "tools" (Aeson.toJSON firstReq)
+        contentAt 1 replayed @?= V.fromList [signed "" "sig-one", toolItem "toolu_1"]
+        field "tool_use_id" (contentAt 2 replayed V.! 0) @?= Just (String "toolu_1"),
       testCase "forced choices fail before the driver for complete and stream, including renamed models" $
         forM_ [model, model & #modelId .~ "renamed-generation"] $ \m ->
           forM_ [ToolChoiceRequired, ToolChoiceSpecific "lookup"] $ \choice -> do

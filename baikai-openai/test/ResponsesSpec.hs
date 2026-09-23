@@ -3,7 +3,7 @@
 module ResponsesSpec (tests) where
 
 import Baikai hiding (model, schema)
-import Baikai.Models.Generated (openai_gpt_6_astra)
+import Baikai.Models.Generated (openai_gpt_6_astra, openai_gpt_6_luna, openai_gpt_6_sol)
 import Baikai.Provider.OpenAI.Responses.Request qualified as R
 import Control.Lens ((&), (.~))
 import Control.Monad (forM_)
@@ -21,7 +21,25 @@ tests :: TestTree
 tests =
   testGroup
     "Responses request mapping"
-    [ testCase "stateless request carries text, image, system, cap and metadata" $ do
+    [ testCase "Sol and Luna catalog bindings retain Responses shaping and replay identity" $
+        forM_ [openai_gpt_6_sol, openai_gpt_6_luna] $ \m -> do
+          m.api @?= OpenAIResponses
+          let opts = emptyOptions & #thinking .~ Just ThinkingLow & #temperature .~ Just 0.5 & #topP .~ Just 0.8
+              thoughtForModel = emptyThinkingContent & #replayState .~ Just (ThinkingReplay OpenAIResponses m.modelId (V.singleton reasoningItem))
+              response = emptyResponse & #message . #content .~ V.fromList [AssistantThinking thoughtForModel, AssistantToolCall (ToolCall "call_7" "lookup" (object ["x" .= (1 :: Int)]))] & #message . #stopReason .~ ToolUse
+              ctx = contextOf [user "go"] & #tools .~ V.singleton tool
+          first <- mapped m ctx opts
+          field "model" first.requestBody @?= Just (String m.modelId)
+          field "reasoning" first.requestBody @?= Just (object ["effort" .= ("low" :: Text)])
+          field "temperature" first.requestBody @?= Nothing
+          field "top_p" first.requestBody @?= Nothing
+          next <- appendToolResult ctx response (\_ -> pure (toolResultText "found"))
+          second <- mapped m next opts
+          let items = inputItems second
+          items !! 1 @?= reasoningItem
+          field "call_id" (items !! 2) @?= Just (String "call_7")
+          field "call_id" (items !! 3) @?= Just (String "call_7"),
+      testCase "stateless request carries text, image, system, cap and metadata" $ do
         let ctx =
               (systemUser "system instruction" "hello")
                 & #messages .~ V.singleton (UserMessage UserPayload {content = V.fromList [UserText (TextContent "hello"), UserImage (ImageContent "abc" "image/png")], timestamp = Nothing})

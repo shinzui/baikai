@@ -10,6 +10,12 @@ provenance:
     model: "gpt-6-sol"
     harness: "codex-cli"
     at: 2026-09-23T16:41:12Z
+  revisions:
+    - model: "gpt-6-sol"
+      harness: "codex-cli"
+      at: 2026-09-23T17:08:06Z
+      mode: "implement"
+      note: "Added focused smoke cases and began offline compatibility assertions"
 ---
 
 # Prove GPT-6 Sol, GPT-6 Luna, and Claude Opus 5.5 live compatibility
@@ -24,25 +30,35 @@ A maintainer can run one bounded command that proves GPT-6 Sol, GPT-6 Luna, and 
 
 ## Progress
 
-- [ ] Add three model pairs and six named cases to the existing focused smoke mode.
-- [ ] Add offline assertions for case selection, request shaping, replay, and pricing.
-- [ ] Run required-key live text and tool checks; preserve dated redacted output.
-- [ ] Update the model guide with the command and observed scope, then close the plan.
+- [x] 2026-09-23 17:12 UTC: Add three model pairs and six named cases to the existing focused smoke mode; all ten selectors and provider-key preflights pass without network access.
+- [x] 2026-09-23 17:12 UTC: Add offline assertions for case selection, request shaping, replay, and pricing; the full prescribed offline gate passes.
+- [x] 2026-09-23 17:15 UTC: Run required-key live text and tool checks and preserve dated redacted output in `docs/validation/plan-82/2026-09-23-live-summary.json`; Sol and Luna passed both cases.
+- [ ] Retry only `opus55-text` and `opus55-tools` after a working Anthropic credential is available; both currently return HTTP 401 before model execution. The existing Fable cases also returned HTTP 401 in the full run.
+- [x] 2026-09-23 17:15 UTC: Update `docs/user/models-and-providers.md` with the ten-case command and observed scope.
+- [ ] Close the plan after Opus live text and tool cases pass and the evidence is updated.
 
 
 ## Surprises & Discoveries
 
 2026-09-23: The first fetch produced 23 OpenAI and 11 Anthropic records because the old include sets filtered out the three new IDs. After curation, a fresh candidate produced 25 and 12 records, including all three, with no new-record diff against the reviewed catalog. A skipped case is still not proof of live support.
 
+2026-09-23: The Anthropic SDK's typed request omits `tool_choice` for `ToolChoiceNone`; Baikai's transport shaper inserts the wire-level `none` choice. The Opus binding test therefore checks the captured transport request, which is the behavior the provider receives. The first offline run exposed this fixture mismatch; the corrected full gate passed.
+
+2026-09-23: The required-key run had both credential alternatives present, but Anthropic returned `auth_error` with HTTP 401 for Fable and Opus 5.5. No Anthropic model or usage was observed. Sol and Luna each passed text and a two-call tool case with one dispatcher invocation; the runner verified the fixed timestamp in each final answer. The redacted evidence removes provider request and response IDs while retaining endpoints, observed models, cost bases, and status. A present credential is not proof of account access.
+
 
 ## Decision Log
 
 2026-09-23: Extend the existing `--new-models` smoke mode and preserve its `baikai.new-model-smoke/1` output shape. This keeps one credential preflight and evidence format for five recently added bindings. Use the existing Responses and Messages adapters; investigate an observed mismatch before changing either provider. Catalog-specific wire facts remain in generated records under ADR 0009.
 
+2026-09-23: Reuse the existing provider protocol fixtures and add binding-specific checks for Sol/Luna response shaping, replay identity, and tier prices, plus Opus forced-choice, signed replay, and cache/speed prices. This catches catalog regressions without duplicating the provider's generic tests.
+
+2026-09-23: Leave the plan open after the Anthropic 401 response and retry only its failed named cases once authentication is repaired. The response contains no model observation or usage, so it cannot support an Opus compatibility claim or a provider wire change.
+
 
 ## Outcomes & Retrospective
 
-Outstanding. No live calls for the three bindings had been run when this plan was created. At completion, record each case's result, date, and remaining access or accounting limitation; distill durable decisions into an ADR only if the protocol or catalog architecture changes.
+Partial outcome on 2026-09-23: The six new cases are selectable and the prescribed offline suite passes. Sol text, Sol tools, Luna text, and Luna tools passed live through `/v1/responses` with requested and observed model IDs equal, standard token-rate cost bases, and one dispatcher invocation in each tool case. Opus text and tools reached `/v1/messages` but failed with HTTP 401 before model execution; their live compatibility remains unproven. The full run also found the same authentication failure for existing Fable cases. No protocol or catalog architecture changed, so ADRs 0009, 0019, and 0020 still carry the durable decisions. Finish by retrying the two Opus cases with a working Anthropic credential and appending redacted evidence.
 
 
 ## Context and Orientation
@@ -86,7 +102,7 @@ For a diagnosed single-case failure:
 cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys --case sol-tools'
 ```
 
-Expected live output has six `passed` results for the new cases, the existing four results, and one `baikai.new-model-smoke/1` JSON document. Do not record raw conversations or opaque reasoning.
+Expected live output has six `passed` results for the new cases, the existing four results, and one `baikai.new-model-smoke/1` JSON document. The 2026-09-23 full run produced four new `passed` results and Anthropic HTTP 401 for both Opus cases; use the single-case form with `opus55-text` and `opus55-tools` after authentication is repaired. Do not record raw conversations or opaque reasoning.
 
 
 ## Validation and Acceptance
@@ -96,9 +112,14 @@ Milestone 1 passes when every named selector returns exactly one case and requir
 
 ## Idempotence and Recovery
 
-Offline tests and case parsing are repeatable. Live calls are paid; preserve successful evidence and rerun only a failed selected case. Keep the original four cases intact. If account access is absent, retain the keyless preflight output and leave the live Progress item unchecked. Never paste credentials into plan or validation artifacts.
+Offline tests and case parsing are repeatable. Live calls are paid; preserve successful evidence and rerun only a failed selected case. Keep the original four cases intact. If account access is absent or the credential is rejected, retain the redacted failure output and leave Opus live Progress unchecked. Never paste credentials into plan or validation artifacts.
 
 
 ## Interfaces and Dependencies
 
 Use `SmokeOptions.caseNames :: [String]` and `NewModelsSmoke.runNewModels :: Bool -> Maybe String -> IO Bool`. `Baikai.Provider.OpenAI.Responses` and `Baikai.Provider.Claude.Api` already register routes in `Smoke.hs`; `Baikai.Provider.Registry.completeRequest` makes the public call and `Baikai.Context.appendToolResult` builds the next turn. Mori identifies dependency sources as `mori://MercuryTechnologies/openai/packages/openai` and `mori://MercuryTechnologies/claude/packages/claude`; their local `OpenAI/V1/Responses.hs` and `Claude/V1/Messages.hs` are the SDK files to inspect if needed. Keep model restrictions in generated catalog facts per ADR 0009, never adapter ID branches. This plan depends on the catalog refresh and completed Astra/Fable route work in plan 77; it has no shared-interface owner.
+
+
+## Revision note
+
+2026-09-23: Implemented the selectors, binding checks, offline validation, and live probe. Sol and Luna passed; Opus could not pass because the available Anthropic credential returned HTTP 401. The plan remains open for two targeted retries.

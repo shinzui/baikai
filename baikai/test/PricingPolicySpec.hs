@@ -4,10 +4,11 @@ module PricingPolicySpec (tests) where
 
 import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Cost qualified as C
-import Baikai.Cost.Pricing (computeCost, computeCostAtRates, computeCostForService, computeCostWith, resolveRates)
+import Baikai.Cost.Pricing (computeCost, computeCostAtRates, computeCostAtSpeed, computeCostForService, computeCostWith, resolveRates)
 import Baikai.Evidence qualified as Ev
 import Baikai.Model qualified as M
 import Baikai.Models.Generated qualified as Models
+import Baikai.Speed (Speed (..))
 import Baikai.Usage qualified as U
 import Baikai.Usage.Normalize qualified as N
 import Control.Lens ((&), (.~))
@@ -22,7 +23,22 @@ tests :: TestTree
 tests =
   testGroup
     "Pricing policy"
-    [ testCase "requested tiers never substitute for observed service" $ do
+    [ testCase "Sol and Luna prices switch the complete request above 272K" $
+        forM_ [(Models.openai_gpt_6_sol, M.ModelCost 2 10 (1 / 5) (5 / 2), M.ModelCost 4 15 (2 / 5) 5), (Models.openai_gpt_6_luna, M.ModelCost (1 / 10) (1 / 2) (1 / 100) (1 / 8), M.ModelCost (1 / 5) (3 / 4) (1 / 50) (1 / 4))] $ \(m, standard, highRates) -> do
+          forM_ [(272000, standard), (272001, highRates)] $ \(n, expected) -> do
+            let u = U.zeroUsage & #inputTokens .~ (n - 2000) & #cacheReadTokens .~ 1000 & #cacheWriteTokens .~ 1000 & #outputTokens .~ 100
+            resolveRates Nothing m u @?= Right expected
+            (computeCost m u).usd @?= (fromIntegral (n - 2000) * expected.inputCost + 1000 * expected.cacheReadCost + 1000 * expected.cacheWriteCost + 100 * expected.outputCost) / 1000000,
+      testCase "Opus 5.5 prices short, long, and observed fast cache writes" $ do
+        let m = Models.anthropic_claude_opus_5_5
+            u = U.zeroUsage & #cacheWriteTokens .~ 1000000
+            observedFast = U.observeBilling [U.BillingSpeed "fast", U.BillingServiceTier "standard"] u
+        (computeCostWith (Just CacheRetentionShort) m u).usd @?= 5
+        (computeCostWith (Just CacheRetentionLong) m u).usd @?= 8
+        (computeCostAtSpeed m SpeedFast u).usd @?= 10
+        (computeCostForService (Just CacheRetentionLong) Nothing m observedFast).usd @?= 16
+        Set.member (C.UnsupportedSpeed "fast") (computeCostForService (Just CacheRetentionLong) Nothing m observedFast).basis.estimateReasons @?= False,
+      testCase "requested tiers never substitute for observed service" $ do
         let unknown = N.normalizeUsage N.InclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)
             standard = U.observeBilling [U.BillingServiceTier "default"] unknown
             priority = U.observeBilling [U.BillingServiceTier "priority"] unknown

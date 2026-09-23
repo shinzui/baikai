@@ -129,8 +129,11 @@ replay. See the [migration guide](https://platform.claude.com/docs/en/models/opu
 
 The September 23 models.dev snapshot includes all three new IDs. The fetcher
 renders them only after they enter the curated include sets; their facts and
-prices were checked against the official pages. Live text and tool acceptance
-for the three new bindings remains outstanding.
+prices were checked against the official pages. On 2026-09-23, Sol and Luna
+passed live text and tool cases through Responses. Opus 5.5 reached Messages,
+but Anthropic returned HTTP 401 before a model response, so its live acceptance
+remains outstanding. The [redacted result](../validation/plan-82/2026-09-23-live-summary.json)
+records the exact scope.
 
 ### Focused compatibility checks
 
@@ -141,8 +144,8 @@ cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:bai
 cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
 ```
 
-The focused command selects only Astra through Responses and Fable through
-Messages. Each model gets one text case and a deterministic tool conversation,
+The focused command selects Astra, Sol, and Luna through Responses and Fable
+5.1 and Opus 5.5 through Messages. Each model gets one text case and a deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
 and at most four requests in the tool case. It prints readable results and a
 `baikai.new-model-smoke/1` JSON summary containing observed endpoint/model facts,
@@ -150,11 +153,15 @@ identifiers, cost bases, and actual call and tool-dispatch counts. It does not
 print conversations or opaque thinking state. Missing required credentials fail
 before any request; without `--require-keys`, missing cases are explicit skips.
 
-To reproduce only a diagnosed failing case, append `--case astra-text`,
-`--case astra-tools`, `--case fable-text`, or `--case fable-tools` inside
-`--test-options`. Only the selected provider's credentials are required. Preserve
+To reproduce only a diagnosed failing case, append `--case` and one of
+`astra-text`, `astra-tools`, `fable-text`, `fable-tools`, `sol-text`,
+`sol-tools`, `luna-text`, `luna-tools`, `opus55-text`, or `opus55-tools`
+inside `--test-options`. Only the selected provider's credentials are required. Preserve
 each run's output separately: rerunning a live case can incur another charge.
 Passing offline tests or a keyless skip does not establish live model access.
+An HTTP 401 is an authentication failure; it does not establish that the requested
+Anthropic model accepts or rejects the request shape. Retry only the failed
+Anthropic cases after the account credential is corrected.
 
 ## Adding a model to the catalog
 
