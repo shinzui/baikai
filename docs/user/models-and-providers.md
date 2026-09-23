@@ -129,21 +129,18 @@ replay. See the [migration guide](https://platform.claude.com/docs/en/models/opu
 
 The September 23 models.dev snapshot includes all three new IDs. The fetcher
 renders them only after they enter the curated include sets; their facts and
-prices were checked against the official pages. On 2026-09-23, Sol and Luna
-passed live text and tool cases through Responses. Opus 5.5 reached Messages,
-but Anthropic returned HTTP 401 before a model response, so its live acceptance
-remains outstanding. The [redacted result](../validation/plan-82/2026-09-23-live-summary.json)
-records the exact scope.
-After a `direnv reload`, both selected Opus cases still returned HTTP 401;
-the [redacted retry](../validation/plan-82/2026-09-23-opus55-retry.json)
-records that result without repeating the successful OpenAI calls.
-The replacement Anthropic key cleared authentication, but it is not scoped to
-a workspace. Anthropic then returned HTTP 400 asking for an
-`anthropic-workspace-id` header. Set `ANTHROPIC_WORKSPACE_ID` to the workspace's
+prices were checked against the official pages. On 2026-09-23, all six new
+live cases passed: Sol and Luna through Responses, and Opus 5.5 through
+Messages. The [redacted ten-case record](../validation/plan-82/2026-09-23-complete.json)
+also includes the existing Astra and Fable cases. It combines successful
+selected reruns without repeating paid calls.
+
+The replacement Anthropic key was not scoped to a workspace, so Anthropic
+initially returned HTTP 400 requesting an `anthropic-workspace-id` header.
+Set `ANTHROPIC_WORKSPACE_ID` to the workspace's
 `wrkspc_...` ID when using such a key; the focused smoke runner sends it only
 on Anthropic calls. A key scoped to one workspace needs no workspace variable.
-The [redacted workspace error](../validation/plan-82/2026-09-23-workspace-required.json)
-records the request boundary. The workspace ID is available in Claude Console
+The workspace ID is available in Claude Console
 under Settings → Workspaces. The Default Workspace does not appear in the List
 Workspaces API response, so an empty list does not mean this header is optional.
 See [Anthropic's authentication guide](https://platform.claude.com/docs/en/manage-claude/authentication)
@@ -159,7 +156,8 @@ cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys
 ```
 
 The focused command selects Astra, Sol, and Luna through Responses and Fable
-5.1 and Opus 5.5 through Messages. Each model gets one text case and a deterministic tool conversation,
+5.1 and Opus 5.5 through Messages. Each model gets one text case and a
+deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
 and at most four requests in the tool case. It prints readable results and a
 `baikai.new-model-smoke/1` JSON summary containing observed endpoint/model facts,
@@ -173,9 +171,11 @@ To reproduce only a diagnosed failing case, append `--case` and one of
 inside `--test-options`. Only the selected provider's credentials are required. Preserve
 each run's output separately: rerunning a live case can incur another charge.
 Passing offline tests or a keyless skip does not establish live model access.
-An HTTP 401 is an authentication failure; it does not establish that the requested
-Anthropic model accepts or rejects the request shape. Retry only the failed
-Anthropic cases after the account credential is corrected.
+An HTTP 401 or workspace-selection HTTP 400 occurs before model execution and
+does not establish compatibility. The [initial run](../validation/plan-82/2026-09-23-live-summary.json),
+[authentication retry](../validation/plan-82/2026-09-23-opus55-retry.json),
+and [workspace error](../validation/plan-82/2026-09-23-workspace-required.json)
+retain those earlier failure boundaries.
 
 ## Adding a model to the catalog
 
