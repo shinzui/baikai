@@ -5,12 +5,12 @@ description: >-
   Let the Codex CLI and Claude CLI providers honour a request's JSON schema by passing it to
   `codex exec --output-schema` and `claude --json-schema`, and advertise that capability, so a
   typed caller gets schema-enforced output on a subscription CLI as it does on the APIs.
-timestamp: 2026-09-30T00:00:00Z
+timestamp: 2026-09-30T18:00:00Z
 generated:
   by: agent:anthropic/claude-opus-5-5
   at: "2026-09-30T00:00:00Z"
 requestId: IR-11
-status: proposed
+status: completed
 origin: mori://shinzui/mina
 targetPlan: mori://shinzui/mina/plans/240-evaluate-plan-judgment-quality-and-verify-the-complete-workflow
 ---
@@ -19,13 +19,28 @@ targetPlan: mori://shinzui/mina/plans/240-evaluate-plan-judgment-quality-and-ver
 
 ## Status
 
-Proposed. This is the Baikai-owned half of enforcing typed judge output on CLI providers; the
-Shikumi half is `mori://shinzui/shikumi/okf/improvement-requests/concepts/IR-4`, which depends on
-it.
+Completed on 2026-09-30 by
+[docs/plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md](../plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md)
+and released as `baikai 0.7.2.0`, `baikai-claude 0.7.1.0`, and `baikai-openai 0.7.1.0`.
+Evidence per criterion:
 
-Implemented by
-[docs/plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md](../plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md);
-the request completes when that plan's release is published.
+1. `baikai-claude/test/StructuredCliSpec.hs` records a fake `claude`'s argv: `--json-schema`
+   carries the request's exact schema, and no flag appears without a response format.
+   `baikai-openai/test/StructuredCliSpec.hs` copies the file a fake `codex` receives through
+   `--output-schema` and decodes it to the request's schema; no flag is sent otherwise.
+2. Both suites use an object holding an array of objects with an enum-valued field; the
+   fakes' conforming JSON comes back as the response text byte for byte.
+3. `declaredStructuredOutput :: Api -> StructuredOutputSupport` and the
+   `ApiProvider.structuredOutput` field answer without calling anything
+   (`baikai/test/SurfaceSpec.hs`, and a provider case in each `StructuredCliSpec`).
+4. A CLI rejecting the flag is an `InvalidRequest` error carrying the exit code, distinct
+   from the `ProcessFailure` any other non-zero exit gets; documented in
+   `docs/user/cli-providers.md` under "Structured output".
+5. The pre-existing exact argument-vector tests in `baikai-claude/test/Main.hs` and
+   `baikai-openai/test/Main.hs` pass unedited.
+
+The Shikumi half, `mori://shinzui/shikumi/okf/improvement-requests/concepts/IR-4`, can now
+depend on `baikai-claude ^>=0.7.1` and `baikai-openai ^>=0.7.1`.
 
 ## Context
 

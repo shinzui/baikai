@@ -7,6 +7,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.7.2.0] - 2026-09-30
+
 ### Added
 
 - Curated GPT-6.1 Sol on OpenAI Responses and Claude Sonnet 5.5 on Anthropic
@@ -18,33 +20,53 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ([record](docs/validation/plan-85/2026-09-30-complete.json),
   [plan 85](docs/plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md)).
   The focused smoke runner gains the `sol61-*` and `sonnet55-*` cases.
-- The subscription CLI providers honour a `JsonSchema` response format (IR-11).
-  `claude -p` receives `--json-schema '<schema>'` and the response text is the
-  tool's validated `structured_output`; `codex exec` receives
-  `--output-schema <file>` for a temporary file that is deleted however the call
-  ends. A CLI too old for the flag yields an `InvalidRequest` error with the
-  exit code rather than unconstrained text. `JsonObject`, `name` and `strict`
-  are not forwarded; requests without a schema render the same argument vector
-  as before.
-- `baikai`: `Baikai.ResponseFormat.StructuredOutputSupport`
+- `Baikai.ResponseFormat.StructuredOutputSupport`
   (`NativeJsonSchema | NoStructuredOutput`), `declaredStructuredOutput :: Api ->
   StructuredOutputSupport`, and a `structuredOutput` field on `ApiProvider`
   (default `NoStructuredOutput` in `apiProviderWith`), so a caller can ask
   whether a transport enforces a schema without calling it. Every built-in
   provider declares `NativeJsonSchema`.
-- `baikai-openai`: `codexCliCommandWith`, which renders the `codex exec`
-  vector with a given `--output-schema` file. `codexCliCommand` is unchanged
-  and never renders the flag.
+
+## [baikai-claude 0.7.1.0] - 2026-09-30
+
+Requires `baikai >=0.7.2`.
+
+### Added
+
+- `claude -p` honours a `JsonSchema` response format (IR-11): it receives
+  `--json-schema '<schema>'` and the response text is the tool's validated
+  `structured_output`. A missing `structured_output` is a `DecodeFailure`; a
+  `claude` too old for the flag yields an `InvalidRequest` error with the exit
+  code rather than unconstrained text. `JsonObject`, `name` and `strict` are not
+  forwarded; requests without a schema render the same argument vector as
+  before. Both Claude providers declare `structuredOutput = NativeJsonSchema`.
 
 ### Fixed
 
-- `baikai-claude`: Anthropic adaptive `ThinkingHigh` now sends
+- Anthropic adaptive `ThinkingHigh` now sends
   `output_config.effort: "high"` instead of omitting the field. Claude Opus 5.5
   defaults to `medium`, so it previously ran `ThinkingHigh` at medium effort;
   other adaptive models default to `high` and behave as before. Evidence for
   these calls records `effortText = "high"` and no longer carries
   `effort_omitted`, so strict evidence mode no longer refuses them.
   `Baikai.Evidence.EffortOmitted` stays exported, and older records still decode.
+
+## [baikai-openai 0.7.1.0] - 2026-09-30
+
+Requires `baikai >=0.7.2`.
+
+### Added
+
+- `codex exec` honours a `JsonSchema` response format (IR-11): the schema is
+  written to a temporary file passed as `--output-schema <file>` and deleted
+  however the call ends. A `codex` too old for the flag yields an
+  `InvalidRequest` error with the exit code rather than unconstrained text.
+  `JsonObject`, `name` and `strict` are not forwarded; requests without a schema
+  render the same argument vector as before. All three OpenAI providers declare
+  `structuredOutput = NativeJsonSchema`.
+- `codexCliCommandWith`, which renders the `codex exec`
+  vector with a given `--output-schema` file. `codexCliCommand` is unchanged
+  and never renders the flag.
 
 ## [baikai 0.7.1.0] - 2026-09-23
 

@@ -2,6 +2,13 @@
 
 ## 2026-09-30
 
+* **Update**: CAP-3 (generated model catalog) and CAP-23 (OpenAI Responses API
+  backend) record `baikai 0.7.2.0`, which adds `openai_gpt_6_1_sol` and
+  `anthropic_claude_sonnet_5_5`. GPT-6.1 Sol carries the `OpenAIResponses`
+  dispatch override, so CAP-23's upgrade note names it. No new `compat` field,
+  so both records keep their `since`. The CAP-5 and CAP-15 entry below ships as
+  `baikai-claude 0.7.1.0` and `baikai-openai 0.7.1.0`.
+
 * **Update**: CAP-5 (structured output) and CAP-15 (subscription CLI backends)
   record that the CLI providers now pass a `JsonSchema` through —
   `claude -p --json-schema` and `codex exec --output-schema <temporary file>` —

@@ -1,5 +1,18 @@
 # Bundle Update Log
 
+## 2026-09-30
+* **Update**: CLI Providers adds a Structured output section: a `JsonSchema`
+  reaches `claude -p` as `--json-schema` and `codex exec` as
+  `--output-schema <temporary file>`, where the response text comes from, the
+  `InvalidRequest` error for a CLI too old for the flag, what is not forwarded,
+  and how to ask `declaredStructuredOutput`. Limitations item 3 lists
+  `responseFormat` among the honoured fields.
+
+* **Update**: Models & Providers adds GPT-6.1 Sol and Claude Sonnet 5.5 with
+  their live acceptance result, and Model-Call Evidence and Models & Providers
+  describe adaptive `ThinkingHigh` sending an explicit `high` effort, retiring
+  the Opus 5.5 medium-effort caveat.
+
 ## 2026-09-23
 * **Update**: Kit Packages builds `KitConfig` with `kitConfig`, documents the
   `projectRoot` field, and adds a Project Scope section: how the root is located

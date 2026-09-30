@@ -1,6 +1,13 @@
 # Bundle Update Log
 
 ## 2026-09-30
+* **Completion**: IR-11 is `completed`, closed by
+`docs/plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md` and
+released as `baikai 0.7.2.0`, `baikai-claude 0.7.1.0`, and `baikai-openai 0.7.1.0`. Both CLI
+providers pass a `JsonSchema` through (`--json-schema`, `--output-schema`), the capability is
+readable from `declaredStructuredOutput` and `ApiProvider.structuredOutput`, and a rejected flag
+is an `InvalidRequest` error. The record's Status section maps each acceptance criterion to its
+test.
 * **Addition**: IR-11: pass structured-output schemas through the Codex and Claude CLI providers (--output-schema / --json-schema) and advertise the capability.
 
 ## 2026-09-26

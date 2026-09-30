@@ -101,6 +101,7 @@ $ cabal test baikai               # CatalogSpec proves the two agree
   `OpenAIResponses` dispatch override — see [CAP-23](openai-responses-backend.md)
   for what that requires of a caller. baikai 0.7.1.0 adds GPT-6 Sol and Luna,
   which carry the same `OpenAIResponses` override, and Claude Opus 5.5; it adds
-  no new `compat` field.
+  no new `compat` field. baikai 0.7.2.0 adds GPT-6.1 Sol (also on
+  `OpenAIResponses`) and Claude Sonnet 5.5, again with no new `compat` field.
 - The refresh pipeline is driven by the repository's `update-models` skill, which
   is a maintainer tool in this repository and not something a consumer runs.

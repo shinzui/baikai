@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name: baikai-claude
-version: 0.7.0.0
+version: 0.7.1.0
 synopsis: Anthropic Claude providers for the baikai abstraction
 description:
   Anthropic backends for baikai: the Messages API over SSE, the claude -p batch
@@ -72,7 +72,7 @@ library
   autogen-modules: Paths_baikai_claude
   build-depends:
     aeson ^>=2.2,
-    baikai ^>=0.7.0,
+    baikai ^>=0.7.2,
     base >=4.20 && <5,
     base16-bytestring ^>=1.0,
     base64-bytestring ^>=1.2,
@@ -122,7 +122,7 @@ test-suite baikai-claude-test
 
   build-depends:
     aeson,
-    baikai ^>=0.7.0,
+    baikai ^>=0.7.2,
     baikai-claude,
     base >=4.20 && <5,
     bytestring,
