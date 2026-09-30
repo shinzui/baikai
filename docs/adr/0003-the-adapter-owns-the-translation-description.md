@@ -119,3 +119,11 @@ must be the provider's own declaration.
   Response assembly may append the specifically response-only
   `ThinkingSummaryUnavailable` diagnostic. It preserves all request translation
   fields and does not re-derive or replace the adapter's preflight description.
+
+- 2026-09-30, `docs/plans/86-send-explicit-high-effort-so-claude-opus-5-5-honours-thinkinghigh.md`:
+  removed the Anthropic adaptive `high` site listed in Context. Omitting the
+  effort field assumed `high` was the provider default, which stopped being true
+  when Claude Opus 5.5 shipped with a `medium` default. The adaptive builder
+  now sends every level's effort word explicitly, and `effort_omitted` is no
+  longer produced by a shipped adapter. The remaining sites and the decision
+  are unchanged.

@@ -107,15 +107,17 @@ mean reimplementing every provider's translation and per-host
 compatibility lookup, and would silently diverge the first time a
 translation changed.
 
-There are eight places baikai currently adjusts a request between what
-you asked for and what goes on the wire; only four of them are effort
-mappings, and two are not about reasoning at all:
+There are seven places baikai currently adjusts a request between what
+you asked for and what goes on the wire; only three of them are effort
+mappings, and two are not about reasoning at all. An eighth value,
+`effort_omitted`, is still part of the vocabulary but no shipped adapter
+emits it:
 
 | adjustment | when |
 |---|---|
 | `effort_clamped` | the word sent differs from the level you named — `minimal` becomes `low`, `xhigh` and `max` become `high`, on hosts that route through the compatibility table |
 | `effort_collapsed_to_toggle` | Z.ai and Qwen accept a bare on/off flag with no depth, so **every** level is wire-identical there |
-| `effort_omitted` | Anthropic's adaptive `high` sends no effort field, making the request indistinguishable on the wire from the provider's own default |
+| `effort_omitted` | no effort field was sent, making the request indistinguishable on the wire from the provider's own default. No shipped adapter emits it; it remains so older records decode and custom providers can report it |
 | `thinking_dropped_unsupported_model` | the chosen model does not advertise reasoning support |
 | `thinking_dropped_unsupported_host` | the host exposes no reasoning controls |
 | `thinking_dropped_budget_exceeded` | the computed thinking budget does not fit the resolved output-token ceiling — **the least discoverable of them**, because it fires when you lower `maxTokens` on a reasoning model |
@@ -288,10 +290,10 @@ very downgrade that caused the refusal. Nothing was sent.
 
 Requesting no reasoning level at all is never a downgrade — there is
 nothing to weaken. Every non-empty adjustment list is one, including
-`effort_omitted`: that request is not weaker in effect, merely
-indistinguishable on the wire from the default, and a caller who demanded
-strict evidence and cannot later prove they asked for `high` has not got
-what they demanded.
+`effort_omitted`: a request that omits its effort field may not be weaker
+in effect, but it is indistinguishable on the wire from the default, and
+a caller who demanded strict evidence and cannot later prove which level
+they asked for has not got what they demanded.
 
 Strict mode also changes what a trace-sink failure means. Baikai
 normally isolates sink failures from calls — the sink runs on its own

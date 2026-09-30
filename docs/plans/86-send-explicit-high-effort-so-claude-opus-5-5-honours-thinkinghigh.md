@@ -55,13 +55,23 @@ default.
   "Opus 5.5 high sends explicit high effort" and the new `high` case of the merged
   `output_config` group; `baikai-test` 794 passed; `doc-shapes` PASS; fourmolu and
   `git diff --check` clean.)
-- [ ] User documentation, the Unreleased changelog, and ADR 0003 describe the explicit
-  mapping. The Opus 5.5 caveat is replaced with a fixed-in entry.
+- [x] User documentation, the Unreleased changelog, and ADR 0003 describe the explicit
+  mapping. The Opus 5.5 caveat is replaced with a fixed-in entry. (2026-09-30: caveat
+  paragraph and table row rewritten in `docs/user/models-and-providers.md`;
+  `effort_omitted` row, count sentence, and strict-mode paragraph updated in
+  `docs/user/model-call-evidence.md`; `docs/capabilities/reasoning-effort-control.md`
+  corrected; Unreleased `### Known issues` replaced by `### Fixed`; ADR 0003 revision
+  appended; `doc-shapes` PASS.)
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `docs/capabilities/reasoning-effort-control.md` also stated the old mapping ("`high` on
+  an adaptive-thinking Anthropic model sends no effort field at all"), though the plan did
+  not list it. Its example of a lossy translation now names `minimal` being sent as `low`.
+- `mergedOutputConfigTest` used `ThinkingMedium`, so it became a two-case group that also
+  checks `ThinkingHigh` on Opus 5.5 merging `"effort": "high"` with a JSON-schema format.
+- No live probe was run; the plan does not require one.
 
 
 ## Decision Log
@@ -89,7 +99,15 @@ default.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-09-30. Every adaptive-thinking request now sends its effort word;
+`ThinkingHigh` on `anthropic_claude_opus_5_5` sends `output_config.effort: "high"`, its
+translation reports `effortText = Just "high"` with no adjustments, and the strict
+pre-dispatch check no longer refuses it. `adaptiveEffort` became total over `Text`,
+which removed the `Nothing` branch from `adaptiveAdjustments`; only `minimal` is still
+adjusted (`effort_clamped` to `low`). `EffortOmitted` stays in the public vocabulary,
+with no shipped producer. The durable context — that omitting a default is unsafe because
+Anthropic's defaults differ per model — is recorded as a revision to ADR 0003; no new ADR
+was needed, since the decision itself is unchanged.
 
 
 ## Context and Orientation

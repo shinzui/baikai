@@ -47,9 +47,8 @@ non-native OpenAI-compatible shapes clamp through `compatibleEffort`; `claude -p
 gets `--effort`; `codex exec` gets `-c model_reasoning_effort=…`.
 
 The translations are lossy in ways that used to be invisible. A level whose
-budget will not fit under `maxTokens` is dropped; `high` on an adaptive-thinking
-Anthropic model sends no effort field at all and is therefore
-wire-indistinguishable from the default; Z.ai and Qwen accept only a bare
+budget will not fit under `maxTokens` is dropped; `minimal` on an
+adaptive-thinking Anthropic model is sent as `low`; Z.ai and Qwen accept only a bare
 `enable_thinking: true`, so every level collapses to the same request there. None
 of that is hidden any more — each adapter emits a `ThinkingTranslation`
 describing what actually happened, which is what

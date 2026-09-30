@@ -33,11 +33,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   vector with a given `--output-schema` file. `codexCliCommand` is unchanged
   and never renders the flag.
 
-### Known issues
+### Fixed
 
-- Anthropic adaptive `ThinkingHigh` sends no effort field. Claude Opus 5.5 defaults
-  to `medium`, so `ThinkingHigh` currently runs Opus 5.5 at medium effort.
-  [Plan 86](docs/plans/86-send-explicit-high-effort-so-claude-opus-5-5-honours-thinkinghigh.md) makes the request explicit.
+- `baikai-claude`: Anthropic adaptive `ThinkingHigh` now sends
+  `output_config.effort: "high"` instead of omitting the field. Claude Opus 5.5
+  defaults to `medium`, so it previously ran `ThinkingHigh` at medium effort;
+  other adaptive models default to `high` and behave as before. Evidence for
+  these calls records `effortText = "high"` and no longer carries
+  `effort_omitted`, so strict evidence mode no longer refuses them.
+  `Baikai.Evidence.EffortOmitted` stays exported, and older records still decode.
 
 ## [baikai 0.7.1.0] - 2026-09-23
 

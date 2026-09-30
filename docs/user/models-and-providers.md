@@ -184,12 +184,8 @@ accounts created on or after 2026-08-31, editing an earlier turn before
 replaying a later Sonnet 5.5 block returns HTTP 400. See the
 [migration guide](https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide).
 
-The Opus 5.5 effort caveat: Opus 5.5 defaults to `medium`, but Baikai sends no
-effort field for `ThinkingHigh` on adaptive models and records `effort_omitted`.
-Opus 5.5 therefore runs `ThinkingHigh` at medium effort today.
-[Plan 86](../plans/86-send-explicit-high-effort-so-claude-opus-5-5-honours-thinkinghigh.md)
-sends `high` explicitly. Until then, strict evidence mode already refuses
-`ThinkingHigh` on adaptive models.
+Opus 5.5 defaults to `medium` effort, and `ThinkingHigh` sends explicit
+`high`, so Opus 5.5 honours it.
 
 ### Focused compatibility checks
 
@@ -468,7 +464,7 @@ shape selected by the model's compatibility record:
 | Destination | Mapping |
 |-------------|---------|
 | Native OpenAI | Preserves all six canonical spellings in the final JSON request. |
-| Anthropic adaptive thinking | Maps `minimal` to `low`, sends `low`, `medium`, `xhigh`, and `max` explicitly, and omits `high`. `high` is the provider default on every adaptive catalog model except Opus 5.5, whose default is `medium`; see the Opus 5.5 effort caveat above. |
+| Anthropic adaptive thinking | Maps `minimal` to `low` and sends `low`, `medium`, `high`, `xhigh`, and `max` explicitly. The provider default differs by model (Opus 5.5 defaults to `medium`, the others to `high`), so no level relies on it. |
 | Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |
 | DeepSeek, OpenRouter, and Together | Maps `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
 | Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
