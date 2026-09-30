@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-09-30
+* **Addition**: IR-11: pass structured-output schemas through the Codex and Claude CLI providers (--output-schema / --json-schema) and advertise the capability.
+
 ## 2026-09-26
 * **Addition**: IR-10 asks for a TypeSafe System One (Jev) provider plus provider-neutral structured-data content: an assistant data part carrying per-answer probability distributions and a user data part carrying a JSON state. Requested by mori://shinzui/shikumi/masterplans/12-support-typesafe-jev-and-probability-backed-decision-outputs; Shikumi's routing plan mori://shinzui/shikumi/plans/63-declare-decision-outputs-and-route-them-to-system-one-models is blocked on it. The wire facts come from DSPy 3.4.0's vendored lm15 provider.
 
