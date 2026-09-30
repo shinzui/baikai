@@ -157,3 +157,21 @@ default, and an absent thinking preference remains absent. This is a request
 policy, not a claim that display is unsupported on budget models. If a future
 provider needs a distinct display restriction, add an independently sourced
 capability fact rather than a model-id test.
+
+## Per-transport facts are declared by the provider (2026-09-30)
+
+This record governs facts that vary by model generation. A fact that is
+invariant across every model a transport can reach is not one of them and
+does not belong in the catalog: it is declared on the registered
+`ApiProvider`, with a pure table keyed by the `Api` tag for callers that
+hold only a `Model`. `strengthCeiling` / `Evidence.declaredStrength` was
+the first such pair; `structuredOutput` /
+`ResponseFormat.declaredStructuredOutput` (whether a `JsonSchema` request
+reaches a mechanism the host enforces) is the second
+([plan 87](../plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md)).
+The provider's field is authoritative — for a caller-registered `Custom`
+transport the table can only say `NoStructuredOutput` — and the table must
+agree with the built-in providers, which set their field from it. Keying
+on the transport tag is not the model-id branching this record forbids; if
+such a fact ever starts varying by model, it moves into the compatibility
+record like any other.

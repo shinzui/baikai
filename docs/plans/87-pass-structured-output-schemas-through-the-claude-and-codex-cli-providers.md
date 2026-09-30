@@ -187,7 +187,26 @@ the live probe in Validation and Acceptance.
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+2026-09-30, after Milestone 4. The subscription CLIs now enforce a caller's JSON schema:
+`claude -p` receives `--json-schema` and returns its validated `structured_output`, and
+`codex exec` receives `--output-schema` naming a temporary file that is deleted however the
+call ends. All five IR-11 acceptance items have hermetic tests
+(`baikai-claude/test/StructuredCliSpec.hs`, `baikai-openai/test/StructuredCliSpec.hs`,
+`baikai/test/CliInternalSpec.hs`, `baikai/test/SurfaceSpec.hs`), and the pre-existing
+exact-vector tests pass unedited. A live probe through baikai returned conforming JSON from
+both tools. The capability is readable without a call via `declaredStructuredOutput` and
+`ApiProvider.structuredOutput`.
+
+Durable context: [ADR 0009](../adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md)
+gained a dated section saying a per-transport fact that does not vary by model is declared on
+`ApiProvider` with an `Api`-keyed table, and is not the model-id branching that ADR forbids.
+The unsupported-flag rule (`InvalidRequest`, no fallback) follows existing ADRs 0005 and the
+closed `ErrorCategory`, so it needed no new ADR.
+
+Remaining: Milestone 5 (version bumps, CHANGELOG cut, tag, Hackage upload) and then marking
+IR-11 `completed`. These wait for the user, because the `[Unreleased]` CHANGELOG section
+also holds the GPT-6.1 Sol / Sonnet 5.5 catalog entries (plan 85, not yet live-accepted) and
+the Opus 5.5 `ThinkingHigh` known issue (plan 86). A release cut now would ship those too.
 
 
 ## Context and Orientation
