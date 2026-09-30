@@ -79,9 +79,11 @@ the live probe in Validation and Acceptance.
       tests prove acceptance items 1, 2, 4 and 5 for Claude.
       (2026-09-30: new `baikai-claude/test/StructuredCliSpec.hs`, 9 cases OK, including a
       prose-in-`result` fallback case; `batchCommandRenderingTest` passes unedited.)
-- [ ] Milestone 3: the Codex CLI provider writes, passes, and always deletes the schema file;
+- [x] Milestone 3: the Codex CLI provider writes, passes, and always deletes the schema file;
       evidence commits to the schema rather than the random path; hermetic fake-`codex`
       tests prove acceptance items 1, 2, 4 and 5 for Codex.
+      (2026-09-30: new `baikai-openai/test/StructuredCliSpec.hs`, 11 cases OK; `All 288
+      tests passed`; the three existing `codexCliCommand` vector tests pass unedited.)
 - [ ] Milestone 4: user guide, capability records CAP-5 and CAP-15, their bundle log,
       CHANGELOG, and IR-11 status describe the new behaviour; `cabal test all` passes
       (including `baikai-smoke:doc-shapes`).

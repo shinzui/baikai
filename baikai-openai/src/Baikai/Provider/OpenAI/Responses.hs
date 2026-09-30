@@ -16,6 +16,7 @@ import Baikai.Provider (ApiProvider, apiProvider)
 import Baikai.Provider.OpenAI.Responses.Request (describeThinking)
 import Baikai.Provider.OpenAI.Responses.Stream (liveResponsesDriver, openaiResponsesStreamWith)
 import Baikai.Provider.Registry (registerApiProvider)
+import Baikai.ResponseFormat (declaredStructuredOutput)
 import Baikai.Stream.Event (AssistantMessageEvent)
 import Control.Lens ((&), (.~))
 import Data.Generics.Labels ()
@@ -30,6 +31,7 @@ openaiResponsesProvider =
   apiProvider OpenAIResponses openaiResponsesStream
     & #describeThinking .~ describeThinking
     & #strengthCeiling .~ Ev.declaredStrength OpenAIResponses
+    & #structuredOutput .~ declaredStructuredOutput OpenAIResponses
 
 openaiResponsesStream :: Model -> Context -> Options -> Stream IO AssistantMessageEvent
 openaiResponsesStream = openaiResponsesStreamWith liveResponsesDriver

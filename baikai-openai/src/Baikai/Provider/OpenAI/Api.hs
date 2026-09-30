@@ -37,6 +37,7 @@ import Baikai.Provider (ApiProvider, apiProvider)
 import Baikai.Provider.OpenAI.Internal.Stream (liveSseDriver, openaiChatStreamWith)
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import Baikai.Provider.Registry (registerApiProvider)
+import Baikai.ResponseFormat (declaredStructuredOutput)
 import Baikai.Stream.Event (AssistantMessageEvent)
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
@@ -59,6 +60,7 @@ openaiChatProvider =
              describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning) opts
          )
     & #strengthCeiling .~ Ev.declaredStrength OpenAIChatCompletions
+    & #structuredOutput .~ declaredStructuredOutput OpenAIChatCompletions
 
 -- | Streaming producer for the OpenAI Chat Completions API.
 --

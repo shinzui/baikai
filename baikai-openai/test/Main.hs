@@ -56,6 +56,7 @@ import ResponsesTransportSpec qualified
 import ShapeSpec qualified
 import SseSpec qualified
 import Streamly.Data.Stream qualified as Stream
+import StructuredCliSpec qualified
 import System.Directory (getPermissions, getTemporaryDirectory, setOwnerExecutable, setPermissions)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
@@ -113,6 +114,7 @@ main =
         ResponsesTransportSpec.tests,
         ShapeSpec.tests,
         SseSpec.tests,
+        StructuredCliSpec.tests,
         TransportSpec.tests
       ]
 
