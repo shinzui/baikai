@@ -92,8 +92,12 @@ the live probe in Validation and Acceptance.
       agree`. The optional live probe through baikai returned schema-conforming JSON from
       both `claude -p` (claude-haiku-4-5-20251001) and `codex exec`, and left no
       `baikai-codex-schema*.json` in the temporary directory.)
-- [ ] Milestone 5: release preparation — package versions and bounds bumped and CHANGELOG
+- [x] Milestone 5: release preparation — package versions and bounds bumped and CHANGELOG
       sections cut; tagging and Hackage upload happen only after the user confirms.
+      (2026-09-30: released `baikai 0.7.2.0`, `baikai-claude 0.7.1.0`, `baikai-openai
+      0.7.1.0` in commit `7dd44f9`, with plans 85 and 86 in the same release. Tagged, pushed,
+      uploaded with docs, GitHub releases created; Hackage lists all three. IR-11 is
+      `completed`.)
 
 
 ## Surprises & Discoveries
@@ -122,6 +126,16 @@ the live probe in Validation and Acceptance.
   Evidence: the same call from `cabal repl baikai-claude` returned `InvalidRequest`
   `HTTP 400 … This API key is not scoped to a workspace, so this request must include the
   anthropic-workspace-id header`.
+- Observation: `crypton-2.1.3` on Hackage does not build (`cbits/p256/p256_ec.c`: fatal error
+  `'p256/p256_verify.h' file not found`). The release skill's out-of-workspace sdist check
+  picked it for `baikai`'s `baikai-gen-models`/`baikai-fetch-models` executables and failed.
+  All three tarballs built with `--constraint='crypton<2.1.3'`, so the defect is upstream, not
+  in baikai. The workspace is unaffected because Nix supplies crypton.
+  Evidence: release run on 2026-09-30.
+- Observation: during the key-scrubbed `cabal test all` gate, `CliInternalSpec`'s "a
+  resolvable tool reports its path and its --version line" failed once, at exactly the
+  probe's 5 s timeout, while every suite ran concurrently. It passed twice alone (0.16 s,
+  0.19 s). This is a load-sensitive test, not a regression.
 - Observation: no existing test built a `ClaudeCliReport` literal, so adding its
   `structuredOutput` field needed no test edits, contrary to the plan's expectation.
 
@@ -203,10 +217,10 @@ gained a dated section saying a per-transport fact that does not vary by model i
 The unsupported-flag rule (`InvalidRequest`, no fallback) follows existing ADRs 0005 and the
 closed `ErrorCategory`, so it needed no new ADR.
 
-Remaining: Milestone 5 (version bumps, CHANGELOG cut, tag, Hackage upload) and then marking
-IR-11 `completed`. These wait for the user, because the `[Unreleased]` CHANGELOG section
-also holds the GPT-6.1 Sol / Sonnet 5.5 catalog entries (plan 85, not yet live-accepted) and
-the Opus 5.5 `ThinkingHigh` known issue (plan 86). A release cut now would ship those too.
+Milestone 5 waited until plans 85 and 86 were complete, so the release ships all three:
+`baikai 0.7.2.0`, `baikai-claude 0.7.1.0`, and `baikai-openai 0.7.1.0` were published on
+2026-09-30, and IR-11 is `completed`. Shikumi's IR-4 can now depend on
+`baikai-claude ^>=0.7.1` and `baikai-openai ^>=0.7.1`. The plan is complete.
 
 
 ## Context and Orientation
