@@ -3,7 +3,7 @@
 module ResponsesSpec (tests) where
 
 import Baikai hiding (model, schema)
-import Baikai.Models.Generated (openai_gpt_6_astra, openai_gpt_6_luna, openai_gpt_6_sol)
+import Baikai.Models.Generated (openai_gpt_6_1_sol, openai_gpt_6_astra, openai_gpt_6_luna, openai_gpt_6_sol)
 import Baikai.Provider.OpenAI.Responses.Request qualified as R
 import Control.Lens ((&), (.~))
 import Control.Monad (forM_)
@@ -21,8 +21,8 @@ tests :: TestTree
 tests =
   testGroup
     "Responses request mapping"
-    [ testCase "Sol and Luna catalog bindings retain Responses shaping and replay identity" $
-        forM_ [openai_gpt_6_sol, openai_gpt_6_luna] $ \m -> do
+    [ testCase "Sol, GPT-6.1 Sol, and Luna catalog bindings retain Responses shaping and replay identity" $
+        forM_ [openai_gpt_6_sol, openai_gpt_6_1_sol, openai_gpt_6_luna] $ \m -> do
           m.api @?= OpenAIResponses
           let opts = emptyOptions & #thinking .~ Just ThinkingLow & #temperature .~ Just 0.5 & #topP .~ Just 0.8
               thoughtForModel = emptyThinkingContent & #replayState .~ Just (ThinkingReplay OpenAIResponses m.modelId (V.singleton reasoningItem))

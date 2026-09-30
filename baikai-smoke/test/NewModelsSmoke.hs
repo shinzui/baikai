@@ -32,7 +32,9 @@ cases =
     Models.anthropic_claude_fable_5_1,
     Models.openai_gpt_6_sol,
     Models.openai_gpt_6_luna,
-    Models.anthropic_claude_opus_5_5
+    Models.anthropic_claude_opus_5_5,
+    Models.openai_gpt_6_1_sol,
+    Models.anthropic_claude_sonnet_5_5
   ]
 
 keysFor :: String -> [String]

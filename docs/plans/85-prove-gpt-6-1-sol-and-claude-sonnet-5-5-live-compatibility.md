@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-30T04:37:11Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-30T14:09:15Z
+      mode: "implement"
+      note: "Milestone 1 implemented; live runs attempted"
 ---
 
 # Prove GPT-6.1 Sol and Claude Sonnet 5.5 live compatibility
@@ -37,9 +43,11 @@ instead of saying that no live check has been run.
 
 ## Progress
 
-- [ ] Offline: `gpt-6.1-sol` joins the Responses binding checks and `claude-sonnet-5-5` joins
+- [x] Offline: `gpt-6.1-sol` joins the Responses binding checks and `claude-sonnet-5-5` joins
   the Opus 5.5 forced-tool and signed-replay contract checks. Four new smoke cases are
   selectable, and the prescribed offline gate passes without network access.
+  (2026-09-30: gate exit 0 — baikai-test 794, baikai-openai-test 288, baikai-claude-test 408,
+  doc-shapes and smoke-options pass; the renamed tests report OK for both new bindings.)
 - [ ] Live: `sol61-text`, `sol61-tools`, `sonnet55-text`, and `sonnet55-tools` pass with
   `--require-keys`. The redacted record is preserved under `docs/validation/plan-85/`.
 - [ ] Documentation: `docs/user/models-and-providers.md` and the Unreleased changelog entry
