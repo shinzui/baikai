@@ -23,8 +23,8 @@ tests :: TestTree
 tests =
   testGroup
     "Pricing policy"
-    [ testCase "Sol and Luna prices switch the complete request above 272K" $
-        forM_ [(Models.openai_gpt_6_sol, M.ModelCost 2 10 (1 / 5) (5 / 2), M.ModelCost 4 15 (2 / 5) 5), (Models.openai_gpt_6_luna, M.ModelCost (1 / 10) (1 / 2) (1 / 100) (1 / 8), M.ModelCost (1 / 5) (3 / 4) (1 / 50) (1 / 4))] $ \(m, standard, highRates) -> do
+    [ testCase "Sol, Luna, and GPT-6.1 Sol prices switch the complete request above 272K" $
+        forM_ [(Models.openai_gpt_6_sol, M.ModelCost 2 10 (1 / 5) (5 / 2), M.ModelCost 4 15 (2 / 5) 5), (Models.openai_gpt_6_luna, M.ModelCost (1 / 10) (1 / 2) (1 / 100) (1 / 8), M.ModelCost (1 / 5) (3 / 4) (1 / 50) (1 / 4)), (Models.openai_gpt_6_1_sol, M.ModelCost 2 10 (1 / 10) (5 / 2), M.ModelCost 4 15 (1 / 5) 5)] $ \(m, standard, highRates) -> do
           forM_ [(272000, standard), (272001, highRates)] $ \(n, expected) -> do
             let u = U.zeroUsage & #inputTokens .~ (n - 2000) & #cacheReadTokens .~ 1000 & #cacheWriteTokens .~ 1000 & #outputTokens .~ 100
             resolveRates Nothing m u @?= Right expected
@@ -38,6 +38,13 @@ tests =
         (computeCostAtSpeed m SpeedFast u).usd @?= 10
         (computeCostForService (Just CacheRetentionLong) Nothing m observedFast).usd @?= 16
         Set.member (C.UnsupportedSpeed "fast") (computeCostForService (Just CacheRetentionLong) Nothing m observedFast).basis.estimateReasons @?= False,
+      testCase "Sonnet 5.5 prices short and long cache writes and has no fast rates" $ do
+        let m = Models.anthropic_claude_sonnet_5_5
+            u = U.zeroUsage & #cacheWriteTokens .~ 1000000
+        (computeCostWith (Just CacheRetentionShort) m u).usd @?= 5 / 2
+        (computeCostWith (Just CacheRetentionLong) m u).usd @?= 4
+        (computeCost m (U.zeroUsage & #cacheReadTokens .~ 1000000)).usd @?= 1 / 5
+        Set.member (C.UnsupportedSpeed "fast") (computeCostAtSpeed m SpeedFast u).basis.estimateReasons @?= True,
       testCase "requested tiers never substitute for observed service" $ do
         let unknown = N.normalizeUsage N.InclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)
             standard = U.observeBilling [U.BillingServiceTier "default"] unknown

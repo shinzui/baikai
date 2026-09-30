@@ -267,6 +267,7 @@ openaiInclude =
   Map.union
     ( Map.fromList
         [ ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
+          ("gpt-6.1-sol", Just (CatalogResponsesCompat gpt61ResponsesFacts)),
           ("gpt-6-sol", Just (CatalogResponsesCompat gpt6ResponsesFacts)),
           ("gpt-6-luna", Just (CatalogResponsesCompat gpt6ResponsesFacts))
         ]
@@ -304,6 +305,11 @@ openaiInclude =
     -- https://developers.openai.com/api/docs/models/gpt-6-sol
     -- https://developers.openai.com/api/docs/models/gpt-6-luna
     gpt6ResponsesFacts = astraResponsesFacts
+    -- 2026-09-29: as Astra, tool calling requires Responses; efforts low
+    -- through max (no none or minimal); sampling removed; 30m cache TTL.
+    -- https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    -- https://developers.openai.com/api/docs/guides/latest-model
+    gpt61ResponsesFacts = astraResponsesFacts
     -- 2026-09-07: native tools require Responses; only modern 30m cache TTL.
     -- https://developers.openai.com/api/docs/guides/latest-model
     astraResponsesFacts =
@@ -355,6 +361,12 @@ anthropicInclude =
       -- This is the finding: the retired prefix table did not know this id
       -- and sent it budget_tokens — same source.
       ("claude-sonnet-5", adaptiveNoSampling),
+      -- 2026-09-29: adaptive thinking on by default; forced tool choice and
+      -- nondefault sampling return 400; no fast mode. Baikai never sends
+      -- the rejected "disabled" thinking type.
+      -- https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
+      -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
+      ("claude-sonnet-5-5", adaptiveNoSampling & #supportsForcedToolChoice .~ False),
       -- 2026-08-27: as claude-opus-4-6 — budget deprecated but functional,
       -- sampling accepted; baikai prefers the non-deprecated shape — same
       -- source. Plan 40 left this membership to a live check that never
@@ -639,11 +651,14 @@ renderModel m =
   where
     c = m ^. #cost
 
--- | Provider documentation verified 2026-09-23. These rules supplement base
+-- | Provider documentation verified 2026-09-23; GPT-6.1 Sol and Sonnet 5.5
+-- verified 2026-09-29. These rules supplement base
 -- models.dev rates, which do not describe the full request billing policy.
 -- https://developers.openai.com/api/docs/models/gpt-6-astra
 -- https://developers.openai.com/api/docs/models/gpt-6-sol
 -- https://developers.openai.com/api/docs/models/gpt-6-luna
+-- https://developers.openai.com/api/docs/models/gpt-6.1-sol
+-- https://platform.claude.com/docs/en/models/sonnet-5-5/overview
 -- https://platform.claude.com/docs/en/models/fable-5-1/overview
 -- https://platform.claude.com/docs/en/models/opus-5-5/overview
 -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
@@ -654,6 +669,8 @@ pricingPolicies =
       (("anthropic", "claude-opus-5"), Model.PricingPolicy [] (Just 10)),
       (("anthropic", "claude-opus-4-8"), Model.PricingPolicy [] (Just 10)),
       (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
+      (("anthropic", "claude-sonnet-5-5"), Model.PricingPolicy [] (Just 4)),
+      (("openai", "gpt-6.1-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5)] Nothing),
       (("openai", "gpt-6-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5)] Nothing),
       (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25)] Nothing),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20))

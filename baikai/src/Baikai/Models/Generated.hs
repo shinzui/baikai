@@ -509,6 +509,41 @@ anthropic_claude_sonnet_5 =
             }
     }
 
+anthropic_claude_sonnet_5_5 :: Model
+anthropic_claude_sonnet_5_5 =
+  emptyModel
+    { modelId = "claude-sonnet-5-5",
+      name = "Claude Sonnet 5.5",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 2 % 1,
+            outputCost = 10 % 1,
+            cacheReadCost = 1 % 5,
+            cacheWriteCost = 5 % 2
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (4 % 1))),
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False,
+              supportsFastMode = False,
+              supportsForcedToolChoice = False
+            }
+    }
+
 deepseek_deepseek_chat :: Model
 deepseek_deepseek_chat =
   emptyModel
@@ -1009,6 +1044,38 @@ openai_gpt_5_nano =
       compat = CompatNone
     }
 
+openai_gpt_6_1_sol :: Model
+openai_gpt_6_1_sol =
+  emptyModel
+    { modelId = "gpt-6.1-sol",
+      name = "GPT-6.1 Sol",
+      api = OpenAIResponses,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 2 % 1,
+            outputCost = 10 % 1,
+            cacheReadCost = 1 % 10,
+            cacheWriteCost = 5 % 2
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (1 % 5) (5 % 1))] Nothing),
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsSamplingParameters = False,
+              supportsLongCacheRetention = False,
+              supportsPromptCacheOptions = True
+            }
+    }
+
 openai_gpt_6_astra :: Model
 openai_gpt_6_astra =
   emptyModel
@@ -1270,6 +1337,7 @@ allModels =
     anthropic_claude_sonnet_4_5,
     anthropic_claude_sonnet_4_6,
     anthropic_claude_sonnet_5,
+    anthropic_claude_sonnet_5_5,
     deepseek_deepseek_chat,
     deepseek_deepseek_reasoner,
     openai_gpt_4_1,
@@ -1290,6 +1358,7 @@ allModels =
     openai_gpt_5_6_terra,
     openai_gpt_5_mini,
     openai_gpt_5_nano,
+    openai_gpt_6_1_sol,
     openai_gpt_6_astra,
     openai_gpt_6_luna,
     openai_gpt_6_sol,

@@ -29,10 +29,12 @@ Models.anthropic_claude_sonnet_4_6
 Models.anthropic_claude_haiku_4_5
 Models.anthropic_claude_fable_5
 Models.anthropic_claude_fable_5_1
+Models.anthropic_claude_sonnet_5_5
 Models.deepseek_deepseek_chat
 Models.deepseek_deepseek_reasoner
 Models.openai_gpt_5_5
 Models.openai_gpt_6_astra
+Models.openai_gpt_6_1_sol
 Models.openai_gpt_5_mini
 Models.openai_gpt_4o_mini
 Models.openai_o3
@@ -145,6 +147,49 @@ under Settings → Workspaces. The Default Workspace does not appear in the List
 Workspaces API response, so an empty list does not mean this header is optional.
 See [Anthropic's authentication guide](https://platform.claude.com/docs/en/manage-claude/authentication)
 for workspace-scoped and multi-workspace keys.
+
+The September 29 refresh adds `openai_gpt_6_1_sol` and
+`anthropic_claude_sonnet_5_5`. Both are catalog entries on routes the existing
+bindings already use; neither has passed a live check yet (see
+[plan 85](../plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md)).
+
+[GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
+supersedes `gpt-6-sol`, which remains in the catalog. It selects
+`OpenAIResponses`: OpenAI supports its Chat Completions route only without
+tool calling. It has a 1,050,000-token context and 128,000-token output limit,
+and accepts efforts low through max; unlike GPT-6 Sol it has no `none` effort.
+Sampling options are omitted and recorded as adjustments. Its standard prices
+per million input, cached input, cache write, and output tokens are
+$2/$0.10/$2.50/$10. Cached input costs half GPT-6 Sol's rate. The pricing
+policy applies the same 272,000-token whole-request threshold, doubling input
+and cache rates and raising output 1.5 times.
+
+[Claude Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview)
+uses Messages, has a 1,000,000-token context and 128,000-token output limit,
+and standard rates of $2/$0.20/$2.50/$10 in the same category order. One-hour
+cache writes cost $4/M; the catalog selects that rate when the shaped request
+uses it. Sonnet 5.5 has no fast mode, so `SpeedFast` is dropped with
+`fast_mode_dropped_unsupported_model`. Adaptive thinking is on by default at
+`high` effort, and it defaults to omitted thinking display. As with Opus 5.5 and
+Fable 5.1, forced `any` and named tool choices are rejected locally, sampling
+options are dropped, and progress notes between tool calls arrive as
+`thinking` blocks. Leaving `Options.thinking` unset returns those blocks empty.
+Setting a level requests summarized display, which makes them readable. Baikai
+never sends `thinking: {"type": "disabled"}`, which Sonnet 5.5 rejects. It
+has no option for the new `between_tools` setting.
+
+Sonnet 5.5 thinking blocks are bound to the model, the account, and the
+conversation prefix. Replay them unchanged and keep history append-only. For
+accounts created on or after 2026-08-31, editing an earlier turn before
+replaying a later Sonnet 5.5 block returns HTTP 400. See the
+[migration guide](https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide).
+
+The Opus 5.5 effort caveat: Opus 5.5 defaults to `medium`, but Baikai sends no
+effort field for `ThinkingHigh` on adaptive models and records `effort_omitted`.
+Opus 5.5 therefore runs `ThinkingHigh` at medium effort today.
+[Plan 86](../plans/86-send-explicit-high-effort-so-claude-opus-5-5-honours-thinkinghigh.md)
+sends `high` explicitly. Until then, strict evidence mode already refuses
+`ThinkingHigh` on adaptive models.
 
 ### Focused compatibility checks
 
@@ -423,7 +468,7 @@ shape selected by the model's compatibility record:
 | Destination | Mapping |
 |-------------|---------|
 | Native OpenAI | Preserves all six canonical spellings in the final JSON request. |
-| Anthropic adaptive thinking | Maps `minimal` to `low`, sends `low`, `medium`, `xhigh`, and `max` explicitly, and omits `high` because it is the provider default. |
+| Anthropic adaptive thinking | Maps `minimal` to `low`, sends `low`, `medium`, `xhigh`, and `max` explicitly, and omits `high`. `high` is the provider default on every adaptive catalog model except Opus 5.5, whose default is `medium`; see the Opus 5.5 effort caveat above. |
 | Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |
 | DeepSeek, OpenRouter, and Together | Maps `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
 | Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
@@ -465,8 +510,9 @@ recorded in the call's evidence rather than being silent:
 | `frequencyPenalty` | sent | **no such field**, same |
 | `presencePenalty` | sent | **no such field**, same |
 
-Anthropic's adaptive-era generations — `claude-sonnet-5`,
-`claude-opus-4-7`, `claude-opus-4-8`, `claude-opus-5`, `claude-fable-5` — return a 400 for
+Anthropic's adaptive-era generations — `claude-sonnet-5`, `claude-sonnet-5-5`,
+`claude-opus-4-7`, `claude-opus-4-8`, `claude-opus-5`, `claude-opus-5-5`,
+`claude-fable-5`, `claude-fable-5-1` — return a 400 for
 `temperature`, `top_p` and `top_k`. baikai reads
 `AnthropicMessagesCompat.supportsSamplingParameters` off the model's
 catalog record, omits the parameters rather than sending a request it
@@ -476,8 +522,8 @@ knows will fail, and records
 `Options.speed` is an Anthropic Messages preference. `Nothing` omits the field;
 `Just SpeedStandard` explicitly sends standard speed. `Just SpeedFast` sends fast
 speed and the `fast-mode-2026-02-01` beta header when the model's compatibility
-record has `supportsFastMode = True`. The current catalog enables Opus 5 and
-Opus 4.8. Other Anthropic models omit fast speed and record
+record has `supportsFastMode = True`. The current catalog enables Opus 5.5,
+Opus 5, and Opus 4.8. Other Anthropic models omit fast speed and record
 `fast_mode_dropped_unsupported_model` in translation evidence; this does not
 weaken thinking or trigger the strict thinking gate. OpenAI and CLI providers
 omit this option. Model and caller header overrides still take precedence.

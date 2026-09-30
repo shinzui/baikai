@@ -7,6 +7,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Curated GPT-6.1 Sol on OpenAI Responses and Claude Sonnet 5.5 on Anthropic
+  Messages (`openai_gpt_6_1_sol`, `anthropic_claude_sonnet_5_5`), with endpoint
+  compatibility facts, standard prices, GPT-6.1 Sol's 272K-token context tier,
+  and Sonnet 5.5's one-hour cache-write rate. Sonnet 5.5 rejects forced tool
+  choice locally and has no fast mode. Neither binding has passed live
+  acceptance yet; [plan 85](docs/plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md) covers that check.
+
+### Known issues
+
+- Anthropic adaptive `ThinkingHigh` sends no effort field. Claude Opus 5.5 defaults
+  to `medium`, so `ThinkingHigh` currently runs Opus 5.5 at medium effort.
+  [Plan 86](docs/plans/86-send-explicit-high-effort-so-claude-opus-5-5-honours-thinkinghigh.md) makes the request explicit.
+
 ## [baikai 0.7.1.0] - 2026-09-23
 
 ### Added

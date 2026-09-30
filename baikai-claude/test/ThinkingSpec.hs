@@ -80,7 +80,8 @@ anthropicModels =
     ("claude-opus-5-5", anthropic_claude_opus_5_5, AnthropicThinkingAdaptive, False, False, True),
     ("claude-sonnet-4-5", anthropic_claude_sonnet_4_5, AnthropicThinkingBudget, True, True, False),
     ("claude-sonnet-4-6", anthropic_claude_sonnet_4_6, AnthropicThinkingAdaptive, True, True, False),
-    ("claude-sonnet-5", anthropic_claude_sonnet_5, AnthropicThinkingAdaptive, False, True, False)
+    ("claude-sonnet-5", anthropic_claude_sonnet_5, AnthropicThinkingAdaptive, False, True, False),
+    ("claude-sonnet-5-5", anthropic_claude_sonnet_5_5, AnthropicThinkingAdaptive, False, False, False)
   ]
 
 thinkingLevels :: [(String, ThinkingLevel)]
