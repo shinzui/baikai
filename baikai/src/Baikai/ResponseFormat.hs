@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 -- | Provider-agnostic structured-output preference.
@@ -10,9 +11,14 @@ module Baikai.ResponseFormat
   ( ResponseFormat (..),
     JsonSchemaFormat (name, schema, strict),
     jsonSchemaFormat,
+
+    -- * Which transports enforce a schema
+    StructuredOutputSupport (..),
+    declaredStructuredOutput,
   )
 where
 
+import Baikai.Api (Api (..))
 import Data.Aeson
   ( FromJSON (parseJSON),
     ToJSON (toJSON),
@@ -96,3 +102,38 @@ instance FromJSON ResponseFormat where
               (jsonSchemaFormat schemaName schemaDoc) {strict = fromMaybe False isStrict}
           )
       other -> fail ("unknown ResponseFormat tag: " <> show other)
+
+-- | Whether a transport forwards a 'JsonSchema' request to a mechanism
+-- the host enforces.
+--
+-- Answerable without spawning or calling anything: read it from a
+-- registered provider (@Baikai.Provider.Registry.structuredOutput@) or
+-- from a model's transport tag ('declaredStructuredOutput').
+data StructuredOutputSupport
+  = -- | 'JsonSchema' reaches the provider and the provider enforces it.
+    NativeJsonSchema
+  | -- | 'Baikai.Options.responseFormat' is ignored by this transport.
+    NoStructuredOutput
+  deriving stock (Eq, Ord, Show, Enum, Bounded, Generic)
+
+-- | The structured-output support of each built-in transport.
+--
+-- 'NativeJsonSchema' covers 'JsonSchema' only. The HTTP providers send
+-- the schema in the request body; the subscription CLIs receive it as a
+-- flag (@claude -p --json-schema@, @codex exec --output-schema@) and
+-- 'JsonObject', 'strict' and 'name' are not forwarded to them. An
+-- installed CLI too old to know the flag still rejects it at run time;
+-- that call returns an error-shaped response in the
+-- 'Baikai.Error.InvalidRequest' category rather than unconstrained text.
+--
+-- A 'Custom' transport is 'NoStructuredOutput' here because this table
+-- cannot know what a caller-registered provider does; that provider's
+-- own @structuredOutput@ field is the authoritative answer.
+declaredStructuredOutput :: Api -> StructuredOutputSupport
+declaredStructuredOutput = \case
+  AnthropicMessages -> NativeJsonSchema
+  OpenAIChatCompletions -> NativeJsonSchema
+  OpenAIResponses -> NativeJsonSchema
+  AnthropicMessagesCli -> NativeJsonSchema
+  OpenAICompletionsCli -> NativeJsonSchema
+  Custom _ -> NoStructuredOutput

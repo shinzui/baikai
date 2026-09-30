@@ -64,11 +64,23 @@ tests =
             logCfg = callLogConfig "/dev/null"
         provider ^. #apiTag @?= Custom "probe"
         provider ^. #strengthCeiling @?= EvidenceRequestedOnly
+        provider ^. #structuredOutput @?= NoStructuredOutput
         req ^. #attempt @?= 2
         req ^. #runId @?= "r"
         tool ^. #name @?= "t"
         tool ^. #parameters @?= Aeson.Null
         embedding ^. #modelId @?= "e"
         logCfg ^. #path @?= "/dev/null"
-        logCfg ^. #enabled @?= True
+        logCfg ^. #enabled @?= True,
+      testCase "declaredStructuredOutput: every built-in transport enforces a schema, Custom does not" $ do
+        let builtIns =
+              [ AnthropicMessages,
+                OpenAIChatCompletions,
+                OpenAIResponses,
+                AnthropicMessagesCli,
+                OpenAICompletionsCli
+              ]
+        map declaredStructuredOutput builtIns @?= map (const NativeJsonSchema) builtIns
+        declaredStructuredOutput (Custom "x") @?= NoStructuredOutput
+        [minBound .. maxBound] @?= [NativeJsonSchema, NoStructuredOutput]
     ]

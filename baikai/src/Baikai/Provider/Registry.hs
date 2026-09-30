@@ -15,7 +15,7 @@
 -- error-shaped 'Response' in the 'Baikai.Error.ProviderUnavailable'
 -- category.
 module Baikai.Provider.Registry
-  ( ApiProvider (apiTag, stream, complete, describeThinking, strengthCeiling),
+  ( ApiProvider (apiTag, stream, complete, describeThinking, strengthCeiling, structuredOutput),
     apiProviderWith,
     describeApi,
     ProviderRegistry,
@@ -51,6 +51,7 @@ import Baikai.Model qualified as Model
 import Baikai.Options (Options, emptyOptions)
 import Baikai.Options qualified as Options
 import Baikai.Response (Response (..), errorResponse, flattenAssistantBlocks, flattenAssistantText, responseError)
+import Baikai.ResponseFormat (StructuredOutputSupport (..))
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event (AssistantMessageEvent)
 import Control.Exception qualified as Exception
@@ -111,7 +112,16 @@ data ApiProvider = ApiProvider
     -- declare 'Evidence.EvidenceRequestedOnly', and will still fail a
     -- strict caller at the terminal — see
     -- @docs\/adr\/0014-strict-evidence-means-a-record-exists.md@.
-    strengthCeiling :: !Evidence.EvidenceStrength
+    strengthCeiling :: !Evidence.EvidenceStrength,
+    -- | Whether this provider forwards a 'Baikai.ResponseFormat.JsonSchema'
+    -- request to a mechanism the host enforces: a static declaration a
+    -- caller can read before dispatch.
+    --
+    -- Like 'strengthCeiling', declare only what the provider delivers.
+    -- The built-in providers take their value from
+    -- 'Baikai.ResponseFormat.declaredStructuredOutput'; a caller-supplied
+    -- transport that honours schemas sets 'NativeJsonSchema' itself.
+    structuredOutput :: !StructuredOutputSupport
   }
   deriving stock (Generic)
 
@@ -127,8 +137,9 @@ data ApiProvider = ApiProvider
 -- 'describeThinking' defaults to reporting that nothing was requested
 -- and nothing translated, which is honest for a transport with no
 -- reasoning controls; 'strengthCeiling' defaults to
--- 'Evidence.EvidenceRequestedOnly', matching @declaredStrength (Custom _)@.
--- Override either by record update.
+-- 'Evidence.EvidenceRequestedOnly', matching @declaredStrength (Custom _)@;
+-- 'structuredOutput' defaults to 'NoStructuredOutput'. Override any of
+-- them by record update.
 apiProviderWith ::
   Api ->
   (Model -> Context -> Options -> Stream IO AssistantMessageEvent) ->
@@ -140,7 +151,8 @@ apiProviderWith tag producer completer =
       stream = producer,
       complete = completer,
       describeThinking = \_ _ -> Evidence.noThinkingRequested,
-      strengthCeiling = Evidence.EvidenceRequestedOnly
+      strengthCeiling = Evidence.EvidenceRequestedOnly,
+      structuredOutput = NoStructuredOutput
     }
 
 -- | How an 'Api' tag reads in a dispatch failure.

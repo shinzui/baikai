@@ -22,6 +22,9 @@ module Baikai.Provider.Cli.Internal
     ClaudeCliReport (..),
     decodeClaudeCliResult,
 
+    -- * Failures a CLI reports about its own arguments
+    unsupportedFlagError,
+
     -- * What baikai knows about the process it launched
     ExecutableIdentity (..),
     executableIdentity,
@@ -41,7 +44,7 @@ import Baikai.Content
   )
 import Baikai.Context (Context)
 import Baikai.Cost (Cost (..), providerReportedBasis, zeroCost, zeroCostBreakdown)
-import Baikai.Error (BaikaiError, decodeError)
+import Baikai.Error (BaikaiError (..), ErrorCategory (..), decodeError, processError)
 import Baikai.Evidence (EvidenceStrength (..), Observed (..), deriveStrength, usageEnvelope)
 import Baikai.Message
   ( AssistantPayload (..),
@@ -447,7 +450,10 @@ data ClaudeCliReport = ClaudeCliReport
     reportedModel :: !(Maybe Text),
     -- | The token counts and reported cost, when the tool included a
     -- usage block.
-    usage :: !(Maybe Usage)
+    usage :: !(Maybe Usage),
+    -- | The validated value of the tool's internal @StructuredOutput@
+    -- tool, present when the run was given @--json-schema@.
+    structuredOutput :: !(Maybe Value)
   }
   deriving stock (Eq, Show, Generic)
 
@@ -483,14 +489,40 @@ parseResultEvent v = case parseEither parser v of
       body <- o .: "result"
       failed <- o .: "is_error"
       session <- o .:? "session_id"
+      structured <- o .:? "structured_output"
       pure
         ClaudeCliReport
           { result = body,
             isError = failed,
             sessionId = session,
             reportedModel = KeyMap.lookup "modelUsage" o >>= soleModelUsageKey,
-            usage = claudeUsage o
+            usage = claudeUsage o,
+            structuredOutput = structured
           }
+
+-- | Recognise a CLI's refusal of a flag it does not know.
+--
+-- Given the tool name, the flag baikai sent, the exit code and the
+-- decoded stderr, this returns an 'InvalidRequest' error (keeping the
+-- exit code) exactly when stderr is the tool's argument parser rejecting
+-- that flag: commander's @unknown option '<flag>'@ (@claude@) or clap's
+-- @unexpected argument '<flag>'@ (@codex@). Any other failure, including
+-- one about the flag's /value/, is 'Nothing' and stays a
+-- 'ProcessFailure'.
+unsupportedFlagError :: Text -> String -> Int -> Text -> Maybe BaikaiError
+unsupportedFlagError tool flag code stderr
+  | any (`Text.isInfixOf` stderr) spellings =
+      Just ((processError code msg) {category = InvalidRequest})
+  | otherwise = Nothing
+  where
+    quoted = "'" <> Text.pack flag <> "'"
+    spellings = ["unknown option " <> quoted, "unexpected argument " <> quoted]
+    msg =
+      tool
+        <> " does not accept "
+        <> Text.pack flag
+        <> "; upgrade it or unset Options.responseFormat: "
+        <> stderr
 
 -- | The model @claude@ reported as having consumed tokens.
 --

@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-30T13:31:17Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-30T13:40:44Z
+      mode: "implement"
+      note: "Milestones implemented: CLI schema passthrough and StructuredOutputSupport"
 ---
 
 
@@ -62,10 +68,12 @@ the live probe in Validation and Acceptance.
 
 ## Progress
 
-- [ ] Milestone 1: `StructuredOutputSupport`, `declaredStructuredOutput`, and
+- [x] Milestone 1: `StructuredOutputSupport`, `declaredStructuredOutput`, and
       `ApiProvider.structuredOutput` exist in `baikai`; every built-in provider declares its
       value; the shared CLI helpers parse Claude's `structured_output` and recognise an
       unsupported-flag failure. `cabal test baikai:baikai-test` passes with the new cases.
+      (2026-09-30: `All 794 tests passed`; vendor providers declare their value in
+      Milestones 2 and 3. No test built a `ClaudeCliReport` literal, so none needed editing.)
 - [ ] Milestone 2: the Claude CLI provider passes `--json-schema`, returns the structured
       output, and reports an unsupported flag as `InvalidRequest`; hermetic fake-`claude`
       tests prove acceptance items 1, 2, 4 and 5 for Claude.

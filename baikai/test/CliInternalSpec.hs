@@ -12,6 +12,7 @@ module CliInternalSpec (tests) where
 import Baikai
 import Baikai.Provider.Cli.Internal
 import Control.Lens ((&), (.~), (^.))
+import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -35,6 +36,7 @@ tests =
     [ promptTests,
       codexParserTests,
       claudeParserTests,
+      unsupportedFlagTests,
       executableIdentityTests,
       evidenceHelperTests
     ]
@@ -267,7 +269,52 @@ claudeParserTests =
       testCase "malformed stdout is a decode error rather than an exception" $
         case decodeClaudeCliResult "not json" of
           Left _ -> pure ()
-          Right r -> assertFailure ("expected a decode error, got: " <> show r)
+          Right r -> assertFailure ("expected a decode error, got: " <> show r),
+      -- Shape recorded from Claude Code 2.1.285 run with --json-schema:
+      -- the validated value arrives beside a compact copy in "result".
+      testCase "a --json-schema run's structured_output decodes" $
+        case decodeClaudeCliResult
+          "{\"type\":\"result\",\"is_error\":false,\"stop_reason\":\"tool_use\",\
+          \\"result\":\"{\\\"items\\\":[]}\",\"structured_output\":{\"items\":[]}}" of
+          Left err -> assertFailure ("expected the document to decode: " <> show err)
+          Right r -> do
+            r ^. #result @?= "{\"items\":[]}"
+            r ^. #structuredOutput @?= Just (Aeson.object ["items" Aeson..= ([] :: [Aeson.Value])]),
+      testCase "a run without --json-schema has no structured output" $
+        case decodeClaudeCliResult "{\"result\":\"pong\",\"is_error\":false}" of
+          Left err -> assertFailure ("expected a bare object to decode: " <> show err)
+          Right r -> r ^. #structuredOutput @?= Nothing
+    ]
+
+-- ============================================================
+-- Unsupported-flag classification
+-- ============================================================
+
+unsupportedFlagTests :: TestTree
+unsupportedFlagTests =
+  testGroup
+    "unsupportedFlagError"
+    [ testCase "commander's unknown option (claude) is InvalidRequest with the exit code" $
+        case unsupportedFlagError "claude" "--json-schema" 1 "error: unknown option '--json-schema'\n" of
+          Nothing -> assertFailure "expected the rejection to be recognised"
+          Just e -> do
+            e ^. #category @?= InvalidRequest
+            e ^. #exitCode @?= Just 1
+            assertBool
+              ("message names the tool and flag: " <> show (e ^. #message))
+              ("claude does not accept --json-schema" `Text.isPrefixOf` (e ^. #message)),
+      testCase "clap's unexpected argument (codex) is InvalidRequest with the exit code" $
+        case unsupportedFlagError "codex" "--output-schema" 2 "error: unexpected argument '--output-schema' found\n" of
+          Nothing -> assertFailure "expected the rejection to be recognised"
+          Just e -> do
+            e ^. #category @?= InvalidRequest
+            e ^. #exitCode @?= Just 2,
+      testCase "an unreadable schema file is not an unsupported flag" $
+        unsupportedFlagError "codex" "--output-schema" 1 "Failed to read output schema file /tmp/x.json: No such file"
+          @?= Nothing,
+      testCase "a rejection naming a different flag is not this flag" $
+        unsupportedFlagError "claude" "--json-schema" 1 "error: unknown option '--bogus-flag'"
+          @?= Nothing
     ]
 
 -- ============================================================
