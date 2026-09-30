@@ -38,6 +38,7 @@ import Baikai.Provider (ApiProvider, apiProvider)
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor)
 import Baikai.Provider.Claude.Internal.Stream (claudeMessagesStreamWith, liveSseDriver)
 import Baikai.Provider.Registry (registerApiProvider)
+import Baikai.ResponseFormat (declaredStructuredOutput)
 import Baikai.Stream.Event (AssistantMessageEvent)
 import Control.Lens ((&), (.~))
 import Data.Generics.Labels ()
@@ -59,6 +60,7 @@ claudeMessagesProvider =
     -- the gate's answer and the wire's behaviour cannot disagree.
     & #describeThinking .~ describeThinkingFor
     & #strengthCeiling .~ Ev.declaredStrength AnthropicMessages
+    & #structuredOutput .~ declaredStructuredOutput AnthropicMessages
 
 -- | Streaming producer for the Anthropic Messages API.
 --

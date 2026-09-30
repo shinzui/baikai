@@ -21,6 +21,19 @@
 -- not which model served the request, so a successful exit never
 -- raises the recorded 'Baikai.Evidence.EvidenceStrength' — see
 -- 'Baikai.Provider.Cli.Internal.subprocessStrength'.
+--
+-- Structured output: a 'Baikai.ResponseFormat.JsonSchema' in
+-- 'Baikai.Options.responseFormat' is passed as @--json-schema '<schema>'@
+-- (compact JSON). The tool answers through its internal
+-- @StructuredOutput@ tool and the response text is the validated value:
+-- the result's @result@ string verbatim when it decodes to the same
+-- value as @structured_output@, otherwise the compact encoding of
+-- @structured_output@. A successful run with no @structured_output@ is a
+-- 'Baikai.Error.DecodeFailure'. An installed @claude@ too old to know
+-- the flag yields an 'Baikai.Error.InvalidRequest' error carrying the
+-- exit code, never unconstrained text. 'Baikai.ResponseFormat.JsonObject'
+-- and the schema's @name@ and @strict@ have no CLI analogue and are not
+-- forwarded.
 module Baikai.Provider.Claude.Cli
   ( ClaudeCliConfig,
     executable,
@@ -37,7 +50,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
-import Baikai.Error (BaikaiError, processError, providerError)
+import Baikai.Error (BaikaiError, decodeError, processError, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
 import Baikai.Message (AssistantPayload (..))
@@ -50,6 +63,7 @@ import Baikai.Provider.Registry
     registerApiProvider,
   )
 import Baikai.Response qualified as Resp
+import Baikai.ResponseFormat (ResponseFormat (..), declaredStructuredOutput)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.ThinkingLevel (ThinkingLevel (ThinkingMinimal), renderThinkingLevel)
@@ -66,10 +80,13 @@ import Cradle
     setNoStdin,
     setWorkingDir,
   )
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
@@ -116,6 +133,7 @@ claudeCliProvider cfg =
     -- control is a command-line flag derived from Options alone.
     & #describeThinking .~ (\_ opts -> claudeCliThinking opts)
     & #strengthCeiling .~ Ev.declaredStrength AnthropicMessagesCli
+    & #structuredOutput .~ declaredStructuredOutput AnthropicMessagesCli
 
 -- | Render the executable and arguments for a @claude -p@ batch call.
 -- The prompt is preceded by @--@ so dash-leading prompts and variadic
@@ -128,9 +146,35 @@ claudeCliCommand cfg m ctx opts =
       <> ["--output-format", "json", "--no-session-persistence"]
       <> systemPromptArgs ctx
       <> effortArgs opts
+      <> schemaArgs opts
       <> fmap Text.unpack (cfg ^. #extraArgs)
       <> ["--", Text.unpack (Internal.renderPrompt ctx)]
   )
+
+-- | Render @--json-schema@ from a 'JsonSchema' response format, as the
+-- schema's compact JSON. Every other format renders nothing.
+schemaArgs :: Options -> [String]
+schemaArgs opts = case opts ^. #responseFormat of
+  Just (JsonSchema f) -> ["--json-schema", compactJson (f ^. #schema)]
+  _ -> []
+
+compactJson :: Aeson.Value -> String
+compactJson = Text.unpack . Internal.decodeUtf8Lenient . LBS.toStrict . Aeson.encode
+
+-- | The response text for a run given @--json-schema@.
+--
+-- The @result@ string is kept byte for byte when it is a JSON copy of
+-- @structured_output@; otherwise the enforced value wins, encoded
+-- compactly. No @structured_output@ at all means the tool did not
+-- answer through the schema, and returning its prose would be the
+-- silent fallback the caller asked not to get.
+structuredBody :: Internal.ClaudeCliReport -> Either BaikaiError Text
+structuredBody r = case r ^. #structuredOutput of
+  Nothing ->
+    Left (decodeError "claude -p: --json-schema was sent but the result has no structured_output")
+  Just v
+    | Aeson.decodeStrict (Text.encodeUtf8 (r ^. #result)) == Just v -> Right (r ^. #result)
+    | otherwise -> Right (Internal.decodeUtf8Lenient (LBS.toStrict (Aeson.encode v)))
 
 -- | Render @--effort@ from 'Options.thinking'. Claude's @--effort@ has
 -- no @minimal@, so the lowest Baikai level collapses to @low@; when
@@ -213,19 +257,31 @@ runClaudeCli cfg m ctx opts = do
         ev <- evidenceFor mReport Ev.CallFailed (Just err)
         let resp = Resp.errorResponse m end (millisBetween start end) err
         pure resp {Resp.evidence = ev, Resp.responseId = mReport >>= (^. #sessionId)}
+      succeeded r = do
+        ev <- evidenceFor (Just r) Ev.CallSucceeded Nothing
+        let resp = mkResponse m start end r
+        pure resp {Resp.evidence = ev}
+      schemaRequested = not (null (schemaArgs opts))
   case executed of
     Left ex -> failedWith Nothing (exceptionToError ex)
     Right (exitCode, StdoutRaw out, StderrRaw err) -> case exitCode of
-      ExitFailure n -> failedWith Nothing (processError n (Internal.decodeUtf8Lenient err))
+      ExitFailure n ->
+        let stderr = Internal.decodeUtf8Lenient err
+            flagRejected
+              | schemaRequested = Internal.unsupportedFlagError "claude" "--json-schema" n stderr
+              | otherwise = Nothing
+         in failedWith Nothing (fromMaybe (processError n stderr) flagRejected)
       ExitSuccess -> case Internal.decodeClaudeCliResult out of
         Left e -> failedWith Nothing e
-        Right r ->
-          if r ^. #isError
-            then failedWith (Just r) (providerError (r ^. #result))
-            else do
-              ev <- evidenceFor (Just r) Ev.CallSucceeded Nothing
-              let resp = mkResponse m start end r
-              pure resp {Resp.evidence = ev}
+        Right r
+          | r ^. #isError -> failedWith (Just r) (providerError (r ^. #result))
+          | schemaRequested -> case structuredBody r of
+              Left e -> failedWith (Just r) e
+              -- The body replaces 'result' before either the response
+              -- or its commitment is built, so the commitment covers
+              -- exactly the text the caller receives.
+              Right body -> succeeded (r & #result .~ body)
+          | otherwise -> succeeded r
 
 -- | Fill in what the tool reported and what baikai knows about the
 -- process it launched.

@@ -111,6 +111,7 @@ test-suite baikai-claude-test
     PublicSurfaceSpec
     ShapeSpec
     SseSpec
+    StructuredCliSpec
     ThinkingSpec
     TransportSpec
 

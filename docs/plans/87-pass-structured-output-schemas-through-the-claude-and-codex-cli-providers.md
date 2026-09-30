@@ -74,9 +74,11 @@ the live probe in Validation and Acceptance.
       unsupported-flag failure. `cabal test baikai:baikai-test` passes with the new cases.
       (2026-09-30: `All 794 tests passed`; vendor providers declare their value in
       Milestones 2 and 3. No test built a `ClaudeCliReport` literal, so none needed editing.)
-- [ ] Milestone 2: the Claude CLI provider passes `--json-schema`, returns the structured
+- [x] Milestone 2: the Claude CLI provider passes `--json-schema`, returns the structured
       output, and reports an unsupported flag as `InvalidRequest`; hermetic fake-`claude`
       tests prove acceptance items 1, 2, 4 and 5 for Claude.
+      (2026-09-30: new `baikai-claude/test/StructuredCliSpec.hs`, 9 cases OK, including a
+      prose-in-`result` fallback case; `batchCommandRenderingTest` passes unedited.)
 - [ ] Milestone 3: the Codex CLI provider writes, passes, and always deletes the schema file;
       evidence commits to the schema rather than the random path; hermetic fake-`codex`
       tests prove acceptance items 1, 2, 4 and 5 for Codex.
