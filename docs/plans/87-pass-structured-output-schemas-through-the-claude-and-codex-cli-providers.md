@@ -84,9 +84,14 @@ the live probe in Validation and Acceptance.
       tests prove acceptance items 1, 2, 4 and 5 for Codex.
       (2026-09-30: new `baikai-openai/test/StructuredCliSpec.hs`, 11 cases OK; `All 288
       tests passed`; the three existing `codexCliCommand` vector tests pass unedited.)
-- [ ] Milestone 4: user guide, capability records CAP-5 and CAP-15, their bundle log,
+- [x] Milestone 4: user guide, capability records CAP-5 and CAP-15, their bundle log,
       CHANGELOG, and IR-11 status describe the new behaviour; `cabal test all` passes
       (including `baikai-smoke:doc-shapes`).
+      (2026-09-30: every suite passes except `baikai-smoke`, the live API smoke, which fails
+      for an environmental reason recorded in Surprises; `doc-shapes: 22 haskell blocks
+      agree`. The optional live probe through baikai returned schema-conforming JSON from
+      both `claude -p` (claude-haiku-4-5-20251001) and `codex exec`, and left no
+      `baikai-codex-schema*.json` in the temporary directory.)
 - [ ] Milestone 5: release preparation — package versions and bounds bumped and CHANGELOG
       sections cut; tagging and Hackage upload happen only after the user confirms.
 
@@ -111,6 +116,14 @@ the live probe in Validation and Acceptance.
   `codex` (clap): `error: unexpected argument '--no-such-flag' found`. A missing schema file
   makes codex print `Failed to read output schema file …` — a different failure that must not
   be classified as "unsupported flag".
+- Observation: `cabal test all` fails only in `baikai-smoke`, at its first live case
+  (`claude-haiku-4-5-20251001` through the Anthropic Messages HTTP API, no response format).
+  The local `ANTHROPIC_KEY` is not scoped to a workspace. This is unrelated to this plan.
+  Evidence: the same call from `cabal repl baikai-claude` returned `InvalidRequest`
+  `HTTP 400 … This API key is not scoped to a workspace, so this request must include the
+  anthropic-workspace-id header`.
+- Observation: no existing test built a `ClaudeCliReport` literal, so adding its
+  `structuredOutput` field needed no test edits, contrary to the plan's expectation.
 
 
 ## Decision Log

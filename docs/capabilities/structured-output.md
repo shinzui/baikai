@@ -25,6 +25,12 @@ evidence:
   - kind: test
     resource: baikai-claude/test/Main.hs
     proves: "responseFormatMappingTest asserts a JsonSchema on Options.responseFormat maps onto Anthropic's native output_config with the schema Value forwarded verbatim."
+  - kind: test
+    resource: baikai-claude/test/StructuredCliSpec.hs
+    proves: "A fake claude receives --json-schema with the request's exact nested schema, the validated reply comes back byte for byte, a missing structured_output is a DecodeFailure, and claude rejecting the flag is InvalidRequest with the exit code."
+  - kind: test
+    resource: baikai-openai/test/StructuredCliSpec.hs
+    proves: "A fake codex receives --output-schema naming a file holding the request's exact schema, the file is gone after both successful and failed runs, the reply comes back unchanged, the request commitment is reproducible, and codex rejecting the flag is InvalidRequest with the exit code."
   - kind: example
     resource: baikai-smoke/test/StructuredSmoke.hs
     proves: "Against a live provider, a request carrying only a JSON schema — with no formatting instruction in the prompt — comes back as a JSON object of exactly the described shape, which is the proof the host is enforcing the schema server-side."
@@ -59,8 +65,18 @@ completeRequest model ctx opts
 
 ## Limits
 
-- **API providers only.** The subprocess CLI providers have no structured-output
-  flag and ignore the option.
+- **The subscription CLIs enforce `JsonSchema` only** (since `baikai-claude`
+  0.7.1.0 / `baikai-openai` 0.7.1.0). `claude -p` receives `--json-schema`;
+  `codex exec` receives `--output-schema` naming a temporary file baikai deletes
+  after the call. `JsonObject`, `name` and `strict` are not forwarded to either.
+  An installed CLI too old to know the flag yields an `InvalidRequest` error
+  carrying its exit code rather than unconstrained text. Before those releases
+  the CLI providers ignored the option entirely.
+- **Ask before you send.** `declaredStructuredOutput (model ^. #api)` and a
+  registered provider's `structuredOutput` field report `NativeJsonSchema` or
+  `NoStructuredOutput` without calling anything. Every built-in transport is
+  `NativeJsonSchema`; a `Custom` tag is `NoStructuredOutput` in the table, and a
+  caller-registered provider's own field is authoritative.
 - baikai ships **no JSON Schema validator**, deliberately. It does not check that
   the returned text validates against the schema you sent; enforcement is the
   host's. `StructuredSmoke` compensates by asserting the exact shape it asked

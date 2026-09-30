@@ -23,6 +23,10 @@ Proposed. This is the Baikai-owned half of enforcing typed judge output on CLI p
 Shikumi half is `mori://shinzui/shikumi/okf/improvement-requests/concepts/IR-4`, which depends on
 it.
 
+Implemented by
+[docs/plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md](../plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md);
+the request completes when that plan's release is published.
+
 ## Context
 
 Mina's plan-assessment judges are typed Shikumi programs whose outputs contain lists of records

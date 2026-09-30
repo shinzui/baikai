@@ -15,6 +15,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and Sonnet 5.5's one-hour cache-write rate. Sonnet 5.5 rejects forced tool
   choice locally and has no fast mode. Neither binding has passed live
   acceptance yet; [plan 85](docs/plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md) covers that check.
+- The subscription CLI providers honour a `JsonSchema` response format (IR-11).
+  `claude -p` receives `--json-schema '<schema>'` and the response text is the
+  tool's validated `structured_output`; `codex exec` receives
+  `--output-schema <file>` for a temporary file that is deleted however the call
+  ends. A CLI too old for the flag yields an `InvalidRequest` error with the
+  exit code rather than unconstrained text. `JsonObject`, `name` and `strict`
+  are not forwarded; requests without a schema render the same argument vector
+  as before.
+- `baikai`: `Baikai.ResponseFormat.StructuredOutputSupport`
+  (`NativeJsonSchema | NoStructuredOutput`), `declaredStructuredOutput :: Api ->
+  StructuredOutputSupport`, and a `structuredOutput` field on `ApiProvider`
+  (default `NoStructuredOutput` in `apiProviderWith`), so a caller can ask
+  whether a transport enforces a schema without calling it. Every built-in
+  provider declares `NativeJsonSchema`.
+- `baikai-openai`: `codexCliCommandWith`, which renders the `codex exec`
+  vector with a given `--output-schema` file. `codexCliCommand` is unchanged
+  and never renders the flag.
 
 ### Known issues
 

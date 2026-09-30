@@ -72,9 +72,13 @@ completeRequest modelWithCliTag ctx opts -- spawns `claude -p`
 
 ## Limits
 
-- **Text in, text out.** No tools, no images, no structured output. Those
-  features belong to the API providers; a coding-agent CLI runs its own tool loop
-  internally and does not expose one.
+- **Text in, text out.** No tools and no images. Those features belong to the
+  API providers; a coding-agent CLI runs its own tool loop internally and does
+  not expose one. The one exception is a `JsonSchema` response format, which
+  since `baikai-claude` 0.7.1.0 / `baikai-openai` 0.7.1.0 reaches `claude -p` as
+  `--json-schema` and `codex exec` as `--output-schema <temporary file>`; see
+  [CAP-5](structured-output.md). A tool too old for the flag yields an
+  `InvalidRequest` error, not unconstrained text.
 - Streaming is **synthetic**. The subprocess runs to completion and the result is
   then replayed as start / one text block / done. The types match
   [CAP-2](typed-streaming.md); the latency behaviour does not.

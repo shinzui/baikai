@@ -284,6 +284,91 @@ User request:
 <rendered prompt>
 ```
 
+## Structured output
+
+Both CLI providers honour a JSON schema on `Options.responseFormat`,
+so a typed caller gets schema-enforced output on a subscription the
+same way it does on the metered APIs:
+
+```haskell
+import Baikai
+import Baikai.Provider.Claude.Cli qualified as ClaudeCli
+import Control.Lens ((&), (.~), (^.))
+import Data.Aeson qualified as Aeson
+import Data.Generics.Labels ()
+import Data.Text (Text)
+import Data.Vector qualified as V
+
+main :: IO ()
+main = do
+  ClaudeCli.register
+  let schema =
+        Aeson.object
+          [ "type" Aeson..= ("object" :: Text),
+            "properties" Aeson..= Aeson.object ["answer" Aeson..= Aeson.object ["type" Aeson..= ("string" :: Text)]],
+            "required" Aeson..= (["answer"] :: [Text]),
+            "additionalProperties" Aeson..= False
+          ]
+      model = emptyModel & #modelId .~ "sonnet" & #api .~ AnthropicMessagesCli
+      opts = emptyOptions & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "answer" schema))
+      ctx = emptyContext & #messages .~ V.singleton (user "What is 2+2?")
+  resp <- completeRequest model ctx opts
+  print (flattenAssistantText (resp ^. #message . #content))
+```
+
+What each tool receives:
+
+- **`claude -p`** gets `--json-schema '<schema>'`, the schema as
+  compact JSON. The tool answers through an internal
+  `StructuredOutput` tool and adds a `structured_output` field to its
+  result event. The response text is the result event's `result`
+  string, byte for byte, when it is a JSON copy of
+  `structured_output`, and otherwise the compact encoding of
+  `structured_output`. A successful run without `structured_output`
+  is a `DecodeFailure` error, never the tool's prose.
+- **`codex exec`** gets `--output-schema <file>`. baikai writes the
+  schema as UTF-8 JSON to a fresh file in the system temporary
+  directory and deletes it when the call ends, whether it succeeded,
+  failed or threw. The response text is the final agent message,
+  which the tool has constrained to the schema. Codex submits the
+  schema in strict mode, so it must satisfy OpenAI's strict rules —
+  every object needs `"additionalProperties": false` and every
+  property listed in `required`.
+
+With evidence requested, the Codex request commitment digests the
+argument vector with the schema's compact JSON where the temporary
+path went, so it is reproducible and still commits to the schema.
+
+**An installed CLI too old to know the flag** produces an
+error-shaped `Response` whose `BaikaiError` has category
+`InvalidRequest` (not `ProcessFailure`), keeps `exitCode`, and whose
+message begins `claude does not accept --json-schema` or
+`codex does not accept --output-schema` followed by the tool's
+stderr. baikai never retries without the flag: unconstrained text is
+what you asked not to get.
+
+Only `JsonSchema` is forwarded. `JsonObject` renders nothing (the
+CLIs have no schema-less JSON mode), and the schema's `name` and
+`strict` fields have no CLI analogue. A request with no response
+format, or with `JsonObject`, produces exactly the argument vector
+it did before.
+
+To decide between native schema output and a prompt-based fallback
+without naming providers, ask the transport:
+
+```haskell
+declaredStructuredOutput (model ^. #api) == NativeJsonSchema
+-- or, from a registered provider value:
+ClaudeCli.claudeCliProvider ClaudeCli.defaultClaudeCliConfig ^. #structuredOutput
+```
+
+`declaredStructuredOutput` is `NativeJsonSchema` for every built-in
+transport and `NoStructuredOutput` for `Custom _`; a caller-registered
+`Custom` provider's own `structuredOutput` field is authoritative.
+`codexCliCommand` never renders `--output-schema`, because the file
+exists only while a call runs; `codexCliCommandWith cfg (Just path)`
+renders the vector a schema call spawns.
+
 ## Limitations
 
 Three things the CLI providers do **not** do, even though the
@@ -302,12 +387,14 @@ types compile:
    `temperature`, `apiKey`, `timeoutMs`, `headers`, `metadata`,
    `cacheRetention` — none of these are forwarded. `Options` is
    accepted to keep the dispatch signature uniform, not because the
-   CLI providers consume most of it. There are two exceptions.
+   CLI providers consume most of it. There are three exceptions.
    `Options.thinking` is forwarded as the app's reasoning-effort flag —
    `claude -p` receives `--effort <level>` (with `minimal` collapsed to
    `low`, since the `claude` CLI has no `minimal`) and `codex exec`
    receives `-c model_reasoning_effort=<level>` (all six levels
-   verbatim); leaving `thinking = Nothing` emits no effort flag. And
+   verbatim); leaving `thinking = Nothing` emits no effort flag.
+   `Options.responseFormat` is forwarded when it is a `JsonSchema`
+   (see [Structured output](#structured-output)). And
    `Options.evidence` is honoured: setting it gets you a
    `ModelCallEvidence` record for the subprocess call, described in
    [Model-Call Evidence](model-call-evidence.md). Every other field can

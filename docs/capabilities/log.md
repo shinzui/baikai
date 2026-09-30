@@ -1,5 +1,15 @@
 # Bundle Update Log
 
+## 2026-09-30
+
+* **Update**: CAP-5 (structured output) and CAP-15 (subscription CLI backends)
+  record that the CLI providers now pass a `JsonSchema` through —
+  `claude -p --json-schema` and `codex exec --output-schema <temporary file>` —
+  and that `StructuredOutputSupport`, `declaredStructuredOutput`, and
+  `ApiProvider.structuredOutput` report it without a call (IR-11). CAP-5's
+  "API providers only" limit is gone and its evidence names the two new
+  hermetic `StructuredCliSpec` suites. Neither record's Shape block changed.
+
 ## 2026-09-23
 
 * **Update**: CAP-3 (generated model catalog) and CAP-23 (OpenAI Responses API
