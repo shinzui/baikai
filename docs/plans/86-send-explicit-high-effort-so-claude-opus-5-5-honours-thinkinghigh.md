@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-09-30T04:37:11Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-09-30T13:56:02Z
+      mode: "implement"
+      note: "Milestones 1 and 2 implemented"
 ---
 
 # Send explicit high effort so Claude Opus 5.5 honours ThinkingHigh
@@ -43,9 +49,12 @@ default.
 
 ## Progress
 
-- [ ] The adaptive mapper sends `"high"` for `ThinkingHigh` and produces no adjustment. The
+- [x] The adaptive mapper sends `"high"` for `ThinkingHigh` and produces no adjustment. The
   pinned translation table and a new Opus 5.5 wire test pass. The Claude, core, and
-  doc-shapes suites pass.
+  doc-shapes suites pass. (2026-09-30: `baikai-claude-test` 408 passed, including
+  "Opus 5.5 high sends explicit high effort" and the new `high` case of the merged
+  `output_config` group; `baikai-test` 794 passed; `doc-shapes` PASS; fourmolu and
+  `git diff --check` clean.)
 - [ ] User documentation, the Unreleased changelog, and ADR 0003 describe the explicit
   mapping. The Opus 5.5 caveat is replaced with a fixed-in entry.
 

@@ -367,13 +367,13 @@ computeThinking compat m (Just lvl)
       let e = adaptiveEffort lvl
        in ( ThinkingPlan
               { field = Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized),
-                effort = e,
+                effort = Just e,
                 budget = Nothing
               },
             ThinkingTranslation
               { requested = Just lvl,
                 mode = ThinkingModeAdaptive,
-                effortText = e,
+                effortText = Just e,
                 budgetTokens = Nothing,
                 wireField = Just "thinking",
                 displayText = Just "summarized",
@@ -400,30 +400,33 @@ computeThinking compat m (Just lvl)
               }
           )
 
-adaptiveEffort :: ThinkingLevel -> Maybe Text
+-- | The effort word sent for each level on the adaptive style.
+--
+-- Every level sends a word, @high@ included. Anthropic's defaults differ
+-- by model (Claude Opus 5.5 defaults to @medium@, other adaptive models
+-- to @high@; see
+-- <https://platform.claude.com/docs/en/build-with-claude/effort>), so an
+-- omitted field does not mean @high@. Sending a model's default
+-- explicitly is documented as identical to omitting it.
+adaptiveEffort :: ThinkingLevel -> Text
 adaptiveEffort = \case
-  ThinkingMinimal -> Just "low"
-  ThinkingLow -> Just "low"
-  ThinkingMedium -> Just "medium"
-  ThinkingHigh -> Nothing
-  ThinkingXHigh -> Just "xhigh"
-  ThinkingMax -> Just "max"
+  ThinkingMinimal -> "low"
+  ThinkingLow -> "low"
+  ThinkingMedium -> "medium"
+  ThinkingHigh -> "high"
+  ThinkingXHigh -> "xhigh"
+  ThinkingMax -> "max"
 
 -- | What Anthropic's adaptive vocabulary did to the requested level.
 --
 -- Derived from what 'adaptiveEffort' actually produced rather than from
--- a second table beside it, so the two cannot drift. 'Nothing' means no
--- effort field is sent at all, which leaves the request
--- wire-indistinguishable from a caller who expressed no preference and
--- took Anthropic's own default depth. An effort word that differs from
--- the level's canonical name is a clamp onto the nearest word the
--- adaptive vocabulary has — Anthropic's has no @minimal@.
-adaptiveAdjustments :: ThinkingLevel -> Maybe Text -> [ThinkingAdjustment]
-adaptiveAdjustments lvl = \case
-  Nothing -> [EffortOmitted lvl]
-  Just wire
-    | wire == renderThinkingLevel lvl -> []
-    | otherwise -> [EffortClamped lvl wire]
+-- a second table beside it, so the two cannot drift. An effort word that
+-- differs from the level's canonical name is a clamp onto the nearest
+-- word the adaptive vocabulary has — Anthropic's has no @minimal@.
+adaptiveAdjustments :: ThinkingLevel -> Text -> [ThinkingAdjustment]
+adaptiveAdjustments lvl wire
+  | wire == renderThinkingLevel lvl = []
+  | otherwise = [EffortClamped lvl wire]
 
 -- | Record that, after all, nothing about thinking reached the wire.
 --

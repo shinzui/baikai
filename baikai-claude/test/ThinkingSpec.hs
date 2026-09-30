@@ -41,6 +41,7 @@ tests =
       translationTableTests,
       conditionalDowngradeTests,
       adaptiveHigherEffortTests,
+      opus55HighTest,
       maxBudgetTest,
       explicitMaxTokensTest,
       handRolledUnclampedTest,
@@ -154,14 +155,7 @@ translationTable =
     ),
     (AnthropicThinkingAdaptive, ThinkingLow, Just "low", Nothing, []),
     (AnthropicThinkingAdaptive, ThinkingMedium, Just "medium", Nothing, []),
-    -- "high" sends no effort field at all, which on the wire is
-    -- indistinguishable from expressing no preference.
-    ( AnthropicThinkingAdaptive,
-      ThinkingHigh,
-      Nothing,
-      Nothing,
-      [EffortOmitted ThinkingHigh]
-    ),
+    (AnthropicThinkingAdaptive, ThinkingHigh, Just "high", Nothing, []),
     (AnthropicThinkingAdaptive, ThinkingXHigh, Just "xhigh", Nothing, []),
     (AnthropicThinkingAdaptive, ThinkingMax, Just "max", Nothing, [])
   ]
@@ -246,6 +240,29 @@ adaptiveHigherEffortTests =
         ]
     ]
 
+-- | Claude Opus 5.5 defaults to @medium@ effort, so an omitted effort
+-- field would silently run 'ThinkingHigh' at medium. The request must
+-- carry @high@ explicitly, and the evidence must say so without an
+-- adjustment a strict caller would be refused for.
+opus55HighTest :: TestTree
+opus55HighTest =
+  testCase "Opus 5.5 high sends explicit high effort" $ do
+    (req, t) <-
+      mappedFor
+        anthropic_claude_opus_5_5
+        emptyContext
+        (emptyOptions & #thinking .~ Just ThinkingHigh)
+    requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
+    (req ^. #output_config >>= Messages.effort) @?= Just "high"
+    t ^. #mode @?= ThinkingModeAdaptive
+    t ^. #effortText @?= Just "high"
+    t ^. #adjustments @?= []
+    checkEvidenceRequirements
+      (EvidenceRequired EvidenceRequestedOnly)
+      (declaredStrength AnthropicMessages)
+      t
+      @?= []
+
 maxBudgetTest :: TestTree
 maxBudgetTest =
   testCase "manual max effort uses 32768 tokens with visible-output room" $ do
@@ -303,17 +320,24 @@ tooSmallCapDropsThinkingTest =
 
 mergedOutputConfigTest :: TestTree
 mergedOutputConfigTest =
-  testCase "adaptive effort merges with responseFormat output_config" $ do
-    let schema = Aeson.object ["type" Aeson..= ("object" :: Text.Text)]
-        opts =
-          emptyOptions
-            & #thinking .~ Just ThinkingMedium
-            & #responseFormat
-              .~ Just (JsonSchema (jsonSchemaFormat "answer" schema) {strict = True})
-        expected = (Messages.jsonSchemaConfig schema) {Messages.effort = Just "medium"}
-    req <- requestFor anthropic_claude_opus_4_6 opts
-    requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-    req ^. #output_config @?= Just expected
+  testGroup
+    "adaptive effort merges with responseFormat output_config"
+    [ testCase (Text.unpack word) $ do
+        let schema = Aeson.object ["type" Aeson..= ("object" :: Text.Text)]
+            opts =
+              emptyOptions
+                & #thinking .~ Just level
+                & #responseFormat
+                  .~ Just (JsonSchema (jsonSchemaFormat "answer" schema) {strict = True})
+            expected = (Messages.jsonSchemaConfig schema) {Messages.effort = Just word}
+        req <- requestFor model opts
+        requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
+        req ^. #output_config @?= Just expected
+    | (model, level, word) <-
+        [ (anthropic_claude_opus_4_6, ThinkingMedium, "medium"),
+          (anthropic_claude_opus_5_5, ThinkingHigh, "high")
+        ]
+    ]
 
 explicitCompatOverridesDefaultTest :: TestTree
 explicitCompatOverridesDefaultTest =
@@ -350,7 +374,7 @@ adaptiveEffort = \case
   ThinkingMinimal -> Just "low"
   ThinkingLow -> Just "low"
   ThinkingMedium -> Just "medium"
-  ThinkingHigh -> Nothing
+  ThinkingHigh -> Just "high"
   ThinkingXHigh -> Just "xhigh"
   ThinkingMax -> Just "max"
 

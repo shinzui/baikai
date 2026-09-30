@@ -180,7 +180,7 @@ downgradeGateTests =
         (EffortCollapsedToToggle ThinkingMax)
         "bare on/off toggle",
       refusesDowngrade
-        "an adaptive high sends no effort field at all"
+        "an omitted effort field is indistinguishable from the provider default"
         (EffortOmitted ThinkingHigh)
         "indistinguishable on the wire",
       refusesDowngrade
