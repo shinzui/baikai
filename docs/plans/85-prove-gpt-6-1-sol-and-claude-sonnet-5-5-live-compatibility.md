@@ -50,13 +50,23 @@ instead of saying that no live check has been run.
   doc-shapes and smoke-options pass; the renamed tests report OK for both new bindings.)
 - [ ] Live: `sol61-text`, `sol61-tools`, `sonnet55-text`, and `sonnet55-tools` pass with
   `--require-keys`. The redacted record is preserved under `docs/validation/plan-85/`.
+  Handoff (2026-09-30 14:15 UTC): `sol61-text` and `sol61-tools` passed (observed
+  `gpt-6.1-sol` on `/v1/responses`; tools used two calls and one dispatch; standard token-rate
+  basis with no estimate reasons). Both `sonnet55-*` cases returned the workspace-selection
+  HTTP 400 with no model observed; rerun them with `ANTHROPIC_WORKSPACE_ID` set. Do not rerun
+  the `sol61-*` cases.
 - [ ] Documentation: `docs/user/models-and-providers.md` and the Unreleased changelog entry
   state the observed live result and the fourteen-case selector list.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-09-30: The first `sonnet55-text` and `sonnet55-tools` runs failed with HTTP 400
+  `invalid_request`, `observed_model` `unobserved`, and zero cost. `ANTHROPIC_WORKSPACE_ID` was
+  unset in this environment. A minimal direct Messages probe returned the provider message
+  "This API key is not scoped to a workspace, so this request must include the
+  anthropic-workspace-id header with the ID of the workspace to use." This is the same
+  account-routing prerequisite plan 82 recorded, not a Sonnet 5.5 protocol result.
 
 
 ## Decision Log
