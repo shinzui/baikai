@@ -150,8 +150,12 @@ for workspace-scoped and multi-workspace keys.
 
 The September 29 refresh adds `openai_gpt_6_1_sol` and
 `anthropic_claude_sonnet_5_5`. Both are catalog entries on routes the existing
-bindings already use; neither has passed a live check yet (see
-[plan 85](../plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md)).
+bindings already use. On 2026-09-30, all four new live cases passed: GPT-6.1
+Sol through Responses and Sonnet 5.5 through Messages, each observed as the
+requested model, with each tool case using two calls and one dispatch. The
+[redacted four-case record](../validation/plan-85/2026-09-30-complete.json)
+combines the first OpenAI runs with Sonnet 5.5 reruns after workspace selection
+(see [plan 85](../plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md)).
 
 [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
 supersedes `gpt-6-sol`, which remains in the catalog. It selects
@@ -196,8 +200,8 @@ cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:bai
 cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
 ```
 
-The focused command selects Astra, Sol, and Luna through Responses and Fable
-5.1 and Opus 5.5 through Messages. Each model gets one text case and a
+The focused command selects Astra, Sol, Luna, and GPT-6.1 Sol through
+Responses and Fable 5.1, Opus 5.5, and Sonnet 5.5 through Messages. Each model gets one text case and a
 deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
 and at most four requests in the tool case. It prints readable results and a
@@ -208,8 +212,8 @@ before any request; without `--require-keys`, missing cases are explicit skips.
 
 To reproduce only a diagnosed failing case, append `--case` and one of
 `astra-text`, `astra-tools`, `fable-text`, `fable-tools`, `sol-text`,
-`sol-tools`, `luna-text`, `luna-tools`, `opus55-text`, or `opus55-tools`
-inside `--test-options`. Only the selected provider's credentials are required. Preserve
+`sol-tools`, `luna-text`, `luna-tools`, `opus55-text`, `opus55-tools`,
+`sol61-text`, `sol61-tools`, `sonnet55-text`, or `sonnet55-tools` inside `--test-options`. Only the selected provider's credentials are required. Preserve
 each run's output separately: rerunning a live case can incur another charge.
 Passing offline tests or a keyless skip does not establish live model access.
 An HTTP 401 or workspace-selection HTTP 400 occurs before model execution and

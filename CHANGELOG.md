@@ -13,8 +13,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Messages (`openai_gpt_6_1_sol`, `anthropic_claude_sonnet_5_5`), with endpoint
   compatibility facts, standard prices, GPT-6.1 Sol's 272K-token context tier,
   and Sonnet 5.5's one-hour cache-write rate. Sonnet 5.5 rejects forced tool
-  choice locally and has no fast mode. Neither binding has passed live
-  acceptance yet; [plan 85](docs/plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md) covers that check.
+  choice locally and has no fast mode. Both passed live text and function-tool
+  acceptance on 2026-09-30 through `/v1/responses` and `/v1/messages`
+  ([record](docs/validation/plan-85/2026-09-30-complete.json),
+  [plan 85](docs/plans/85-prove-gpt-6-1-sol-and-claude-sonnet-5-5-live-compatibility.md)).
+  The focused smoke runner gains the `sol61-*` and `sonnet55-*` cases.
 - The subscription CLI providers honour a `JsonSchema` response format (IR-11).
   `claude -p` receives `--json-schema '<schema>'` and the response text is the
   tool's validated `structured_output`; `codex exec` receives

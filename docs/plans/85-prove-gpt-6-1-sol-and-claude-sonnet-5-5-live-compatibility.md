@@ -48,15 +48,13 @@ instead of saying that no live check has been run.
   selectable, and the prescribed offline gate passes without network access.
   (2026-09-30: gate exit 0 — baikai-test 794, baikai-openai-test 288, baikai-claude-test 408,
   doc-shapes and smoke-options pass; the renamed tests report OK for both new bindings.)
-- [ ] Live: `sol61-text`, `sol61-tools`, `sonnet55-text`, and `sonnet55-tools` pass with
+- [x] Live: `sol61-text`, `sol61-tools`, `sonnet55-text`, and `sonnet55-tools` pass with
   `--require-keys`. The redacted record is preserved under `docs/validation/plan-85/`.
-  Handoff (2026-09-30 14:15 UTC): `sol61-text` and `sol61-tools` passed (observed
-  `gpt-6.1-sol` on `/v1/responses`; tools used two calls and one dispatch; standard token-rate
-  basis with no estimate reasons). Both `sonnet55-*` cases returned the workspace-selection
-  HTTP 400 with no model observed; rerun them with `ANTHROPIC_WORKSPACE_ID` set. Do not rerun
-  the `sol61-*` cases.
-- [ ] Documentation: `docs/user/models-and-providers.md` and the Unreleased changelog entry
+  (2026-09-30: `sol61-*` passed on the first run; `sonnet55-*` passed on a rerun with
+  `ANTHROPIC_WORKSPACE_ID` set. Record: `docs/validation/plan-85/2026-09-30-complete.json`.)
+- [x] Documentation: `docs/user/models-and-providers.md` and the Unreleased changelog entry
   state the observed live result and the fourteen-case selector list.
+  (2026-09-30: both updated; `doc-shapes` and `smoke-options` pass.)
 
 
 ## Surprises & Discoveries
@@ -66,7 +64,11 @@ instead of saying that no live check has been run.
   unset in this environment. A minimal direct Messages probe returned the provider message
   "This API key is not scoped to a workspace, so this request must include the
   anthropic-workspace-id header with the ID of the workspace to use." This is the same
-  account-routing prerequisite plan 82 recorded, not a Sonnet 5.5 protocol result.
+  account-routing prerequisite plan 82 recorded, not a Sonnet 5.5 protocol result. With the
+  workspace ID set, both Sonnet 5.5 cases passed on the first retry.
+- 2026-09-30: No live response, on either model, returned a reasoning block at `thinking: low`
+  (`reasoning_blocks` 0 on every call). As in plan 82, replay of signed Sonnet 5.5 thinking and
+  GPT-6.1 Sol reasoning items is proven by the offline fixtures, not by these live runs.
 
 
 ## Decision Log
@@ -84,10 +86,30 @@ instead of saying that no live check has been run.
   nothing about the new bindings.
   Date: 2026-09-29
 
+- Decision: Combine the first-run `sol61-*` results with the `sonnet55-*` reruns into one
+  record, keeping only the per-result and per-response fields that the plan-82 record keeps.
+  Rationale: The first Sonnet runs observed no model, so rerunning only them avoids repeated
+  paid OpenAI calls. Matching plan 82's field set drops request and response IDs and keeps the
+  records comparable.
+  Date: 2026-09-30
+
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed on 2026-09-30. GPT-6.1 Sol and Claude Sonnet 5.5 are covered by the existing
+offline Responses and Messages contract checks and pass live acceptance. Each of the four
+cases observed the requested model on the expected endpoint (`/v1/responses` for GPT-6.1 Sol,
+`/v1/messages` for Sonnet 5.5). Both tool cases used two calls and one dispatcher invocation,
+and the runner checked the fixed timestamp in each final answer. Every response had a standard
+token-rate cost basis with no estimate reasons. The record is
+`docs/validation/plan-85/2026-09-30-complete.json`. No provider code changed, which confirms
+that ADR 0009's catalog-record facts were enough to route both bindings.
+
+The only obstacle was the known multi-workspace Anthropic key requirement. The user guide
+already documents `ANTHROPIC_WORKSPACE_ID`, and ADRs 0009, 0019, and 0020 already cover the
+protocol and pricing architecture, so no ADR changes. Live responses had no reasoning blocks,
+so signed-thinking and reasoning-item replay are still proven offline only. Costs are local
+estimates, not invoice reconciliation.
 
 
 ## Context and Orientation
