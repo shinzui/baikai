@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-01
+* **Addition**: IR-12: let a kit item choose tool-only or shared visibility, independently of user or project scope. Claude Code reaches shared visibility through tracked symlinks in `~/.claude/skills/` or `<root>/.claude/skills/`. Codex has no per-session skill directory, so tool-only either uses a `[[skills.config]]` disable entry that the tool's launcher re-enables with `-c` (pending a spike) or is refused rather than silently shared. Requested by `mori://shinzui/rei` for `rei-capture-session`. Status proposed.
+
 ## 2026-09-30
 * **Completion**: IR-11 is `completed`, closed by
 `docs/plans/87-pass-structured-output-schemas-through-the-claude-and-codex-cli-providers.md` and
