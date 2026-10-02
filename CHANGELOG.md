@@ -59,6 +59,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   symlinks and invalid/conflicting config, and verify the semantic change
   before atomic rename. Reused user-owned disabled entries survive uninstall.
   Shared visibility refuses a user-owned entry that would keep the skill hidden.
+- The source distribution ships the test suite's manifest fixtures and JSON
+  goldens, so the test suite passes when run from the Hackage tarball. Since
+  0.3.0.0 it had failed there, because those files were missing.
 
 ## [baikai 0.7.2.0] - 2026-09-30
 
