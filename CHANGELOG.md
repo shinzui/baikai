@@ -16,6 +16,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   why the access-gated Claude Mythos models are not curated, and how GPT-6
   Astra's new ultrafast service tier is costed.
 
+### Fixed
+
+- `baikai`'s source distribution now ships `data/models/*.json` and the test
+  suite's fixtures under `test/fixtures/`. Without them, running the suite from
+  the Hackage tarball failed 27 of 794 tests on missing files: the fixtures
+  themselves, plus the catalog round-trip test, whose `baikai-gen-models` run
+  had no model data to read.
+
 ## [baikai-kit 0.4.0.0] - 2026-10-02
 
 ### Added

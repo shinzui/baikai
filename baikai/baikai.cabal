@@ -18,6 +18,10 @@ copyright: (c) 2026 Nadeem Bitar
 build-type: Simple
 tested-with: ghc ==9.12.4
 extra-doc-files: CHANGELOG.md
+extra-source-files:
+  data/models/*.json
+  test/fixtures/*.json
+  test/fixtures/*.jsonl
 
 common common-options
   ghc-options:

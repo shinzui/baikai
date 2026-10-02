@@ -483,17 +483,44 @@ cabal update                        # required: pick up dependencies published
                                     # earlier in THIS run
 verify=$(mktemp -d)
 tar xzf dist-newstyle/sdist/baikai-agent-0.1.0.0.tar.gz -C "$verify"
-(cd "$verify"/baikai-agent-0.1.0.0 && cabal build all)
+(cd "$verify"/baikai-agent-0.1.0.0 && cabal build all --enable-tests && cabal test)
+```
+
+Run that last line under the same key- and `PATH`-scrubbed `env` as the step 4
+test gate. These are only the published packages' own suites, not
+`baikai-smoke`, but a scrubbed environment costs nothing and rules out a
+billable call.
+
+**Run the tests, not just the build.** A tarball can build cleanly and still be
+missing the data its test suite reads. Fixtures and goldens under `test/` are
+not Haskell modules, so no stanza pulls them in. They ship only if the cabal
+file lists them under `extra-source-files`. Without them the in-workspace suite
+passes, because the files are on disk, while the suite from the Hackage tarball
+fails. That tarball is what a distribution like nixpkgs' `haskellPackages`
+builds and tests. `baikai-kit` shipped this way from 0.3.0.0 until 0.4.0.0
+(7 of 116 tests failing from the tarball), and the release-time build check
+never saw it. Before tagging, compare the non-Haskell files the tests use with
+what the tarball holds:
+
+```bash
+git ls-files baikai-agent/test | grep -v '\.hs$'
+tar tzf dist-newstyle/sdist/baikai-agent-0.1.0.0.tar.gz | grep -v '\.hs$'
 ```
 
 The `cabal update` is not optional. Hackage's index is what the unpacked tarball
 resolves against, and a local index from before this run's earlier uploads makes
 the build fail with a missing dependency that is in fact already published.
 
-A failure here means the tarball is wrong, not the workspace — usually a source
-file that no stanza references, or an internal bound that admits only a version
-you have not uploaded yet. Fix it, and note that fixing it means a new version if
-the package was already published.
+A failure here means the tarball is wrong, not the workspace. The usual causes
+are a source file that no stanza references, test data missing from
+`extra-source-files`, or an internal bound that admits only a version you have
+not uploaded yet. Fix it, and note that fixing it means a new version if the
+package was already published. If this run has already pushed the package's
+tag, the fix lands in a new commit, so the tag has to move to that commit
+before the upload. That rewrites a pushed tag, so confirm with the operator
+first. It is safe only while nothing has been uploaded and no GitHub release
+exists for that tag. This is why 6b is worth running before step 5 whenever
+the package has no unpublished dependency in this run.
 
 **6c. Upload.** Use `--publish` only when you are certain. Omitting it pushes a
 *candidate* you can inspect first — do that for a package's first upload (see
@@ -574,10 +601,11 @@ and `agent list` all appear.
   key off `PATH` alone rather than off any environment variable.
 - **Never continue publishing dependents after an upstream upload fails.**
 - **Never publish `baikai-smoke`** — it is a test-only package with no library.
-- **Never upload a source distribution you have not built outside the
-  workspace** (step 6b), and run `cabal update` first so it resolves against the
-  uploads this run already made. The in-workspace build cannot catch a bad
-  tarball, because `cabal.project` supplies the siblings from disk.
+- **Never upload a source distribution you have not built and tested outside
+  the workspace** (step 6b), and run `cabal update` first so it resolves against
+  the uploads this run already made. The in-workspace build cannot catch a bad
+  tarball, because `cabal.project` supplies the siblings from disk, and a build
+  alone cannot catch test fixtures missing from `extra-source-files`.
 - **Use a candidate upload for a package's first appearance on Hackage.** A
   published version can never be replaced — only deprecated.
 - **Move the docs with the release.** The README's Hackage column and Install
