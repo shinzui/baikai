@@ -7,6 +7,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- Documentation: the 2026-10-02 model refresh found no new OpenAI or Anthropic
+  models; the catalog is unchanged. `docs/user/models-and-providers.md` notes
+  Anthropic's retirement of Claude Sonnet 4.5 on 2026-11-30 (deprecation of
+  `anthropic_claude_sonnet_4_5` is planned in plan 89 for removal in 0.8.0.0),
+  why the access-gated Claude Mythos models are not curated, and how GPT-6
+  Astra's new ultrafast service tier is costed.
+
 ## [baikai-kit 0.4.0.0] - Unreleased
 
 ### Added

@@ -191,6 +191,38 @@ replaying a later Sonnet 5.5 block returns HTTP 400. See the
 Opus 5.5 defaults to `medium` effort, and `ThinkingHigh` sends explicit
 `high`, so Opus 5.5 honours it.
 
+The October 2 refresh found no new models: the curated candidate matched the
+committed JSON byte for byte, and neither provider's official model list had an
+ID newer than GPT-6.1 Sol or Sonnet 5.5. Anthropic
+[deprecated Claude Sonnet 4.5](https://platform.claude.com/docs/en/about-claude/model-deprecations)
+on 2026-09-30 and retires it on 2026-11-30, after which requests through
+`anthropic_claude_sonnet_4_5` fail. The binding is unchanged for now. Move callers
+to `anthropic_claude_sonnet_5_5`, which uses adaptive thinking, drops sampling
+options and rejects forced tool choice locally (see above).
+[Plan 89](../plans/89-carry-the-claude-sonnet-4-5-binding-through-its-retirement-without-silent-catalog-removal.md)
+adds a deprecation warning and schedules removal for baikai 0.8.0.0.
+
+Claude Mythos 5 and Mythos 5.1 are not in the catalog: Anthropic offers them only
+to approved [Project Glasswing](https://anthropic.com/glasswing) customers, and
+models.dev omits them. Mythos 5.1 has Fable 5.1's API behaviour and
+[standard prices](https://platform.claude.com/docs/en/about-claude/pricing), except
+that it does not invalidate thinking blocks when earlier turns are edited. An
+account with access can derive it from the Fable 5.1 binding:
+
+```haskell
+-- OverloadedLabels; Control.Lens ((&), (.~)); Data.Generics.Labels ()
+mythos :: Model
+mythos =
+  Models.anthropic_claude_fable_5_1
+    & #modelId .~ "claude-mythos-5-1"
+    & #name .~ "Claude Mythos 5.1"
+```
+
+GPT-6 Astra gained an ultrafast service tier on 2026-09-29. Baikai never requests a
+service tier. If a project default routes a call to one, the reported tier other
+than `default` or `standard` is recorded as an unsupported service tier, and the
+cost remains a standard-rate estimate.
+
 ### Focused compatibility checks
 
 Run the offline gate before making paid requests:

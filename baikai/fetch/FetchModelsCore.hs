@@ -330,6 +330,15 @@ openaiInclude =
 -- generator refuses an @anthropic-messages@ entry that reaches it
 -- without a @compat@ block, so a hand edit cannot quietly drop one
 -- back to host auto-detection.
+--
+-- 2026-10-02: @claude-mythos-5@ and @claude-mythos-5-1@ are deliberately
+-- absent. Anthropic offers them only to approved Project Glasswing
+-- customers, so no general key can prove them live, and models.dev omits
+-- both from its @anthropic@ provider. Mythos 5.1 shares Fable 5.1's API
+-- facts and standard prices; callers with access can record-update
+-- @Baikai.Models.Generated.anthropic_claude_fable_5_1@ with the Mythos id.
+-- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
+-- https://platform.claude.com/docs/en/about-claude/pricing
 anthropicInclude :: Map Text AnthropicGenerationFacts
 anthropicInclude =
   Map.fromList
