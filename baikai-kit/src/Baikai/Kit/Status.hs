@@ -15,13 +15,15 @@ module Baikai.Kit.Status
 where
 
 import Baikai.AgentAssets (AgentAssetProvider, agentTargetPath, skillTargetPath)
-import Baikai.Interactive (InteractiveScope (InteractiveProjectScope))
+import Baikai.Interactive (InteractiveProvider (InteractiveCodex), InteractiveScope (InteractiveProjectScope))
+import Baikai.Kit.CodexConfig (codexConfigPath, readSkillEntries)
 import Baikai.Kit.Config (KitConfig, KitScope (..), providerAgentsBase, providerLabel, sidecarFileName)
 import Baikai.Kit.Error (KitError (..))
-import Baikai.Kit.Install (LocalEdits (..), checkLocalEdits, loadManifestMaybe, lookupItem)
+import Baikai.Kit.Install (LocalEdits (..), checkLocalEdits, checkVisibilityWithEntries, loadManifestMaybe, lookupItem)
 import Baikai.Kit.Manifest (KitItem, KitItemKind (..), itemKind, itemSources, itemVersion, kindLabel)
 import Baikai.Kit.Repo (RepoRefresh (..), ensureKitRepo)
 import Baikai.Kit.Sidecar (SidecarMeta, computeKitHash, readSidecar, sidecarPath)
+import Baikai.Kit.Visibility (KitVisibility (..), visibilityLabel)
 import Baikai.Prelude
 import Control.Monad (forM)
 import Data.List (groupBy, isPrefixOf, isSuffixOf, nub, sort, sortOn)
@@ -53,6 +55,7 @@ data KitCondition
   | -- | @edits-unknown@: the sidecar predates the installed-file hash, so
     --   local edits cannot be detected.
     KitLocalEditsUnknown
+  | KitVisibilityBroken
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 -- | Whether the cached upstream could be consulted for this report.
@@ -82,7 +85,9 @@ data StatusRow = StatusRow
     installedVersion :: !(Maybe Text),
     latestVersion :: !(Maybe Text),
     -- | Sorted and duplicate-free; empty means up to date.
-    conditions :: ![KitCondition]
+    conditions :: ![KitCondition],
+    requestedVisibility :: !(Maybe KitVisibility),
+    effectiveVisibility :: !KitVisibility
   }
   deriving stock (Eq, Generic, Show)
 
@@ -97,6 +102,7 @@ conditionLabel = \case
   KitChangedUpstream -> "changed-upstream"
   KitLocallyModified -> "modified"
   KitLocalEditsUnknown -> "edits-unknown"
+  KitVisibilityBroken -> "visibility-broken"
 
 -- | @up-to-date@ for no conditions; otherwise the labels in constructor
 --   order joined with @+@, e.g. @outdated+changed-upstream+modified@.
@@ -147,6 +153,10 @@ collectStatus config cacheDir scopes = do
   -- A manifest that cannot be read is treated here as no manifest; the
   -- report as a whole says so through 'UpstreamUnavailable'.
   mManifest <- either (const Nothing) id <$> loadManifestMaybe cacheDir
+  entries <-
+    if InteractiveCodex `elem` (config ^. #providers)
+      then codexConfigPath >>= readSkillEntries
+      else pure (Right [])
   fmap concat . forM scopes $ \(scope, scopeText) -> do
     items <- scanInstalled config scope
     forM items $ \(provider, baseDir, itemName', scannedKind) -> do
@@ -165,6 +175,10 @@ collectStatus config cacheDir scopes = do
             Right Edited -> [KitLocallyModified]
             Right EditsUnknown -> [KitLocalEditsUnknown]
             Left _ -> [KitLocalEditsUnknown]
+      visibility <- checkVisibilityWithEntries entries config provider scope scannedKind itemName'
+      let requestedVisibility = either (const Nothing) (view #requested) visibility
+          effectiveVisibility = either (const SharedVisibility) (view #effective) visibility
+          visibilityConditions = [KitVisibilityBroken | either (const True) (not . null . view #broken) visibility]
       pure
         StatusRow
           { name = itemName',
@@ -173,7 +187,9 @@ collectStatus config cacheDir scopes = do
             providers = providerLabel provider,
             installedVersion = mSidecar >>= (^. #version),
             latestVersion = mItem >>= itemVersion,
-            conditions = sort (nub (upstreamConditions ++ localConditions))
+            conditions = sort (nub (upstreamConditions ++ localConditions ++ visibilityConditions)),
+            requestedVisibility,
+            effectiveVisibility
           }
 
 -- | One item at one scope for one provider, and where it is.
@@ -260,13 +276,14 @@ scanAgents provider dir = do
 -- | The table @kit status@ prints, without a trailing newline.
 renderStatusTable :: [StatusRow] -> Text
 renderStatusTable [] = "No kit items installed."
-renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows)
+renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows ++ legacyNote)
   where
     displayRows = aggregateStatusRows rows
     nameW = colWidth "NAME" (^. #name)
     kindW = colWidth "TYPE" (^. #kind)
     scopeW = colWidth "SCOPE" (^. #scope)
     providersW = colWidth "PROVIDERS" (^. #providers)
+    visibilityW = colWidth "VISIBILITY" renderVisibility
     instW = colWidth "INSTALLED" (renderMVer . view #installedVersion)
     latW = colWidth "LATEST" (renderMVer . view #latestVersion)
     hdr =
@@ -274,6 +291,7 @@ renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows)
         <> Text.justifyLeft (kindW + 2) ' ' "TYPE"
         <> Text.justifyLeft (scopeW + 2) ' ' "SCOPE"
         <> Text.justifyLeft (providersW + 2) ' ' "PROVIDERS"
+        <> Text.justifyLeft (visibilityW + 2) ' ' "VISIBILITY"
         <> Text.justifyLeft (instW + 2) ' ' "INSTALLED"
         <> Text.justifyLeft (latW + 2) ' ' "LATEST"
         <> "STATE"
@@ -281,6 +299,24 @@ renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows)
     colWidth colTitle f =
       maximum (Text.length colTitle : map (Text.length . f) displayRows)
 
+    legacyNote =
+      if any legacy rows
+        then
+          [ "",
+            "Note: Codex skills installed before baikai-kit 0.4.0.0 are visible to every Codex session.",
+            "Reinstall one with 'kit install NAME --tool-only' to limit it to this tool's sessions."
+          ]
+        else []
+    legacy row =
+      row ^. #kind == "skill"
+        && row ^. #providers == "codex"
+        && isNothing (row ^. #requestedVisibility)
+        && row ^. #effectiveVisibility == SharedVisibility
+    renderVisibility row =
+      visibilityLabel (row ^. #effectiveVisibility)
+        <> case row ^. #requestedVisibility of
+          Just requested | requested /= row ^. #effectiveVisibility -> " (requested " <> visibilityLabel requested <> ")"
+          _ -> ""
     renderMVer = fromMaybe "-"
 
     printRow row =
@@ -288,6 +324,7 @@ renderStatusTable rows = Text.intercalate "\n" (hdr : map printRow displayRows)
         <> Text.justifyLeft (kindW + 2) ' ' (row ^. #kind)
         <> Text.justifyLeft (scopeW + 2) ' ' (row ^. #scope)
         <> Text.justifyLeft (providersW + 2) ' ' (row ^. #providers)
+        <> Text.justifyLeft (visibilityW + 2) ' ' (renderVisibility row)
         <> Text.justifyLeft (instW + 2) ' ' (renderMVer (row ^. #installedVersion))
         <> Text.justifyLeft (latW + 2) ' ' (renderMVer (row ^. #latestVersion))
         <> renderConditions (row ^. #conditions)
@@ -303,7 +340,9 @@ aggregateStatusRows rows =
         row ^. #scope,
         row ^. #installedVersion,
         row ^. #latestVersion,
-        row ^. #conditions
+        row ^. #conditions,
+        row ^. #requestedVisibility,
+        row ^. #effectiveVisibility
       )
     sameKey a b = rowKey a == rowKey b
     summarize groupRows@(firstRow : _) =

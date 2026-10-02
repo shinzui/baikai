@@ -1,5 +1,17 @@
 # Bundle Update Log
 
+## 2026-10-02
+* **Completion**: IR-12 is `completed`, closed by
+`docs/plans/88-let-a-kit-item-choose-tool-only-or-shared-visibility.md` as
+`baikai-kit 0.4.0.0`: declared/overridable visibility, tracked Claude links,
+Codex disabled-skill entries and session arguments, honest agent refusal,
+requested/effective status and JSON, shared-name protection, and visibility
+repair even for locally edited items. The isolated codex-cli 0.160.0 check
+proves a tool-only skill absent from a plain session and present with the
+returned launch arguments. Acceptance 7 is narrowed explicitly: standard kit
+integration requires a dependency bump; Codex launchers also append
+`codexSessionArgs`. Publishing and consumer migrations remain outside the plan.
+
 ## 2026-10-01
 * **Addition**: IR-12: let a kit item choose tool-only or shared visibility, independently of user or project scope. Claude Code reaches shared visibility through tracked symlinks in `~/.claude/skills/` or `<root>/.claude/skills/`. Codex has no per-session skill directory, so tool-only either uses a `[[skills.config]]` disable entry that the tool's launcher re-enables with `-c` (pending a spike) or is refused rather than silently shared. Requested by `mori://shinzui/rei` for `rei-capture-session`. Status proposed.
 

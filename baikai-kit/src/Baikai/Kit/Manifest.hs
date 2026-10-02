@@ -9,6 +9,7 @@ module Baikai.Kit.Manifest
     itemName,
     itemSources,
     itemVersion,
+    itemVisibility,
     kitItemKind,
     kindLabel,
     supportedManifestVersions,
@@ -17,6 +18,7 @@ where
 
 import Baikai.Kit.Error (KitError (..))
 import Baikai.Kit.Path (safeItemName, safeRelativePath)
+import Baikai.Kit.Visibility (KitVisibility (..))
 import Baikai.Prelude
 import Data.Bifunctor (first)
 import System.FilePath (takeDirectory, takeFileName)
@@ -34,7 +36,8 @@ data SkillEntry = SkillEntry
     description :: !Text,
     version :: !(Maybe Text),
     path :: !Text,
-    files :: ![Text]
+    files :: ![Text],
+    visibility :: !(Maybe KitVisibility)
   }
   deriving stock (Generic, Show)
   deriving anyclass (FromJSON)
@@ -44,7 +47,8 @@ data AgentEntry = AgentEntry
     description :: !Text,
     version :: !(Maybe Text),
     path :: !Text,
-    files :: !(Maybe [Text])
+    files :: !(Maybe [Text]),
+    visibility :: !(Maybe KitVisibility)
   }
   deriving stock (Generic, Show)
   deriving anyclass (FromJSON)
@@ -122,3 +126,7 @@ kindLabel AgentKind = "agent"
 itemVersion :: KitItem -> Maybe Text
 itemVersion (KitSkillItem entry) = entry ^. #version
 itemVersion (KitAgentItem entry) = entry ^. #version
+
+itemVisibility :: KitItem -> KitVisibility
+itemVisibility (KitSkillItem entry) = maybe ToolOnlyVisibility id (entry ^. #visibility)
+itemVisibility (KitAgentItem entry) = maybe ToolOnlyVisibility id (entry ^. #visibility)

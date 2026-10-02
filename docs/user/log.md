@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-10-02
+* **Update**: Kit Packages documents item visibility, shared Claude links,
+  guarded Codex config entries, the required Codex launcher session arguments,
+  explicit custom-agent acceptance, ownership and legacy migration, visibility
+  status/JSON/sidecars, repair with local edits, and isolated smoke checks.
+
 ## 2026-09-30
 * **Update**: CLI Providers adds a Structured output section: a `JsonSchema`
   reaches `claude -p` as `--json-schema` and `codex exec` as

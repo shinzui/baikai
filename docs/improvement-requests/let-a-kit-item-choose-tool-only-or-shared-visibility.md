@@ -7,9 +7,9 @@ description: >-
   The choice applies in user and project scope. Make both providers honour it, or report
   honestly when one cannot. Today Claude Code items are always tool-only, and Codex items are
   always shared.
-timestamp: 2026-10-01T20:00:00Z
+timestamp: 2026-10-02T04:15:00Z
 requestId: IR-12
-status: proposed
+status: completed
 origin: mori://shinzui/rei
 ---
 
@@ -17,10 +17,46 @@ origin: mori://shinzui/rei
 
 ## Status
 
-Proposed on 2026-10-01. Raised by `mori://shinzui/rei` for its `rei-capture-session` skill. That
-skill should be available in every coding-agent session, while Rei's ingest and bookmark skills
-should stay inside `rei agent assist`. Every tool built on `baikai-kit` faces the same choice:
-Rei, Mori, OKF, and notion-hub, according to Mori's dependents of `shinzui/baikai:baikai-kit`.
+Completed on 2026-10-02 by
+[plan 88](../plans/88-let-a-kit-item-choose-tool-only-or-shared-visibility.md),
+implemented as `baikai-kit 0.4.0.0` (publication remains outside this work).
+The visibility tests in `baikai-kit/test/Main.hs` and the recorded offline
+check establish the seven acceptance criteria:
+
+1. `a manifest item without visibility installs tool-only` checks the
+   default Claude placement, absence of a shared link, and sidecar intent.
+2. `a shared item links into ~/.claude/skills`, `a project-scope shared item
+   uses a relative link`, and `update changes linked content without touching
+   the link` cover user/project discovery and unchanged link inode/mtime.
+   `shared multi-file agents link the body and resources` covers subagents.
+3. `a tool-only Codex skill adds one disabled config entry` and
+   `codexSessionArgs re-enables exactly this tool's hidden skills` cover
+   hiding and launching. The isolated codex-cli 0.160.0 check in plan 88
+   prints zero `vis-check` mentions in a plain session and one with the exact
+   returned arguments, without an API call. `a tool-only agent with Codex
+   is refused without acceptance` and the acceptance flag/callback test
+   cover custom agents, which remain effectively shared.
+4. `status reports requested and effective visibility`, the legacy-note
+   test, and the status golden cover both output formats and the
+   `visibility-broken` condition. `formatVersion` stays 1.
+5. The foreign shared directory, owner-naming dangling link, foreign Codex
+   skill, and project-name/foreign-agent tests verify refusals before
+   provider writes and unchanged foreign bytes.
+6. The link-removal test, config text/permission round trip, reused-entry
+   test, deleted-link/config repair tests (also with local edits), and
+   foreign-asset uninstall test establish ownership and reconciliation.
+   Pending-removal and post-content failure tests cover retry recovery.
+7. Met with the explicit narrowing recorded in plan 88: a consumer built
+   from `kitConfig`, `kitCommandParser`, and `runKit` needs the package bound
+   bump only for kit verbs and Claude launches. A consumer that launches
+   Codex must also append `codexSessionArgs` to `extraArgs`; without it,
+   tool-only skills are hidden in its own sessions. The user guide and
+   changelog prominently document this step and list every changed
+   constructor. Consumer migrations and Hackage publication are separate.
+
+The original request came from `mori://shinzui/rei` for its
+`rei-capture-session` skill. [ADR 0025](../adr/0025-kit-visibility-is-honoured-per-provider-or-refused.md)
+records the durable visibility and ownership contract.
 
 ## Context
 

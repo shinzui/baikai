@@ -1,6 +1,7 @@
 module Baikai.Kit
   ( module Baikai.Kit.Command,
     module Baikai.Kit.Config,
+    module Baikai.Kit.CodexConfig,
     module Baikai.Kit.Error,
     module Baikai.Kit.Install,
     module Baikai.Kit.Json,
@@ -10,9 +11,11 @@ module Baikai.Kit
     module Baikai.Kit.Session,
     module Baikai.Kit.Sidecar,
     module Baikai.Kit.Status,
+    module Baikai.Kit.Visibility,
   )
 where
 
+import Baikai.Kit.CodexConfig
 import Baikai.Kit.Command
 import Baikai.Kit.Config
 import Baikai.Kit.Error
@@ -24,3 +27,4 @@ import Baikai.Kit.Repo
 import Baikai.Kit.Session
 import Baikai.Kit.Sidecar
 import Baikai.Kit.Status
+import Baikai.Kit.Visibility

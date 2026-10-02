@@ -38,3 +38,4 @@ bundle.
 | [0022](0022-kit-status-and-update-share-one-local-edit-check.md) | Kit status and kit update share one local-edit check, and upstream drift and local edits are separate conditions | accepted |
 | [0023](0023-the-kit-engine-ships-no-terminal-ui.md) | The kit engine ships no terminal UI; interactive choice is injected through `KitConfig` | accepted |
 | [0024](0024-machine-readable-kit-output-is-a-versioned-contract.md) | Machine-readable kit output is a versioned contract written by explicit encoders, and stdout carries only the document | accepted |
+| [0025](0025-kit-visibility-is-honoured-per-provider-or-refused.md) | Kit visibility is per item and honoured per provider or refused, with tracked ownership and repair | accepted |

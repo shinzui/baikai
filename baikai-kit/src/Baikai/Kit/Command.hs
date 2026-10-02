@@ -15,7 +15,8 @@ where
 import Baikai.Kit.Config (KitConfig, KitScope (..), scopeLabel)
 import Baikai.Kit.Error (KitError (..), renderKitError)
 import Baikai.Kit.Install
-  ( OverwritePolicy (..),
+  ( InstallOptions (..),
+    OverwritePolicy (..),
     UpdateReport,
     installFrom,
     loadManifest,
@@ -28,6 +29,7 @@ import Baikai.Kit.Json (listDocument, statusDocument, updateDocument)
 import Baikai.Kit.Manifest (KitManifest, itemKind, itemName)
 import Baikai.Kit.Repo (KitRepo, RepoRefresh (..), ensureKitRepo)
 import Baikai.Kit.Status (StatusReport, UpstreamAvailability (..), installedCopies, kitStatus, renderStatusTable)
+import Baikai.Kit.Visibility (KitVisibility (..))
 import Baikai.Prelude
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
@@ -48,7 +50,7 @@ data OutputFormat
 data KitCommand
   = KitList !OutputFormat
   | -- | 'Nothing' asks the configured 'Baikai.Kit.Config.chooseItem'.
-    KitInstall !(Maybe Text) !KitScope
+    KitInstall !(Maybe Text) !KitScope !InstallOptions
   | KitUpdate !(Maybe Text) !OverwritePolicy !OutputFormat
   | KitUninstall !Text !KitScope
   | KitStatus !OutputFormat
@@ -78,19 +80,19 @@ runKitCommand config = \case
     loadManifest (repo ^. #dir) `thenE` \manifest -> do
       copies <- installedCopies config
       emit (listDocument (repoAvailability repo) manifest copies)
-  KitInstall (Just n) scope -> withRepo HumanOutput $ \repo ->
+  KitInstall (Just n) scope options -> withRepo HumanOutput $ \repo ->
     loadManifest (repo ^. #dir) `thenE` \manifest ->
-      installNamed repo manifest n scope
+      installNamed repo manifest n scope options
   -- Without a chooser nothing the refresh could do changes the outcome,
   -- so fail before touching the network.
-  KitInstall Nothing scope -> case config ^. #chooseItem of
+  KitInstall Nothing scope options -> case config ^. #chooseItem of
     Nothing -> pure (Left KitItemNameRequired)
     Just choose -> withRepo HumanOutput $ \repo ->
       loadManifest (repo ^. #dir) `thenE` \manifest -> do
         picked <- choose manifest
         case picked of
           Nothing -> printed "No item chosen; nothing installed."
-          Just n -> installNamed repo manifest n scope
+          Just n -> installNamed repo manifest n scope options
   KitUpdate n policy HumanOutput ->
     updateKit config n policy `thenE` (printed . renderUpdateReport)
   KitUpdate n policy JsonOutput ->
@@ -104,9 +106,9 @@ runKitCommand config = \case
       HumanOutput -> printed (renderStatusTable (report ^. #rows))
       JsonOutput -> emit (statusDocument report)
   where
-    installNamed :: KitRepo -> KitManifest -> Text -> KitScope -> IO (Either KitError ())
-    installNamed repo manifest n scope =
-      installFrom config (repo ^. #dir) manifest n scope `thenE` \item ->
+    installNamed :: KitRepo -> KitManifest -> Text -> KitScope -> InstallOptions -> IO (Either KitError ())
+    installNamed repo manifest n scope options =
+      installFrom config (repo ^. #dir) manifest n scope options `thenE` \item ->
         printed $
           "Installed " <> itemKind item <> " '" <> itemName item <> "' to " <> scopeLabel scope <> " scope."
 
@@ -215,6 +217,13 @@ installParser config =
           )
       )
     <*> scopeParser ("Install to project scope (" <> projectDirLabel config <> " under the project root) instead of user scope")
+    <*> ( InstallOptions
+            <$> optional
+              ( flag' SharedVisibility (long "shared" <> help "Make the item visible in every Claude Code and Codex session")
+                  <|> flag' ToolOnlyVisibility (long "tool-only" <> help "Make the item visible only in sessions this tool launches")
+              )
+            <*> switch (long "accept-shared-codex" <> help "Accept shared visibility when Codex cannot isolate an agent")
+        )
 
 updateParser :: Parser KitCommand
 updateParser =

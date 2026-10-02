@@ -5,8 +5,8 @@ description: Integrate the shared kit installer lifecycle for agent skills and s
 docId: DOC-5
 tags: [kits, skills, agents, installation, lifecycle]
 generated:
-  by: human:nadeem
-  at: 2026-09-23T17:00:00Z
+  by: agent:openai/gpt-6.1-sol
+  at: 2026-10-02T04:15:00Z
 ---
 
 # Kit Packages
@@ -84,10 +84,67 @@ field, including ones later releases add; `kitConfig` does not.
 `projectRoot` is an `IO FilePath` action that returns the directory project
 scope lives under; see Project Scope below.
 
-Claude Code assets install below the tool's agent base so the launcher
-can mount that directory with `--add-dir`. Codex assets install into
-Codex-native discovery roots: `$HOME/.agents`, `$HOME/.codex`, `.agents`,
-and `.codex`.
+## Visibility
+
+Visibility is a per-item setting, independent of scope. An optional
+`"visibility": "shared"` or `"visibility": "tool-only"` in `kit.json`
+sets the default; when absent it is tool-only. `kit install NAME --shared`
+or `--tool-only` overrides it. These flags are mutually exclusive.
+
+| Scope | Tool-only (default) | Shared |
+|---|---|---|
+| User | Seen only in sessions the tool launches, in any project | Seen in every session on the machine |
+| Project | Seen only in sessions the tool launches in that project | Seen in every session in that project |
+
+Claude Code keeps the real copy below `~/.config/<tool>/agents/.claude`
+or `<root>/.<tool>/agents/.claude`. A tool-only launch mounts the agent
+base with `--add-dir`. A shared install adds a link in
+`~/.claude/skills/<name>` or `<root>/.claude/skills/<name>`, pointing at
+that real copy. Shared agents get `.claude/agents/<name>.md`, plus a
+resource-directory link for multi-file agents. User links have absolute
+targets; project links use relative targets so they travel with a clone.
+Updates change the content without replacing an existing correct link.
+
+Codex skills stay in `$HOME/.agents/skills` or `<root>/.agents/skills`.
+A tool-only install adds this block to `$CODEX_HOME/config.toml`
+(`CODEX_HOME` defaults to `~/.codex`):
+
+```toml
+[[skills.config]]
+path = "/absolute/path/to/.agents/skills/review/SKILL.md"
+enabled = false
+```
+
+**Tools that launch Codex must append `codexSessionArgs config` to their
+launch request's `extraArgs`**, as shown in Session Discovery. This
+re-enables hidden skills in the tool's sessions. `--add-dir` alone does
+not load Codex skills. The arguments also work with `codex exec`.
+
+Codex custom agents cannot be hidden per session. A tool-only agent install
+with Codex enabled fails before writing any provider copy, unless
+`--accept-shared-codex` is passed or `KitConfig.confirmSharedCodex` accepts
+it. The callback is `Maybe (KitItem -> IO Bool)`, defaulting to `Nothing`;
+the tool owns its UI. Status then shows effective `shared` and requested
+`tool-only`. `--shared` also permits the agent directly. Update never asks
+for acceptance again for an already installed agent.
+
+The kit refuses a shared Claude name or a Codex destination without its
+own ownership metadata. It never replaces another tool's link, a real
+shared directory, or a user's Codex skill. Config edits preserve text and
+comments, validate the parsed change, and use atomic rename with the
+existing permissions. A symlinked, malformed, read-only, or incompatible
+inline config is refused with the block to add by hand; `--shared` avoids
+adding a disabled entry. An existing disabled entry is reused without claiming it
+for tool-only visibility, while an existing enabled entry is refused.
+Shared visibility needs a readable, parseable config and refuses a user-owned
+disabled entry that would keep the skill hidden; remove that entry by hand.
+`--accept-shared-codex`
+applies to custom agents; it does not bypass skill config failures.
+
+Installs from before 0.4 keep their placement on update. Status identifies
+legacy Codex skills as shared and suggests an explicit reinstall with
+`--tool-only`. For new installs, update follows changes to the manifest's
+default; an explicit install flag persists across updates.
 
 ## Project Scope
 
@@ -129,7 +186,8 @@ The kit repository must contain `kit.json` at its root:
       "description": "Review a change",
       "version": "0.1.0",
       "path": "skills/review",
-      "files": ["SKILL.md"]
+      "files": ["SKILL.md"],
+      "visibility": "shared"
     }
   ],
   "agents": [
@@ -196,7 +254,7 @@ The built-in parser supports:
 
 ```text
 kit list [--json]
-kit install [NAME] [--project]
+kit install [NAME] [--project] [--shared | --tool-only] [--accept-shared-codex]
 kit update [NAME] [--force] [--json]
 kit uninstall NAME [--project]
 kit status [--json]
@@ -211,7 +269,8 @@ Skipped 'review' (user): installed files were modified locally; run 'kit update 
 ```
 
 A skip is not a failure: the command still exits 0. `--force` reinstalls
-anyway and discards those edits.
+anyway and discards those edits. Both paths repair missing visibility links
+and config entries, so a local edit does not prevent visibility repair.
 
 `kitCommandParser` takes the configuration so its help text can name the
 tool's own directory: `mytool kit install --help` describes `--project` as
@@ -258,7 +317,7 @@ call the lower-level functions. Every one of them returns
 `Either KitError a` and prints nothing:
 
 ```haskell
-result <- installItem myKitConfig "review" ProjectScope
+result <- installItem myKitConfig "review" ProjectScope defaultInstallOptions
 case result of
   Left err -> Text.IO.hPutStrLn stderr (renderKitError err)
   Right item -> Text.IO.putStrLn ("installed " <> itemName item)
@@ -308,6 +367,7 @@ part of the contract.
       "kind": "skill",
       "description": "Review a change",
       "version": "0.1.0",
+      "visibility": "shared",
       "installed": [
         {"scope": "user", "provider": "claude", "version": "0.1.0", "path": "/home/me/.config/mytool/agents/.claude/skills/review"},
         {"scope": "user", "provider": "codex", "version": "0.1.0", "path": "/home/me/.agents/skills/review"}
@@ -325,7 +385,7 @@ part of the contract.
   order, then its agents. An installed item the manifest no longer lists
   is not here; `kit status` reports it as `delisted`.
 - `kind` is `skill` or `agent`; `version` is the manifest version or
-  `null`.
+  `null`; `visibility` is the declared default (`tool-only` when omitted).
 - `installed` holds one entry per installed copy — `scope` (`user` or
   `project`), `provider` (`claude` or `codex`), the installed `version`
   from its sidecar (`null` without a readable one), and the `path` of the
@@ -345,6 +405,8 @@ part of the contract.
       "kind": "skill",
       "scope": "project",
       "provider": "claude",
+      "requestedVisibility": "shared",
+      "effectiveVisibility": "shared",
       "installedVersion": "0.1.0",
       "latestVersion": "0.2.0",
       "conditions": ["outdated", "modified"],
@@ -357,11 +419,13 @@ part of the contract.
 - `items` has one entry per installed copy — item, scope, and provider —
   never merged across providers the way the table merges them, sorted by
   name, kind, scope, and provider.
+- `requestedVisibility` is `tool-only`, `shared`, or `null` for a legacy
+  install. `effectiveVisibility` is `tool-only` or `shared`.
 - `installedVersion` comes from the sidecar and `latestVersion` from the
   manifest; either may be `null`.
 - `conditions` uses the labels in Status And Sidecars — `unknown`,
   `delisted`, `refused`, `outdated`, `changed-upstream`, `modified`,
-  `edits-unknown` — in that order, and `upToDate` is `true` exactly when
+  `edits-unknown`, `visibility-broken` — in that order, and `upToDate` is `true` exactly when
   the list is empty.
 
 `kit update --json`:
@@ -410,12 +474,12 @@ against to notice a local edit; a sidecar written by an older release has
 neither and is updated without the check.
 
 `kitStatus` scans user and project scopes and prints rows grouped by
-item, kind, scope, version, conditions, and provider coverage:
+item, kind, scope, version, conditions, visibility, and provider coverage:
 
 ```text
-NAME    TYPE   SCOPE    PROVIDERS  INSTALLED  LATEST  STATE
-review  skill  project  codex      0.1.0      0.2.0   outdated
-review  skill  project  claude     0.1.0      0.2.0   outdated+modified
+NAME    TYPE   SCOPE    PROVIDERS  VISIBILITY  INSTALLED  LATEST  STATE
+review  skill  project  codex      tool-only   0.1.0      0.2.0   outdated
+review  skill  project  claude     tool-only   0.1.0      0.2.0   outdated+modified
 ```
 
 Each row carries a list of conditions. A row with none reads
@@ -441,8 +505,20 @@ The conditions are:
 - `edits-unknown`: the sidecar was written by a release older than 0.2,
   which recorded no installed-file hash, so local edits cannot be
   detected. Reinstalling the item records one.
+- `visibility-broken`: a recorded shared link or disabled Codex entry is
+  missing or wrong, or a config entry conflicts with requested visibility.
+  `kit update NAME` retries the visibility step; it
+  refuses if another owner has taken the name.
 
-Two separate checks produce these. The upstream check compares the
+The visibility check is shared by status and update as `checkVisibility`.
+The `VISIBILITY` column shows effective visibility, with `(requested
+tool-only)` or `(requested shared)` when it differs. Sidecars additionally
+record `visibility`, `visibilitySource` (`manifest` or `install-flag`),
+`sharedLinks`, and `codexDisabledSkills`. Missing visibility marks an older
+install. Only kit-owned config entries are recorded; reused user entries
+survive uninstall.
+
+Two separate content checks produce the other conditions. The upstream check compares the
 sidecar's upstream hash and version with the cached kit checkout; it
 yields `outdated` and `changed-upstream`, and `kit update` acts on it by
 reinstalling. The local-edit check hashes the installed files and compares
@@ -474,7 +550,7 @@ import Baikai.Kit qualified as Kit
 launch :: IO ()
 launch = do
   extraDirs <- Kit.agentDirsForSession myKitConfig
-  -- pass extraDirs to launchClaudeInteractive or launchCodexInteractive
+  -- pass extraDirs to the Claude launch request
   pure ()
 ```
 
@@ -489,19 +565,35 @@ The project directory comes from the same `projectRoot` the installer
 uses, so a session started from a subdirectory mounts the skills a
 project-scope install put at the root.
 
-Those directories are useful for Claude Code because its provider-native
-layout lives under the tool agent base. Codex also receives the extra
-dirs when your launcher passes them through, but Codex skills and custom
-agents are installed into Codex-native discovery paths.
+For Codex, append the session arguments to every launch, including batch
+`codex exec` commands. This step is required for tool-only skills to be
+visible inside the tool's own sessions:
+
+```haskell
+import Baikai.Interactive (InteractiveLaunchRequest (..))
+import Baikai.Kit qualified as Kit
+
+codexRequest :: InteractiveLaunchRequest -> IO InteractiveLaunchRequest
+codexRequest request = do
+  sessionArgs <- Kit.codexSessionArgs myKitConfig
+  pure request {extraArgs = extraArgs request ++ sessionArgs}
+```
+
+`codexSessionArgs` reads this tool's user and project skill sidecars and
+returns `[]` for a Claude-only configuration. It re-enables both kit-owned
+and reused disabled entries, and canonicalises paths before deduplication.
 
 ## Smoke Checks
 
 Use an isolated `HOME` and throwaway project directory when testing a
-new adapter:
+new adapter. Isolate `CODEX_HOME` as well so tests never edit your real
+Codex config:
 
 ```bash
 mkdir -p /tmp/mytool-kit-smoke/home /tmp/mytool-kit-smoke/work
 cd /tmp/mytool-kit-smoke/work
+export HOME=/tmp/mytool-kit-smoke/home
+export CODEX_HOME=/tmp/mytool-kit-smoke/home/.codex
 
 HOME=/tmp/mytool-kit-smoke/home mytool kit list
 HOME=/tmp/mytool-kit-smoke/home mytool kit install review --project
@@ -510,6 +602,15 @@ HOME=/tmp/mytool-kit-smoke/home mytool kit update review
 HOME=/tmp/mytool-kit-smoke/home mytool kit update review --force
 HOME=/tmp/mytool-kit-smoke/home mytool kit uninstall review --project
 ```
+
+For visibility, install a skill with `--shared` and verify its Claude
+link. Reinstall with `--tool-only` and verify that the link is gone and
+`config.toml` contains one disabled entry for its Codex `SKILL.md`. A plain
+`codex debug prompt-input hi` should omit the skill; the same command with
+the exact `codexSessionArgs` should list it. Delete a link or owned config
+block, check `kit status` for `visibility-broken`, then use `kit update`
+and verify the condition clears. Uninstall and check that only the owned
+links and entries disappeared.
 
 After a project-scope install with both providers enabled, expect Claude
 files under `.<tool>/agents/.claude/...` and Codex files under

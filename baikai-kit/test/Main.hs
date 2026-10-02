@@ -5,6 +5,7 @@ module Main (main) where
 import Baikai.Interactive (InteractiveProvider (InteractiveClaude, InteractiveCodex))
 import Baikai.Kit
   ( AgentEntry (..),
+    InstallOptions (..),
     KitCommand (..),
     KitCondition (..),
     KitConfig (..),
@@ -13,6 +14,7 @@ import Baikai.Kit
     KitItemKind (..),
     KitManifest (..),
     KitScope (..),
+    KitVisibility (..),
     OutputFormat (..),
     OverwritePolicy (..),
     PlannedWrite (..),
@@ -23,11 +25,16 @@ import Baikai.Kit
     SkillEntry (..),
     UpstreamAvailability (..),
     WriteContent (..),
+    addDisabledSkill,
     agentDirsForSession,
+    checkVisibility,
     classify,
+    codexSessionArgs,
     collectStatus,
     computeKitHash,
     conditionLabel,
+    defaultInstallOptions,
+    enableSkillsArgs,
     executePlanWith,
     findProjectRoot,
     installItem,
@@ -41,8 +48,12 @@ import Baikai.Kit
     projectRootByMarkers,
     pullKitRepo,
     readSidecar,
+    readSkillEntries,
     reinstallPresent,
+    relativeLinkTarget,
+    removeDisabledSkill,
     renderConditions,
+    renderStatusTable,
     renderUninstallReport,
     runKit,
     runKitCommand,
@@ -64,6 +75,7 @@ import Control.Monad (forM_, void)
 import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Foldable (toList)
@@ -86,11 +98,14 @@ import System.Directory
   ( canonicalizePath,
     createDirectoryIfMissing,
     createDirectoryLink,
+    createFileLink,
     doesDirectoryExist,
     doesFileExist,
     doesPathExist,
     getCurrentDirectory,
+    getSymbolicLinkTarget,
     listDirectory,
+    pathIsSymbolicLink,
     removeDirectoryRecursive,
     removeFile,
     renameFile,
@@ -101,10 +116,12 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, hFlush, stdout)
 import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
+import System.Posix.Files qualified as Posix
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, defaultMain, localOption, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 import Test.Tasty.Runners (NumThreads (NumThreads))
+import Toml qualified
 
 main :: IO ()
 main =
@@ -124,7 +141,11 @@ main =
           installFidelityTests,
           projectRootTests,
           commandTests,
-          jsonTests
+          jsonTests,
+          visibilityTests,
+          codexVisibilityTests,
+          visibilityStatusTests,
+          visibilityRecoveryTests
         ]
 
 manifestTests :: TestTree
@@ -227,10 +248,10 @@ pathSafetyTests =
       testCase "install refuses a manifest file path that escapes the install root" $
         withPreparedKitHome $ \home cache -> do
           BS.writeFile (cache </> "kit.json") maliciousManifestJson
-          result <- installItem testConfig "evil" UserScope
+          result <- installItem testConfig "evil" UserScope defaultInstallOptions
           assertKitError "KitUnsafePath" isUnsafePath result
           assertFileMissing (takeDirectory home </> "escape.txt")
-          exitResult <- try @ExitCode (runKit testConfig (KitInstall (Just "evil") UserScope))
+          exitResult <- try @ExitCode (runKit testConfig (KitInstall (Just "evil") UserScope defaultInstallOptions))
           exitResult @?= Left (ExitFailure 1),
       testCase "uninstall refuses a traversal name" $
         withPreparedKitHome $ \home _cache -> do
@@ -268,13 +289,13 @@ symlinkSafetyTests =
         withPreparedKitHome $ \home cache -> do
           plantSymlinkedSource home cache
           let claudeSkill = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
-          result <- installItem testConfig "demo" UserScope
+          result <- installItem testConfig "demo" UserScope defaultInstallOptions
           assertKitError "KitSourceSymlink" isSourceSymlink result
           assertFileMissing (claudeSkill </> "sub" </> "secret.txt")
           assertFileMissing (claudeSkill </> "SKILL.md"),
       testCase "status reports refused when upstream lists a symlinked source" $
         withPreparedKitHome $ \home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           plantSymlinkedSource home cache
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
@@ -315,7 +336,7 @@ statusFilesystemTests =
             @?= codexBase </> ".codex" </> "agents" </> "reviewer.testkit-kit.json",
       testCase "delisted installed item keeps sidecar version in status" $
         withPreparedKitHome $ \_home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           BS.writeFile (cache </> "kit.json") manifestWithoutDemoJson
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
@@ -324,7 +345,7 @@ statusFilesystemTests =
           mapM_ (\row -> row ^. #installedVersion @?= Just "0.1.0") demoRows,
       testCase "version and cached hash drift reports outdated+changed-upstream" $
         withPreparedKitHome $ \_home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           BS.writeFile (cache </> "skills" </> "demo" </> "SKILL.md") "changed instructions\n"
           BS.writeFile (cache </> "kit.json") manifestWithDemoVersionJson
           rows <- collectStatus testConfig cache [(UserScope, "user")]
@@ -333,21 +354,21 @@ statusFilesystemTests =
           mapM_ (\row -> row ^. #conditions @?= [KitOutdated, KitChangedUpstream]) demoRows,
       testCase "an installed item reports no conditions before an edit" $
         withPreparedKitHome $ \_home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           let demoRows = filter ((== "demo") . view #name) rows
           assertBool "expected demo status rows" (not (null demoRows))
           mapM_ (\row -> row ^. #conditions @?= []) demoRows,
       testCase "editing an installed file reports modified" $
         withPreparedKitHome $ \home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           BS.writeFile (userClaudeSkill home </> "SKILL.md") "my edits"
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           demoConditions rows "claude" >>= (@?= [KitLocallyModified])
           demoConditions rows "codex" >>= (@?= []),
       testCase "a legacy sidecar reports edits-unknown" $
         withPreparedKitHome $ \home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           BS.writeFile (userClaudeSkill home </> ".testkit-kit.json") legacySidecarJson
           rows <- collectStatus testConfig cache [(UserScope, "user")]
           conditions <- demoConditions rows "claude"
@@ -355,7 +376,7 @@ statusFilesystemTests =
           assertBool ("expected no modified in " <> show conditions) (KitLocallyModified `notElem` conditions),
       testCase "modified composes with outdated and changed-upstream" $
         withPreparedKitHome $ \home cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           BS.writeFile (userClaudeSkill home </> "SKILL.md") "my edits"
           BS.writeFile (cache </> "skills" </> "demo" </> "SKILL.md") "changed instructions\n"
           BS.writeFile (cache </> "kit.json") manifestWithDemoVersionJson
@@ -366,8 +387,8 @@ statusFilesystemTests =
           -- Keep project scope inside the temporary HOME so the update's
           -- project-scope scan never looks at the working directory.
           let config = testConfig & #projectRoot .~ pure (home </> "project")
-          _ <- assertRight =<< installItem config "demo" UserScope
-          _ <- assertRight =<< installItem config "reviewer" UserScope
+          _ <- assertRight =<< installItem config "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< installItem config "reviewer" UserScope (InstallOptions Nothing True)
           BS.writeFile (userClaudeSkill home </> "SKILL.md") "my edits"
           rows <- collectStatus config cache [(UserScope, "user"), (ProjectScope, "project")]
           let toScope scopeText = if scopeText == "project" then ProjectScope else UserScope
@@ -404,7 +425,7 @@ installRoundTripTests =
               codexAgent = codexBase </> ".codex" </> "agents" </> "reviewer.toml"
               claudeAgentSidecar = claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
               codexAgentSidecar = codexBase </> ".codex" </> "agents" </> "reviewer.testkit-kit.json"
-          _ <- assertRight =<< installItem config "demo" UserScope
+          _ <- assertRight =<< installItem config "demo" UserScope defaultInstallOptions
           assertFileExists (claudeSkill </> "SKILL.md")
           assertFileExists (codexSkill </> "SKILL.md")
           assertFileExists (claudeSkill </> ".testkit-kit.json")
@@ -417,7 +438,7 @@ installRoundTripTests =
           _ <- assertRight =<< uninstallItem config "demo" UserScope
           assertDirectoryMissing claudeSkill
           assertDirectoryMissing codexSkill
-          _ <- assertRight =<< installItem config "reviewer" UserScope
+          _ <- assertRight =<< installItem config "reviewer" UserScope (InstallOptions Nothing True)
           assertFileExists claudeAgent
           assertFileExists codexAgent
           assertFileExists claudeAgentSidecar
@@ -433,7 +454,7 @@ installRoundTripTests =
         withPreparedKitHome $ \home cache -> do
           let codexAgent = home </> ".codex" </> "agents" </> "reviewer.toml"
           BS.writeFile (cache </> "agents" </> "reviewer.md") "---\r\nname: reviewer\r\n---\r\nReview carefully.\r\n"
-          _ <- assertRight =<< installItem testConfig "reviewer" UserScope
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope (InstallOptions Nothing True)
           toml <- Text.Encoding.decodeUtf8 <$> BS.readFile codexAgent
           assertBool "frontmatter name should be stripped" (not ("name: reviewer" `Text.isInfixOf` toml))
           assertBool "CR characters should be stripped" (not ("\r" `Text.isInfixOf` toml)),
@@ -443,25 +464,25 @@ installRoundTripTests =
               claudeAgent = claudeBase </> ".claude" </> "agents" </> "reviewer.md"
               claudeAgentSidecar = claudeBase </> ".claude" </> "agents" </> "reviewer.testkit-kit.json"
           BS.writeFile (home </> ".codex") ""
-          result <- installItem testConfig "reviewer" UserScope
+          result <- installItem testConfig "reviewer" UserScope (InstallOptions Nothing True)
           assertKitError "KitWriteFailed" isWriteFailed result
           assertFileMissing claudeAgent
           assertFileMissing claudeAgentSidecar
           tmpFiles <- findFilesWithSuffix home ".baikai-kit-tmp"
           tmpFiles @?= [],
       testCase "renderUninstallReport names actual assets and stale metadata" $ do
-        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude True False False]
+        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude True False False [] []]
           @?= "Uninstalled skill 'demo' from user scope (claude)."
-        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude True False False, RemovalOutcome InteractiveCodex True False False]
+        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude True False False [] [], RemovalOutcome InteractiveCodex True False False [] []]
           @?= "Uninstalled skill 'demo' from user scope (claude,codex)."
-        renderUninstallReport "reviewer" UserScope [RemovalOutcome InteractiveClaude False False True]
+        renderUninstallReport "reviewer" UserScope [RemovalOutcome InteractiveClaude False False True [] []]
           @?= "Removed stale kit metadata for 'reviewer' from user scope."
-        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude False False False]
+        renderUninstallReport "demo" UserScope [RemovalOutcome InteractiveClaude False False False [] []]
           @?= "'demo' is not installed in user scope.",
       testCase "uninstallItem reports per-provider removals" $
         withPreparedKitHome $ \home _cache -> do
           let codexSkill = home </> ".agents" </> "skills" </> "demo"
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           removeDirectoryRecursive codexSkill
           outcomes <- assertRight =<< uninstallItem testConfig "demo" UserScope
           let claudeOutcome = findOutcome InteractiveClaude outcomes
@@ -493,16 +514,18 @@ typedErrorTests =
           assertKitError "KitManifestInvalid" isManifestInvalid invalid,
       testCase "installItem returns KitItemNotFound" $
         withPreparedKitHome $ \_home _cache -> do
-          result <- installItem testConfig "nope" UserScope
+          result <- installItem testConfig "nope" UserScope defaultInstallOptions
           assertKitError "KitItemNotFound" (== KitItemNotFound "nope") result,
       testCase "kit status offline on a fresh HOME exits 0" $
         withSystemTempDirectory "baikai-kit-offline" $ \tmp -> do
           oldHome <- lookupEnv "HOME"
+          oldCodexHome <- lookupEnv "CODEX_HOME"
           let home = tmp </> "home"
               config = testConfig & #repoUrl .~ "file:///nonexistent-kit"
           createDirectoryIfMissing True home
           setEnv "HOME" home
-          flip finally (restoreHome oldHome) $ do
+          setEnv "CODEX_HOME" (home </> ".codex")
+          flip finally (restoreHome oldHome >> restoreCodexHome oldCodexHome) $ do
             exitResult <- try @ExitCode (runKit config (KitStatus HumanOutput))
             exitResult @?= Right ()
             report <- kitStatus config
@@ -522,7 +545,7 @@ installFidelityTests =
           let claudeBase = home </> ".config" </> "testkit" </> "agents"
               claudeAgents = claudeBase </> ".claude" </> "agents"
               codexAgents = home </> ".codex" </> "agents"
-          _ <- assertRight =<< installItem testConfig "reviewer" UserScope
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope (InstallOptions Nothing True)
           assertFileExists (claudeAgents </> "reviewer.md")
           assertFileExists (claudeAgents </> "reviewer" </> "guide.md")
           assertFileExists (codexAgents </> "reviewer.toml")
@@ -565,7 +588,7 @@ installFidelityTests =
         withPreparedKitHome $ \home _cache -> do
           let claudeAgents = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "agents"
           createDirectoryIfMissing True (claudeAgents </> "reviewer.md")
-          result <- installItem testConfig "reviewer" UserScope
+          result <- installItem testConfig "reviewer" UserScope (InstallOptions Nothing True)
           assertKitError "KitWriteFailed" isWriteFailed result
           assertFileMissing (home </> ".codex" </> "agents" </> "reviewer.toml"),
       testCase "unsupported manifest version is refused" $
@@ -575,7 +598,7 @@ installFidelityTests =
           case loaded of
             Left (KitManifestVersionUnsupported _ 99) -> pure ()
             other -> assertFailure ("expected KitManifestVersionUnsupported 99, got " <> show other)
-          installed <- installItem testConfig "demo" UserScope
+          installed <- installItem testConfig "demo" UserScope defaultInstallOptions
           assertKitError "KitManifestVersionUnsupported" isVersionUnsupported installed,
       testCase "a sidecar written before the installed-file fields still decodes" $
         case Aeson.eitherDecodeStrict' legacySidecarJson :: Either String SidecarMeta of
@@ -588,7 +611,7 @@ installFidelityTests =
         withPreparedKitHome $ \home cache -> do
           let claudeSkill = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
               upstream = cache </> "skills" </> "demo" </> "SKILL.md"
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           BS.writeFile (claudeSkill </> "SKILL.md") "my edits"
           BS.writeFile upstream "new upstream"
           manifest <- assertRight =<< loadManifest cache
@@ -613,7 +636,7 @@ installFidelityTests =
         withPreparedKitHome $ \home _cache -> do
           let claudeAgents = home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "agents"
               cache = home </> ".cache" </> "testkit" </> "kit"
-          _ <- assertRight =<< installItem testConfig "reviewer" UserScope
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope (InstallOptions Nothing True)
           removeFile (claudeAgents </> "reviewer.md")
           createDirectoryIfMissing True (claudeAgents </> "reviewer.md")
           manifest <- assertRight =<< loadManifest cache
@@ -637,7 +660,11 @@ mkSidecar mVersion h =
       hash = h,
       installedAt = "2026-05-13T00:00:00Z",
       installedFiles = Nothing,
-      installedHash = Nothing
+      installedHash = Nothing,
+      visibility = Nothing,
+      visibilitySource = Nothing,
+      sharedLinks = Nothing,
+      codexDisabledSkills = Nothing
     }
 
 mkSkillItem :: Text -> Maybe Text -> KitItem
@@ -648,7 +675,8 @@ mkSkillItem n mVersion =
         description = "x",
         version = mVersion,
         path = "skills/foo",
-        files = ["SKILL.md"]
+        files = ["SKILL.md"],
+        visibility = Nothing
       }
 
 mkAgentItem :: Text -> Maybe Text -> KitItem
@@ -659,7 +687,8 @@ mkAgentItem n mVersion =
         description = "x",
         version = mVersion,
         path = "agents/foo.md",
-        files = Nothing
+        files = Nothing,
+        visibility = Nothing
       }
 
 jsonTests :: TestTree
@@ -678,8 +707,8 @@ jsonTests =
       testCase "kit-update document matches the golden" $
         withPreparedKitHome $ \home cache -> do
           let config = testConfig & #projectRoot .~ pure (home </> "project")
-          _ <- assertRight =<< installItem config "demo" UserScope
-          _ <- assertRight =<< installItem config "reviewer" UserScope
+          _ <- assertRight =<< installItem config "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< installItem config "reviewer" UserScope (InstallOptions Nothing True)
           BS.writeFile (home </> ".config" </> "testkit" </> "agents" </> ".claude" </> "skills" </> "demo" </> "SKILL.md") "my edits"
           manifest <- assertRight =<< loadManifest cache
           report <- assertRight =<< reinstallPresent config cache manifest Nothing KeepLocalEdits
@@ -701,7 +730,7 @@ jsonTests =
             jsonKey "document" document @?= Just (String name),
       testCase "status --json parses as one document when the cache is stale" $
         withPreparedKitHome $ \_home _cache -> do
-          _ <- assertRight =<< installItem testConfig "demo" UserScope
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
           (result, out) <- captureStdout (runKitCommand testConfig (KitStatus JsonOutput))
           result @?= Right ()
           document <- decodeDocument out
@@ -773,10 +802,12 @@ withFreshHome :: (FilePath -> IO a) -> IO a
 withFreshHome action =
   withSystemTempDirectory "baikai-kit-fresh" $ \tmp -> do
     oldHome <- lookupEnv "HOME"
+    oldCodexHome <- lookupEnv "CODEX_HOME"
     let home = tmp </> "home"
     createDirectoryIfMissing True home
     setEnv "HOME" home
-    action home `finally` restoreHome oldHome
+    setEnv "CODEX_HOME" (home </> ".codex")
+    action home `finally` (restoreHome oldHome >> restoreCodexHome oldCodexHome)
 
 fixtureCache :: FilePath -> FilePath
 fixtureCache home = home </> ".cache" </> "testkit" </> "kit"
@@ -800,11 +831,16 @@ withStatusFixture action =
       BS.writeFile (cache </> "agents" </> (n <> ".md")) ("---\nname: " <> Text.Encoding.encodeUtf8 (Text.pack n) <> "\n---\nBe helpful.\n")
     BS.writeFile (cache </> "kit.json") (fixtureManifest [] [])
     forM_ ["alpha", "gamma", "epsilon", "reviewer"] $ \n ->
-      void (assertRight =<< installItem config n UserScope)
+      void (assertRight =<< installItem config n UserScope (InstallOptions Nothing True))
     forM_ ["beta", "delta", "planner"] $ \n ->
-      void (assertRight =<< installItem config n ProjectScope)
+      void (assertRight =<< installItem config n ProjectScope (InstallOptions Nothing True))
     -- alpha: the Codex copy loses its sidecar => unknown.
     removeFile (home </> ".agents" </> "skills" </> "alpha" </> ".testkit-kit.json")
+    -- gamma: its Claude shared link is lost; the Codex copy predates visibility.
+    removeFile (home </> ".claude/skills/gamma")
+    let gammaSidecar = home </> ".agents/skills/gamma/.testkit-kit.json"
+    gammaMeta <- requireSidecar gammaSidecar
+    LBS.writeFile gammaSidecar (Aeson.encode (gammaMeta & #visibility .~ Nothing & #visibilitySource .~ Nothing))
     -- gamma: upstream sources change without a version bump => changed-upstream.
     BS.writeFile (cache </> "skills" </> "gamma" </> "SKILL.md") "the gamma skill, revised\n"
     -- epsilon: upstream now lists a file through a symbolic link => refused.
@@ -850,6 +886,7 @@ fixtureManifest bumped removed =
         <> n
         <> "\",\"files\":"
         <> files n
+        <> (if n `elem` ["alpha", "gamma"] then ",\"visibility\":\"shared\"" else "")
         <> "}"
     agent n =
       "{\"name\":\""
@@ -926,8 +963,8 @@ commandTests =
   testGroup
     "Command"
     [ testCase "install parses with and without a name" $ do
-        parse ["install"] @?= Just (KitInstall Nothing UserScope)
-        parse ["install", "demo", "--project"] @?= Just (KitInstall (Just "demo") ProjectScope)
+        parse ["install"] @?= Just (KitInstall Nothing UserScope defaultInstallOptions)
+        parse ["install", "demo", "--project"] @?= Just (KitInstall (Just "demo") ProjectScope defaultInstallOptions)
         parse [] @?= Just (KitList HumanOutput),
       testCase "install help names the tool's project directory" $
         case execParserPure defaultPrefs (info (kitCommandParser testConfig <**> helper) mempty) ["install", "--help"] of
@@ -936,9 +973,9 @@ commandTests =
             assertBool ("expected .testkit/agents in help:\n" <> rendered) (".testkit/agents" `isInfixOf` rendered)
           _ -> assertFailure "expected --help to produce help text",
       testCase "install with no name and no chooser is a KitItemNameRequired error" $ do
-        result <- runKitCommand testConfig (KitInstall Nothing UserScope)
+        result <- runKitCommand testConfig (KitInstall Nothing UserScope defaultInstallOptions)
         result @?= Left KitItemNameRequired
-        exitResult <- try @ExitCode (runKit testConfig (KitInstall Nothing UserScope))
+        exitResult <- try @ExitCode (runKit testConfig (KitInstall Nothing UserScope defaultInstallOptions))
         exitResult @?= Left (ExitFailure 1),
       testCase "install with no name installs what the chooser returns" $
         withPreparedKitHome $ \home _cache -> do
@@ -947,23 +984,23 @@ commandTests =
                 writeIORef seen (map (view #name) (manifest ^. #skills) ++ map (view #name) (manifest ^. #agents))
                 pure (Just "demo")
               config = testConfig & #chooseItem .~ Just chooser
-          result <- runKitCommand config (KitInstall Nothing UserScope)
+          result <- runKitCommand config (KitInstall Nothing UserScope defaultInstallOptions)
           result @?= Right ()
           assertFileExists (userClaudeDemo home </> "SKILL.md")
           readIORef seen >>= (@?= ["demo", "reviewer"]),
       testCase "a cancelled choice installs nothing and succeeds" $
         withPreparedKitHome $ \home _cache -> do
           let config = testConfig & #chooseItem .~ Just (\_ -> pure Nothing)
-          result <- runKitCommand config (KitInstall Nothing UserScope)
+          result <- runKitCommand config (KitInstall Nothing UserScope defaultInstallOptions)
           result @?= Right ()
           assertDirectoryMissing (userClaudeDemo home)
-          exitResult <- try @ExitCode (runKit config (KitInstall Nothing UserScope))
+          exitResult <- try @ExitCode (runKit config (KitInstall Nothing UserScope defaultInstallOptions))
           exitResult @?= Right ()
           assertDirectoryMissing (userClaudeDemo home),
       testCase "a chosen name the manifest lacks is KitItemNotFound" $
         withPreparedKitHome $ \_home _cache -> do
           let config = testConfig & #chooseItem .~ Just (\_ -> pure (Just "nope"))
-          result <- runKitCommand config (KitInstall Nothing UserScope)
+          result <- runKitCommand config (KitInstall Nothing UserScope defaultInstallOptions)
           result @?= Left (KitItemNotFound "nope")
     ]
   where
@@ -996,7 +1033,7 @@ projectRootTests =
             let config = testConfig & #projectRoot .~ pure proj
                 claudeSkill = proj </> ".testkit" </> "agents" </> ".claude" </> "skills" </> "demo"
             withCurrentDirectory (proj </> "src" </> "deep") $
-              void (assertRight =<< installItem config "demo" ProjectScope)
+              void (assertRight =<< installItem config "demo" ProjectScope defaultInstallOptions)
             assertFileExists (claudeSkill </> "SKILL.md")
             assertFileExists (proj </> ".agents" </> "skills" </> "demo" </> "SKILL.md")
             assertDirectoryMissing (proj </> "src" </> "deep" </> ".testkit")
@@ -1014,14 +1051,14 @@ projectRootTests =
             assertDirectoryMissing claudeSkill
             let markerConfig = testConfig & #projectRoot .~ projectRootByMarkers [rootMarker]
             withCurrentDirectory (proj </> "src" </> "deep") $
-              void (assertRight =<< installItem markerConfig "demo" ProjectScope)
+              void (assertRight =<< installItem markerConfig "demo" ProjectScope defaultInstallOptions)
             assertFileExists (claudeSkill </> "SKILL.md")
             withCurrentDirectory (proj </> "docs") $ assertProjectRow markerConfig,
       testCase "without a resolver, project scope is the current directory" $
         withPreparedKitHome $ \_home _cache ->
           withProjectTree $ \proj ->
             withCurrentDirectory (proj </> "src" </> "deep") $ do
-              _ <- assertRight =<< installItem testConfig "demo" ProjectScope
+              _ <- assertRight =<< installItem testConfig "demo" ProjectScope defaultInstallOptions
               cwd <- getCurrentDirectory
               assertFileExists (cwd </> ".testkit" </> "agents" </> ".claude" </> "skills" </> "demo" </> "SKILL.md")
               assertDirectoryMissing (proj </> ".testkit")
@@ -1064,6 +1101,7 @@ withPreparedKitHome :: (FilePath -> FilePath -> IO a) -> IO a
 withPreparedKitHome action =
   withSystemTempDirectory "baikai-kit-home" $ \tmp -> do
     oldHome <- lookupEnv "HOME"
+    oldCodexHome <- lookupEnv "CODEX_HOME"
     let home = tmp </> "home"
         cache = home </> ".cache" </> "testkit" </> "kit"
     createDirectoryIfMissing True (cache </> ".git")
@@ -1073,7 +1111,12 @@ withPreparedKitHome action =
     BS.writeFile (cache </> "agents" </> "reviewer.md") "---\nname: reviewer\n---\nReview carefully.\n"
     BS.writeFile (cache </> "kit.json") manifestJson
     setEnv "HOME" home
-    action home cache `finally` restoreHome oldHome
+    setEnv "CODEX_HOME" (home </> ".codex")
+    action home cache `finally` (restoreHome oldHome >> restoreCodexHome oldCodexHome)
+
+restoreCodexHome :: Maybe String -> IO ()
+restoreCodexHome Nothing = unsetEnv "CODEX_HOME"
+restoreCodexHome (Just value) = setEnv "CODEX_HOME" value
 
 restoreHome :: Maybe String -> IO ()
 restoreHome Nothing = unsetEnv "HOME"
@@ -1295,3 +1338,525 @@ findOutcome expected outcomes =
   case find ((== expected) . view #provider) outcomes of
     Just outcome -> outcome
     Nothing -> error "expected provider outcome"
+
+visibilityTests :: TestTree
+visibilityTests =
+  testGroup
+    "visibility"
+    [ testCase "a manifest item without visibility installs tool-only" $
+        withPreparedKitHome $ \home _ -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          assertFileExists (ownedDemo home </> "SKILL.md")
+          assertDirectoryMissing (sharedDemo home)
+          meta <- demoSidecar home
+          meta ^. #visibility @?= Just "tool-only"
+          meta ^. #visibilitySource @?= Just "manifest",
+      testCase "a shared item links into ~/.claude/skills" $
+        withPreparedKitHome $ \home cache -> do
+          declareShared cache
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          getSymbolicLinkTarget (sharedDemo home) >>= (@?= ownedDemo home)
+          BS.readFile (sharedDemo home </> "SKILL.md") >>= (@?= "skill instructions\n")
+          meta <- demoSidecar home
+          meta ^. #sharedLinks @?= Just [Text.pack (sharedDemo home)],
+      testCase "a project-scope shared item uses a relative link" $
+        withPreparedKitHome $ \home _ -> do
+          let root = takeDirectory home </> "project"
+              config = testConfig & #projectRoot .~ pure root
+          _ <- assertRight =<< installItem config "demo" ProjectScope sharedOptions
+          getSymbolicLinkTarget (root </> ".claude/skills/demo") >>= (@?= "../../.testkit/agents/.claude/skills/demo"),
+      testCase "relativeLinkTarget handles siblings and descendants" $ do
+        relativeLinkTarget "/a/.claude/skills" "/a/.tool/agents/.claude/skills/demo" @?= "../../.tool/agents/.claude/skills/demo"
+        relativeLinkTarget "/a" "/a/b/c" @?= "b/c",
+      testCase "kit install --shared overrides the manifest and update keeps it" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          updateDemo cache
+          assertBool "shared link survives" =<< pathIsSymbolicLink (sharedDemo home)
+          meta <- demoSidecar home
+          meta ^. #visibilitySource @?= Just "install-flag",
+      testCase "update follows a changed manifest default" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          declareShared cache
+          updateDemo cache
+          assertBool "new manifest creates link" =<< pathIsSymbolicLink (sharedDemo home),
+      testCase "update changes linked content without touching the link" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          before <- getSymbolicLinkTarget (sharedDemo home)
+          inodeBefore <- Posix.getSymbolicLinkStatus (sharedDemo home)
+          BS.writeFile (cache </> "skills/demo/SKILL.md") "new content\n"
+          updateDemo cache
+          getSymbolicLinkTarget (sharedDemo home) >>= (@?= before)
+          inodeAfter <- Posix.getSymbolicLinkStatus (sharedDemo home)
+          Posix.fileID inodeAfter @?= Posix.fileID inodeBefore
+          Posix.modificationTimeHiRes inodeAfter @?= Posix.modificationTimeHiRes inodeBefore
+          BS.readFile (sharedDemo home </> "SKILL.md") >>= (@?= "new content\n"),
+      testCase "update recreates a deleted link including when local edits skip content" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          removeFile (sharedDemo home)
+          updateDemo cache
+          assertBool "link repaired" =<< pathIsSymbolicLink (sharedDemo home)
+          BS.writeFile (ownedDemo home </> "SKILL.md") "local edits\n"
+          removeFile (sharedDemo home)
+          manifest <- assertRight =<< loadManifest cache
+          report <- assertRight =<< reinstallPresent testConfig cache manifest (Just "demo") KeepLocalEdits
+          report ^. #skipped @?= [("demo", UserScope)]
+          BS.readFile (sharedDemo home </> "SKILL.md") >>= (@?= "local edits\n"),
+      testCase "uninstall removes the link and nothing else" $
+        withPreparedKitHome $ \home _ -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          createDirectoryIfMissing True (home </> ".claude/skills/other")
+          outcomes <- assertRight =<< uninstallItem testConfig "demo" UserScope
+          concatMap (view #linksRemoved) outcomes @?= [sharedDemo home]
+          assertDirectoryExists (home </> ".claude/skills/other")
+          assertDirectoryMissing (sharedDemo home),
+      testCase "a shared install refuses a foreign skill directory before any write" $
+        withPreparedKitHome $ \home _ -> do
+          createDirectoryIfMissing True (sharedDemo home)
+          BS.writeFile (sharedDemo home </> "SKILL.md") "foreign\n"
+          result <- installItem testConfig "demo" UserScope sharedOptions
+          assertKitError "shared name taken" isNameTaken result
+          BS.readFile (sharedDemo home </> "SKILL.md") >>= (@?= "foreign\n")
+          assertDirectoryMissing (ownedDemo home)
+          assertDirectoryMissing (home </> ".agents/skills/demo"),
+      testCase "a shared install names the owning tool even for a dangling link" $
+        withPreparedKitHome $ \home _ -> do
+          createDirectoryIfMissing True (home </> ".claude/skills")
+          createDirectoryLink (home </> ".config/rei/agents/.claude/skills/demo") (sharedDemo home)
+          result <- installItem testConfig "demo" UserScope sharedOptions
+          case result of
+            Left (KitSharedNameTaken _ owner) -> owner @?= Just "rei"
+            other -> assertFailure (show other),
+      testCase "a Codex install refuses a skill directory without this tool's sidecar" $
+        withPreparedKitHome $ \home _ -> do
+          let path = home </> ".agents/skills/demo"
+          createDirectoryIfMissing True path
+          BS.writeFile (path </> "SKILL.md") "foreign\n"
+          result <- installItem testConfig "demo" UserScope defaultInstallOptions
+          assertKitError "shared name taken" isNameTaken result
+          BS.readFile (path </> "SKILL.md") >>= (@?= "foreign\n")
+          assertDirectoryMissing (ownedDemo home),
+      testCase "the parser accepts --shared, --tool-only and --accept-shared-codex" $ do
+        let parse = getParseResult . execParserPure defaultPrefs (info (kitCommandParser testConfig) mempty)
+        parse ["install", "demo"] @?= Just (KitInstall (Just "demo") UserScope defaultInstallOptions)
+        parse ["install", "demo", "--shared"] @?= Just (KitInstall (Just "demo") UserScope sharedOptions)
+        parse ["install", "demo", "--tool-only"] @?= Just (KitInstall (Just "demo") UserScope (InstallOptions (Just ToolOnlyVisibility) False))
+        parse ["install", "demo", "--accept-shared-codex"] @?= Just (KitInstall (Just "demo") UserScope (InstallOptions Nothing True))
+        parse ["install", "demo", "--shared", "--tool-only"] @?= Nothing,
+      testCase "an unknown visibility value is an invalid manifest" $
+        withPreparedKitHome $ \_ cache -> do
+          BS.writeFile (cache </> "kit.json") (Text.Encoding.encodeUtf8 (Text.replace "\"name\":\"demo\"" "\"visibility\":\"public\",\"name\":\"demo\"" (Text.Encoding.decodeUtf8 manifestJson)))
+          assertKitError "invalid manifest" isInvalid =<< loadManifest cache,
+      testCase "legacy visibility survives update until explicit reinstall" $
+        withPreparedKitHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< removeDisabledSkill (codexConfig home) (codexDemo home)
+          forM_ [ownedDemo home, home </> ".agents/skills/demo"] $ \dir -> do
+            meta <- requireSidecar (dir </> ".testkit-kit.json")
+            LBS.writeFile (dir </> ".testkit-kit.json") (Aeson.encode (meta & #visibility .~ Nothing & #visibilitySource .~ Nothing & #sharedLinks .~ Nothing & #codexDisabledSkills .~ Nothing))
+          declareShared cache
+          updateDemo cache
+          assertDirectoryMissing (sharedDemo home)
+          meta <- demoSidecar home
+          meta ^. #visibility @?= Nothing
+          legacy <- assertRight =<< checkVisibility testConfig InteractiveCodex UserScope SkillKind "demo"
+          legacy ^. #effective @?= SharedVisibility
+          _ <- assertRight =<< installItem testConfig "demo" UserScope (InstallOptions (Just ToolOnlyVisibility) False)
+          modern <- assertRight =<< checkVisibility testConfig InteractiveCodex UserScope SkillKind "demo"
+          modern ^. #requested @?= Just ToolOnlyVisibility
+          modern ^. #effective @?= ToolOnlyVisibility,
+      testCase "shared multi-file agents link the body and resources" $
+        withPreparedKitHome $ \home cache -> do
+          plantMultiFileAgent cache
+          _ <- assertRight =<< installItem testConfig "reviewer" UserScope sharedOptions
+          BS.readFile (home </> ".claude/agents/reviewer/guide.md") >>= (@?= "How to review.\n")
+          assertBool "agent link" =<< pathIsSymbolicLink (home </> ".claude/agents/reviewer.md")
+          outcomes <- assertRight =<< uninstallItem testConfig "reviewer" UserScope
+          length (concatMap (view #linksRemoved) outcomes) @?= 2
+    ]
+  where
+    isNameTaken KitSharedNameTaken {} = True
+    isNameTaken _ = False
+    isInvalid KitManifestInvalid {} = True
+    isInvalid _ = False
+
+sharedOptions :: InstallOptions
+sharedOptions = InstallOptions (Just SharedVisibility) False
+
+ownedDemo :: FilePath -> FilePath
+ownedDemo home = home </> ".config/testkit/agents/.claude/skills/demo"
+
+sharedDemo :: FilePath -> FilePath
+sharedDemo home = home </> ".claude/skills/demo"
+
+requireSidecar :: FilePath -> IO SidecarMeta
+requireSidecar path = maybe (assertFailure ("missing sidecar: " <> path)) pure =<< readSidecar path
+
+demoSidecar :: FilePath -> IO SidecarMeta
+demoSidecar home = requireSidecar (ownedDemo home </> ".testkit-kit.json")
+
+declareShared :: FilePath -> IO ()
+declareShared cache = do
+  bytes <- BS.readFile (cache </> "kit.json")
+  BS.writeFile (cache </> "kit.json") (Text.Encoding.encodeUtf8 (Text.replace "\"name\":\"demo\"" "\"visibility\":\"shared\",\"name\":\"demo\"" (Text.Encoding.decodeUtf8 bytes)))
+
+updateDemo :: FilePath -> IO ()
+updateDemo cache = do
+  manifest <- assertRight =<< loadManifest cache
+  void (assertRight =<< reinstallPresent testConfig cache manifest (Just "demo") KeepLocalEdits)
+
+codexVisibilityTests :: TestTree
+codexVisibilityTests =
+  testGroup
+    "visibility"
+    [ testCase "a tool-only Codex skill adds one disabled config entry" $
+        withCodexHome $ \home _ -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          expected <- canonicalizePath (codexDemo home)
+          entries <- assertRight =<< readSkillEntries (codexConfig home)
+          entries @?= [(expected, False)]
+          meta <- requireSidecar (takeDirectory (codexDemo home) </> ".testkit-kit.json")
+          meta ^. #codexDisabledSkills @?= Just [Text.pack expected]
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          entries2 <- assertRight =<< readSkillEntries (codexConfig home)
+          entries2 @?= entries,
+      testCase "the config edit preserves the user's text and permissions" $
+        withCodexHome $ \home _ -> do
+          forM_ ["", "# no final newline", "# my config\n[projects.\"/x\"]\ntrust_level = \"trusted\"\n\n[[skills.config]]\npath = \"/user/other/SKILL.md\"\nenabled = false\n"] $ \seed -> do
+            createDirectoryIfMissing True (home </> ".codex")
+            BS.writeFile (codexConfig home) seed
+            Posix.setFileMode (codexConfig home) 0o600
+            _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+            infoBefore <- Posix.getFileStatus (codexConfig home)
+            Posix.fileMode infoBefore .&. 0o777 @?= 0o600
+            outcomes <- assertRight =<< uninstallItem testConfig "demo" UserScope
+            expected <- canonicalizePath (codexDemo home)
+            concatMap (view #configEntriesRemoved) outcomes @?= [expected]
+            BS.readFile (codexConfig home) >>= (@?= seed),
+      testCase "a shared Codex skill writes no entry and switching to shared removes ours" $
+        withCodexHome $ \home _ -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          assertFileMissing (codexConfig home)
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          entries <- assertRight =<< readSkillEntries (codexConfig home)
+          entries @?= [],
+      testCase "codexSessionArgs re-enables exactly this tool's hidden skills" $
+        withCodexHome $ \home _ -> do
+          let root = takeDirectory home </> "project"
+              config = testConfig & #projectRoot .~ pure root
+          _ <- assertRight =<< installItem config "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< installItem config "demo" ProjectScope defaultInstallOptions
+          _ <- assertRight =<< addDisabledSkill (codexConfig home) (home </> "other/SKILL.md")
+          user <- canonicalizePath (codexDemo home)
+          project <- canonicalizePath (root </> ".agents/skills/demo/SKILL.md")
+          args <- codexSessionArgs config
+          parseArgs args @?= parseArgs (enableSkillsArgs [user, project])
+          codexSessionArgs (config & #providers .~ [InteractiveClaude]) >>= (@?= []),
+      testCase "a symlinked Codex config is refused untouched before writes" $
+        withCodexHome $ \home _ -> do
+          createDirectoryIfMissing True (home </> ".codex")
+          BS.writeFile (home </> "generated.toml") "# generated\n"
+          createFileLink (home </> "generated.toml") (codexConfig home)
+          result <- installItem testConfig "demo" UserScope defaultInstallOptions
+          case result of
+            Left (KitCodexConfigUnusable _ message) -> assertBool "manual block is in error" ("[[skills.config]]" `Text.isInfixOf` message)
+            other -> assertFailure (show other)
+          assertDirectoryMissing (ownedDemo home)
+          assertFileMissing (codexDemo home)
+          getSymbolicLinkTarget (codexConfig home) >>= (@?= home </> "generated.toml")
+          BS.readFile (home </> "generated.toml") >>= (@?= "# generated\n"),
+      testCase "inline arrays, malformed TOML, and enabled=true are refused" $
+        withCodexHome $ \home _ -> do
+          createDirectoryIfMissing True (home </> ".codex")
+          path <- canonicalizePath (codexDemo home)
+          forM_ ["[skills]\nconfig = []\n", "invalid = [", "[[skills.config]]\npath = \"" <> Text.Encoding.encodeUtf8 (Text.pack path) <> "\"\nenabled = true\n"] $ \seed -> do
+            BS.writeFile (codexConfig home) seed
+            result <- installItem testConfig "demo" UserScope defaultInstallOptions
+            assertKitError "unusable config" isConfigError result
+            BS.readFile (codexConfig home) >>= (@?= seed)
+            assertDirectoryMissing (ownedDemo home),
+      testCase "an existing disabled entry is reused and survives uninstall" $
+        withCodexHome $ \home _ -> do
+          _ <- assertRight =<< addDisabledSkill (codexConfig home) (codexDemo home)
+          seed <- BS.readFile (codexConfig home)
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          meta <- requireSidecar (takeDirectory (codexDemo home) </> ".testkit-kit.json")
+          meta ^. #codexDisabledSkills @?= Just []
+          args <- codexSessionArgs (testConfig & #projectRoot .~ pure (takeDirectory home </> "project"))
+          path <- canonicalizePath (codexDemo home)
+          parseArgs args @?= parseArgs (enableSkillsArgs [path])
+          _ <- assertRight =<< uninstallItem testConfig "demo" UserScope
+          BS.readFile (codexConfig home) >>= (@?= seed),
+      testCase "update re-adds a deleted config entry including for local edits" $
+        withCodexHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< removeDisabledSkill (codexConfig home) (codexDemo home)
+          updateDemo cache
+          entries <- assertRight =<< readSkillEntries (codexConfig home)
+          assertBool "entry repaired" (length entries == 1)
+          _ <- assertRight =<< removeDisabledSkill (codexConfig home) (codexDemo home)
+          BS.writeFile (ownedDemo home </> "SKILL.md") "local edits\n"
+          updateDemo cache
+          entries2 <- assertRight =<< readSkillEntries (codexConfig home)
+          entries2 @?= entries
+          BS.readFile (ownedDemo home </> "SKILL.md") >>= (@?= "local edits\n"),
+      testCase "a tool-only agent with Codex is refused without acceptance" $
+        withCodexHome $ \home _ -> do
+          result <- installItem testConfig "reviewer" UserScope defaultInstallOptions
+          assertKitError "cannot isolate agent" (== KitCodexCannotIsolate "reviewer") result
+          assertFileMissing (home </> ".config/testkit/agents/.claude/agents/reviewer.md")
+          assertFileMissing (home </> ".codex/agents/reviewer.toml"),
+      testCase "agent acceptance flag and callbacks work and update never asks" $
+        withCodexHome $ \home cache -> do
+          let refusing = testConfig & #confirmSharedCodex .~ Just (\_ -> pure False)
+              accepting = testConfig & #confirmSharedCodex .~ Just (\_ -> pure True)
+          result <- installItem refusing "reviewer" UserScope defaultInstallOptions
+          assertKitError "callback refused" (== KitCodexCannotIsolate "reviewer") result
+          _ <- assertRight =<< installItem accepting "reviewer" UserScope defaultInstallOptions
+          manifest <- assertRight =<< loadManifest cache
+          _ <- assertRight =<< reinstallPresent refusing cache manifest (Just "reviewer") KeepLocalEdits
+          _ <- assertRight =<< uninstallItem testConfig "reviewer" UserScope
+          _ <- assertRight =<< installItem refusing "reviewer" UserScope (InstallOptions Nothing True)
+          assertFileExists (home </> ".codex/agents/reviewer.toml")
+          _ <- assertRight =<< uninstallItem testConfig "reviewer" UserScope
+          _ <- assertRight =<< installItem (refusing & #providers .~ [InteractiveClaude]) "reviewer" UserScope defaultInstallOptions
+          assertFileMissing (home </> ".codex/agents/reviewer.toml"),
+      testCase "the TOML escaper round-trips quotes, backslashes and controls" $
+        withCodexHome $ \home _ -> do
+          let path = home </> "quote\"slash\\tab\t/SKILL.md"
+          _ <- assertRight =<< addDisabledSkill (codexConfig home) path
+          expected <- canonicalizePath path
+          entries <- assertRight =<< readSkillEntries (codexConfig home)
+          entries @?= [(expected, False)]
+          assertBool "launch override parses" (has _Right (parseArgs (enableSkillsArgs [expected]))),
+      testCase "a tool-only Codex skill must list SKILL.md" $
+        withCodexHome $ \home cache -> do
+          BS.writeFile (cache </> "skills/demo/OTHER.md") "other"
+          BS.writeFile (cache </> "kit.json") (Text.Encoding.encodeUtf8 (Text.replace "SKILL.md" "OTHER.md" (Text.Encoding.decodeUtf8 manifestJson)))
+          assertKitError "no SKILL.md" isConfigError =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          assertDirectoryMissing (ownedDemo home)
+    ]
+  where
+    isConfigError KitCodexConfigUnusable {} = True
+    isConfigError _ = False
+
+-- Every visibility test uses both isolated roots, as do the older fixtures.
+withCodexHome :: (FilePath -> FilePath -> IO a) -> IO a
+withCodexHome = withPreparedKitHome
+
+codexConfig :: FilePath -> FilePath
+codexConfig home = home </> ".codex/config.toml"
+
+codexDemo :: FilePath -> FilePath
+codexDemo home = home </> ".agents/skills/demo/SKILL.md"
+
+parseArgs :: [Text] -> Either String Toml.Table
+parseArgs ["-c", override] = Toml.forgetTableAnns <$> Toml.parse override
+parseArgs other = Left ("unexpected arguments: " <> show other)
+
+visibilityStatusTests :: TestTree
+visibilityStatusTests =
+  testGroup
+    "visibility"
+    [ testCase "status reports requested and effective visibility" $
+        withStatusFixture $ \home _ config -> do
+          rows <- collectStatus config (fixtureCache home) [(UserScope, "user")]
+          let one n p = case filter (\r -> r ^. #name == n && r ^. #providers == p) rows of
+                [r] -> pure r
+                other -> assertFailure (show other)
+          shared <- one "alpha" "claude"
+          shared ^. #requestedVisibility @?= Just SharedVisibility
+          shared ^. #effectiveVisibility @?= SharedVisibility
+          hidden <- one "epsilon" "codex"
+          hidden ^. #requestedVisibility @?= Just ToolOnlyVisibility
+          hidden ^. #effectiveVisibility @?= ToolOnlyVisibility
+          legacy <- one "gamma" "codex"
+          legacy ^. #requestedVisibility @?= Nothing
+          legacy ^. #effectiveVisibility @?= SharedVisibility
+          broken <- one "gamma" "claude"
+          broken ^. #requestedVisibility @?= Just SharedVisibility
+          broken ^. #effectiveVisibility @?= ToolOnlyVisibility
+          assertBool "broken condition" (KitVisibilityBroken `elem` (broken ^. #conditions))
+          assertBool "table carries requested mismatch" ("tool-only (requested shared)" `Text.isInfixOf` renderStatusTable rows)
+          assertBool "agent mismatch" ("shared (requested tool-only)" `Text.isInfixOf` renderStatusTable rows),
+      testCase "a deleted link reports visibility-broken and update clears it" $
+        withCodexHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          removeFile (sharedDemo home)
+          before <- assertRight =<< checkVisibility testConfig InteractiveClaude UserScope SkillKind "demo"
+          before ^. #broken @?= [sharedDemo home]
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          assertBool "status detects missing link" (any (elem KitVisibilityBroken . view #conditions) rows)
+          updateDemo cache
+          after <- assertRight =<< checkVisibility testConfig InteractiveClaude UserScope SkillKind "demo"
+          after ^. #broken @?= [],
+      testCase "a deleted disabled entry reports visibility-broken and update clears it" $
+        withCodexHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          _ <- assertRight =<< removeDisabledSkill (codexConfig home) (codexDemo home)
+          rows <- collectStatus testConfig cache [(UserScope, "user")]
+          assertBool "Codex is now shared and broken" (any (\r -> r ^. #providers == "codex" && r ^. #effectiveVisibility == SharedVisibility && KitVisibilityBroken `elem` (r ^. #conditions)) rows)
+          updateDemo cache
+          after <- assertRight =<< checkVisibility testConfig InteractiveCodex UserScope SkillKind "demo"
+          after ^. #effective @?= ToolOnlyVisibility
+          after ^. #broken @?= [],
+      testCase "status table prints the legacy note only for a shared legacy Codex skill" $
+        withStatusFixture $ \home _ config -> do
+          rows <- collectStatus config (fixtureCache home) [(UserScope, "user")]
+          assertBool "legacy note" ("installed before baikai-kit 0.4.0.0" `Text.isInfixOf` renderStatusTable rows)
+          let modern = filter (\r -> has _Just (r ^. #requestedVisibility)) rows
+          assertBool "no legacy note for modern copies" (not ("installed before baikai-kit 0.4.0.0" `Text.isInfixOf` renderStatusTable modern)),
+      testCase "uninstall preserves foreign Codex assets and a replaced Claude link" $
+        withCodexHome $ \home _ -> do
+          _ <- assertRight =<< installItem (testConfig & #providers .~ [InteractiveClaude]) "demo" UserScope sharedOptions
+          removeFile (sharedDemo home)
+          createDirectoryIfMissing True (home </> "foreign")
+          createDirectoryLink (home </> "foreign") (sharedDemo home)
+          createDirectoryIfMissing True (takeDirectory (codexDemo home))
+          BS.writeFile (codexDemo home) "foreign skill\n"
+          outcomes <- assertRight =<< uninstallItem testConfig "demo" UserScope
+          concatMap (view #linksRemoved) outcomes @?= []
+          BS.readFile (codexDemo home) >>= (@?= "foreign skill\n")
+          getSymbolicLinkTarget (sharedDemo home) >>= (@?= home </> "foreign")
+    ]
+
+visibilityRecoveryTests :: TestTree
+visibilityRecoveryTests =
+  testGroup
+    "visibility"
+    [ testCase "shared visibility refuses a user-owned disabled entry before writing assets" $
+        withCodexHome $ \home _ -> do
+          _ <- assertRight =<< addDisabledSkill (codexConfig home) (codexDemo home)
+          seed <- BS.readFile (codexConfig home)
+          result <- installItem testConfig "demo" UserScope sharedOptions
+          case result of
+            Left KitCodexConfigUnusable {} -> pure ()
+            other -> assertFailure (show other)
+          BS.readFile (codexConfig home) >>= (@?= seed)
+          assertDirectoryMissing (ownedDemo home)
+          assertFileMissing (codexDemo home),
+      testCase "uninstall reports an owned dangling link after its copy and sidecar are lost" $
+        withCodexHome $ \home _ -> do
+          let config = testConfig & #providers .~ [InteractiveClaude]
+          _ <- assertRight =<< installItem config "demo" UserScope sharedOptions
+          removeDirectoryRecursive (ownedDemo home)
+          outcomes <- assertRight =<< uninstallItem config "demo" UserScope
+          concatMap (view #linksRemoved) outcomes @?= [sharedDemo home]
+          assertBool "report names removed link" ("1 shared link" `Text.isInfixOf` renderUninstallReport "demo" UserScope outcomes),
+      testCase "update does not introduce an unaccepted Codex agent copy" $
+        withCodexHome $ \home cache -> do
+          _ <- assertRight =<< installItem (testConfig & #providers .~ [InteractiveClaude]) "reviewer" UserScope defaultInstallOptions
+          manifest <- assertRight =<< loadManifest cache
+          _ <- assertRight =<< reinstallPresent testConfig cache manifest (Just "reviewer") KeepLocalEdits
+          assertFileMissing (home </> ".codex/agents/reviewer.toml"),
+      testCase "multiple config entries preserve each other when one is removed" $
+        withCodexHome $ \home _ -> do
+          _ <- assertRight =<< addDisabledSkill (codexConfig home) (codexDemo home)
+          _ <- assertRight =<< addDisabledSkill (codexConfig home) (home </> "other/SKILL.md")
+          _ <- assertRight =<< removeDisabledSkill (codexConfig home) (codexDemo home)
+          expected <- canonicalizePath (home </> "other/SKILL.md")
+          entries <- assertRight =<< readSkillEntries (codexConfig home)
+          entries @?= [(expected, False)],
+      testCase "update finishes pending visibility removals from sidecar ownership" $
+        withCodexHome $ \home cache -> do
+          _ <- assertRight =<< installItem testConfig "demo" UserScope sharedOptions
+          meta <- demoSidecar home
+          LBS.writeFile (ownedDemo home </> ".testkit-kit.json") (Aeson.encode (meta & #visibility .~ Just "tool-only"))
+          before <- assertRight =<< checkVisibility testConfig InteractiveClaude UserScope SkillKind "demo"
+          before ^. #broken @?= [sharedDemo home]
+          updateDemo cache
+          assertDirectoryMissing (sharedDemo home)
+          _ <- assertRight =<< installItem testConfig "demo" UserScope defaultInstallOptions
+          let sidecar = takeDirectory (codexDemo home) </> ".testkit-kit.json"
+          codexMeta <- requireSidecar sidecar
+          LBS.writeFile sidecar (Aeson.encode (codexMeta & #visibility .~ Just "shared" & #visibilitySource .~ Just "install-flag"))
+          pending <- assertRight =<< checkVisibility testConfig InteractiveCodex UserScope SkillKind "demo"
+          assertBool "pending config cleanup" (not (null (pending ^. #broken)))
+          updateDemo cache
+          entries <- assertRight =<< readSkillEntries (codexConfig home)
+          entries @?= []
+          final <- requireSidecar sidecar
+          final ^. #codexDisabledSkills @?= Just [],
+      testCase "removal tolerates deleted delimiter comments and keeps other TOML" $
+        withCodexHome $ \home _ -> do
+          path <- canonicalizePath (codexDemo home)
+          createDirectoryIfMissing True (home </> ".codex")
+          let suffix = "[projects.\"/x\"]\ntrust_level = \"trusted\"\n"
+              seed = "# user comment\n[[skills.config]]\npath = \"" <> Text.Encoding.encodeUtf8 (Text.pack path) <> "\"\nenabled = false\n" <> suffix
+          BS.writeFile (codexConfig home) seed
+          removed <- assertRight =<< removeDisabledSkill (codexConfig home) path
+          removed @?= True
+          BS.readFile (codexConfig home) >>= (@?= "# user comment\n" <> suffix),
+      testCase "a read-only Codex config is refused before writing assets" $
+        withCodexHome $ \home _ -> do
+          createDirectoryIfMissing True (home </> ".codex")
+          BS.writeFile (codexConfig home) "# read only\n"
+          Posix.setFileMode (codexConfig home) 0o400
+          result <- installItem testConfig "demo" UserScope defaultInstallOptions
+          case result of
+            Left KitCodexConfigUnusable {} -> pure ()
+            other -> assertFailure (show other)
+          assertDirectoryMissing (ownedDemo home)
+          BS.readFile (codexConfig home) >>= (@?= "# read only\n"),
+      testCase "a read-only Codex config parent is refused before writing assets" $
+        withCodexHome $ \home _ -> do
+          let parent = home </> ".codex"
+          createDirectoryIfMissing True parent
+          Posix.setFileMode parent 0o500
+          flip finally (Posix.setFileMode parent 0o700) $ do
+            result <- installItem testConfig "demo" UserScope defaultInstallOptions
+            case result of
+              Left KitCodexConfigUnusable {} -> pure ()
+              other -> assertFailure (show other)
+            assertDirectoryMissing (ownedDemo home)
+            assertFileMissing (codexConfig home),
+      testCase "foreign Codex agent resources are protected without a body file" $
+        withCodexHome $ \home _ -> do
+          let resource = home </> ".codex/agents/reviewer/data.txt"
+          createDirectoryIfMissing True (takeDirectory resource)
+          BS.writeFile resource "foreign resource"
+          result <- installItem testConfig "reviewer" UserScope sharedOptions
+          case result of
+            Left KitSharedNameTaken {} -> pure ()
+            other -> assertFailure (show other)
+          BS.readFile resource >>= (@?= "foreign resource")
+          assertFileMissing (home </> ".codex/agents/reviewer.toml")
+          assertDirectoryMissing (ownedDemo home),
+      testCase "project shared names and foreign Codex agents are protected" $
+        withCodexHome $ \home _ -> do
+          let root = takeDirectory home </> "project"
+              config = testConfig & #projectRoot .~ pure root
+          createDirectoryIfMissing True (root </> ".claude/skills/demo")
+          result <- installItem config "demo" ProjectScope sharedOptions
+          case result of
+            Left KitSharedNameTaken {} -> pure ()
+            other -> assertFailure (show other)
+          assertDirectoryMissing (root </> ".testkit")
+          createDirectoryIfMissing True (home </> ".codex/agents")
+          BS.writeFile (home </> ".codex/agents/reviewer.toml") "foreign"
+          result2 <- installItem testConfig "reviewer" UserScope sharedOptions
+          case result2 of
+            Left KitSharedNameTaken {} -> pure ()
+            other -> assertFailure (show other)
+          BS.readFile (home </> ".codex/agents/reviewer.toml") >>= (@?= "foreign"),
+      testCase "post-content visibility failure remains tracked and update repairs it" $
+        withCodexHome $ \home cache -> do
+          let config = testConfig & #providers .~ [InteractiveClaude]
+          createDirectoryIfMissing True (home </> ".claude")
+          BS.writeFile (home </> ".claude/skills") "blocking parent"
+          result <- installItem config "demo" UserScope sharedOptions
+          case result of
+            Left KitVisibilityNotApplied {} -> pure ()
+            other -> assertFailure (show other)
+          meta <- demoSidecar home
+          meta ^. #sharedLinks @?= Just [Text.pack (sharedDemo home)]
+          assertFileExists (ownedDemo home </> "SKILL.md")
+          removeFile (home </> ".claude/skills")
+          manifest <- assertRight =<< loadManifest cache
+          _ <- assertRight =<< reinstallPresent config cache manifest (Just "demo") KeepLocalEdits
+          assertBool "repair after blocker clears" =<< pathIsSymbolicLink (sharedDemo home)
+    ]

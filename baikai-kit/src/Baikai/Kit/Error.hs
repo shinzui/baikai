@@ -53,6 +53,10 @@ data KitError
     --   restored by rollback, and the destinations left inconsistent.
     --   Both lists are empty when nothing was changed.
     KitWriteFailed Text [FilePath] [FilePath]
+  | KitSharedNameTaken FilePath (Maybe Text)
+  | KitCodexConfigUnusable FilePath Text
+  | KitCodexCannotIsolate Text
+  | KitVisibilityNotApplied Text [FilePath]
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
@@ -94,6 +98,17 @@ renderKitError = \case
     "failed to update kit repository: "
       <> output
       <> "\nThe cached copy is unchanged; installed items were not reinstalled."
+  KitSharedNameTaken path owner ->
+    Text.pack path
+      <> " already exists and was not created by this tool"
+      <> maybe "" (\tool -> " (it belongs to " <> tool <> ")") owner
+      <> "; refusing to replace it."
+  KitCodexConfigUnusable path reason ->
+    "cannot edit Codex config " <> Text.pack path <> ": " <> reason
+  KitCodexCannotIsolate n ->
+    "'" <> n <> "' is a tool-only agent, but Codex cannot hide a custom agent from other sessions: its Codex copy would be visible to every Codex session. Pass --accept-shared-codex to install it anyway, or --shared."
+  KitVisibilityNotApplied reason paths ->
+    "visibility was not applied: " <> reason <> " (" <> Text.intercalate ", " (map Text.pack paths) <> "); run 'kit update NAME' to retry."
   KitWriteFailed reason restored leftInconsistent ->
     Text.intercalate "\n" ("install failed: " <> reason : aftermath)
     where

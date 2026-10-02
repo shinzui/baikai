@@ -9,6 +9,7 @@ module Baikai.Kit.Config
     projectAgentsDir,
     resolveAgentsBase,
     providerAgentsBase,
+    sharedClaudeBase,
     providerLabel,
     sidecarFileName,
     scopeLabel,
@@ -17,7 +18,7 @@ where
 
 import Baikai.AgentAssets (AgentAssetProvider)
 import Baikai.Interactive (InteractiveProvider (..))
-import Baikai.Kit.Manifest (KitManifest)
+import Baikai.Kit.Manifest (KitItem, KitManifest)
 import Baikai.Prelude
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
@@ -46,7 +47,9 @@ data KitConfig = KitConfig
     --   'Baikai.Kit.Error.KitItemNameRequired'. The engine ships no picker:
     --   the tool owns presentation. An exception thrown by the chooser
     --   propagates to the caller.
-    chooseItem :: !(Maybe (KitManifest -> IO (Maybe Text)))
+    chooseItem :: !(Maybe (KitManifest -> IO (Maybe Text))),
+    -- | Confirmation for a tool-only agent whose Codex copy must be shared.
+    confirmSharedCodex :: !(Maybe (KitItem -> IO Bool))
   }
   deriving stock (Generic)
 
@@ -61,6 +64,8 @@ instance Show KitConfig where
         . shows (config ^. #providers)
         . showString ", projectRoot = <IO FilePath>, chooseItem = "
         . showString (maybe "Nothing" (const "Just <chooser>") (config ^. #chooseItem))
+        . showString ", confirmSharedCodex = "
+        . showString (maybe "Nothing" (const "Just <confirmation>") (config ^. #confirmSharedCodex))
         . showString "}"
 
 -- | A configuration with every optional behaviour at its default:
@@ -73,7 +78,8 @@ kitConfig toolName repoUrl providers =
       repoUrl,
       providers,
       projectRoot = getCurrentDirectory,
-      chooseItem = Nothing
+      chooseItem = Nothing,
+      confirmSharedCodex = Nothing
     }
 
 -- | The nearest directory, starting at @start@ and walking towards the
@@ -139,3 +145,8 @@ sidecarFileName config = "." <> (config ^. #toolName) <> "-kit.json"
 scopeLabel :: KitScope -> Text
 scopeLabel UserScope = "user"
 scopeLabel ProjectScope = "project"
+
+-- | The provider-native shared root; project scope uses the configured root.
+sharedClaudeBase :: KitConfig -> KitScope -> IO FilePath
+sharedClaudeBase _ UserScope = getHomeDirectory
+sharedClaudeBase config ProjectScope = config ^. #projectRoot

@@ -1,6 +1,6 @@
 cabal-version: 3.4
 name: baikai-kit
-version: 0.3.0.0
+version: 0.4.0.0
 synopsis: Shared kit installer for AI-agent skills and subagents
 description:
   Shared implementation of kit listing, installation, update, uninstall,
@@ -58,6 +58,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Baikai.Kit
+    Baikai.Kit.CodexConfig
     Baikai.Kit.Command
     Baikai.Kit.Config
     Baikai.Kit.Error
@@ -69,13 +70,16 @@ library
     Baikai.Kit.Session
     Baikai.Kit.Sidecar
     Baikai.Kit.Status
+    Baikai.Kit.Visibility
 
+  other-modules: Baikai.Kit.Link
   build-depends:
     aeson ^>=2.2,
     baikai ^>=0.7.0,
     base >=4.20 && <5,
     binary ^>=0.8,
     bytestring ^>=0.12,
+    containers ^>=0.7,
     crypton ^>=1.0,
     directory ^>=1.3,
     filepath ^>=1.5,
@@ -83,6 +87,7 @@ library
     process ^>=1.6,
     text ^>=2.1,
     time ^>=1.14,
+    toml-parser ^>=2.0.2,
 
 test-suite baikai-kit-test
   import: common-options
@@ -107,3 +112,5 @@ test-suite baikai-kit-test
     tasty-hunit,
     temporary,
     text,
+    toml-parser,
+    unix,

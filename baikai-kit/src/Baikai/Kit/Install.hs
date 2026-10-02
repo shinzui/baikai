@@ -6,7 +6,13 @@
 --   exported boundary, which keeps the plumbing readable without changing
 --   what a caller observes.
 module Baikai.Kit.Install
-  ( loadManifest,
+  ( InstallOptions (..),
+    defaultInstallOptions,
+    VisibilityCheck (..),
+    checkVisibility,
+    checkVisibilityWithEntries,
+    relativeLinkTarget,
+    loadManifest,
     loadManifestMaybe,
     lookupItem,
     installItem,
@@ -38,8 +44,10 @@ import Baikai.AgentAssets
     skillTargetPath,
   )
 import Baikai.Interactive (InteractiveProvider (..), InteractiveScope (InteractiveProjectScope))
+import Baikai.Kit.CodexConfig (addDisabledSkill, checkDisabledSkill, checkRemoveDisabledSkill, codexConfigPath, readSkillEntries, removeDisabledSkill)
 import Baikai.Kit.Config (KitConfig, KitScope (..), kitCacheDir, providerAgentsBase, providerLabel, scopeLabel, sidecarFileName)
 import Baikai.Kit.Error (KitError (..))
+import Baikai.Kit.Link (SharedLink, applyLink, claudeLinks, foreignOwner, linkIsOurs, pathExists, preflightLink, relativeLinkTarget, removeLink)
 import Baikai.Kit.Manifest
   ( AgentEntry,
     ItemSources,
@@ -49,19 +57,22 @@ import Baikai.Kit.Manifest
     SkillEntry,
     itemName,
     itemSources,
+    itemVisibility,
     kitItemKind,
     supportedManifestVersions,
   )
 import Baikai.Kit.Path (safeItemName, safeSourcePath)
 import Baikai.Kit.Repo (KitRepo, PullResult (..), RepoRefresh (..), ensureKitRepo, pullKitRepo)
-import Baikai.Kit.Sidecar (hashEntries, newSidecarMeta, readSidecar, sidecarPath)
+import Baikai.Kit.Sidecar (SidecarMeta, hashEntries, newSidecarMeta, readSidecar, sidecarPath)
+import Baikai.Kit.Visibility (KitVisibility (..), parseVisibility, visibilityLabel)
 import Baikai.Prelude
 import Control.Exception (IOException, onException, throwIO, try)
-import Control.Monad (forM, forM_, unless, when)
+import Control.Monad (filterM, forM, forM_, unless, when)
 import Data.Aeson (eitherDecodeFileStrict', encode)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.List (find, nub)
+import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import System.Directory
@@ -72,8 +83,18 @@ import System.Directory
     removeFile,
     renameFile,
   )
+import System.Directory qualified
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
+
+data InstallOptions = InstallOptions
+  { visibility :: !(Maybe KitVisibility),
+    acceptSharedCodex :: !Bool
+  }
+  deriving stock (Eq, Generic, Show)
+
+defaultInstallOptions :: InstallOptions
+defaultInstallOptions = InstallOptions Nothing False
 
 -- | One file this install will put in place. Exposed as a test seam
 --   together with 'executePlanWith'; not part of the stable surface.
@@ -92,7 +113,9 @@ data RemovalOutcome = RemovalOutcome
   { provider :: !InteractiveProvider,
     skillRemoved :: !Bool,
     agentRemoved :: !Bool,
-    sidecarRemoved :: !Bool
+    sidecarRemoved :: !Bool,
+    linksRemoved :: ![FilePath],
+    configEntriesRemoved :: ![FilePath]
   }
   deriving stock (Eq, Generic, Show)
 
@@ -135,17 +158,17 @@ lookupItem n manifest =
 --   'KitRepo'\'s refresh state is dropped by this convenience; a command
 --   that wants to warn about a stale cache composes 'ensureKitRepo',
 --   'loadManifest' and 'installFrom' itself.
-installItem :: KitConfig -> Text -> KitScope -> IO (Either KitError KitItem)
-installItem config itemN scope = kitTry $ do
+installItem :: KitConfig -> Text -> KitScope -> InstallOptions -> IO (Either KitError KitItem)
+installItem config itemN scope options = kitTry $ do
   repo <- requireRepo config
   manifest <- loadManifestIO (repo ^. #dir)
-  installFromIO config (repo ^. #dir) manifest itemN scope
+  installFromIO config (repo ^. #dir) manifest itemN scope options
 
 -- | The network-free half of 'installItem': install one item from a
 --   manifest already read out of @repoDir@.
-installFrom :: KitConfig -> FilePath -> KitManifest -> Text -> KitScope -> IO (Either KitError KitItem)
-installFrom config repoDir manifest itemN scope =
-  kitTry (installFromIO config repoDir manifest itemN scope)
+installFrom :: KitConfig -> FilePath -> KitManifest -> Text -> KitScope -> InstallOptions -> IO (Either KitError KitItem)
+installFrom config repoDir manifest itemN scope options =
+  kitTry (installFromIO config repoDir manifest itemN scope options)
 
 -- | Remove an item's assets, its resource directory and its sidecar from
 --   every provider at one scope.
@@ -154,18 +177,38 @@ uninstallItem config n scope = kitTry $ do
   safeName <- orThrow (KitUnsafeName n) (safeItemName n)
   forM (config ^. #providers) $ \provider -> do
     providerBase <- providerAgentsBase config provider scope
-    skillRemoved <- removeIfDirectory (skillTarget config provider providerBase safeName)
-    agentFileRemoved <- removeIfFile (agentTarget config provider providerBase safeName)
+    old <- traverse (\kind -> readSidecar (sidecarPath provider kind n providerBase (sidecarFileName config))) [SkillKind, AgentKind]
+    links <-
+      if provider == InteractiveClaude
+        then do
+          skillLinks <- claudeLinks config scope SkillKind n False
+          agentLinks <- claudeLinks config scope AgentKind n True
+          fmap concat . forM (skillLinks ++ agentLinks) $ \link -> do
+            removed <- removeLink link
+            pure [link ^. #location | removed]
+        else pure []
+    -- Sidecars are read before deleting assets so owned entries remain known.
+    removedEntries <- fmap concat . forM old $ \meta ->
+      fmap concat . forM (fromMaybe [] (meta >>= (^. #codexDisabledSkills))) $ \raw -> do
+        path <- codexConfigPath
+        removed <- removeDisabledSkill path (Text.unpack raw) >>= either throwIO pure
+        pure [Text.unpack raw | removed]
+    let ownsSkill = provider /= InteractiveCodex || any (maybe False ((== "skill") . view #kind)) old
+        ownsAgent = provider /= InteractiveCodex || any (maybe False ((== "agent") . view #kind)) old
+    skillRemoved <- if ownsSkill then removeIfDirectory (skillTarget config provider providerBase safeName) else pure False
+    agentFileRemoved <- if ownsAgent then removeIfFile (agentTarget config provider providerBase safeName) else pure False
     -- A multi-file agent owns a directory beside its agent file; it is
     -- part of the agent, not a kind of its own.
-    agentDirRemoved <- removeIfDirectory (agentResourceDir config provider providerBase safeName)
+    agentDirRemoved <- if ownsAgent then removeIfDirectory (agentResourceDir config provider providerBase safeName) else pure False
     sidecarRemoved <- removeIfFile (agentSidecarTarget config provider providerBase safeName)
     pure
       RemovalOutcome
         { provider,
           skillRemoved,
           agentRemoved = agentFileRemoved || agentDirRemoved,
-          sidecarRemoved
+          sidecarRemoved,
+          linksRemoved = links,
+          configEntriesRemoved = removedEntries
         }
 
 renderUninstallReport :: Text -> KitScope -> [RemovalOutcome] -> Text
@@ -180,12 +223,24 @@ renderUninstallReport n scope outcomes
         <> " scope ("
         <> Text.intercalate "," removedProviders
         <> ")."
+        <> visibilityRemovalNote
   | any (^. #sidecarRemoved) outcomes =
-      "Removed stale kit metadata for '" <> n <> "' from " <> scopeLabel scope <> " scope."
+      "Removed stale kit metadata for '" <> n <> "' from " <> scopeLabel scope <> " scope." <> visibilityRemovalNote
+  | any visibilityRemoved outcomes =
+      "Removed stale visibility for '" <> n <> "' from " <> scopeLabel scope <> " scope." <> visibilityRemovalNote
   | otherwise =
       "'" <> n <> "' is not installed in " <> scopeLabel scope <> " scope."
   where
+    visibilityRemovalNote =
+      let links = sum (map (length . view #linksRemoved) outcomes)
+          entries = sum (map (length . view #configEntriesRemoved) outcomes)
+       in Text.concat
+            [ " Removed " <> Text.pack (show count) <> " " <> label <> "."
+            | (count, label) <- [(links, "shared link(s)"), (entries, "Codex config entry/entries")],
+              count > 0
+            ]
     assetRemoved outcome = outcome ^. #skillRemoved || outcome ^. #agentRemoved
+    visibilityRemoved outcome = not (null (outcome ^. #linksRemoved) && null (outcome ^. #configEntriesRemoved))
     removedKinds =
       nub $
         ["skill" | any (^. #skillRemoved) outcomes]
@@ -380,12 +435,13 @@ loadManifestIO repoDir = do
         throwIO (KitManifestVersionUnsupported manifestPath declared)
       pure manifest
 
-installFromIO :: KitConfig -> FilePath -> KitManifest -> Text -> KitScope -> IO KitItem
-installFromIO config repoDir manifest itemN scope =
+installFromIO :: KitConfig -> FilePath -> KitManifest -> Text -> KitScope -> InstallOptions -> IO KitItem
+installFromIO config repoDir manifest itemN scope options =
   case lookupItem itemN manifest of
     Nothing -> throwIO (KitItemNotFound itemN)
     Just item -> do
-      doInstall config repoDir item scope
+      choices <- prepareVisibility config item scope (Just options)
+      doInstall config repoDir item scope choices
       pure item
 
 requireRepo :: KitConfig -> IO KitRepo
@@ -408,10 +464,13 @@ reinstallPresentIO config repoDir manifest mName policy = do
             modified <- case policy of
               OverwriteLocalEdits -> pure False
               KeepLocalEdits -> locallyModified config item scope
+            choices <- prepareVisibility config item scope Nothing
             if modified
-              then pure [Left (n, scope)]
+              then do
+                repairSkippedVisibility choices
+                pure [Left (n, scope)]
               else do
-                doInstall config repoDir item scope
+                doInstall config repoDir item scope choices
                 pure [Right (n, scope)]
           _ -> pure []
   pure
@@ -476,10 +535,262 @@ locallyModified config item scope = do
     localEditsIO config provider scope (kitItemKind item) (itemName item)
   pure (Edited `elem` checks)
 
-doInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> IO ()
-doInstall config repoDir item scope = do
-  writes <- planInstall config repoDir item scope
+-- | The one visibility check shared by status and update. An absent
+-- requested value marks an installation that predates visibility tracking.
+data VisibilityCheck = VisibilityCheck
+  { requested :: !(Maybe KitVisibility),
+    effective :: !KitVisibility,
+    broken :: ![FilePath]
+  }
+  deriving stock (Eq, Generic, Show)
+
+checkVisibility :: KitConfig -> AgentAssetProvider -> KitScope -> KitItemKind -> Text -> IO (Either KitError VisibilityCheck)
+checkVisibility config provider scope kind n = do
+  entries <-
+    if provider == InteractiveCodex && kind == SkillKind
+      then codexConfigPath >>= readSkillEntries
+      else pure (Right [])
+  checkVisibilityWithEntries entries config provider scope kind n
+
+-- | A status run supplies one parsed Codex snapshot for every row.
+checkVisibilityWithEntries :: Either KitError [(FilePath, Bool)] -> KitConfig -> AgentAssetProvider -> KitScope -> KitItemKind -> Text -> IO (Either KitError VisibilityCheck)
+checkVisibilityWithEntries entries config provider scope kind n = kitTry $ do
+  _ <- orThrow (KitUnsafeName n) (safeItemName n)
+  base <- providerAgentsBase config provider scope
+  meta <- readSidecar (sidecarPath provider kind n base (sidecarFileName config))
+  let requested = meta >>= (^. #visibility) >>= either (const Nothing) Just . parseVisibility
+  case provider of
+    InteractiveClaude -> do
+      links <- claudeLinks config scope kind n True
+      states <- forM links $ \link -> do
+        ours <- linkIsOurs link
+        exists <- System.Directory.doesPathExist (link ^. #location)
+        pure (link ^. #location, ours && exists)
+      let shared = case states of
+            (_, True) : _ -> True
+            _ -> False
+          recorded = fromMaybe [] (meta >>= (^. #sharedLinks))
+          hasResources = maybe False ((> 1) . length) (meta >>= (^. #installedFiles))
+          wanted =
+            [ p
+            | (ordinal, (p, _)) <- zip [0 :: Int ..] states,
+              requested == Just SharedVisibility,
+              ordinal == 0 || hasResources
+            ]
+          broken =
+            [ p
+            | raw <- recorded,
+              let p = Text.unpack raw,
+              if p `elem` wanted then lookup p states /= Just True else lookup p states == Just True
+            ]
+      pure VisibilityCheck {requested, effective = if shared then SharedVisibility else ToolOnlyVisibility, broken}
+    InteractiveCodex
+      | kind == AgentKind ->
+          pure VisibilityCheck {requested, effective = SharedVisibility, broken = []}
+    InteractiveCodex -> do
+      path <- System.Directory.canonicalizePath (skillTarget config provider base (Text.unpack n) </> "SKILL.md")
+      canonical <- case entries of
+        Left _ -> pure []
+        Right values -> forM values $ \(p, enabled) -> do
+          absolute <- System.Directory.canonicalizePath p
+          pure (absolute, enabled)
+      let disabled p = (p, False) `elem` canonical && (p, True) `notElem` canonical
+          tracked = map Text.unpack (fromMaybe [] (meta >>= (^. #codexDisabledSkills)))
+      trackedPaths <- traverse System.Directory.canonicalizePath tracked
+      let broken = nub [p | p <- trackedPaths ++ [path | has _Just requested], if requested == Just SharedVisibility then disabled p else not (disabled p)]
+      pure VisibilityCheck {requested, effective = if disabled path then ToolOnlyVisibility else SharedVisibility, broken}
+
+-- Visibility intent is prepared for every provider before writing any asset.
+data ProviderVisibility = ProviderVisibility
+  { provider :: !AgentAssetProvider,
+    baseDir :: !FilePath,
+    sidecarFile :: !FilePath,
+    previous :: !(Maybe SidecarMeta),
+    requested :: !(Maybe KitVisibility),
+    source :: !(Maybe Text),
+    links :: ![SharedLink],
+    oldLinks :: ![SharedLink],
+    configFile :: !FilePath,
+    disablePaths :: ![FilePath],
+    trackedDisabled :: ![Text],
+    oldDisabled :: ![Text]
+  }
+  deriving stock (Generic)
+
+prepareVisibility :: KitConfig -> KitItem -> KitScope -> Maybe InstallOptions -> IO [ProviderVisibility]
+prepareVisibility config item scope options = do
+  case options of
+    Just opts
+      | InteractiveCodex `elem` (config ^. #providers),
+        kitItemKind item == AgentKind,
+        fromMaybe (itemVisibility item) (opts ^. #visibility) == ToolOnlyVisibility -> do
+          accepted <-
+            if opts ^. #acceptSharedCodex
+              then pure True
+              else maybe (pure False) ($ item) (config ^. #confirmSharedCodex)
+          unless accepted (throwIO (KitCodexCannotIsolate (itemName item)))
+    _ -> pure ()
+  providers <- case options of
+    Just _ -> pure (config ^. #providers)
+    Nothing -> filterM (installedProvider config item scope) (config ^. #providers)
+  forM providers $ \provider -> do
+    baseDir <- providerAgentsBase config provider scope
+    let n = itemName item
+        kind = kitItemKind item
+        sidecarFile = sidecarPath provider kind n baseDir (sidecarFileName config)
+        assetPath = case kind of
+          SkillKind -> skillTarget config provider baseDir (Text.unpack n)
+          AgentKind -> agentTarget config provider baseDir (Text.unpack n)
+    previous <- readSidecar sidecarFile
+    current <- checkVisibility config provider scope kind n >>= either throwIO pure
+    when (provider == InteractiveCodex) $ do
+      let protected = assetPath : [agentResourceDir config provider baseDir (Text.unpack n) | kind == AgentKind]
+      forM_ protected $ \path -> do
+        exists <- pathExists path
+        when (exists && not (has _Just previous)) $ do
+          owner <- foreignOwner path
+          throwIO (KitSharedNameTaken path owner)
+    let (requested, source) = case options of
+          Just opts ->
+            ( Just (fromMaybe (itemVisibility item) (opts ^. #visibility)),
+              Just (if has _Just (opts ^. #visibility) then "install-flag" else "manifest")
+            )
+          Nothing -> case current ^. #requested of
+            Nothing -> (Nothing, Nothing)
+            Just old ->
+              if (previous >>= (^. #visibilitySource)) == Just "install-flag"
+                then (Just old, Just "install-flag")
+                else (Just (itemVisibility item), Just "manifest")
+    sources <- either throwIO pure (itemSources item)
+    possible <-
+      if provider == InteractiveClaude
+        then claudeLinks config scope kind n (kind == AgentKind && length (sources ^. #files) > 1)
+        else pure []
+    allLinks <- if provider == InteractiveClaude then claudeLinks config scope kind n True else pure []
+    let links = [link | link <- possible, requested == Just SharedVisibility]
+        recorded = fromMaybe [] (previous >>= (^. #sharedLinks))
+    owned <- forM allLinks linkIsOurs
+    let oldLinks = [link | (link, ours) <- zip allLinks owned, ours || Text.pack (link ^. #location) `elem` recorded]
+    forM_ links preflightLink
+    configFile <- codexConfigPath
+    let oldDisabled = fromMaybe [] (previous >>= (^. #codexDisabledSkills))
+    when (provider == InteractiveCodex && kind == SkillKind && requested == Just SharedVisibility) $ do
+      path <- System.Directory.canonicalizePath (assetPath </> "SKILL.md")
+      entries <- readSkillEntries configFile >>= either throwIO pure
+      disabled <- forM [p | (p, False) <- entries] System.Directory.canonicalizePath
+      ownedPaths <- traverse (System.Directory.canonicalizePath . Text.unpack) oldDisabled
+      when (path `elem` disabled && path `notElem` ownedPaths) $
+        throwIO (KitCodexConfigUnusable configFile "a user-owned disabled entry hides this skill; remove that entry by hand before installing --shared")
+    disablePaths <-
+      if provider == InteractiveCodex && kind == SkillKind && requested == Just ToolOnlyVisibility
+        then do
+          unless ("SKILL.md" `elem` (sources ^. #files)) $
+            throwIO (KitCodexConfigUnusable configFile "tool-only visibility on Codex needs a SKILL.md; use --shared")
+          path <- System.Directory.canonicalizePath (assetPath </> "SKILL.md")
+          pure [path]
+        else pure []
+    needed <- forM disablePaths $ \path -> do
+      added <- checkDisabledSkill configFile path >>= either throwIO pure
+      pure [Text.pack path | added || Text.pack path `elem` oldDisabled]
+    let trackedDisabled = concat needed
+    forM_ oldDisabled $ \path -> when (has _Just requested && Text.unpack path `notElem` disablePaths) $ do
+      _ <- checkRemoveDisabledSkill configFile (Text.unpack path) >>= either throwIO pure
+      pure ()
+    pure
+      ProviderVisibility
+        { provider,
+          baseDir,
+          sidecarFile,
+          previous,
+          requested,
+          source,
+          links,
+          oldLinks,
+          configFile,
+          disablePaths,
+          trackedDisabled,
+          oldDisabled
+        }
+
+-- Update reconciles copies already installed, including a surviving sidecar
+-- with missing assets. It does not introduce a new unaccepted provider copy.
+installedProvider :: KitConfig -> KitItem -> KitScope -> AgentAssetProvider -> IO Bool
+installedProvider config item scope provider = do
+  base <- providerAgentsBase config provider scope
+  let kind = kitItemKind item
+      name = itemName item
+      asset = case kind of
+        SkillKind -> skillTarget config provider base (Text.unpack name)
+        AgentKind -> agentTarget config provider base (Text.unpack name)
+  exists <- pathExists asset
+  metadata <- doesFileExist (sidecarPath provider kind name base (sidecarFileName config))
+  pure (exists || metadata)
+
+applyVisibility :: ProviderVisibility -> IO ()
+applyVisibility choice = when (has _Just (choice ^. #requested)) $ do
+  result <- try @IOException . try @KitError $ do
+    forM_ (choice ^. #links) applyLink
+    forM_ (choice ^. #disablePaths) $ \path -> do
+      addDisabledSkill (choice ^. #configFile) path >>= either throwIO (const (pure ()))
+    forM_ (choice ^. #oldDisabled) $ \path ->
+      unless (Text.unpack path `elem` (choice ^. #disablePaths)) $
+        removeDisabledSkill (choice ^. #configFile) (Text.unpack path) >>= either throwIO (const (pure ()))
+    forM_ (choice ^. #oldLinks) $ \link ->
+      unless (any ((== link ^. #location) . view #location) (choice ^. #links)) $ do
+        _ <- removeLink link
+        pure ()
+  case result of
+    Left e -> throwIO (KitVisibilityNotApplied (Text.pack (show e)) (map (view #location) (choice ^. #links ++ choice ^. #oldLinks)))
+    Right (Left err) ->
+      throwIO
+        ( KitVisibilityNotApplied
+            (Text.pack (show err))
+            (map (view #location) (choice ^. #links ++ choice ^. #oldLinks) ++ [choice ^. #configFile])
+        )
+    Right (Right ()) -> do
+      meta <- readSidecar (choice ^. #sidecarFile)
+      forM_ meta $ \current -> do
+        let final =
+              current
+                & #sharedLinks
+                .~ Just (map (Text.pack . view #location) (choice ^. #links))
+                & #codexDisabledSkills
+                .~ Just (choice ^. #trackedDisabled)
+        when (current /= final) $
+          executePlan [PlannedWrite (choice ^. #sidecarFile) (WriteBytes (encode final))]
+            >>= either (\err -> throwIO (KitVisibilityNotApplied (Text.pack (show err)) [choice ^. #sidecarFile])) pure
+
+repairSkippedVisibility :: [ProviderVisibility] -> IO ()
+repairSkippedVisibility choices = do
+  let writes =
+        [ PlannedWrite
+            (choice ^. #sidecarFile)
+            ( WriteBytes
+                ( encode
+                    ( old
+                        & #visibility
+                        .~ (visibilityLabel <$> (choice ^. #requested))
+                        & #visibilitySource
+                        .~ (choice ^. #source)
+                        & #sharedLinks
+                        .~ Just (nub (map (Text.pack . view #location) (choice ^. #links ++ choice ^. #oldLinks)))
+                        & #codexDisabledSkills
+                        .~ Just (nub (choice ^. #trackedDisabled ++ choice ^. #oldDisabled))
+                    )
+                )
+            )
+        | choice <- choices,
+          Just old <- [choice ^. #previous],
+          has _Just (choice ^. #requested)
+        ]
   executePlan writes >>= either throwIO pure
+  forM_ choices applyVisibility
+
+doInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> [ProviderVisibility] -> IO ()
+doInstall config repoDir item scope choices = do
+  writes <- planInstall config repoDir item scope choices
+  executePlan writes >>= either throwIO pure
+  forM_ choices applyVisibility
 
 -- | One installed asset: its name relative to the provider's installed
 --   root, where it goes, and the bytes to put there.
@@ -490,8 +801,8 @@ data PlannedAsset = PlannedAsset
   }
   deriving stock (Generic)
 
-planInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> IO [PlannedWrite]
-planInstall config repoDir item scope = do
+planInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> [ProviderVisibility] -> IO [PlannedWrite]
+planInstall config repoDir item _scope choices = do
   safeName <- orThrow (KitUnsafeName (itemName item)) (safeItemName (itemName item))
   sources <- either throwIO pure (itemSources item)
   resolved <- resolveSources repoDir sources
@@ -502,13 +813,23 @@ planInstall config repoDir item scope = do
       Right raw -> pure (rel, path, raw)
   let upstreamHash = hashEntries [(rel, raw) | (rel, _, raw) <- contents]
   fmap concat $
-    forM (config ^. #providers) $ \provider -> do
-      targetBase <- providerAgentsBase config provider scope
+    forM choices $ \choice -> do
+      let provider = choice ^. #provider
+          targetBase = choice ^. #baseDir
       assets <- providerAssets config provider targetBase safeName item contents
       let installedNames = [Text.pack (asset ^. #relativeName) | asset <- assets]
           installedDigest =
             hashEntries [(asset ^. #relativeName, LBS.toStrict (asset ^. #bytes)) | asset <- assets]
-      meta <- newSidecarMeta item upstreamHash installedNames installedDigest
+      meta <-
+        newSidecarMeta
+          item
+          upstreamHash
+          installedNames
+          installedDigest
+          (visibilityLabel <$> (choice ^. #requested))
+          (choice ^. #source)
+          (nub (map (Text.pack . view #location) (choice ^. #links ++ choice ^. #oldLinks)))
+          (nub (choice ^. #trackedDisabled ++ choice ^. #oldDisabled))
       let assetWrites =
             [ PlannedWrite {destination = asset ^. #target, content = WriteBytes (asset ^. #bytes)}
             | asset <- assets
@@ -591,7 +912,9 @@ isInstalled config n scope = do
     providerBase <- providerAgentsBase config provider scope
     skillExists <- doesDirectoryExist (skillTarget config provider providerBase safeName)
     agentExists <- doesFileExist (agentTarget config provider providerBase safeName)
-    pure (skillExists || agentExists)
+    skillMetadata <- doesFileExist (sidecarPath provider SkillKind n providerBase (sidecarFileName config))
+    agentMetadata <- doesFileExist (agentSidecarTarget config provider providerBase safeName)
+    pure (skillExists || agentExists || skillMetadata || agentMetadata)
   pure (or results)
 
 -- | Run an action that may raise a 'KitError' and hand the caller a

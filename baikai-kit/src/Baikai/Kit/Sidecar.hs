@@ -45,7 +45,11 @@ data SidecarMeta = SidecarMeta
     hash :: !Text,
     installedAt :: !Text,
     installedFiles :: !(Maybe [Text]),
-    installedHash :: !(Maybe Text)
+    installedHash :: !(Maybe Text),
+    visibility :: !(Maybe Text),
+    visibilitySource :: !(Maybe Text),
+    sharedLinks :: !(Maybe [Text]),
+    codexDisabledSkills :: !(Maybe [Text])
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
@@ -114,8 +118,8 @@ readSidecar p = do
 -- | Build the sidecar for one provider: the upstream content hash, the
 --   names this install writes for that provider, and the hash of the
 --   bytes it writes.
-newSidecarMeta :: KitItem -> Text -> [Text] -> Text -> IO SidecarMeta
-newSidecarMeta item hashStr writtenFiles writtenHash = do
+newSidecarMeta :: KitItem -> Text -> [Text] -> Text -> Maybe Text -> Maybe Text -> [Text] -> [Text] -> IO SidecarMeta
+newSidecarMeta item hashStr writtenFiles writtenHash visibility visibilitySource sharedLinks codexDisabledSkills = do
   now <- getCurrentTime
   let stamp = Text.pack (formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%SZ" now)
   pure
@@ -126,5 +130,9 @@ newSidecarMeta item hashStr writtenFiles writtenHash = do
         hash = hashStr,
         installedAt = stamp,
         installedFiles = Just writtenFiles,
-        installedHash = Just writtenHash
+        installedHash = Just writtenHash,
+        visibility,
+        visibilitySource,
+        sharedLinks = Just sharedLinks,
+        codexDisabledSkills = Just codexDisabledSkills
       }

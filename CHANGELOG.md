@@ -7,6 +7,50 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai-kit 0.4.0.0] - Unreleased
+
+### Added
+
+- Per-item `visibility` (`tool-only` by default, or `shared`) for manifest
+  versions 1 and 2, with `kit install --shared`, `--tool-only`, and
+  `--accept-shared-codex`. Shared Claude skills and agents use tracked links;
+  tool-only Codex skills use tracked disabled entries in `config.toml`.
+- `codexSessionArgs`, required in the `extraArgs` of a consumer's own Codex
+  launches to re-enable its tool-only skills. This is the one launcher step
+  beyond a dependency bump; the standard `kitConfig`/`kitCommandParser`/`runKit`
+  integration otherwise compiles unchanged. Codex custom agents cannot be
+  isolated and require explicit acceptance, or shared visibility.
+- Requested and effective visibility in status (table and JSON), the
+  `visibility-broken` condition, and a migration note for legacy shared Codex
+  skills. Update repairs visibility even for items skipped for local edits;
+  uninstall removes only owned links and config entries.
+
+### Changed (breaking)
+
+- `SkillEntry` and `AgentEntry` gain `visibility`; `SidecarMeta` gains
+  `visibility`, `visibilitySource`, `sharedLinks`, and `codexDisabledSkills`;
+  `newSidecarMeta` takes these values. `RemovalOutcome` gains `linksRemoved`
+  and `configEntriesRemoved`; `StatusRow` gains `requestedVisibility` and
+  `effectiveVisibility`; `KitConfig` gains `confirmSharedCodex` (default
+  `Nothing` in `kitConfig`).
+- `KitInstall` gains `InstallOptions`; `installItem` and `installFrom` take
+  it as their last argument. Use `defaultInstallOptions` to follow the
+  manifest. Explicit install flags persist across updates, while new
+  manifest-driven installs follow updated defaults. Legacy placement is kept.
+- JSON adds list `visibility`, status `requestedVisibility` and
+  `effectiveVisibility`, and the new condition value. `formatVersion` stays
+  1 because all additions preserve existing keys and their meaning.
+
+### Fixed
+
+- Codex installs refuse destinations without this tool's sidecar instead of
+  overwriting user or other-tool assets. Uninstall also preserves foreign
+  Codex assets. Shared Claude names are checked before any provider write.
+- Codex config edits preserve UTF-8 text, comments and permissions, refuse
+  symlinks and invalid/conflicting config, and verify the semantic change
+  before atomic rename. Reused user-owned disabled entries survive uninstall.
+  Shared visibility refuses a user-owned entry that would keep the skill hidden.
+
 ## [baikai 0.7.2.0] - 2026-09-30
 
 ### Added

@@ -30,9 +30,11 @@ import Baikai.Kit.Status
     UpstreamAvailability (..),
     conditionLabel,
   )
+import Baikai.Kit.Visibility (KitVisibility (..), visibilityLabel)
 import Baikai.Prelude hiding ((.=))
 import Data.Aeson (Value (Null), object, (.=))
 import Data.List (sortOn)
+import Data.Maybe (fromMaybe)
 
 -- | The @formatVersion@ every document carries.
 kitJsonFormatVersion :: Int
@@ -48,22 +50,23 @@ listDocument availability manifest copies =
       "document" .= ("kit-list" :: Text),
       "upstream" .= upstreamValue availability,
       "items"
-        .= ( [ itemValue SkillKind (entry ^. #name) (entry ^. #description) (entry ^. #version)
+        .= ( [ itemValue SkillKind (entry ^. #name) (entry ^. #description) (entry ^. #version) (visibilityLabel (fromMaybe ToolOnlyVisibility (entry ^. #visibility)))
              | entry <- manifest ^. #skills
              ]
-               ++ [ itemValue AgentKind (entry ^. #name) (entry ^. #description) (entry ^. #version)
+               ++ [ itemValue AgentKind (entry ^. #name) (entry ^. #description) (entry ^. #version) (visibilityLabel (fromMaybe ToolOnlyVisibility (entry ^. #visibility)))
                   | entry <- manifest ^. #agents
                   ]
            )
     ]
   where
-    itemValue :: KitItemKind -> Text -> Text -> Maybe Text -> Value
-    itemValue kind n description version =
+    itemValue :: KitItemKind -> Text -> Text -> Maybe Text -> Text -> Value
+    itemValue kind n description version visibility =
       object
         [ "name" .= n,
           "kind" .= kindLabel kind,
           "description" .= description,
           "version" .= version,
+          "visibility" .= visibility,
           "installed"
             .= map
               copyValue
@@ -102,6 +105,8 @@ statusDocument report =
           "provider" .= (row ^. #providers),
           "installedVersion" .= (row ^. #installedVersion),
           "latestVersion" .= (row ^. #latestVersion),
+          "requestedVisibility" .= fmap visibilityLabel (row ^. #requestedVisibility),
+          "effectiveVisibility" .= visibilityLabel (row ^. #effectiveVisibility),
           "conditions" .= map conditionLabel (row ^. #conditions),
           "upToDate" .= null (row ^. #conditions)
         ]

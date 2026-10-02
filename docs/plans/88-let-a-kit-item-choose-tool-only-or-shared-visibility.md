@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-01T23:43:36Z
+  revisions:
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-02T03:46:40Z
+      mode: "implement"
+      note: "Implement per-item visibility, provider ownership and repair, session arguments, and acceptance coverage."
 ---
 
 # Let a kit item choose tool-only or shared visibility
@@ -69,23 +75,81 @@ This plan implements [IR-12](../improvement-requests/let-a-kit-item-choose-tool-
 
 ## Progress
 
-- [ ] Milestone 1: visibility is a declared, overridable per-item setting. Claude Code shared
+- [x] Milestone 1 (2026-10-02): visibility is a declared, overridable per-item setting. Claude Code shared
   installs create, repair, and remove tracked links. Shared names the kit did not create are
   refused in `~/.claude/skills/`, `<root>/.claude/skills/`, and the Codex roots. Accepted when
   the Milestone 1 tests listed in Validation and Acceptance pass under `cabal test baikai-kit`.
-- [ ] Milestone 2: Codex tool-only skills are hidden through tracked `[[skills.config]]` entries
+  Verified: all 88 package tests passed, including 16 visibility cases; link inode and
+  modification time survive content updates, and skipped local edits still repair links.
+- [x] Milestone 2 (2026-10-02): Codex tool-only skills are hidden through tracked `[[skills.config]]` entries
   and re-enabled by `codexSessionArgs`. A tool-only Codex agent is refused unless accepted.
   Accepted when the Milestone 2 tests pass, and when the manual `codex debug prompt-input` check
   shows the skill hidden without the arguments and listed with them.
-- [ ] Milestone 3: `kit status` and `kit status --json` report requested and effective
+  Verified: 100 package tests passed before status additions. The installed
+  codex-cli 0.160.0 passed the isolated offline check using arguments generated
+  by `codexSessionArgs` (not a hand-built replacement):
+
+  ```text
+  installItem: Right (KitSkillItem vis-check)
+  plain: exit=0, vis-check=0
+  tool launch: exit=0, vis-check=1
+  ```
+
+  The scratch home was under `baikai-plan88-codex-r4ncz2b2` in the system
+  temporary directory. Both runs used its `home/.codex` as `CODEX_HOME`.
+  The override contained one canonical absolute `SKILL.md` path.
+- [x] Milestone 3 (2026-10-02): `kit status` and `kit status --json` report requested and effective
   visibility and the `visibility-broken` condition, and the legacy Codex note is printed. The
   goldens are regenerated at `formatVersion` 1. `docs/user/kit.md`, the changelog,
   the `baikai-kit` 0.4.0.0 version, ADR 0025, and IR-12's status are updated. Accepted when
   `cabal test all` passes and IR-12's Status section maps every acceptance criterion to a test
   or recorded check.
+  Verified: the full non-live `cabal test all` run passed every suite,
+  including all 116 `baikai-kit` tests (44 visibility cases). Provider keys,
+  `BAIKAI_EMBEDDING_LIVE`, and `BAIKAI_EFFECTFUL_LIVE` were unset in the child
+  environment, and its PATH retained Cabal/GHC/Git while excluding installed
+  `codex`/`claude` binaries. The regular run with ambient keys failed in the
+  existing live `gpt-4o-mini` smoke case; live provider compatibility is not
+  established by the non-live run. The actual Codex CLI offline acceptance
+  is recorded above. `nix fmt` and `git diff HEAD --check` passed.
+  User docs passed strict, profile-enforced, log-enforced OKF validation
+  (11 concepts); improvement requests passed profile/log enforcement
+  (12 concepts). Strict improvement-request validation reports existing
+  missing recommended `reviews` metadata on ten requests, including IR-12;
+  no unrelated review records were invented.
+
+  The changed guide examples were compiled in
+  `cabal repl baikai-smoke:test:doc-shapes`; the lower-level install example
+  and the Codex request helper were defined without executing either:
+
+  ```text
+  ghci> :t installItem
+  installItem :: KitConfig -> Text -> KitScope -> InstallOptions -> IO (Either KitError KitItem)
+  ghci> :t defaultInstallOptions
+  defaultInstallOptions :: InstallOptions
+  ghci> :t Kit.codexSessionArgs
+  Kit.codexSessionArgs :: KitConfig -> IO [Text]
+  ghci> :t extraArgs
+  extraArgs :: InteractiveLaunchRequest -> [Text]
+  ghci> :t codexRequest
+  codexRequest :: InteractiveLaunchRequest -> IO InteractiveLaunchRequest
+  ghci> :t installReview
+  installReview :: IO ()
+  ghci> :quit
+  Leaving GHCi.
+  ```
 
 
 ## Surprises & Discoveries
+
+- Observation: Mori has no registered toml-parser source. After the mandatory
+  lookup, the Hackage package page and upstream tags both confirmed 2.0.2.0;
+  its tagged source (`mori://glguy/toml-parser`, currently unregistered;
+  release-tag artifact URI pending) was read from a temporary checkout. The bound remains
+  `toml-parser ^>=2.0.2`. The installed Codex is 0.160.0, and the offline
+  acceptance reproduces the earlier 0.159.3 spike.
+  Evidence: https://hackage.haskell.org/package/toml-parser and upstream tag
+  `toml-parser-2.0.2.0` at `7f66445c303bc3c136391a6f6a5a3f72f97ed8c4`.
 
 - Observation: The workaround IR-12 left unverified works. A `[[skills.config]] enabled = false`
   entry in the user's Codex config hides a skill. A launch-time `-c skills.config=[…]` override
@@ -130,6 +194,37 @@ This plan implements [IR-12](../improvement-requests/let-a-kit-item-choose-tool-
 
 
 ## Decision Log
+
+- Decision: Shared Codex visibility refuses a user-owned disabled entry
+  that would keep the skill hidden. Status also reports this mismatch as
+  broken visibility if the user introduces it after installation.
+  Rationale: Honouring shared visibility cannot mean silently keeping an
+  item hidden, and borrowing an entry never authorises deleting it.
+  Date: 2026-10-02
+
+- Decision: Session arguments include requested tool-only skill paths even when
+  the disabled config entry was reused from the user and is not recorded as owned.
+  Canonicalise before deduplicating. Keep old owned links/config paths in sidecars
+  until a visibility switch finishes, then clear completed removals.
+  Rationale: Ownership metadata cannot also be the complete list of hidden skills:
+  reused entries must survive uninstall but still work in tool sessions. Pending
+  cleanup ownership must survive a post-content failure so update can retry it.
+  Date: 2026-10-02
+
+- Decision: Update reconciles already installed provider copies, including a
+  surviving sidecar with missing assets, and does not add a never-installed
+  provider copy. An explicit install applies the configured provider list.
+  Rationale: Adding Codex to a consumer config must not let update introduce
+  an unaccepted shared custom agent; the no-silent-sharing contract also
+  applies after configuration changes.
+  Date: 2026-10-02
+
+- Decision: Mark appended Codex blocks with separator delimiters, and fall back to
+  validated table-block removal if those comments have been deleted. The acceptance
+  flag applies to agents; a skill config failure needs `--shared` or a manual fix.
+  Rationale: Delimiters preserve original bytes, including a missing final newline,
+  and the agent acceptance flag must not silently downgrade a tool-only skill.
+  Date: 2026-10-02
 
 - Decision: Deliver Codex tool-only for **skills** through a tracked `[[skills.config]]
   enabled = false` entry plus a launch-time `-c` override. For **custom agents**, refuse unless
@@ -202,7 +297,28 @@ This plan implements [IR-12](../improvement-requests/let-a-kit-item-choose-tool-
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All three milestones are complete. `baikai-kit` 0.4.0.0 implements the
+manifest default and install overrides, tracked shared Claude links in
+both scopes, guarded Codex skill config changes and session arguments,
+explicit acceptance for unisolatable custom agents, visibility status and
+JSON additions at format version 1, and ownership-aware update/uninstall.
+IR-12 maps all seven acceptance criteria to named tests or the recorded
+offline check. The durable provider, ownership, migration, and consumer
+contracts are distilled in [ADR 0025](../adr/0025-kit-visibility-is-honoured-per-provider-or-refused.md).
+
+The important implementation lessons were separating ownership from the
+complete set of hidden skills, retaining pending cleanup ownership until
+external effects succeed, and restricting update to existing provider
+copies. These prevent borrowed-entry deletion, unrecoverable failed
+visibility switches, and newly introduced shared agents without consent.
+Preflight also protects read-only config parents and body-less foreign
+agent resource directories; uninstall reports an owned dangling link even
+when its copy and sidecar have been lost.
+
+Publishing and consumer migrations remain separate work. A consumer that
+launches Codex must append `codexSessionArgs` to its request's `extraArgs`;
+the guide and changelog make that requirement explicit. No live provider
+call is needed for the feature's Codex discovery proof.
 
 
 ## Context and Orientation
@@ -862,7 +978,10 @@ goldens and the ADR live in the same commits as the code that needs them.
 
 ## Interfaces and Dependencies
 
-New dependency: `toml-parser ^>=2.0.2` (Hackage, by Eric Mertens), used only by
+New dependency: `containers ^>=0.7`, consistent with the existing core and
+provider bounds, for inspecting parsed TOML maps (0.8 is the latest released
+version; 0.7 remains the repository's tested dependency family), and
+`toml-parser ^>=2.0.2` (Hackage, by Eric Mertens), used only by
 `Baikai.Kit.CodexConfig` for parsing and comparing. It is never used to print the user's file.
 
 New and changed public interface of `baikai-kit` 0.4.0.0. The changelog lists each item.
