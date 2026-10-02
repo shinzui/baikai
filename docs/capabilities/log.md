@@ -1,5 +1,22 @@
 # Bundle Update Log
 
+## 2026-10-02
+
+* **Update**: CAP-21 (kit installer) records per-item visibility (IR-12),
+  shipping as `baikai-kit 0.4.0.0`. An item is `tool-only` by default or
+  `shared`, chosen in the manifest or by `kit install --shared`/`--tool-only`,
+  and each provider honours it or the install refuses: Claude Code through
+  tracked links, Codex skills through disabled `config.toml` entries that
+  `codexSessionArgs` re-enables, and Codex custom agents only with explicit
+  acceptance. `Baikai.Kit.CodexConfig` and `Baikai.Kit.Visibility` join the
+  interface. A consumer pinned to 0.3 still has the whole lifecycle, only
+  without the choice, so the record keeps `since: "0.1.0.1"`. The breaking
+  surface change is in the stability note.
+
+* **Correction**: CAP-7 (usage and cost accounting) said Astra's optional
+  pricing policy and `computeCostForService` were "unreleased provider work";
+  both shipped in `baikai 0.7.0.0`, and the paragraph now says so.
+
 ## 2026-09-30
 
 * **Update**: CAP-3 (generated model catalog) and CAP-23 (OpenAI Responses API

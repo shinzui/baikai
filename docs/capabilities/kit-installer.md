@@ -1,10 +1,10 @@
 ---
 title: "Kit installer for agent skills and subagents"
 type: Capability
-description: "Give a command-line tool a real `kit` command: clone or update a git-hosted kit repository, read its manifest, install skills and subagents in each provider's native layout with sidecar metadata, report per-item status including local edits, print it as versioned JSON, and uninstall — refusing symbolic links and escaping paths in the untrusted manifest, returning every failure as a typed `KitError` rather than exiting, and restoring what was there when a write fails partway."
+description: "Give a command-line tool a real `kit` command: clone or update a git-hosted kit repository, read its manifest, install skills and subagents in each provider's native layout with sidecar metadata and a per-item tool-only or shared visibility that every provider honours or refuses, report per-item status including local edits, print it as versioned JSON, and uninstall — refusing symbolic links and escaping paths in the untrusted manifest, returning every failure as a typed `KitError` rather than exiting, and restoring what was there when a write fails partway."
 generated:
   by: claude-code/opus-5
-  at: "2026-09-23T17:00:00Z"
+  at: "2026-10-02T18:00:00Z"
 capabilityId: CAP-21
 provider: mori://shinzui/baikai
 status: shipped
@@ -14,6 +14,7 @@ packages:
   - baikai-kit
 interface:
   - Baikai.Kit
+  - Baikai.Kit.CodexConfig
   - Baikai.Kit.Command
   - Baikai.Kit.Config
   - Baikai.Kit.Error
@@ -25,15 +26,16 @@ interface:
   - Baikai.Kit.Session
   - Baikai.Kit.Sidecar
   - Baikai.Kit.Status
+  - Baikai.Kit.Visibility
 requires:
   - CAP-22
 evidence:
   - kind: test
     resource: baikai-kit/test/Main.hs
-    proves: "The whole lifecycle, its path safety and its failure shapes: manifest decoding, an order-independent content hash that changes when content changes, the status derivation as composable conditions including refused, a skill and an agent round-tripping through both Claude and Codex layouts with sidecars, CRLF frontmatter normalised on every branch, uninstall reporting actual assets versus stale metadata. Path safety: safeRelativePath rejects zip-slip, absolute paths, backslashes and NUL, safeItemName rejects multi-component and hidden names, install refuses a manifest path escaping the install root, uninstall refuses a traversal name, and a kit checkout containing a symbolic link has that source refused by install (which writes nothing), by the content hash, and by status. Typed failures: loadManifest returns missing and invalid manifests as values, installItem returns KitItemNotFound, kit status offline on a fresh HOME exits 0 while reporting the unavailable upstream, and runKit still exits 1 on an unsafe install or uninstall. Install fidelity: a multi-file agent installs every listed file for both providers and uninstall removes its resource directory, a failure in the rename phase restores the previous files and leaves no temporary or backup residue, a destination that is a directory is refused before any write, an unsupported manifest version is refused, a sidecar written before the installed-file fields still decodes, and update skips a locally modified item unless forced. Project scope: findProjectRoot walks up from a nested directory, accepts a start that is the root, and returns Nothing without a marker; with a configured projectRoot an install from a nested subdirectory is found by status, session discovery, and uninstall from a sibling one, the same holds with projectRootByMarkers, and without a resolver project scope stays the current directory. Local edits: an installed item reports no conditions until one of its files is edited and then reports modified for that provider only, a legacy sidecar reports edits-unknown, modified composes with outdated and changed-upstream, and the set kit status reports as modified equals the set kit update skips. Command surface: kit install parses with and without a name, KitCommand compares with ==, install help names the tool's project directory, a stub chooser sees the whole manifest and its pick is installed, a cancelled choice installs nothing and exits 0, and no chooser is KitItemNameRequired. JSON: the kit-list, kit-status and kit-update documents match goldens over a fixture covering every condition, both scopes, both providers and both kinds; the command emits the same status document as the encoder; --json stdout is exactly one document under a stale cache and an unreachable repository, is empty when list cannot clone or update cannot pull, and keeps the first-clone notice off stdout."
+    proves: "The whole lifecycle, its path safety and its failure shapes: manifest decoding, an order-independent content hash that changes when content changes, the status derivation as composable conditions including refused, a skill and an agent round-tripping through both Claude and Codex layouts with sidecars, CRLF frontmatter normalised on every branch, uninstall reporting actual assets versus stale metadata. Path safety: safeRelativePath rejects zip-slip, absolute paths, backslashes and NUL, safeItemName rejects multi-component and hidden names, install refuses a manifest path escaping the install root, uninstall refuses a traversal name, and a kit checkout containing a symbolic link has that source refused by install (which writes nothing), by the content hash, and by status. Typed failures: loadManifest returns missing and invalid manifests as values, installItem returns KitItemNotFound, kit status offline on a fresh HOME exits 0 while reporting the unavailable upstream, and runKit still exits 1 on an unsafe install or uninstall. Install fidelity: a multi-file agent installs every listed file for both providers and uninstall removes its resource directory, a failure in the rename phase restores the previous files and leaves no temporary or backup residue, a destination that is a directory is refused before any write, an unsupported manifest version is refused, a sidecar written before the installed-file fields still decodes, and update skips a locally modified item unless forced. Project scope: findProjectRoot walks up from a nested directory, accepts a start that is the root, and returns Nothing without a marker; with a configured projectRoot an install from a nested subdirectory is found by status, session discovery, and uninstall from a sibling one, the same holds with projectRootByMarkers, and without a resolver project scope stays the current directory. Local edits: an installed item reports no conditions until one of its files is edited and then reports modified for that provider only, a legacy sidecar reports edits-unknown, modified composes with outdated and changed-upstream, and the set kit status reports as modified equals the set kit update skips. Command surface: kit install parses with and without a name, KitCommand compares with ==, install help names the tool's project directory, a stub chooser sees the whole manifest and its pick is installed, a cancelled choice installs nothing and exits 0, and no chooser is KitItemNameRequired. Visibility: a manifest item without visibility installs tool-only and an unknown value is an invalid manifest; a shared Claude item links into ~/.claude/skills (relative at project scope), kit install --shared overrides the manifest and update keeps it, update changes linked content without touching the link and recreates a deleted one even when local edits skip the content, and uninstall removes the link and nothing else; a tool-only Codex skill adds exactly one disabled config entry, switching to shared removes ours, and codexSessionArgs re-enables exactly this tool's hidden skills; a tool-only agent with Codex is refused without acceptance and update never introduces an unaccepted copy; a symlinked, read-only, or user-owned conflicting Codex config is refused before any asset is written; a shared install refuses a foreign skill directory or link and a Codex install refuses a destination without this tool's sidecar, while uninstall preserves foreign assets; status reports requested and effective visibility and visibility-broken, which update clears; legacy placement survives update until an explicit reinstall. JSON: the kit-list, kit-status and kit-update documents match goldens over a fixture covering every condition, both scopes, both providers and both kinds; the command emits the same status document as the encoder; --json stdout is exactly one document under a stale cache and an unreachable repository, is empty when list cannot clone or update cannot pull, and keeps the first-clone notice off stdout."
   - kind: guide
     resource: docs/user/kit.md
-    proves: "The adoption path: KitConfig and kitConfig, how project scope is located, the kit.json manifest, wiring the command, choosing an item interactively, the status conditions and which command acts on each, the three JSON documents with their format-version rule, and what each subcommand does."
+    proves: "The adoption path: KitConfig and kitConfig, how project scope is located, per-item visibility and what each provider does for tool-only and shared (including the codexSessionArgs a Codex launcher must append), the kit.json manifest, wiring the command, choosing an item interactively, the status conditions and which command acts on each, the three JSON documents with their format-version rule, and what each subcommand does."
 ---
 
 # Kit installer for agent skills and subagents
@@ -82,6 +84,22 @@ choose its own exit code
 fails partway restores what was there before, or names the paths it could not
 restore.
 
+Each item also has a **visibility**, independent of scope: `tool-only` (the
+default) means only sessions the owning tool launches see it, and `shared` means
+every session at that scope does. The manifest sets the default per item and
+`kit install --shared` or `--tool-only` overrides it. Each provider honours the
+request or the install refuses before writing anything. Claude Code gets a
+tracked link from its discovery root to the tool-owned copy for `shared`. Codex
+discovers every skill in its roots, so `tool-only` there means a disabled entry
+in `config.toml` that the tool's own launches re-enable with `codexSessionArgs`.
+Codex custom agents cannot be hidden, so a tool-only one needs explicit
+acceptance (`--accept-shared-codex` or `KitConfig.confirmSharedCodex`).
+Ownership is tracked in the sidecar, so the kit never replaces another tool's
+link, a real shared directory, or a user's own Codex skill or config entry, and
+uninstall removes only what it wrote. Status shows requested and effective
+visibility, and `visibility-broken` when a link or entry has gone missing,
+which `update` repairs ([ADR 0025](../adr/0025-kit-visibility-is-honoured-per-provider-or-refused.md)).
+
 This builds on [CAP-22 — provider-native agent-asset layouts](agent-asset-layouts.md),
 which supplies the pure path rules the installer writes against. A tool that only
 needs those rules should depend on `baikai` alone.
@@ -105,6 +123,12 @@ myKitConfig =
   on `PATH`; there is no archive, registry, or local-directory source.
 - Only Claude Code and Codex layouts are supported, because those are the layouts
   `Baikai.AgentAssets` describes.
+- **Tool-only Codex skills depend on the consumer's launcher.** A tool that
+  launches Codex without appending `codexSessionArgs` to its `extraArgs` hides
+  its own skills from itself. A Codex custom agent is always effectively shared.
+  A `config.toml` that is a symbolic link, read-only, malformed, or already holds
+  a conflicting entry is refused, and the user adds the entry by hand.
+- Shared visibility needs a filesystem that supports symbolic links.
 - The content hash detects drift and local modification, but there is no merge or
   conflict resolution: a `changed-upstream` item is reported and reinstalled by
   `update`, and a `modified` one is reported and skipped by `update` until
@@ -131,5 +155,12 @@ myKitConfig =
   `Maybe Text`; `KitList`, `KitStatus` and `KitUpdate` take an `OutputFormat`),
   `kitCommandParser` takes the `KitConfig`, and `KitCondition` lists replaced
   `KitState`. A consumer raising its bound fixes each at a call site the compiler
-  names. The JSON documents are the one part with an explicit compatibility
-  rule, their `formatVersion`.
+  names. 0.4.0.0 changed it again for visibility: `KitInstall`, `installItem`
+  and `installFrom` take an `InstallOptions` (`defaultInstallOptions` follows the
+  manifest), `SkillEntry`, `AgentEntry`, `SidecarMeta`, `StatusRow` and
+  `RemovalOutcome` gained fields, and `KitConfig` gained `confirmSharedCodex`,
+  which `kitConfig` defaults to `Nothing`. A consumer that builds its
+  configuration with `kitConfig` and wires `kitCommandParser`/`runKit` compiles
+  unchanged; one that launches Codex must also append `codexSessionArgs`. The
+  JSON documents are the one part with an explicit compatibility rule, their
+  `formatVersion`, which stays 1 because 0.4.0.0 only adds keys.

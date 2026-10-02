@@ -52,7 +52,7 @@ or a tenant without a hand-written fold. Cost bases retain all estimation reason
 when summed. Optional usage availability carries missing categories, inconsistent
 counts and actual service/speed observations into the response commitment.
 
-In the unreleased provider work, Astra's optional pricing policy selects higher
+Since `baikai 0.7.0.0`, Astra's optional pricing policy selects higher
 rates for the whole request above 272000 input tokens, including cache categories.
 Fable's write rate follows the shaped cache TTL. Missing or uncurated service tiers
 produce explicitly identified standard-rate estimates. `computeCost` remains the

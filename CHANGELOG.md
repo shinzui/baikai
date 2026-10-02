@@ -16,7 +16,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   why the access-gated Claude Mythos models are not curated, and how GPT-6
   Astra's new ultrafast service tier is costed.
 
-## [baikai-kit 0.4.0.0] - Unreleased
+## [baikai-kit 0.4.0.0] - 2026-10-02
 
 ### Added
 
