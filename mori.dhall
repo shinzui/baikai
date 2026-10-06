@@ -202,6 +202,13 @@ in  Schema.Project::{
       ]
     , okfBundles =
       [ Schema.OkfBundle::{
+        , name = "bug-reports"
+        , path = "docs/bug-reports"
+        , profile = Some "mori/bug-reports-profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some "Defect reports against Baikai's shipped behavior"
+        }
+      , Schema.OkfBundle::{
         , name = "improvement-requests"
         , path = "docs/improvement-requests"
         , profile = Some "mori/improvement-requests-profile.dhall"
