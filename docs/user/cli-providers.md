@@ -435,3 +435,30 @@ nothing" rather than "the call was free".
   Prompts that start with `-` are therefore safe. Keep `extraArgs` to
   real flags and their values; anything intended as prompt text belongs
   in `Context.messages`.
+
+## Cancellation and subprocess ownership
+
+The unreleased fix for [BUG-1](../bug-reports/batch-cli-cancellation-leaves-child-alive.md)
+uses the same process ownership scope for both batch providers and their optional
+`--version` evidence probe. On Darwin and Linux, cancelling a running complete
+call or a thread actively consuming the synthetic stream stops the invocation's
+process group, joins its pipe readers, and reaps its direct children before
+propagating the original asynchronous exception. Cancellation never becomes an
+ordinary error-shaped `Response`. Codex's temporary schema file stays available
+during process cleanup and is removed afterwards. The version probe's five-second
+timeout is followed by cleanup before it returns, so finishing can take longer
+than five seconds.
+
+Cleanup escalates through SIGINT, SIGTERM, and SIGKILL. The guarantee covers
+children that inherit the invocation's process group; a program deliberately
+creating another group or session can escape it. Adopted descendant zombies have
+stopped running and are reaped by their parent or the operating system. A process
+stuck in uninterruptible kernel I/O has no unconditional time bound for reaping.
+Windows performs direct-child cleanup without a descendant guarantee. POSIX
+cleanup requires `/bin/ps` to distinguish running processes from zombies, and
+executables using these providers must link the threaded Haskell runtime.
+
+The released adapters still have BUG-1 until a fixed version is published. See
+[plan 90](../plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md)
+for the offline regression evidence. Simply abandoning an unevaluated stream
+starts no batch process; active cancellation is the operation verified here.

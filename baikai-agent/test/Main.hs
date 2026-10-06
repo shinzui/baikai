@@ -15,9 +15,9 @@ import Baikai.Agent
 import Baikai.Agent.Run (runAgentCommand, timeoutMicros)
 import Baikai.Evidence (noThinkingRequested)
 import BinaryTests (binaryTests)
+import CliProcessFixture qualified as Fixture
 import CliTests (cliTests)
 import ConfigTests (configTests)
-import Control.Concurrent (threadDelay)
 import Control.Lens ((&), (.~), (^.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
@@ -28,8 +28,7 @@ import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import EvidenceTests (evidenceTests)
 import PublicSurfaceSpec qualified
 import System.Directory
-  ( doesFileExist,
-    findExecutable,
+  ( findExecutable,
     getPermissions,
     setOwnerExecutable,
     setPermissions,
@@ -37,6 +36,7 @@ import System.Directory
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Process qualified as P
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -239,25 +239,17 @@ timeoutTest =
 
 processGroupTest :: TestTree
 processGroupTest =
-  testCase "kills grandchildren when the group is terminated"
-    $
-    -- The most valuable test here and the easiest to omit: it is what
-    -- proves a coding agent's own child processes die with it.
-    withFakeExecutable
-      "spawns-a-child"
-      "#!/bin/sh\n(sleep 3; touch \"$1\") &\nsleep 5\n"
-    $ \dir exe -> do
-      let marker = dir </> "grandchild-survived"
-          req = capturingRequest dir "ignored" & #timeout .~ Just 1
-      outcome <- runPlain req (stdinCommand exe [marker] "ignored")
+  testCase "kills grandchildren when the group is terminated" $
+    Fixture.withFixture False False "" $ \fixture -> do
+      let req = capturingRequest (Fixture.directory fixture) "ignored" & #timeout .~ Just 1
+      outcome <- runPlain req (stdinCommand (Fixture.executable fixture) [] "ignored")
       case outcome of
         Left (RunTimedOut _) -> pure ()
         other -> assertFailure ("expected RunTimedOut, got: " <> show other)
-      -- Wait past the grandchild's delay before checking, or the file
-      -- would be absent merely because it is early.
-      waitSeconds 4
-      survived <- doesFileExist marker
-      assertBool "the grandchild was terminated with its group" (not survived)
+      -- A 30-second child cannot finish within the runner's timeout and
+      -- signal grace periods. Check stopped state immediately on return;
+      -- adopted zombies have stopped even when PID 1 has not reaped them.
+      Fixture.awaitReady fixture >>= Fixture.assertStopped
 
 -- | A timed-out run reports what it drained before the kill.
 --
@@ -388,16 +380,16 @@ promptAsArgumentTest =
     -- No shipped renderer selects this transport, so a fixture is the
     -- only place the two-sided contract can be observed. The script
     -- echoes its argument and appends whatever standard input it can
-    -- read, which must be nothing.
+    -- read, which must not include a second copy of that prompt.
     withFakeExecutable
       "echo-arg"
       -- Shift past the -- separator the way a real tool's own argument
       -- parser would, then echo the prompt and append whatever standard
-      -- input can be read, which must be nothing. Reading fails outright
-      -- because this transport gives the child no standard input at all,
-      -- and that failure is tolerated so the script's own exit code
-      -- still reports success.
-      "#!/bin/sh\n[ \"$1\" = \"--\" ] && shift\nprintf '%s' \"$1\"\ncat 2>/dev/null || true\n"
+      -- input contains that prompt. NoStream closes stdin; on Rosetta a
+      -- spawned reader can reopen its own ELF on descriptor zero, so
+      -- assert the transport contract (no duplicate prompt) directly.
+      -- A read failure is tolerated because closed stdin is expected.
+      "#!/bin/sh\n[ \"$1\" = \"--\" ] && shift\nprintf '%s' \"$1\"\nif grep -qF -- \"$1\" 2>/dev/null; then printf duplicate-prompt; fi\nexit 0\n"
     $ \dir exe -> do
       let promptBody = "the prompt is an argument" :: Text.Text
           cmd =
@@ -407,6 +399,9 @@ promptAsArgumentTest =
                 promptTransport = PromptAsArgument,
                 promptText = promptBody
               }
+      -- Verify the fixture detects a prompt incorrectly sent through stdin.
+      (_, duplicated, _) <- P.readProcessWithExitCode exe ["--", Text.unpack promptBody] (Text.unpack promptBody)
+      duplicated @?= Text.unpack promptBody <> "duplicate-prompt"
       result <-
         runPlain (capturingRequest dir promptBody) cmd >>= expectRan
       capturedBytes (result ^. #stdout) @?= Just (Text.encodeUtf8 promptBody)
@@ -434,6 +429,3 @@ stripTrailingNewline bytes
 
 basename :: FilePath -> FilePath
 basename = reverse . takeWhile (/= '/') . reverse
-
-waitSeconds :: Int -> IO ()
-waitSeconds seconds = threadDelay (seconds * 1000000)

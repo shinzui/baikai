@@ -30,12 +30,33 @@ evidence:
   - kind: test
     resource: baikai-openai/test/Main.hs
     proves: "The codex exec argument vector, including option termination before a dash-leading prompt and survival of a 1MiB stderr flood without deadlock."
+  - kind: test
+    resource: baikai/test/CliProcessSpec.hs
+    proves: "Unreleased shared ownership regression: group escalation, early leader reaping with an unreaped anchor, joined readers, repeated cancellation, successful-callback cleanup cancellation, and version-probe timeout."
+  - kind: test
+    resource: baikai-claude/test/CliCancellationSpec.hs
+    proves: "Unreleased public Claude batch adapter: descendant cleanup precedes acknowledged cancellation for complete, active synthetic streams, and evidence probes."
+  - kind: test
+    resource: baikai-openai/test/CliCancellationSpec.hs
+    proves: "Unreleased public Codex batch adapter: descendant cleanup precedes acknowledged cancellation, including repeated cancellation, active streams, version probes, and schema lifetime through termination."
   - kind: guide
     resource: docs/user/cli-providers.md
     proves: "When to reach for a CLI provider instead of an API provider, how to configure each, the response shape they produce, and their limitations."
   - kind: module
     resource: baikai/src/Baikai/Provider/Cli/Internal.hs
     proves: "The shared subprocess vocabulary: ClaudeCliReport, CodexRunReport, the structured-output parsers, and the cached ExecutableIdentity probe."
+timestamp: "2026-10-06T17:38:18Z"
+reviews:
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-10-06T17:38:18Z"
+    document_timestamp: "2026-10-06T17:38:18Z"
+    context: "Implementation self-check of the unreleased batch cancellation scope and positive real-process regressions; this does not assert that released adapters contain the fix."
 ---
 
 # Subscription-backed batch CLI backends
@@ -98,3 +119,23 @@ completeRequest modelWithCliTag ctx opts -- spawns `claude -p`
 - The parsers are pinned to recordings of two specific tool versions. A future
   release of either tool can change its event schema, and the failure mode is
   fields quietly going absent.
+
+## Unreleased cancellation fix
+
+The positive regressions above verify the working-tree fix for
+[BUG-1](../bug-reports/batch-cli-cancellation-leaves-child-alive.md), implemented in
+[plan 90](../plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md).
+They add no claim about released adapters: a fixed release is still required.
+On Darwin and Linux the shared scope stops inherited process-group members,
+joins pipe readers, reaps the CLI and ownership anchor, and preserves the first
+asynchronous exception before completing cancellation. The version evidence
+probe uses the same scope, including on its five-second timeout. Codex removes
+its schema file only after cleanup.
+
+Processes deliberately leaving the group/session are outside this lifecycle
+scope. Adopted descendant zombies have stopped but must be reaped elsewhere.
+Uninterruptible kernel I/O precludes an unconditional reaping time bound.
+Windows cleans up only the direct child. The POSIX implementation requires
+`/bin/ps` and the threaded runtime. See the user guide and
+[the ownership decision](../adr/0026-batch-cli-cancellation-owns-process-groups-and-reader-workers.md)
+for the contract and its limits.

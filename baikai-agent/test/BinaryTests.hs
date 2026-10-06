@@ -299,11 +299,11 @@ recordedPids path = do
       contents <- readFile path
       pure [line | line <- lines contents, not (null line)]
 
--- | Fail unless every recorded process is gone.
+-- | Fail unless every recorded process has stopped.
 --
 -- Polled rather than checked once: the runner returns as soon as it has
 -- reaped the group's leader, and the kernel may take a moment longer to
--- finish reaping a grandchild.
+-- stop a grandchild. Adopted zombies need not disappear in that interval.
 awaitAllGone :: [String] -> IO ()
 awaitAllGone pids = go (40 :: Int)
   where
@@ -320,12 +320,15 @@ awaitAllGone pids = go (40 :: Int)
         (_, _) -> threadDelay 50000 >> go (n - 1)
     filterM' p xs = concat <$> mapM (\x -> (\keep -> [x | keep]) <$> p x) xs
 
--- | Whether a process exists, asked with the null signal: @kill -0@
--- delivers nothing and fails when no such process is there.
+-- | A zombie is stopped even if its adoptive parent has not reaped it.
+-- Null signals include zombies and would incorrectly fail on container PID 1.
 processAlive :: String -> IO Bool
 processAlive pid = do
-  (code, _, _) <- P.readProcessWithExitCode "kill" ["-0", pid] ""
-  pure (code == ExitSuccess)
+  (code, state, err) <- P.readProcessWithExitCode "/bin/ps" ["-p", pid, "-o", "stat="] ""
+  case code of
+    ExitSuccess -> pure (not (null state) && 'Z' `notElem` state)
+    ExitFailure 1 | null state && null err -> pure False
+    _ -> assertFailure ("ps observation failed: " <> show (code, state, err))
 
 -- --------------------------------------------------------------------
 -- Small helpers

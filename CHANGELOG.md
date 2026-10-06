@@ -18,6 +18,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Both batch CLI providers now own POSIX process groups and join their pipe
+  readers before acknowledging cancellation, preserving the asynchronous
+  exception and synchronously reaping direct children. This includes active
+  synthetic-stream consumption and executable-version evidence probes. Codex
+  removes its temporary schema only after subprocess cleanup. Darwin/Linux
+  coverage excludes children that deliberately escape the group and adopted
+  descendant reaping; Windows retains direct-child-only cleanup. See plan 90
+  and BUG-1. This fix is unreleased.
+
 - `baikai`'s source distribution now ships `data/models/*.json` and the test
   suite's fixtures under `test/fixtures/`. Without them, running the suite from
   the Hackage tarball failed 27 of 794 tests on missing files: the fixtures

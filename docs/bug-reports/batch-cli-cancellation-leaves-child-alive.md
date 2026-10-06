@@ -3,7 +3,7 @@ type: Bug Report
 bugId: BUG-1
 title: "Cancelling a batch CLI provider leaves its child process alive"
 description: "Both released batch CLI adapters leave an owned fake executable's five-second child alive after cancellation is requested."
-status: confirmed
+status: in-progress
 severity: degraded
 origin: mori://shinzui/shikigami/plans/80-configure-model-providers-and-agent-launches-through-baikai
 affects: mori://shinzui/baikai
@@ -20,7 +20,7 @@ reproduction:
   - "Fork provider.complete with empty context/options, wait up to two seconds for the child PID file, and request killThread on the worker."
   - "After 200 ms, run /bin/kill -0 on the recorded child PID; both adapters return ExitSuccess."
   - "In finally, terminate only recorded child/parent fixture PIDs and wait at most six seconds for worker completion."
-timestamp: "2026-10-06T17:12:17Z"
+timestamp: "2026-10-06T17:38:18Z"
 generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-06T16:37:08Z"
@@ -55,6 +55,16 @@ reviews:
     reviewed_at: "2026-10-06T17:12:17Z"
     document_timestamp: "2026-10-06T17:12:17Z"
     context: "Reflect ExecPlan 90's first self-review: require ownership protected against process-group identifier reuse and explicit Darwin/Linux live-versus-zombie completion checks before implementing the proposed fix. The reproduced defect remains confirmed; the plan remains changes-requested."
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-10-06T17:38:18Z"
+    document_timestamp: "2026-10-06T17:38:18Z"
+    context: "Implement shared ownership anchored against group-ID reuse and positive cancellation regressions. This is an implementation self-check; publication and consumer release qualification remain separate work."
 ---
 
 # Cancelling a batch CLI provider leaves its child process alive
@@ -209,7 +219,7 @@ parent or the operating system. Positive tests must distinguish these states.
 defines the shared ownership scope, adapter integration, and positive regression
 acceptance. No implementation or fixed release is claimed by this validation.
 
-## Proposed-fix review: changes required before implementation
+## Historical proposed-fix self-review: changes required before implementation
 
 ExecPlan 90's first recorded review on 2026-10-06 has verdict
 `changes-requested`. It was a self-review by the same `gpt-6.1-sol` model that
@@ -245,3 +255,34 @@ the existing five-second reproduction. BUG-1 remains `confirmed`; there is no
 implementation or fixed release yet. The reviewed plan remains
 `changes-requested` until those ownership and completion mechanisms are specified
 and verified.
+
+## Working-tree implementation; fixed release still pending
+
+[Plan 90](../plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md)
+now implements a shared owned-process scope for both batch adapters and the
+executable-version evidence probe. Before callbacks can reap the leader, the
+parent attaches an unreaped anchor to the invocation's new process group. That
+membership reserves the group identifier until the last group signal and state
+check, even when the anchor itself becomes a zombie. Darwin/Linux `ps` state
+checks distinguish stopped zombies from live survivors, with a one-second
+settling allowance after SIGKILL. The scope joins owned readers before closing
+pipes and synchronously reaps both direct children. Repeated cancellation cannot
+abandon cleanup, and the first asynchronous exception remains asynchronous.
+
+The new `CliCancellationSpec` simple-descendant tests failed on both original
+adapters before integration: descendants were sleeping at 200 ms and workers
+could not acknowledge cancellation in three seconds. They now require an
+asynchronous worker result followed immediately by proof that the direct child
+is gone and its 30-second descendant is stopped. Tests also cover signal-resistant
+children, repeated cancellation, active stream consumption, and evidence-probe
+cancellation. Core tests cover early leader reaping, ownership-anchor reaping,
+normal and failing callbacks, reader cleanup, unrelated-group isolation, and
+probe timeout. Codex tests retain the schema through termination and verify its
+removal after cancellation.
+
+Validation counts and platform evidence are maintained in plan 90. The design
+findings in the earlier changes-requested self-review are addressed by this
+implementation and its regressions; the historical review remains recorded.
+BUG-1 stays `in-progress`, without a `fixedVersion`, until a fixed release is
+published. The consumer's `BatchCancellationReleaseRequired` guard remains in
+place and requires positive probes against that release before removal.

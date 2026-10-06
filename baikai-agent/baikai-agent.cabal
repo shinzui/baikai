@@ -124,6 +124,7 @@ test-suite baikai-agent-test
   main-is: Main.hs
   other-modules:
     BinaryTests
+    CliProcessFixture
     CliTests
     ConfigTests
     EvidenceTests
@@ -162,3 +163,6 @@ test-suite baikai-agent-test
     temporary,
     text,
     time,
+
+  if !os(windows)
+    build-depends: unix ^>=2.8

@@ -76,7 +76,7 @@ cleanupFixture fixture = forM_ [childFile fixture, parentFile fixture] $ \file -
       -- directory in their command line, including after exec. A reused PID
       -- belonging to a different invocation cannot match that identity.
       (_, identity, _) <- P.readProcessWithExitCode "/bin/ps" ["-p", show pid, "-o", "lstart=,command="] ""
-      let ours = directory fixture `isInfixOf` identity
+      let ours = (directory fixture <> "/") `isInfixOf` identity
       unless (null state || 'Z' `elem` state || not ours) $ do
         (_, current, _) <- P.readProcessWithExitCode "/bin/ps" ["-p", show pid, "-o", "lstart=,command="] ""
         if current /= identity

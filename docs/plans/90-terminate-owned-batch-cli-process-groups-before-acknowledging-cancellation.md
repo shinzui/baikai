@@ -60,17 +60,13 @@ consumption and during their optional executable-version evidence probe.
 
 - [x] Milestone 1 (2026-10-06): shared scope verified before integration with 10 Darwin tests passing in 1.65s; strengthened final scope suite has 15 positive regressions, including explicit anchor reaping and cancellation during successful-callback cleanup.
 - [x] Milestone 2 (2026-10-06): both adapters and evidence probes use shared ownership. Darwin focused coverage passes 15 core, 5 Claude, and 6 Codex cases; full affected suites pass 809 core, 413 Claude, 294 OpenAI, and 116 agent tests (1,632 total), including existing response, schema, evidence, argument, missing-binary, and stderr-flood cases.
-- [ ] Milestone 3: documentation and BUG-1 describe the verified contract and limits, with the focused and affected-package suites passing on Darwin and Linux.
+- [x] Milestone 3 (2026-10-06): all 26 focused cases and all 1,632 affected tests pass on Darwin and Linux. User guide, CAP-15, BUG-1, shared changelog, and ADR 0026 document the contract and limits; BUG-1 remains in-progress pending publication.
 
-Implementation is in place and undergoing final Darwin/Linux qualification. The
-initial adapter regressions failed before integration because both 30-second
-descendants remained live and cancellation did not finish in three seconds.
-The ten shared-scope tests passed before adapter integration (Darwin, 1.65s).
-Final tests additionally verify probe timeout, schema lifetime, cancellation after
-callback success, cleanup-failure completion, and explicit anchor reaping. Darwin
-qualification and documentation drafting are complete; Linux qualification is
-still running. Publishing a release and changing
-the consumer's promotion gate remain subsequent work.
+Implementation is committed as `87996dd`. Before integration, both adapter
+regressions observed live 30-second descendants at 200 ms and failed to receive
+cancellation acknowledgement within three seconds. After integration, all 26
+focused cases and the full affected suites pass on both platforms. Publishing a
+release and changing the consumer's promotion gate remain subsequent work.
 
 
 ## Surprises & Discoveries
@@ -93,6 +89,24 @@ now select one Cabal job and one Tasty test thread, preserving the two-second
 readiness and three-second cancellation bounds. The anchor's membership is
 established synchronously by the parent; it needs no readiness pipe or blocking
 acquisition handshake.
+
+Linux's Cabal 3.14.1.1 preserves the invocation directory. An initial root-level
+full core run failed 27 relative fixture/source reads even though the files were
+present. Running from the package directory fixes those failures without source
+changes. GHC's ticker emits interrupted-poll diagnostics under x86_64 Rosetta;
+the qualified suites still complete successfully. The container's PID 1 does
+not reap adopted grandchildren, so tests report retained, stopped zombies while
+requiring both directly owned children to be reaped.
+
+Linux qualification exposed three pre-existing agent-test assumptions. A
+three-second delayed grandchild marker raced the runner's one-second timeout
+plus two-second SIGINT grace; that test now records a 30-second child and checks
+its state immediately after return. The binary test's null-signal liveness check
+counted adopted zombies as running; it now checks `ps` states. Rosetta can retain
+an ELF descriptor on closed stdin, so the argument-transport fixture now tests
+for duplicate prompt text and includes a positive control proving it detects
+incorrect stdin delivery. These changes strengthen qualification without changing
+the agent runner's production lifecycle.
 
 
 ## Decision Log
@@ -121,11 +135,50 @@ and zombie-observation findings while preserving early callback reaping.
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+Both public batch adapters and version probes now share exception-safe process
+and reader ownership. The original reproductions failed before integration;
+positive regressions verify that cleanup precedes asynchronous acknowledgement,
+including resistant children, early leader reaping, repeated cancellation,
+streams, probes, and schema lifetime. The anchor resolves group identifier reuse
+without restricting callbacks from reaping the leader. Durable constraints are
+recorded in [ADR 0026](../adr/0026-batch-cli-cancellation-owns-process-groups-and-reader-workers.md).
+
+Qualification used GHC 9.12.4, process 1.6.26.1, unix 2.8.8.0,
+cradle 0.0.0.0, streamly 0.11.1, and streamly-core 0.3.1 on both platforms.
+Darwin is native arm64; Linux is Debian x86_64, kernel 6.18.15, through Rosetta.
+All focused cases pass with the original two-second readiness and three-second
+cancellation bounds:
+
+| Suite | Count | Darwin duration | Linux duration |
+| --- | ---: | ---: | ---: |
+| Core ownership/probe focused | 15 | 12.01s | 15.66s |
+| Claude cancellation focused | 5 | 3.92s | 6.06s |
+| Codex cancellation focused | 6 | 4.22s | 6.90s |
+| Core full | 809 | 28.31s | 33.03s |
+| Claude full | 413 | 8.44s | 8.81s |
+| OpenAI full | 294 | 11.21s | 10.91s |
+| Agent full | 116 | 44.96s | 44.04s |
+
+Both full sets contain 1,632 passing tests. The argument-transport positive
+control also passes in a separate one-case Linux run (0.26s). The agent
+qualification changes are described in Surprises & Discoveries. Source distributions include all fixture
+modules and the C helper. Formatting, Windows CPP type-checking, and enforced OKF
+validation pass. Windows type-checking does not establish native runtime behavior.
+
+The fix is unreleased. A subsequent release must publish the core package with
+the new internal module before the adapters and raise their minimum core bounds
+to that released version. BUG-1 remains `in-progress`, without `fixedVersion`;
+the consumer must rerun positive released-package probes before removing its
+promotion guard. Native Windows runtime qualification and containment of escaped
+groups remain outside this plan.
 
 
 ## Context and Orientation
 
+
+The adapter descriptions below describe the baseline at plan creation. The
+completed implementation replaces those batch runners and the probe with
+`Baikai.Provider.Cli.Process.Internal`; foreground runners remain separate.
 
 A process group is an operating-system collection of processes that can receive a
 signal together. A newly spawned group is normally identified by its leader's
@@ -176,8 +229,9 @@ They require a threaded test executable, byte-oriented pipe operations, and clea
 before an asynchronous exception reaches a caller actively consuming a stream.
 The last ADR covers HTTP producer workers, so extend durable context with a batch
 process ownership record at completion rather than claiming it already covers
-POSIX subprocess groups. The local ADR corpus uses plain Markdown metadata;
-inspect `mori show --full` again before writing an ADR in case that contract changes.
+POSIX subprocess groups. The local ADR corpus uses plain Markdown metadata,
+verified through `mori show --full`. The completed decision is recorded in
+[ADR 0026](../adr/0026-batch-cli-cancellation-owns-process-groups-and-reader-workers.md).
 
 Existing adapter fixtures and assertions live in
 `baikai-claude/test/Main.hs`, `baikai-openai/test/Main.hs`, both packages'
@@ -215,19 +269,18 @@ process group, mask asynchronous exceptions across acquisition and ownership
 registration, and capture the leader PID immediately after spawn, before any
 wait can reap it. Run the callback with normal interruptibility. One finalizer
 owns the pipes, the retained group identity, and the direct child, on success,
-synchronous failure, and asynchronous cancellation. Before unmasking the callback, attach an unreaped direct-child anchor to the
-new group. A small POSIX C helper uses only async-signal-safe operations after
-fork, closes inherited descriptors, and ignores SIGINT/SIGTERM. The parent
+synchronous failure, and asynchronous cancellation. Before unmasking the
+callback, attach an unreaped direct-child anchor to the new group. A small POSIX
+C helper uses only async-signal-safe operations after fork, closes inherited descriptors, and ignores SIGINT/SIGTERM. The parent
 establishes anchor membership with `setpgid` before returning acquisition; no
 pipe handshake or interruptible acquisition wait is needed. If the anchor dies
 during startup or escalation, its unreaped membership still reserves the group.
-Keep that anchor unreaped through the last
-group observation and signal, including after SIGKILL; its group membership
-prevents identifier reuse even when the callback has reaped the CLI leader.
+Keep that anchor unreaped through the last group observation and signal,
+including after SIGKILL; its group membership prevents identifier reuse even when the callback has reaped the CLI leader.
 Reap the anchor only after signalling is complete. This adds a private helper
-process per scope without changing the callback interface. Do not compose this with an
-outer `withCreateProcess` finalizer that can close handles first or fork a second
-reaper. Handle partial acquisition failures without leaking a successfully
+process per scope without changing the callback interface. Do not compose this
+with an outer `withCreateProcess` finalizer that can close handles first or fork
+a second reaper. Handle partial acquisition failures without leaking a successfully
 created child.
 
 Use group-wide SIGINT, then SIGTERM, then SIGKILL. Give the first two stages at
@@ -241,9 +294,8 @@ On Darwin and Linux, inspect `/bin/ps -axo pid=,pgid=,stat=` using byte
 readers, exclude the anchor, and count every non-zombie group member as live.
 A process with `Z` status is stopped, not running. Observation or permission
 failures are cleanup failures. Use a one-second settling allowance after
-SIGKILL, report
-unexpected live survivors, and do not wait forever for adopted descendant zombie
-entries to disappear. Capture all ordinary-path cleanup evidence in tests.
+SIGKILL, report unexpected live survivors, and do not wait forever for adopted
+descendant zombie entries to disappear. Capture all ordinary-path cleanup evidence in tests.
 
 Repeated cancellation must not abandon cleanup. Run the finalizer in an owned,
 masked worker and join its completion before leaving the process scope. While the
@@ -338,10 +390,13 @@ that gate intact.
 ## Concrete Steps
 
 
-Linux qualification uses the same commands inside a local Debian container with
+Linux qualification uses a local Debian container with
 GHC 9.12.4 (`docker.io/library/haskell:9.12.4`, x86_64 through Rosetta on this
 Darwin host). Its minimal image requires `procps` to provide `/bin/ps`; install
-that before running fixtures. Use a private writable copy of the repository,
+that before running fixtures. Run each full suite from its package directory: the
+container's Cabal 3.14.1.1 retains the caller's directory, and core's relative
+fixture/source paths otherwise fail. Darwin Cabal 3.16.1.0 runs these suites from
+the package directory automatically. Use a private writable copy of the repository,
 excluding host `dist-newstyle`, `.git`, and `.direnv`, and retain the source and
 Cabal files exactly as tested on Darwin. The installed `process` and `unix`
 versions are 1.6.26.1 and 2.8.8.0 on both platforms. A Windows CPP branch type-check
@@ -368,7 +423,7 @@ cabal test baikai-claude-test baikai-openai-test \
 Then verify response compatibility and affected dependents:
 
 ```bash
-cabal build baikai baikai-claude baikai-openai baikai-agent --enable-tests
+cabal build baikai baikai-claude baikai-openai baikai-agent --enable-tests -j1
 cabal test baikai-test baikai-claude-test baikai-openai-test baikai-agent-test \
   --test-show-details=direct -j1 --test-options='--num-threads=1'
 okf validate docs/bug-reports --strict \
@@ -387,6 +442,15 @@ and require the ordinary enforced-profile command above to pass. The bug-report
 bundle's strict validation already passes. Core tests must include the version
 probe cancellation/timeout cases; focused adapter tests must select both newly
 registered modules. Do not accept a zero-test run.
+
+For the Linux full suites, run these commands inside the private `/work` copy:
+
+```bash
+for package in baikai baikai-claude baikai-openai baikai-agent; do
+  (cd "/work/$package" && cabal test "$package-test" \
+    --test-show-details=direct -j1 --test-options='--num-threads=1') || exit 1
+done
+```
 
 The original released-package negative reproduction can be rerun from its
 Mori-resolved consumer project. It is validation of the report only and is
@@ -517,5 +581,5 @@ findings with an unreaped C anchor, portable process-state checks, and explicit
 anchor-reaping tests. Qualification uses serial suite/test scheduling to keep
 fixture readiness independent of parallel compiler contention. All three package
 CHANGELOG paths are symlinks to the root CHANGELOG, so the shared unreleased entry
-updates them together. Each package ships its own copy of the fixture module so
-its source distribution contains every test dependency.
+updates them together. Core, both adapters, and the agent test suite ship
+identical copies of the fixture module so their source distributions contain every test dependency.

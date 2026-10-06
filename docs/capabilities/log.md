@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-06
+* **Update**: [CAP-15](subscription-cli-backends.md). Add unreleased batch cancellation contract, real-process regression evidence, and explicit POSIX group/platform limits.
+
 ## 2026-10-02
 
 * **Update**: CAP-21 (kit installer) records per-item visibility (IR-12),
