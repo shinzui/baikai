@@ -52,6 +52,7 @@ import Baikai.Message
     ToolResultPayload (..),
     UserPayload (..),
   )
+import Baikai.Provider.Cli.Process.Internal (withOwnedProcess, withOwnedWorker)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (Usage (..))
 import Control.Applicative ((<|>))
@@ -694,9 +695,25 @@ resolveExecutable exe
 
 probeVersion :: FilePath -> IO (Maybe Text)
 probeVersion path = do
-  outcome <- trySync (timeout versionProbeMicros (Process.readProcessWithExitCode path ["--version"] ""))
+  outcome <- trySync
+    $ timeout versionProbeMicros
+    $ withOwnedProcess
+      (Process.proc path ["--version"])
+        { Process.std_in = Process.NoStream,
+          Process.std_out = Process.CreatePipe,
+          Process.std_err = Process.CreatePipe
+        }
+    $ \_ output errors ph -> case (output, errors) of
+      (Just out, Just err) ->
+        withOwnedWorker (BS.hGetContents out) $ \joinOut ->
+          withOwnedWorker (BS.hGetContents err) $ \joinErr -> do
+            stdoutBytes <- joinOut
+            stderrBytes <- joinErr
+            code <- Process.waitForProcess ph
+            pure (code, stdoutBytes, stderrBytes)
+      _ -> ioError (userError "version probe: capture handles missing")
   pure $ case outcome of
-    Right (Just (ExitSuccess, out, _)) -> firstNonBlankLine (Text.pack out)
+    Right (Just (ExitSuccess, out, _)) -> firstNonBlankLine (decodeUtf8Lenient out)
     _ -> Nothing
 
 -- | Five seconds.

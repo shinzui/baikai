@@ -89,6 +89,7 @@ library
     Baikai.Prelude
     Baikai.Provider
     Baikai.Provider.Cli.Internal
+    Baikai.Provider.Cli.Process.Internal
     Baikai.Provider.Internal.StreamWorker
     Baikai.Provider.Registry
     Baikai.Provider.Transport.Classify
@@ -141,6 +142,10 @@ library
     tls >=2.2 && <2.5,
     unliftio-core ^>=0.2,
     vector ^>=0.13,
+
+  if !os(windows)
+    build-depends: unix ^>=2.8
+    c-sources: cbits/cli_group_anchor.c
 
 executable baikai-gen-models
   import: common-options
@@ -195,11 +200,14 @@ test-suite baikai-test
     gen
 
   main-is: Main.hs
+  ghc-options: -threaded
   other-modules:
     AgentAssetsSpec
     AgentSpec
     CatalogSpec
     CliInternalSpec
+    CliProcessFixture
+    CliProcessSpec
     ContextSpec
     CostSpec
     EmbeddingSpec
@@ -252,3 +260,6 @@ test-suite baikai-test
     time,
     tls,
     vector,
+
+  if !os(windows)
+    build-depends: unix ^>=2.8

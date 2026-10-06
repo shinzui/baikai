@@ -30,6 +30,7 @@ import Baikai.Provider.OpenAI.Internal.Stream
   )
 import Baikai.Provider.OpenAI.Shape (describeThinkingShape)
 import BillingSpec qualified
+import CliCancellationSpec qualified
 import CliEvidenceSpec qualified
 import Contract (assertErrorContract, assertOneErrorTerminal)
 import Control.Exception (bracket)
@@ -100,6 +101,7 @@ main =
         responseFormatMappingTest,
         optionsMappingTest,
         BillingSpec.tests,
+        CliCancellationSpec.tests,
         CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,

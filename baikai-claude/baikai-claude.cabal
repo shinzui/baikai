@@ -88,6 +88,7 @@ library
     http-client-tls >=0.3 && <0.5,
     http-types ^>=0.12,
     lens ^>=5.3,
+    process ^>=1.6,
     servant-client ^>=0.20,
     streamly >=0.11 && <0.13,
     streamly-core >=0.3 && <0.5,
@@ -101,7 +102,9 @@ test-suite baikai-claude-test
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
+    CliCancellationSpec
     CliEvidenceSpec
+    CliProcessFixture
     Contract
     ErrorClassSpec
     EvidenceSpec
@@ -136,6 +139,7 @@ test-suite baikai-claude-test
     http-types,
     lens ^>=5.3,
     network,
+    process,
     servant-client,
     stm,
     streamly,
@@ -147,3 +151,6 @@ test-suite baikai-claude-test
     time,
     tls,
     vector,
+
+  if !os(windows)
+    build-depends: unix ^>=2.8

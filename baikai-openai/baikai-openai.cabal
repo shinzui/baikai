@@ -101,12 +101,15 @@ library
 
 test-suite baikai-openai-test
   import: common-options
+  ghc-options: -threaded
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Main.hs
   other-modules:
     BillingSpec
+    CliCancellationSpec
     CliEvidenceSpec
+    CliProcessFixture
     Contract
     EndpointModels
     ErrorClassSpec
@@ -141,6 +144,7 @@ test-suite baikai-openai-test
     lens ^>=5.3,
     network,
     openai,
+    process,
     servant-client,
     stm,
     streamly-core >=0.3 && <0.5,
@@ -151,3 +155,6 @@ test-suite baikai-openai-test
     time,
     tls,
     vector,
+
+  if !os(windows)
+    build-depends: unix ^>=2.8

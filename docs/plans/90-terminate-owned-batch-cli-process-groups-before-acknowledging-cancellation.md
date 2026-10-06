@@ -3,6 +3,7 @@ id: 90
 slug: terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation
 title: "Terminate owned batch CLI process groups before acknowledging cancellation"
 kind: exec-plan
+intention: intention_01m493n88me3ssvz3qtqgv42ns
 created_at: 2026-10-06T16:47:40Z
 provenance:
   created_by:
@@ -15,6 +16,11 @@ provenance:
       at: 2026-10-06T16:54:27Z
       mode: "other"
       note: "Ground the new fix plan in owner and published-package cancellation probes, dependency source, and ADR context."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-06T17:19:56Z
+      mode: "implement"
+      note: "Implement shared process-group ownership, integrate batch adapters and version probes, and verify cancellation regressions."
   reviews:
     - model: "gpt-6.1-sol"
       harness: "codex-cli"
@@ -52,20 +58,41 @@ consumption and during their optional executable-version evidence probe.
 ## Progress
 
 
-- [ ] Milestone 1: a shared process scope passes positive tests for group termination, direct-child reaping, reader cleanup, and repeated cancellation.
-- [ ] Milestone 2: both public batch adapters and their evidence probes pass positive cancellation regressions while existing response, schema, and evidence tests stay green.
+- [x] Milestone 1 (2026-10-06): shared scope verified before integration with 10 Darwin tests passing in 1.65s; strengthened final scope suite has 15 positive regressions, including explicit anchor reaping and cancellation during successful-callback cleanup.
+- [x] Milestone 2 (2026-10-06): both adapters and evidence probes use shared ownership. Darwin focused coverage passes 15 core, 5 Claude, and 6 Codex cases; full affected suites pass 809 core, 413 Claude, 294 OpenAI, and 116 agent tests (1,632 total), including existing response, schema, evidence, argument, missing-binary, and stderr-flood cases.
 - [ ] Milestone 3: documentation and BUG-1 describe the verified contract and limits, with the focused and affected-package suites passing on Darwin and Linux.
 
-This is a newly created fix plan; no implementation milestone is complete. The
-validation evidence supporting the report is recorded in BUG-1, including an
-owning-repository probe in `scripts/reproduce-batch-cli-cancellation.hs`. Publishing a
-release and changing the consumer's promotion gate are subsequent work.
+Implementation is in place and undergoing final Darwin/Linux qualification. The
+initial adapter regressions failed before integration because both 30-second
+descendants remained live and cancellation did not finish in three seconds.
+The ten shared-scope tests passed before adapter integration (Darwin, 1.65s).
+Final tests additionally verify probe timeout, schema lifetime, cancellation after
+callback success, cleanup-failure completion, and explicit anchor reaping. Darwin
+qualification and documentation drafting are complete; Linux qualification is
+still running. Publishing a release and changing
+the consumer's promotion gate remain subsequent work.
 
 
 ## Surprises & Discoveries
 
 
-(None yet.)
+The process package has no option for joining an existing process group;
+`child_group` means the Unix credential group, not a process group. The Unix
+Haskell `forkProcess` documentation warns against multiple runtime capabilities.
+A minimal C anchor avoids running Haskell or allocating after fork.
+
+Darwin returns EPERM when signalling a zombie-only group. A redundant final
+SIGKILL initially prevented direct-child reaping in the resistant-group test.
+After verified termination the scope now reaps the anchor without signalling
+that dead group again; ordinary permission and observation failures still fail
+cleanup.
+
+Running several Cabal suites and every fixture in parallel under concurrent
+compiler load exceeded the two-second readiness bound. Qualification commands
+now select one Cabal job and one Tasty test thread, preserving the two-second
+readiness and three-second cancellation bounds. The anchor's membership is
+established synchronously by the parent; it needs no readiness pipe or blocking
+acquisition handshake.
 
 
 ## Decision Log
@@ -83,6 +110,12 @@ subprocesses launched for evidence within the call's ownership. This fixes shipp
 lifecycle behavior; new public deadline/output-limit settings, native-tool
 confinement, foreground launch changes, Windows job objects, release publication,
 and consumer-gate removal are outside this plan.
+
+
+Decision (2026-10-06): retain an unreaped group-member anchor through all signals
+and final observations, and use portable POSIX `ps` state checks with a one-second
+post-SIGKILL settling limit. This resolves the first review’s identifier-reuse
+and zombie-observation findings while preserving early callback reaping.
 
 
 ## Outcomes & Retrospective
@@ -182,7 +215,17 @@ process group, mask asynchronous exceptions across acquisition and ownership
 registration, and capture the leader PID immediately after spawn, before any
 wait can reap it. Run the callback with normal interruptibility. One finalizer
 owns the pipes, the retained group identity, and the direct child, on success,
-synchronous failure, and asynchronous cancellation. Do not compose this with an
+synchronous failure, and asynchronous cancellation. Before unmasking the callback, attach an unreaped direct-child anchor to the
+new group. A small POSIX C helper uses only async-signal-safe operations after
+fork, closes inherited descriptors, and ignores SIGINT/SIGTERM. The parent
+establishes anchor membership with `setpgid` before returning acquisition; no
+pipe handshake or interruptible acquisition wait is needed. If the anchor dies
+during startup or escalation, its unreaped membership still reserves the group.
+Keep that anchor unreaped through the last
+group observation and signal, including after SIGKILL; its group membership
+prevents identifier reuse even when the callback has reaped the CLI leader.
+Reap the anchor only after signalling is complete. This adds a private helper
+process per scope without changing the callback interface. Do not compose this with an
 outer `withCreateProcess` finalizer that can close handles first or fork a second
 reaper. Handle partial acquisition failures without leaking a successfully
 created child.
@@ -194,7 +237,11 @@ elapsed monotonic time for the deadlines. Always reach surviving group members
 even if the leader exits at the first signal, and collect the direct child's exit
 status before returning. Treat only an already-absent group/process as a benign
 signal race; do not silently interpret permission errors as successful cleanup.
-Check the retained group after SIGKILL with a bounded settling allowance, report
+On Darwin and Linux, inspect `/bin/ps -axo pid=,pgid=,stat=` using byte
+readers, exclude the anchor, and count every non-zombie group member as live.
+A process with `Z` status is stopped, not running. Observation or permission
+failures are cleanup failures. Use a one-second settling allowance after
+SIGKILL, report
 unexpected live survivors, and do not wait forever for adopted descendant zombie
 entries to disappear. Capture all ordinary-path cleanup evidence in tests.
 
@@ -291,13 +338,22 @@ that gate intact.
 ## Concrete Steps
 
 
+Linux qualification uses the same commands inside a local Debian container with
+GHC 9.12.4 (`docker.io/library/haskell:9.12.4`, x86_64 through Rosetta on this
+Darwin host). Its minimal image requires `procps` to provide `/bin/ps`; install
+that before running fixtures. Use a private writable copy of the repository,
+excluding host `dist-newstyle`, `.git`, and `.direnv`, and retain the source and
+Cabal files exactly as tested on Darwin. The installed `process` and `unix`
+versions are 1.6.26.1 and 2.8.8.0 on both platforms. A Windows CPP branch type-check
+on Darwin passed, but this is not Windows runtime qualification.
+
 Run implementation commands from the baikai repository root. If the toolchain is
 not already on PATH, prefix each Cabal command with `nix develop --command`. The
 expected compiler is GHC 9.12.4 and executables must use the threaded runtime.
 
 ```bash
 cd /Users/shinzui/Keikaku/bokuno/baikai
-cabal test baikai-test --test-show-details=direct --test-options='--pattern CliProcessSpec'
+cabal test baikai-test --test-show-details=direct -j1 --test-options='--pattern CliProcessSpec --num-threads=1'
 ```
 
 After adding adapter tests, record the failing simple descendant test before
@@ -306,7 +362,7 @@ require both suites to report a nonzero selected test count and PASS:
 
 ```bash
 cabal test baikai-claude-test baikai-openai-test \
-  --test-show-details=direct --test-options='--pattern CliCancellationSpec'
+  --test-show-details=direct -j1 --test-options='--pattern CliCancellationSpec --num-threads=1'
 ```
 
 Then verify response compatibility and affected dependents:
@@ -314,7 +370,7 @@ Then verify response compatibility and affected dependents:
 ```bash
 cabal build baikai baikai-claude baikai-openai baikai-agent --enable-tests
 cabal test baikai-test baikai-claude-test baikai-openai-test baikai-agent-test \
-  --test-show-details=direct
+  --test-show-details=direct -j1 --test-options='--num-threads=1'
 okf validate docs/bug-reports --strict \
   --profile mori/bug-reports-profile.dhall --profile-enforce --log-enforce
 okf validate docs/capabilities \
@@ -455,3 +511,11 @@ it, and test the new scope against the solved version. Use the established
 `unix ^>=2.8` bound for POSIX signals. Before changing bounds later, repeat the
 Mori, authoritative registry, and upstream tag checks. Do not search `/nix/store`
 for dependency sources.
+
+Revision note (2026-10-06): resolved the first review's ownership and observation
+findings with an unreaped C anchor, portable process-state checks, and explicit
+anchor-reaping tests. Qualification uses serial suite/test scheduling to keep
+fixture readiness independent of parallel compiler contention. All three package
+CHANGELOG paths are symlinks to the root CHANGELOG, so the shared unreleased entry
+updates them together. Each package ships its own copy of the fixture module so
+its source distribution contains every test dependency.

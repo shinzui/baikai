@@ -10,6 +10,7 @@ import Baikai.Models.Generated
 import Baikai.Prelude
 import CatalogSpec qualified
 import CliInternalSpec qualified
+import CliProcessSpec qualified
 import ContextSpec qualified
 import Control.Monad (forM_)
 import CostSpec qualified
@@ -109,6 +110,7 @@ main = do
         AgentSpec.tests,
         CatalogSpec.tests,
         CliInternalSpec.tests,
+        CliProcessSpec.tests,
         ContextSpec.tests,
         CostSpec.tests,
         EmbeddingSpec.tests,

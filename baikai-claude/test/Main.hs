@@ -19,6 +19,7 @@ import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Claude.V1.Messages qualified as Messages
+import CliCancellationSpec qualified
 import CliEvidenceSpec qualified
 import Contract (assertErrorContract)
 import Control.Exception (bracket)
@@ -76,6 +77,7 @@ main =
         cliMissingBinaryTest,
         responseFormatMappingTest,
         optionsMappingTest,
+        CliCancellationSpec.tests,
         CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,

@@ -57,6 +57,7 @@ import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
+import Baikai.Provider.Cli.Process.Internal (withOwnedProcess, withOwnedWorker)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     apiProviderWith,
@@ -70,17 +71,8 @@ import Baikai.ThinkingLevel (ThinkingLevel (ThinkingMinimal), renderThinkingLeve
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Exception (SomeException, displayException, fromException)
 import Control.Lens ((&), (.~), (^.))
-import Cradle
-  ( ExitCode (..),
-    StderrRaw (..),
-    StdoutRaw (..),
-    addArgs,
-    cmd,
-    run,
-    setNoStdin,
-    setWorkingDir,
-  )
 import Data.Aeson qualified as Aeson
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.Maybe (fromMaybe)
@@ -90,6 +82,8 @@ import Data.Text.Encoding qualified as Text
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
+import System.Exit (ExitCode (..))
+import System.Process qualified as P
 
 -- | Configuration for the @claude -p@ subprocess.
 data ClaudeCliConfig = ClaudeCliConfig
@@ -229,12 +223,23 @@ runClaudeCli cfg m ctx opts = do
   let (exe, args) = claudeCliCommand cfg m ctx opts
   start <- getCurrentTime
   executed <-
-    Internal.trySync $
-      run $
-        cmd exe
-          & addArgs args
-          & setNoStdin
-          & Internal.maybeApply (cfg ^. #workingDir) setWorkingDir
+    Internal.trySync
+      $ withOwnedProcess
+        (P.proc exe args)
+          { P.std_in = P.NoStream,
+            P.std_out = P.CreatePipe,
+            P.std_err = P.CreatePipe,
+            P.cwd = cfg ^. #workingDir
+          }
+      $ \_ output errors ph -> case (output, errors) of
+        (Just out, Just err) ->
+          withOwnedWorker (BS.hGetContents out) $ \joinOut ->
+            withOwnedWorker (BS.hGetContents err) $ \joinErr -> do
+              stdoutBytes <- joinOut
+              stderrBytes <- joinErr
+              code <- P.waitForProcess ph
+              pure (code, stdoutBytes, stderrBytes)
+        _ -> ioError (userError "claude: capture handles missing")
   end <- getCurrentTime
   -- The argument vector is the envelope: for a subprocess it is what
   -- crossed the boundary, and there is nothing else to describe the
@@ -264,7 +269,7 @@ runClaudeCli cfg m ctx opts = do
       schemaRequested = not (null (schemaArgs opts))
   case executed of
     Left ex -> failedWith Nothing (exceptionToError ex)
-    Right (exitCode, StdoutRaw out, StderrRaw err) -> case exitCode of
+    Right (exitCode, out, err) -> case exitCode of
       ExitFailure n ->
         let stderr = Internal.decodeUtf8Lenient err
             flagRejected

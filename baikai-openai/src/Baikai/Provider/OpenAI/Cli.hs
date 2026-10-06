@@ -57,6 +57,7 @@ import Baikai.Message (AssistantPayload (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
+import Baikai.Provider.Cli.Process.Internal (withOwnedProcess, withOwnedWorker)
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     apiProviderWith,
@@ -68,8 +69,6 @@ import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
 import Baikai.ThinkingLevel (ThinkingLevel, renderThinkingLevel)
 import Baikai.Usage (Usage, zeroUsage)
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (IOException, SomeException, bracket, displayException, fromException, try)
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (void)
@@ -287,7 +286,7 @@ runCodexCli cfg m ctx opts = do
             mErr
         traverse (observeCodexCli exe mReport st) prepared
       launch schemaFile =
-        P.withCreateProcess (procSpec schemaFile) (consume start mkEv (isJust schema) m)
+        withOwnedProcess (procSpec schemaFile) (consume start mkEv (isJust schema) m)
   -- Writing the schema file sits inside 'Internal.trySync' too, so a
   -- temporary directory that cannot be written becomes an error-shaped
   -- response rather than an exception escaping the provider.
@@ -324,14 +323,9 @@ consume start mkEv schemaSent m _ mOut mErr ph = do
   case (mOut, mErr) of
     (Nothing, _) -> errorNow (providerError "codex: stdout handle missing")
     (_, Nothing) -> errorNow (providerError "codex: stderr handle missing")
-    (Just hOut, Just hErr) -> do
-      errVar <- newEmptyMVar
-      _ <-
-        forkIO $ do
-          result <- try (BS.hGetContents hErr) :: IO (Either SomeException BS.ByteString)
-          putMVar errVar (either (const BS.empty) id result)
+    (Just hOut, Just hErr) -> withOwnedWorker (BS.hGetContents hErr) $ \joinErr -> do
       report <- Internal.parseCodexJsonlStream (handleStream hOut)
-      errBytes <- takeMVar errVar
+      errBytes <- joinErr
       exitCode <- P.waitForProcess ph
       end <- getCurrentTime
       case exitCode of
