@@ -68,6 +68,7 @@ import Data.Aeson
     genericToJSON,
     withObject,
     (.!=),
+    (.:),
     (.:?),
   )
 import Data.List (nub, sort)
@@ -97,16 +98,26 @@ data ModelCost = ModelCost
 
 -- | An exclusive input-context threshold. Its complete rate record
 -- applies to every token category in the call once total input exceeds it.
+-- Its long cache-write rate is the absolute per-million price of a
+-- long-duration cache write in such a call. JSON without that key decodes
+-- to 'Nothing'.
 data InputPriceTier = InputPriceTier
   { inputAbove :: !Natural,
-    rates :: !ModelCost
+    rates :: !ModelCost,
+    longCacheWriteCost :: !(Maybe Rational)
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving anyclass (ToJSON)
+
+instance FromJSON InputPriceTier where
+  parseJSON = withObject "InputPriceTier" $ \o ->
+    InputPriceTier <$> o .: "inputAbove" <*> o .: "rates" <*> o .:? "longCacheWriteCost"
 
 -- | Optional catalog policy layered over Model.cost. Long cache-write
 -- pricing is an absolute per-million rate, selected only for a shaped
--- long-duration request. It overrides the selected tier's write rate.
+-- long-duration request. The policy-level rate applies while no tier is
+-- crossed; a crossed tier supplies its own. A policy with a long rate
+-- must therefore give every tier one.
 data PricingPolicy = PricingPolicy
   { inputTiers :: ![InputPriceTier],
     longCacheWriteCost :: !(Maybe Rational)
@@ -120,11 +131,13 @@ instance FromJSON PricingPolicy where
     either (fail . show) (const (pure p)) (validatePricingPolicy p)
 
 validatePricingPolicy :: PricingPolicy -> Either Text ()
-validatePricingPolicy p = do
-  let thresholds = map inputAbove (inputTiers p)
+validatePricingPolicy (PricingPolicy tiers policyLong) = do
+  let thresholds = map inputAbove tiers
       validRates r = all (>= 0) [inputCost r, outputCost r, cacheReadCost r, cacheWriteCost r]
+      tierLongs = [long | InputPriceTier {longCacheWriteCost = long} <- tiers]
   unless (thresholds == sort (nub thresholds)) (Left "Pricing thresholds must be strictly increasing")
-  unless (all (validRates . rates) (inputTiers p) && maybe True (>= 0) (longCacheWriteCost p)) (Left "Pricing rates must be nonnegative")
+  unless (all (validRates . rates) tiers && all (maybe True (>= 0)) (policyLong : tierLongs)) (Left "Pricing rates must be nonnegative")
+  unless (policyLong == Nothing || Nothing `notElem` tierLongs) (Left "Every input tier must state its long cache-write rate when the policy has one")
 
 -- | Per-API compatibility shim. 'CompatNone' tells the provider to
 -- pick a sensible record by inspecting 'baseUrl'; the two real

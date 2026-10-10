@@ -68,7 +68,7 @@ priceAtSpeed duration m SpeedFast u = case m ^. #fastModeCost of
   Nothing -> estimateCost [UnsupportedSpeed "fast"] (computeCostWith duration m u)
   Just fast ->
     let resolved = do
-          validatePricingPolicy (PricingPolicy [InputPriceTier 0 fast] Nothing)
+          validatePricingPolicy (PricingPolicy [InputPriceTier 0 fast Nothing] Nothing)
           standard <- resolveRates duration m u
           let base = m ^. #cost
               -- Apply each premium rate's ratio to the resolved policy once.
@@ -88,7 +88,7 @@ priceAtSpeed duration m SpeedFast u = case m ^. #fastModeCost of
 -- | Price one resolved rate record exactly once.
 computeCostAtRates :: ModelCost -> Usage -> Cost
 computeCostAtRates rates u =
-  let resolved = validatePricingPolicy (PricingPolicy [InputPriceTier 0 rates] Nothing) >> pure rates
+  let resolved = validatePricingPolicy (PricingPolicy [InputPriceTier 0 rates Nothing] Nothing) >> pure rates
       computed = priceUsage resolved u
    in computed & #basis . #sources .~ Set.singleton ResolvedTokenRates
 
@@ -138,16 +138,21 @@ usageProblems u = case u ^. #availability of
 
 -- | Choose one complete rate record. Thresholds are exclusive and use
 -- disjoint normalized input categories, including both cache counters.
+-- A shaped long-duration request takes its cache-write rate from the same
+-- tier that supplied the other rates, or from the policy below every tier.
 resolveRates :: Maybe CacheRetention -> Model -> Usage -> Either Text ModelCost
 resolveRates duration m u = do
-  validatePricingPolicy (PricingPolicy [InputPriceTier 0 (m ^. #cost)] Nothing)
+  validatePricingPolicy (PricingPolicy [InputPriceTier 0 (m ^. #cost) Nothing] Nothing)
   case m ^. #pricingPolicy of
     Nothing -> pure (m ^. #cost)
-    Just policy -> do
+    Just policy@(PricingPolicy tiers policyLong) -> do
       validatePricingPolicy policy
       let totalInput = (u ^. #inputTokens) + (u ^. #cacheReadTokens) + (u ^. #cacheWriteTokens)
-          selected = foldl' (\current tier -> if totalInput > inputAbove tier then rates tier else current) (m ^. #cost) (inputTiers policy)
-      pure $ case (duration, longCacheWriteCost policy) of
+          select current (InputPriceTier above tierRates tierLong)
+            | totalInput > above = (tierRates, tierLong)
+            | otherwise = current
+          (selected, long) = foldl' select (m ^. #cost, policyLong) tiers
+      pure $ case (duration, long) of
         (Just CacheRetentionLong, Just price) -> selected {cacheWriteCost = price}
         _ -> selected
 

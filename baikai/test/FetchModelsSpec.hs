@@ -179,9 +179,9 @@ tests =
         upstream <- loadUpstream
         let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
         forM_
-          [ (openaiSpec, "gpt-6-astra", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
-            (openaiSpec, "gpt-6-sol", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5)] Nothing),
-            (openaiSpec, "gpt-6-luna", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25)] Nothing),
+          [ (openaiSpec, "gpt-6-astra", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25) Nothing] Nothing),
+            (openaiSpec, "gpt-6-sol", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5) Nothing] Nothing),
+            (openaiSpec, "gpt-6-luna", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) Nothing] Nothing),
             (anthropicSpec, "claude-fable-5-1", Model.PricingPolicy [] (Just 20)),
             (anthropicSpec, "claude-opus-5-5", Model.PricingPolicy [] (Just 8))
           ]

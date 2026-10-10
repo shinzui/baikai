@@ -305,7 +305,10 @@ parsePricingPolicy = Aeson.withObject "PricingPolicy" $ \o -> do
   either (fail . Text.unpack) (const (pure policy)) (Model.validatePricingPolicy policy)
   where
     parseTier = Aeson.withObject "InputPriceTier" $ \o ->
-      Model.InputPriceTier <$> o .: "inputAbove" <*> (o .: "rates" >>= parseCompleteRates)
+      Model.InputPriceTier
+        <$> o .: "inputAbove"
+        <*> (o .: "rates" >>= parseCompleteRates)
+        <*> (fmap toRational <$> (o .:? "longCacheWriteCost" :: Parser (Maybe Scientific)))
     parseCompleteRates = Aeson.withObject "Complete tier rates" $ \o ->
       toModelCost <$> (CostEntry <$> o .: "input" <*> o .: "output" <*> o .: "cacheRead" <*> o .: "cacheWrite")
 
@@ -602,9 +605,10 @@ renderCost c =
 
 renderPolicy :: Maybe Model.PricingPolicy -> Text
 renderPolicy Nothing = "Nothing"
-renderPolicy (Just p) = "Just (PricingPolicy [" <> Text.intercalate ", " (map tier (Model.inputTiers p)) <> "] " <> maybe "Nothing" (\r -> "(Just (" <> renderRational r <> "))") (Model.longCacheWriteCost p) <> ")"
+renderPolicy (Just (Model.PricingPolicy tiers policyLong)) = "Just (PricingPolicy [" <> Text.intercalate ", " (map tier tiers) <> "] " <> long policyLong <> ")"
   where
-    tier t = "InputPriceTier " <> Text.pack (show (Model.inputAbove t)) <> " (" <> rates (Model.rates t) <> ")"
+    tier (Model.InputPriceTier above tierRates tierLong) = "InputPriceTier " <> Text.pack (show above) <> " (" <> rates tierRates <> ") " <> long tierLong
+    long = maybe "Nothing" (\r -> "(Just (" <> renderRational r <> "))")
     rates c = "ModelCost " <> Text.unwords (map (\r -> "(" <> renderRational r <> ")") [Model.inputCost c, Model.outputCost c, Model.cacheReadCost c, Model.cacheWriteCost c])
 
 renderRational :: Rational -> Text

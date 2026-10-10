@@ -685,19 +685,21 @@ pricingPolicies =
     [ (("anthropic", "claude-opus-5-5"), Model.PricingPolicy [] (Just 8)),
       (("anthropic", "claude-opus-5"), Model.PricingPolicy [] (Just 10)),
       (("anthropic", "claude-opus-4-8"), Model.PricingPolicy [] (Just 10)),
-      (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25)] Nothing),
+      (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25) Nothing] Nothing),
       (("anthropic", "claude-sonnet-5-5"), Model.PricingPolicy [] (Just 4)),
-      (("openai", "gpt-6.1-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5)] Nothing),
-      (("openai", "gpt-6-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5)] Nothing),
-      (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25)] Nothing),
+      (("openai", "gpt-6.1-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5) Nothing] Nothing),
+      (("openai", "gpt-6-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5) Nothing] Nothing),
+      (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) Nothing] Nothing),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20))
     ]
 
 renderPricingPolicy :: Model.PricingPolicy -> Text
-renderPricingPolicy p = "{\"inputTiers\": [" <> Text.intercalate ", " (map tier (Model.inputTiers p)) <> "]" <> maybe "" (\r -> ", \"longCacheWriteCost\": " <> num r) (Model.longCacheWriteCost p) <> "}"
+renderPricingPolicy p = "{\"inputTiers\": [" <> Text.intercalate ", " (map tier (Model.inputTiers p)) <> "]" <> long policyLong <> "}"
   where
+    Model.PricingPolicy {Model.longCacheWriteCost = policyLong} = p
     num = renderNum . fst . fromRationalRepetendUnlimited
-    tier t = "{\"inputAbove\": " <> Text.pack (show (Model.inputAbove t)) <> ", \"rates\": " <> rates (Model.rates t) <> "}"
+    long = maybe "" (\r -> ", \"longCacheWriteCost\": " <> num r)
+    tier (Model.InputPriceTier above tierRates tierLong) = "{\"inputAbove\": " <> Text.pack (show above) <> ", \"rates\": " <> rates tierRates <> long tierLong <> "}"
     rates c = "{\"input\": " <> num (Model.inputCost c) <> ", \"output\": " <> num (Model.outputCost c) <> ", \"cacheRead\": " <> num (Model.cacheReadCost c) <> ", \"cacheWrite\": " <> num (Model.cacheWriteCost c) <> "}"
 
 -- | Render the per-model @compat@ block, if the provider spec supplied

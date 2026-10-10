@@ -47,6 +47,15 @@ tests =
         -- https://platform.claude.com/docs/en/about-claude/pricing#prompt-caching
         (computeCost m (U.zeroUsage & #cacheReadTokens .~ 1000000)).usd @?= 1 / 10
         Set.member (C.UnsupportedSpeed "fast") (computeCostAtSpeed m SpeedFast u).basis.estimateReasons @?= True,
+      testCase "a crossed tier prices long cache writes at its own rate" $ do
+        let writes n = U.zeroUsage & #cacheWriteTokens .~ n
+            prompt n = U.zeroUsage & #inputTokens .~ n & #cacheReadTokens .~ 20000 & #outputTokens .~ 1000
+        (computeCostWith (Just CacheRetentionLong) haikuShaped (writes 1000000)).usd @?= 1
+        (computeCostWith (Just CacheRetentionShort) haikuShaped (writes 1000000)).usd @?= 5 / 8
+        (computeCostWith (Just CacheRetentionLong) haikuShaped (writes 50000)).usd @?= 1 / 100
+        (computeCostWith (Just CacheRetentionShort) haikuShaped (writes 50000)).usd @?= 1 / 160
+        (computeCost haikuShaped (prompt 90000)).usd @?= 97 / 2000
+        (computeCost haikuShaped (prompt 80000)).usd @?= 87 / 10000,
       testCase "requested tiers never substitute for observed service" $ do
         let unknown = N.normalizeUsage N.InclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)
             standard = U.observeBilling [U.BillingServiceTier "default"] unknown
@@ -97,11 +106,21 @@ tests =
         let flat = astra & #pricingPolicy .~ Nothing
         resolveRates (Just CacheRetentionLong) flat (U.zeroUsage & #inputTokens .~ 900000) @?= Right base,
       testCase "duplicate, unordered and negative policy data are rejected" $ do
-        forM_ [M.PricingPolicy [M.InputPriceTier 2 high, M.InputPriceTier 2 base] Nothing, M.PricingPolicy [M.InputPriceTier 2 high, M.InputPriceTier 1 base] Nothing, M.PricingPolicy [] (Just (-1)), M.PricingPolicy [M.InputPriceTier 1 (base & #inputCost .~ (-1))] Nothing] $ \p -> do
+        forM_ [M.PricingPolicy [M.InputPriceTier 2 high Nothing, M.InputPriceTier 2 base Nothing] Nothing, M.PricingPolicy [M.InputPriceTier 2 high Nothing, M.InputPriceTier 1 base Nothing] Nothing, M.PricingPolicy [] (Just (-1)), M.PricingPolicy [M.InputPriceTier 1 (base & #inputCost .~ (-1)) Nothing] Nothing] $ \p -> do
           assertBool "pure validation rejects" (case M.validatePricingPolicy p of Left _ -> True; _ -> False)
           case Aeson.fromJSON (Aeson.toJSON p) :: Aeson.Result M.PricingPolicy of Aeson.Error _ -> pure (); _ -> assertFailure "invalid policy decoded"
         let negative = Aeson.object ["inputTiers" Aeson..= [Aeson.object ["inputAbove" Aeson..= (-1 :: Int), "rates" Aeson..= base]]]
         case Aeson.fromJSON negative :: Aeson.Result M.PricingPolicy of Aeson.Error _ -> pure (); _ -> assertFailure "negative threshold decoded",
+      testCase "a policy-level long rate requires a long rate on every tier" $ do
+        let missing = M.PricingPolicy [M.InputPriceTier 2 high Nothing] (Just 1)
+        M.validatePricingPolicy missing @?= Left "Every input tier must state its long cache-write rate when the policy has one"
+        case Aeson.fromJSON (Aeson.toJSON missing) :: Aeson.Result M.PricingPolicy of Aeson.Error _ -> pure (); _ -> assertFailure "policy with an unpriced tier decoded"
+        assertBool "negative tier long rate rejects" (M.validatePricingPolicy (M.PricingPolicy [M.InputPriceTier 2 high (Just (-1))] (Just 1)) /= Right ())
+        M.validatePricingPolicy (M.PricingPolicy [M.InputPriceTier 2 high (Just 2)] Nothing) @?= Right (),
+      testCase "a tier without a long-rate key decodes to Nothing" $ do
+        let old = Aeson.object ["inputTiers" Aeson..= [Aeson.object ["inputAbove" Aeson..= (272000 :: Int), "rates" Aeson..= high]]]
+        Aeson.fromJSON old @?= Aeson.Success (M.PricingPolicy [M.InputPriceTier 272000 high Nothing] Nothing)
+        case Aeson.fromJSON (Aeson.toJSON haikuShaped) of Aeson.Success m -> (m :: M.Model) @?= haikuShaped; Aeson.Error err -> assertFailure err,
       testCase "old model JSON without a policy decodes and new policy round trips" $ do
         let old = case Aeson.toJSON M.emptyModel of Aeson.Object o -> Aeson.Object (KM.delete "pricingPolicy" o); v -> v
         case Aeson.fromJSON old of Aeson.Success m -> (m :: M.Model).pricingPolicy @?= Nothing; Aeson.Error err -> assertFailure err
@@ -133,3 +152,11 @@ astra = Models.openai_gpt_6_astra
 
 fable :: M.Model
 fable = Models.anthropic_claude_fable_5_1
+
+-- | Claude Haiku 5.5's published rates, built by hand so the pricing rule
+-- is tested independently of the catalog entry.
+haikuShaped :: M.Model
+haikuShaped =
+  M.emptyModel
+    & #cost .~ M.ModelCost (1 / 10) (1 / 2) (1 / 100) (1 / 8)
+    & #pricingPolicy .~ Just (M.PricingPolicy [M.InputPriceTier 100000 (M.ModelCost (1 / 2) (5 / 2) (1 / 20) (5 / 8)) (Just 1)] (Just (1 / 5)))

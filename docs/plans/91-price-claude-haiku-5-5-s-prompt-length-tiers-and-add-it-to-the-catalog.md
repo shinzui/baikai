@@ -10,6 +10,12 @@ provenance:
     model: "claude-opus-5-5"
     harness: "claude-code"
     at: 2026-10-10T15:39:28Z
+  revisions:
+    - model: "claude-opus-5-5"
+      harness: "claude-code"
+      at: 2026-10-10T18:16:35Z
+      mode: "implement"
+      note: "Milestones implemented: tier-aware long cache writes and Haiku 5.5 curation"
 ---
 
 # Price Claude Haiku 5.5's prompt-length tiers and add it to the catalog
@@ -41,11 +47,14 @@ round trip.
 ## Progress
 
 
-- [ ] Milestone 1: a pricing policy can state a one-hour cache-write rate for each prompt-length
+- [x] Milestone 1: a pricing policy can state a one-hour cache-write rate for each prompt-length
   tier, and `Baikai.Cost.Pricing.resolveRates` applies the selected tier's rate. A new
   `PricingPolicySpec` case fails before the change and passes after it. One million long cache
   writes in a prompt over 100,000 tokens cost exactly $1.00; today they cost $0.20. Every
   existing pricing test and the byte-for-byte catalog regeneration check still pass.
+  Done 2026-10-10: the new case failed first with `expected: 1 % 1, but got: 1 % 5`, then
+  passed; `cabal test baikai:baikai-test` reported `All 812 tests passed`, and
+  `baikai/data/models/` is unchanged. ADR 0020 gained a dated section.
 - [ ] Milestone 2: `claude-haiku-5-5` is curated into `anthropicInclude` with dated facts and a
   pricing policy. The regenerated catalog exports `anthropic_claude_haiku_5_5`. Offline Claude
   request-shaping tests pin its thinking, sampling, effort and forced-tool-choice wire shapes.
@@ -59,7 +68,11 @@ round trip.
 ## Surprises & Discoveries
 
 
-(None yet.)
+- The catalog generator cannot build while `Generated.hs` uses the old `InputPriceTier`
+  arity, because `baikai-gen-models` links the `baikai` library that contains that file.
+  Changing the constructor therefore needs a one-time bootstrap: add `Nothing` to the four
+  generated tier expressions by hand, build, then run `cabal run baikai-gen-models`. On
+  2026-10-10 the regenerated file matched the hand edit exactly (4 lines changed).
 
 
 ## Decision Log

@@ -91,3 +91,26 @@ An accepted fast request whose response omits speed retains a standard-rate
 estimate marked `SpeedNotReported`. Contradictory speed observations retain a
 standard estimate marked `InconsistentUsage`. These states preserve the split
 between preference and observation required by ADR 0002.
+
+## Long cache-write rates belong to the tier (2026-10-10)
+
+Claude Haiku 5.5 is the first model whose price has both a prompt-length tier
+and a one-hour cache-write rate, and its one-hour rate changes with the tier:
+$0.20/M up to 100,000 prompt tokens and $1/M above. A single policy-level
+long rate that overrides whichever tier was selected would bill the larger
+prompt five times too low without any estimate reason.
+
+`InputPriceTier` therefore carries an optional absolute `longCacheWriteCost`.
+`resolveRates` takes the long rate from the same place as the other rates:
+the policy-level value while no tier is crossed, and the crossed tier's own
+value otherwise. The rate stays an absolute decimal price transcribed from the
+provider's table, not a multiplier of the input rate, so no provider's billing
+rule enters the neutral pricing record. Tier JSON without the key decodes as
+absent, and catalog JSON emits the key only when a tier has a value.
+
+A policy that has a policy-level long rate must give every tier one. Validation
+rejects the combination with "Every input tier must state its long cache-write
+rate when the policy has one", because a missing tier rate would otherwise fall
+back silently to the lower tier's price. Tier long rates must be nonnegative.
+Adding the field changes the exported `InputPriceTier` constructor, so it ships
+in a major release. Plan 91 records the implementation.

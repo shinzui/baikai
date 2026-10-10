@@ -290,11 +290,11 @@ fastCostTests =
   testGroup
     "fast pricing"
     [ testCase "fast premiums compose with context tiers before pricing" $ do
-        let m = Models.anthropic_claude_opus_5 & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 1000 (ModelCost 10 50 1 12.5)] Nothing)
+        let m = Models.anthropic_claude_opus_5 & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 1000 (ModelCost 10 50 1 12.5) Nothing] Nothing)
         Cost.usd (computeCostAtSpeed m SpeedFast u) @?= 2 * Cost.usd (computeCost m u),
       testCase "invalid premium rates and undefined policy ratios are explicit" $ do
         let negative = knownModel & #fastModeCost .~ Just (ModelCost (-1) 10 0.2 2.5)
-            undefinedRatio = knownModel & #cost .~ ModelCost 0 5 0.1 1.25 & #fastModeCost .~ Just (ModelCost 10 10 0.2 2.5) & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 1 (ModelCost 5 5 0.1 1.25)] Nothing)
+            undefinedRatio = knownModel & #cost .~ ModelCost 0 5 0.1 1.25 & #fastModeCost .~ Just (ModelCost 10 10 0.2 2.5) & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 1 (ModelCost 5 5 0.1 1.25) Nothing] Nothing)
         mapM_ (\m -> Set.member Cost.InvalidPricingPolicy (Cost.estimateReasons (Cost.basis (computeCostAtSpeed m SpeedFast u))) @?= True) [negative, undefinedRatio],
       testCase "contradictory speed observations remain an explicit standard estimate" $ do
         let usage = Usage.observeBilling [Usage.BillingSpeed "fast", Usage.BillingSpeed "standard"] u

@@ -1062,7 +1062,7 @@ openai_gpt_6_1_sol =
             cacheWriteCost = 5 % 2
           },
       fastModeCost = Nothing,
-      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (1 % 5) (5 % 1))] Nothing),
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (1 % 5) (5 % 1)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1094,7 +1094,7 @@ openai_gpt_6_astra =
             cacheWriteCost = 25 % 2
           },
       fastModeCost = Nothing,
-      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (20 % 1) (75 % 1) (2 % 1) (25 % 1))] Nothing),
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (20 % 1) (75 % 1) (2 % 1) (25 % 1)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1126,7 +1126,7 @@ openai_gpt_6_luna =
             cacheWriteCost = 1 % 8
           },
       fastModeCost = Nothing,
-      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (1 % 5) (3 % 4) (1 % 50) (1 % 4))] Nothing),
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (1 % 5) (3 % 4) (1 % 50) (1 % 4)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1158,7 +1158,7 @@ openai_gpt_6_sol =
             cacheWriteCost = 5 % 2
           },
       fastModeCost = Nothing,
-      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (2 % 5) (5 % 1))] Nothing),
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (2 % 5) (5 % 1)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
