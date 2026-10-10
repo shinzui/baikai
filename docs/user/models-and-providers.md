@@ -170,7 +170,9 @@ and cache rates and raising output 1.5 times.
 
 [Claude Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview)
 uses Messages, has a 1,000,000-token context and 128,000-token output limit,
-and standard rates of $2/$0.20/$2.50/$10 in the same category order. One-hour
+and standard rates of $2/$0.10/$2.50/$10 in the same category order. Anthropic
+lowered its cache-read price from $0.20 to $0.10 on 2026-10-07; the October 10
+refresh carries the new rate. One-hour
 cache writes cost $4/M; the catalog selects that rate when the shaped request
 uses it. Sonnet 5.5 has no fast mode, so `SpeedFast` is dropped with
 `fast_mode_dropped_unsupported_model`. Adaptive thinking is on by default at
@@ -218,10 +220,41 @@ mythos =
     & #name .~ "Claude Mythos 5.1"
 ```
 
-GPT-6 Astra gained an ultrafast service tier on 2026-09-29. Baikai never requests a
+GPT-6 Astra gained an ultrafast service tier on 2026-09-29, and GPT-6.1 Sol on
+2026-10-08. Baikai never requests a
 service tier. If a project default routes a call to one, the reported tier other
 than `default` or `standard` is recorded as an unsupported service tier, and the
 cost remains a standard-rate estimate.
+
+The October 10 refresh found one new model, Claude Haiku 5.5, which is not yet
+in the catalog. It also corrected two shipped values:
+
+- **`anthropic_claude_sonnet_5_5`:** cache reads now cost $0.10/M, following
+  Anthropic's 2026-10-07 price cut. Calls before this release overstated
+  Sonnet 5.5 cache-read cost twofold from that date.
+- **`anthropic_claude_sonnet_4_5`:** the context window is now 200,000 tokens.
+  The 1,000,000 figure came from Anthropic's 1M-context beta, which ended on
+  2026-04-30. The
+  [Sonnet 4.5 page](https://platform.claude.com/docs/en/models/sonnet-4-5/overview)
+  lists 200K.
+
+OpenAI's model list has no ID newer than GPT-6.1 Sol. The GPT-6 Luna Decisions API
+beta (2026-10-06) is a separate endpoint that baikai does not implement.
+
+[Claude Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
+(`claude-haiku-5-5`, released 2026-10-07) uses Messages with adaptive thinking,
+rejects sampling parameters, accepts forced tool choice, and has a 1,000,000-token
+context and 128,000-token output limit. Unlike every curated Claude model, its
+price depends on prompt length. Prompts over 100,000 tokens, counting cache reads
+and writes, pay $0.50/$0.05/$0.625/$2.50 instead of $0.10/$0.01/$0.125/$0.50 per
+million input, cached input, cache write and output tokens. The one-hour cache-write
+rate rises from $0.20 to $1. Baikai's pricing policy has one long-write rate for all
+tiers, so it would bill those writes at $0.20, and the catalog does not ship the
+model until
+[plan 91](../plans/91-price-claude-haiku-5-5-s-prompt-length-tiers-and-add-it-to-the-catalog.md)
+makes the rate tier-aware. A hand-rolled model can call it today, with an
+adaptive compat record and sampling disabled (see "Hand-rolled models"). Its
+reported cost is only as accurate as the prices and policy the caller supplies.
 
 ### Focused compatibility checks
 

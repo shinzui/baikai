@@ -423,7 +423,7 @@ anthropic_claude_sonnet_4_5 =
           },
       fastModeCost = Nothing,
       pricingPolicy = Nothing,
-      contextWindow = 1000000,
+      contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
       compat =
@@ -523,7 +523,7 @@ anthropic_claude_sonnet_5_5 =
         ModelCost
           { inputCost = 2 % 1,
             outputCost = 10 % 1,
-            cacheReadCost = 1 % 5,
+            cacheReadCost = 1 % 10,
             cacheWriteCost = 5 % 2
           },
       fastModeCost = Nothing,

@@ -339,6 +339,14 @@ openaiInclude =
 -- @Baikai.Models.Generated.anthropic_claude_fable_5_1@ with the Mythos id.
 -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
 -- https://platform.claude.com/docs/en/about-claude/pricing
+--
+-- 2026-10-10: @claude-haiku-5-5@ is deliberately absent although models.dev
+-- carries it. Prompts over 100,000 tokens pay higher rates, including a $1/M
+-- one-hour cache write, but 'Model.PricingPolicy' has one long-write rate for
+-- every tier and would bill those writes at $0.20/M. Plan 91
+-- (docs/plans/91-price-claude-haiku-5-5-s-prompt-length-tiers-and-add-it-to-the-catalog.md)
+-- makes the long rate per tier and then curates the id.
+-- https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing
 anthropicInclude :: Map Text AnthropicGenerationFacts
 anthropicInclude =
   Map.fromList

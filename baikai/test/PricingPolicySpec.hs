@@ -43,7 +43,9 @@ tests =
             u = U.zeroUsage & #cacheWriteTokens .~ 1000000
         (computeCostWith (Just CacheRetentionShort) m u).usd @?= 5 / 2
         (computeCostWith (Just CacheRetentionLong) m u).usd @?= 4
-        (computeCost m (U.zeroUsage & #cacheReadTokens .~ 1000000)).usd @?= 1 / 5
+        -- 2026-10-07: Anthropic lowered Sonnet 5.5 cache reads from $0.20 to $0.10/M.
+        -- https://platform.claude.com/docs/en/about-claude/pricing#prompt-caching
+        (computeCost m (U.zeroUsage & #cacheReadTokens .~ 1000000)).usd @?= 1 / 10
         Set.member (C.UnsupportedSpeed "fast") (computeCostAtSpeed m SpeedFast u).basis.estimateReasons @?= True,
       testCase "requested tiers never substitute for observed service" $ do
         let unknown = N.normalizeUsage N.InclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)

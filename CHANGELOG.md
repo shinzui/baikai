@@ -9,6 +9,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Catalog: the 2026-10-10 model refresh lowers `anthropic_claude_sonnet_5_5`'s
+  cache-read rate from $0.20 to $0.10 per million tokens, following Anthropic's
+  2026-10-07 price cut, and corrects `anthropic_claude_sonnet_4_5`'s context
+  window from 1,000,000 to 200,000 tokens (its 1M beta ended on 2026-04-30).
+  Claude Haiku 5.5 is not yet curated: its prompt-length price tiers change the
+  one-hour cache-write rate, which the pricing policy cannot yet express per
+  tier (plan 91). No OpenAI model was added.
+
 - Documentation: the 2026-10-02 model refresh found no new OpenAI or Anthropic
   models; the catalog is unchanged. `docs/user/models-and-providers.md` notes
   Anthropic's retirement of Claude Sonnet 4.5 on 2026-11-30 (deprecation of

@@ -220,7 +220,7 @@
         "cacheRead": 0.3,
         "cacheWrite": 3.75
       },
-      "contextWindow": 1000000,
+      "contextWindow": 200000,
       "maxOutputTokens": 64000,
       "compat": {
         "kind": "anthropic-messages",
@@ -283,7 +283,7 @@
       "cost": {
         "input": 2.0,
         "output": 10.0,
-        "cacheRead": 0.2,
+        "cacheRead": 0.1,
         "cacheWrite": 2.5
       },
       "contextWindow": 1000000,
