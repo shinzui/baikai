@@ -3,7 +3,9 @@ type: Bug Report
 bugId: BUG-1
 title: "Cancelling a batch CLI provider leaves its child process alive"
 description: "Both released batch CLI adapters leave an owned fake executable's five-second child alive after cancellation is requested."
-status: in-progress
+status: fixed
+fixedVersion: unreleased
+resolution: "Fixed on master by 87996dd (shared owned process-group scope for both batch adapters and version probes) and qualified on Darwin and Linux by e95544f. Not yet published; released baikai 0.7.2.0 and adapters 0.7.1.0 still carry the defect, and the consumer guard stays until a fixed release passes positive probes."
 severity: degraded
 origin: mori://shinzui/shikigami/plans/80-configure-model-providers-and-agent-launches-through-baikai
 affects: mori://shinzui/baikai
@@ -20,7 +22,7 @@ reproduction:
   - "Fork provider.complete with empty context/options, wait up to two seconds for the child PID file, and request killThread on the worker."
   - "After 200 ms, run /bin/kill -0 on the recorded child PID; both adapters return ExitSuccess."
   - "In finally, terminate only recorded child/parent fixture PIDs and wait at most six seconds for worker completion."
-timestamp: "2026-10-06T17:38:18Z"
+timestamp: "2026-10-10T19:15:00Z"
 generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-10-06T16:37:08Z"
@@ -65,6 +67,16 @@ reviews:
     reviewed_at: "2026-10-06T17:38:18Z"
     document_timestamp: "2026-10-06T17:38:18Z"
     context: "Implement shared ownership anchored against group-ID reuse and positive cancellation regressions. This is an implementation self-check; publication and consumer release qualification remain separate work."
+  - kind: model
+    reviewer: claude-code
+    provider: anthropic
+    model: claude-opus-5-5
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-10-10T19:15:00Z"
+    document_timestamp: "2026-10-10T19:15:00Z"
+    context: "Verified the fix on master at 0fb6044: the focused core and adapter cancellation suites pass, and the report's own reproduction no longer reproduces for either adapter. Confirmed on Hackage that no fixed version is published. Moved status to fixed with fixedVersion unreleased, as the profile prescribes for a fix on the default branch only. This is execution evidence, not an independent review."
 ---
 
 # Cancelling a batch CLI provider leaves its child process alive
@@ -256,7 +268,7 @@ implementation or fixed release yet. The reviewed plan remains
 `changes-requested` until those ownership and completion mechanisms are specified
 and verified.
 
-## Working-tree implementation; fixed release still pending
+## Historical working-tree implementation (2026-10-06)
 
 [Plan 90](../plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md)
 now implements a shared owned-process scope for both batch adapters and the
@@ -286,3 +298,40 @@ implementation and its regressions; the historical review remains recorded.
 BUG-1 stays `in-progress`, without a `fixedVersion`, until a fixed release is
 published. The consumer's `BatchCancellationReleaseRequired` guard remains in
 place and requires positive probes against that release before removal.
+
+## Fixed on master; release pending (verified 2026-10-10)
+
+The implementation above was committed as `87996dd` (`fix(cli): own batch process
+groups through cancellation`), and `e95544f` recorded its Darwin and Linux
+qualification. No later commit touches the shared process scope or either
+adapter's CLI module. Status is now `fixed` with `fixedVersion: unreleased`,
+which the bug-report profile prescribes while a fix is on the default branch only.
+
+On 2026-10-10 the fix was rechecked at `0fb6044` on aarch64-darwin with GHC 9.12.4:
+
+- `CliProcessSpec` (15 cases) in `baikai-test` and `CliCancellationSpec` in
+  `baikai-openai-test` (6 cases) and `baikai-claude-test` (5 cases) all pass.
+  In a first combined run, two Claude cases failed with `fixture did not publish
+  readiness within two seconds` while the other suites were still compiling.
+  Rerun alone, all five passed.
+- The standalone reproduction above, compiled against the current in-place
+  packages, no longer reproduces. The checked-in script stops at the first
+  adapter that does not reproduce. A scratch copy without that abort printed:
+
+```text
+AnthropicMessagesCli child_alive_200ms=False worker_pending=False
+AnthropicMessagesCli worker_after_fixture_cleanup=Just "async"
+OpenAICompletionsCli child_alive_200ms=False worker_pending=False
+OpenAICompletionsCli worker_after_fixture_cleanup=Just "async"
+```
+
+  Both workers acknowledge cancellation asynchronously within 200 ms, and the
+  recorded child is gone. The script's non-zero exit now means the defect did
+  not reproduce.
+
+Hackage still lists `baikai` 0.7.2.0 and `baikai-claude`/`baikai-openai` 0.7.1.0
+as the latest releases, so every published version still has the defect. The
+changelog's `[Unreleased]` section carries the fix. When the next releases are
+published, set `fixedVersion` to them. Shikigami must then run positive
+no-survivor probes against those releases before removing its
+`BatchCancellationReleaseRequired` guard.

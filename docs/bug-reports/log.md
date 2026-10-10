@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-10-10
+* **Fixed**: [BUG-1](batch-cli-cancellation-leaves-child-alive.md). Verify the fix committed in 87996dd on master: core and adapter cancellation suites pass, and the reproduction no longer reproduces for either adapter. Set status `fixed` with `fixedVersion: unreleased`; no fixed release is on Hackage yet.
+
 ## 2026-10-06
 * **Implementation**: [BUG-1](batch-cli-cancellation-leaves-child-alive.md). Implement ExecPlan 90 ownership anchors, group termination, joined readers, and positive cancellation regressions; fixed release remains pending.
 * **Review**: [BUG-1](batch-cli-cancellation-leaves-child-alive.md). Reflect ExecPlan 90 changes-requested self-review: require ownership safe from group identifier reuse and concrete Darwin/Linux live-versus-zombie completion checks before implementation.
