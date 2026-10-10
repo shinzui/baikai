@@ -1,0 +1,30 @@
+{
+  "date_utc": "2026-10-10",
+  "request": "docs/validation/plan-91/forced-tool-choice-request.json, sent unchanged to https://api.anthropic.com/v1/messages with anthropic-version 2023-06-01",
+  "question": "Does claude-haiku-5-5 accept tool_choice {\"type\":\"any\"} together with baikai's explicit adaptive thinking (display summarized) and output_config.effort low?",
+  "attempts": [
+    {
+      "http_status": 400,
+      "error_type": "invalid_request_error",
+      "note": "Workspace-selection error: the zsh shell did not word-split the plan's ${ANTHROPIC_WORKSPACE_ID:+-H ...} expansion, so no valid workspace header was sent. Not evidence; the model did not execute."
+    },
+    {
+      "http_status": 200,
+      "model": "claude-haiku-5-5",
+      "stop_reason": "tool_use",
+      "content_block_types": [
+        "tool_use"
+      ],
+      "usage": {
+        "input_tokens": 504,
+        "output_tokens": 40,
+        "thinking_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "decision": "Accepted: status 200 and the first content block is tool_use, with no thinking block. supportsForcedToolChoice stays True.",
+  "workspace_selection": "Workspace selected with ANTHROPIC_WORKSPACE_ID on the second attempt; ID omitted"
+}

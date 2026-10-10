@@ -65,10 +65,15 @@ round trip.
   `doc-shapes` and `smoke-options` passed; `fourmolu` and `git diff --check` clean. The
   forced-choice body is pinned in `baikai-claude/test/FableContractsSpec.hs` and saved as
   `docs/validation/plan-91/forced-tool-choice-request.json`.
-- [ ] Milestone 3: live acceptance. `haiku55-text` and `haiku55-tools` pass against the real
+- [x] Milestone 3: live acceptance. `haiku55-text` and `haiku55-tools` pass against the real
   Messages API, and their redacted summary is saved under `docs/validation/plan-91/`. One bounded
   request settles whether baikai's exact forced-tool-choice body is accepted. The catalog fact
   stays or changes according to the decision rule in the Plan of Work.
+  Done 2026-10-10: both cases passed on their first run, observed as `claude-haiku-5-5`
+  through Messages with standard bases and no estimate reasons; the tool case made two
+  calls and one dispatch (`docs/validation/plan-91/2026-10-10-haiku55.json`). The
+  forced-choice request returned 200 with a lone `tool_use` block, so the fact stays `True`
+  (`docs/validation/plan-91/2026-10-10-forced-tool-choice.json`).
 
 
 ## Surprises & Discoveries
@@ -84,6 +89,19 @@ round trip.
   then hung idle for 20 minutes. Run alone, the suite passed all 812 tests in 13 seconds.
   The failures are timing-sensitive tests unrelated to this plan; rerun before suspecting
   a pricing change.
+- Haiku 5.5 accepts a forced tool choice together with baikai's explicit
+  `thinking: {"type":"adaptive","display":"summarized"}` and effort `low`. On 2026-10-10
+  the pinned body returned HTTP 200, `stop_reason` `tool_use`, content `["tool_use"]`, and
+  0 thinking tokens (504 input, 40 output). This matches the migration guide, so
+  `supportsForcedToolChoice` stays `True`.
+- The first forced-choice attempt returned the workspace-selection 400. In zsh,
+  `${ANTHROPIC_WORKSPACE_ID:+-H "anthropic-workspace-id: ..."}` expands to one word, so
+  curl never received a valid header; bash splits it into two. Concrete Steps now passes
+  the header explicitly.
+- At low effort neither live smoke case returned a thinking block (`reasoning_blocks` 0 on
+  all three responses). The tool round trip therefore proves `tool_use` and `tool_result`
+  replay but not live replay of signed thinking. Offline tests in
+  `baikai-claude/test/FableContractsSpec.hs` still cover signed thinking replay.
 
 
 ## Decision Log
@@ -121,7 +139,23 @@ round trip.
 ## Outcomes & Retrospective
 
 
-(To be filled during and after implementation.)
+Completed 2026-10-10. Baikai now prices Claude Haiku 5.5 exactly at both prompt-length tiers
+and both cache durations. `InputPriceTier` carries its own one-hour cache-write rate,
+`resolveRates` reads it from the crossed tier, and validation refuses a policy that would
+fall back silently. `anthropic_claude_haiku_5_5` ships in the catalog and passed its live
+text and tool cases. One live request settled the open forced-tool-choice question in favour
+of the curated fact.
+
+The record change is breaking (`InputPriceTier` gained a field) and is listed under the
+Unreleased "Changed (breaking)" changelog heading for the 0.8.0.0 release that plan 89 also
+targets. Publishing remains separate work. ADR 0020 gained a dated section, and the
+update-models skill now describes the generator bootstrap needed when a generated record's
+constructor changes.
+
+Gaps: the live run did not produce thinking blocks at low effort, so live signed-thinking
+replay for Haiku 5.5 is unproven (offline tests cover it). The long-tier pricing was proven
+only offline; no live request exceeded 100,000 tokens, which would have cost far more than
+the smoke budget.
 
 
 ## Context and Orientation
@@ -419,14 +453,16 @@ The variables are `ANTHROPIC_KEY` or `ANTHROPIC_API_KEY`. Also set `ANTHROPIC_WO
 `wrkspc_...` ID when the key is not scoped to a single workspace. Run each case once and keep its
 output; rerunning repeats the charge.
 
-The forced-tool-choice request, with the body file produced in Milestone 2:
+The forced-tool-choice request, with the body file produced in Milestone 2. Drop the
+workspace header for a key scoped to one workspace; use `$ANTHROPIC_KEY` if that is the
+variable that holds the key:
 
 ```bash
 curl -sS https://api.anthropic.com/v1/messages \
   -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
-  ${ANTHROPIC_WORKSPACE_ID:+-H "anthropic-workspace-id: $ANTHROPIC_WORKSPACE_ID"} \
-  --data @"$body_file" -w '\n%{http_code}\n'
+  -H "anthropic-workspace-id: $ANTHROPIC_WORKSPACE_ID" \
+  --data @docs/validation/plan-91/forced-tool-choice-request.json -w '\n%{http_code}\n'
 ```
 
 

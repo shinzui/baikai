@@ -145,7 +145,11 @@ trailers and the matching intention IDs.
    also been verified. Review stale-override warnings.
 4. Copy reviewed candidate JSON into `baikai/data/models/`, then run
    `cabal run baikai-gen-models`. Never hand-edit
-   `baikai/src/Baikai/Models/Generated.hs`.
+   `baikai/src/Baikai/Models/Generated.hs`. The one exception is a change to a
+   record the file constructs, such as a new `InputPriceTier` field: the
+   generator links the library containing the stale file, so it cannot build.
+   Patch the affected generated expressions just enough to compile, then
+   regenerate and confirm the output matches (plan 91 did this on 2026-10-10).
 5. Update catalog examples and model-specific restrictions in
    `docs/user/models-and-providers.md`, and add an Unreleased changelog entry.
    Preserve existing bindings unless removal is part of the task.

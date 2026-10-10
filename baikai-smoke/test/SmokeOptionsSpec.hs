@@ -11,11 +11,11 @@ main = do
   check "required ordinary mode" (parseSmokeOptions ["--require-keys"] == Right (SmokeOptions False True Nothing))
   check "reject unknown option" (case parseSmokeOptions ["--new-model"] of Left _ -> True; _ -> False)
   check "named case" (parseSmokeOptions ["--new-models", "--case", "astra-tools"] == Right (SmokeOptions True False (Just "astra-tools")))
-  check "fourteen unique cases" (length caseNames == 14 && length (filter (`elem` caseNames) ["sol-text", "sol-tools", "luna-text", "luna-tools", "opus55-text", "opus55-tools", "sol61-text", "sol61-tools", "sonnet55-text", "sonnet55-tools"]) == 10)
+  check "sixteen unique cases" (length caseNames == 16 && length (filter (`elem` caseNames) ["sol-text", "sol-tools", "luna-text", "luna-tools", "opus55-text", "opus55-tools", "sol61-text", "sol61-tools", "sonnet55-text", "sonnet55-tools", "haiku55-text", "haiku55-tools"]) == 12)
   forM_ caseNames $ \name -> do
     check (name <> " selected alone") (parseSmokeOptions ["--new-models", "--require-keys", "--case", name] == Right (SmokeOptions True True (Just name)))
     check (name <> " excludes other cases") (selectCaseNames (Just name) == [name])
-    let expected = if name `elem` ["fable-text", "fable-tools", "opus55-text", "opus55-tools", "sonnet55-text", "sonnet55-tools"] then Just "anthropic" else Just "openai"
+    let expected = if name `elem` ["fable-text", "fable-tools", "opus55-text", "opus55-tools", "sonnet55-text", "sonnet55-tools", "haiku55-text", "haiku55-tools"] then Just "anthropic" else Just "openai"
     check (name <> " credential group") (caseProvider name == expected)
   check "case needs focused mode" (case parseSmokeOptions ["--case", "astra-tools"] of Left _ -> True; _ -> False)
   check "unknown case rejected" (case parseSmokeOptions ["--new-models", "--case", "typo"] of Left _ -> True; _ -> False)

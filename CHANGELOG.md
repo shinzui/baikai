@@ -15,8 +15,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   128,000-token output limit. Prompts over 100,000 tokens, counting cache reads
   and writes, are priced at $0.50/$0.05/$0.625/$2.50 per million input, cache
   read, cache write and output tokens instead of $0.10/$0.01/$0.125/$0.50, and
-  one-hour cache writes at $1 instead of $0.20. Verified offline only until the
-  live cases in plan 91 pass.
+  one-hour cache writes at $1 instead of $0.20. Live text and tool cases
+  passed on 2026-10-10, and a live request confirmed forced tool choice with
+  adaptive thinking.
 
 ### Changed (breaking)
 

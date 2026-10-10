@@ -244,8 +244,10 @@ beta (2026-10-06) is a separate endpoint that baikai does not implement.
 
 [Claude Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
 (`claude-haiku-5-5`, released 2026-10-07) was added on 2026-10-10 as
-`anthropic_claude_haiku_5_5`. It is verified offline only; the live
-`haiku55-text` and `haiku55-tools` cases have not yet passed. It uses Messages,
+`anthropic_claude_haiku_5_5`. On 2026-10-10 both live cases passed, each
+observed as `claude-haiku-5-5` with a standard cost basis, the tool case using
+two calls and one dispatch (see the
+[redacted record](../validation/plan-91/2026-10-10-haiku55.json)). It uses Messages,
 has a 1,000,000-token context and 128,000-token output limit, and accepts text
 and images.
 
@@ -266,7 +268,9 @@ level explicitly. Sampling options are dropped and recorded as
 5.5 has no fast mode. Unlike Sonnet 5.5, Opus 5.5 and Fable 5.1, Haiku 5.5
 accepts forced tool choice: `ToolChoiceRequired` is sent as `{"type": "any"}`
 and `ToolChoiceSpecific` as a named tool. The response then starts with the
-tool call and carries no thinking block. As with Sonnet 5.5, thinking blocks are
+tool call and carries no thinking block. A
+[live request](../validation/plan-91/2026-10-10-forced-tool-choice.json) with
+baikai's explicit adaptive thinking confirmed this on 2026-10-10. As with Sonnet 5.5, thinking blocks are
 valid only for the producing account and an unchanged conversation prefix, so
 replay them unchanged and keep history append-only. See the
 [migration guide](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).
@@ -281,7 +285,7 @@ cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys
 ```
 
 The focused command selects Astra, Sol, Luna, and GPT-6.1 Sol through
-Responses and Fable 5.1, Opus 5.5, and Sonnet 5.5 through Messages. Each model gets one text case and a
+Responses and Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 5.5 through Messages. Each model gets one text case and a
 deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
 and at most four requests in the tool case. It prints readable results and a
@@ -293,7 +297,8 @@ before any request; without `--require-keys`, missing cases are explicit skips.
 To reproduce only a diagnosed failing case, append `--case` and one of
 `astra-text`, `astra-tools`, `fable-text`, `fable-tools`, `sol-text`,
 `sol-tools`, `luna-text`, `luna-tools`, `opus55-text`, `opus55-tools`,
-`sol61-text`, `sol61-tools`, `sonnet55-text`, or `sonnet55-tools` inside `--test-options`. Only the selected provider's credentials are required. Preserve
+`sol61-text`, `sol61-tools`, `sonnet55-text`, `sonnet55-tools`, `haiku55-text`,
+or `haiku55-tools` inside `--test-options`. Only the selected provider's credentials are required. Preserve
 each run's output separately: rerunning a live case can incur another charge.
 Passing offline tests or a keyless skip does not establish live model access.
 An HTTP 401 or workspace-selection HTTP 400 occurs before model execution and

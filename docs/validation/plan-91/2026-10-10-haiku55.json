@@ -1,0 +1,185 @@
+{
+  "schema": "baikai.new-model-smoke/1",
+  "date_utc": "2026-10-10",
+  "result": "passed: two focused cases",
+  "method": "Ran haiku55-text and haiku55-tools one at a time with --require-keys; each passed on its first run and neither was repeated.",
+  "workspace_selection": "Workspace selected with ANTHROPIC_WORKSPACE_ID; ID omitted",
+  "timestamp_check": "The runner verified the exact fixed timestamp in the tool-case final answer; conversation text is omitted.",
+  "reasoning_note": "At low effort neither case returned a thinking block (reasoning_blocks 0), so this run does not exercise replay of signed thinking.",
+  "results": [
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-haiku-5-5",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 1.8e-06,
+              "output_usd": 2e-06
+            },
+            "usd": 3.8e-06
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.2.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.1.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-haiku-5-5"
+          },
+          "provider_request_id": {
+            "observed": "req_011Cfu3ioerEcpriPeTiJwFK"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "msg_011Cfu3ipkqMTRHRmBTzkcR1",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 0
+    },
+    {
+      "api": "AnthropicMessages",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-haiku-5-5",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 3.95e-05,
+              "output_usd": 1.3e-05
+            },
+            "usd": 5.25e-05
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.2.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.1.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-haiku-5-5"
+          },
+          "provider_request_id": {
+            "observed": "req_011Cfu3jddd3xWmmBcxXMnAU"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "msg_011Cfu3jdzhWdXBmZAS9DQDD",
+          "stop_reason": "ToolUse",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 4.4e-05,
+              "output_usd": 1.2e-05
+            },
+            "usd": 5.6e-05
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.7.2.0",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.1.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-haiku-5-5"
+          },
+          "provider_request_id": {
+            "observed": "req_011Cfu3jhXHVbjgssA2cJARF"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "msg_011Cfu3jht7BuyjS6fs18aUg",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 1
+    }
+  ]
+}
