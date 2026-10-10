@@ -3,7 +3,7 @@
 module FableContractsSpec (tests) where
 
 import Baikai hiding (messages, model)
-import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_opus_5_5, anthropic_claude_sonnet_5_5)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_5_5)
 import Baikai.Provider.Claude.Internal.Request qualified as R
 import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
 import Claude.V1.Messages qualified as C
@@ -53,6 +53,13 @@ tests =
           field "tools" raw @?= field "tools" (Aeson.toJSON firstReq)
           contentAt 1 replayed @?= V.fromList [signed "" "sig-one", toolItem "toolu_1"]
           field "tool_use_id" (contentAt 2 replayed V.! 0) @?= Just (String "toolu_1"),
+      testCase "Haiku 5.5 forwards a forced tool choice with adaptive thinking" $ do
+        (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest anthropic_claude_haiku_5_5 haikuContext haikuForcedOptions)
+        Aeson.toJSON req @?= haikuForcedBody,
+      testCase "Haiku 5.5 drops temperature and records why" $ do
+        (req, translation) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest anthropic_claude_haiku_5_5 context (options & #temperature .~ Just 0.2))
+        field "temperature" (Aeson.toJSON req) @?= Nothing
+        translation ^. #adjustments @?= [SamplingDroppedUnsupportedModel ["temperature"]],
       testCase "forced choices fail before the driver for complete and stream, including renamed models" $
         forM_ [model, model & #modelId .~ "renamed-generation"] $ \m ->
           forM_ [ToolChoiceRequired, ToolChoiceSpecific "lookup"] $ \choice -> do
@@ -139,6 +146,28 @@ tests =
 
 model :: Model
 model = anthropic_claude_fable_5_1
+
+-- | The one request plan 91 sends live to settle whether Haiku 5.5 accepts
+-- a forced tool choice alongside baikai's explicit adaptive thinking. The
+-- same JSON is saved as docs/validation/plan-91/forced-tool-choice-request.json.
+haikuContext :: Context
+haikuContext = systemUser "Answer by calling the lookup tool." "What is the capital of France?" & #tools .~ V.singleton (mkTool "lookup" "Look up a fact." (object ["type" .= ("object" :: Text), "properties" .= object ["query" .= object ["type" .= ("string" :: Text)]], "required" .= ["query" :: Text]]))
+
+haikuForcedOptions :: Options
+haikuForcedOptions = options & #toolChoice .~ Just ToolChoiceRequired & #thinking .~ Just ThinkingLow & #maxTokens .~ Just 1024
+
+haikuForcedBody :: Value
+haikuForcedBody =
+  object
+    [ "model" .= ("claude-haiku-5-5" :: Text),
+      "max_tokens" .= (1024 :: Int),
+      "system" .= ("Answer by calling the lookup tool." :: Text),
+      "messages" .= [object ["role" .= ("user" :: Text), "content" .= [object ["type" .= ("text" :: Text), "text" .= ("What is the capital of France?" :: Text)]]]],
+      "tools" .= [object ["name" .= ("lookup" :: Text), "description" .= ("Look up a fact." :: Text), "input_schema" .= object ["type" .= ("object" :: Text), "properties" .= object ["query" .= object ["type" .= ("string" :: Text)]], "required" .= ["query" :: Text]]]],
+      "tool_choice" .= object ["type" .= ("any" :: Text)],
+      "thinking" .= object ["type" .= ("adaptive" :: Text), "display" .= ("summarized" :: Text)],
+      "output_config" .= object ["effort" .= ("low" :: Text)]
+    ]
 
 options :: Options
 options = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "offline-key")

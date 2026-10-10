@@ -55,10 +55,16 @@ round trip.
   Done 2026-10-10: the new case failed first with `expected: 1 % 1, but got: 1 % 5`, then
   passed; `cabal test baikai:baikai-test` reported `All 812 tests passed`, and
   `baikai/data/models/` is unchanged. ADR 0020 gained a dated section.
-- [ ] Milestone 2: `claude-haiku-5-5` is curated into `anthropicInclude` with dated facts and a
+- [x] Milestone 2: `claude-haiku-5-5` is curated into `anthropicInclude` with dated facts and a
   pricing policy. The regenerated catalog exports `anthropic_claude_haiku_5_5`. Offline Claude
   request-shaping tests pin its thinking, sampling, effort and forced-tool-choice wire shapes.
   Documentation and changelogs describe it.
+  Done 2026-10-10: the candidate fetch differed from the committed `anthropic.json` only by
+  the Haiku entry (OpenAI identical), and `Generated.hs` gained only
+  `anthropic_claude_haiku_5_5`. Offline gate: `baikai-test` 812, `baikai-claude-test` 430,
+  `doc-shapes` and `smoke-options` passed; `fourmolu` and `git diff --check` clean. The
+  forced-choice body is pinned in `baikai-claude/test/FableContractsSpec.hs` and saved as
+  `docs/validation/plan-91/forced-tool-choice-request.json`.
 - [ ] Milestone 3: live acceptance. `haiku55-text` and `haiku55-tools` pass against the real
   Messages API, and their redacted summary is saved under `docs/validation/plan-91/`. One bounded
   request settles whether baikai's exact forced-tool-choice body is accepted. The catalog fact
@@ -73,6 +79,11 @@ round trip.
   Changing the constructor therefore needs a one-time bootstrap: add `Nothing` to the four
   generated tier expressions by hand, build, then run `cabal run baikai-gen-models`. On
   2026-10-10 the regenerated file matched the hand edit exactly (4 lines changed).
+- On a loaded machine, a combined `cabal test` run failed three process-group cancellation
+  tests in `baikai-test` ("callback reaps leader before cancellation" and two neighbours),
+  then hung idle for 20 minutes. Run alone, the suite passed all 812 tests in 13 seconds.
+  The failures are timing-sensitive tests unrelated to this plan; rerun before suspecting
+  a pricing change.
 
 
 ## Decision Log

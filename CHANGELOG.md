@@ -7,15 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Catalog: `anthropic_claude_haiku_5_5` (Claude Haiku 5.5, released
+  2026-10-07). It uses Messages with adaptive thinking, drops sampling options,
+  forwards forced tool choice, and has a 1,000,000-token context and
+  128,000-token output limit. Prompts over 100,000 tokens, counting cache reads
+  and writes, are priced at $0.50/$0.05/$0.625/$2.50 per million input, cache
+  read, cache write and output tokens instead of $0.10/$0.01/$0.125/$0.50, and
+  one-hour cache writes at $1 instead of $0.20. Verified offline only until the
+  live cases in plan 91 pass.
+
+### Changed (breaking)
+
+- `Baikai.Model.InputPriceTier` gains a third field, `longCacheWriteCost ::
+  Maybe Rational`: the one-hour cache-write rate for requests that cross that
+  tier. `resolveRates` now takes the long rate from the selected tier rather
+  than overriding every tier with the policy-level rate, and validation rejects
+  a policy whose policy-level long rate leaves any tier without one. Tier JSON
+  without the key decodes as `Nothing`. __Breaking__: positional constructions
+  of `InputPriceTier` need the new argument.
+
 ### Changed
 
 - Catalog: the 2026-10-10 model refresh lowers `anthropic_claude_sonnet_5_5`'s
   cache-read rate from $0.20 to $0.10 per million tokens, following Anthropic's
   2026-10-07 price cut, and corrects `anthropic_claude_sonnet_4_5`'s context
   window from 1,000,000 to 200,000 tokens (its 1M beta ended on 2026-04-30).
-  Claude Haiku 5.5 is not yet curated: its prompt-length price tiers change the
-  one-hour cache-write rate, which the pricing policy cannot yet express per
-  tier (plan 91). No OpenAI model was added.
+  Claude Haiku 5.5 was curated separately (see Added). No OpenAI model was
+  added.
 
 - Documentation: the 2026-10-02 model refresh found no new OpenAI or Anthropic
   models; the catalog is unchanged. `docs/user/models-and-providers.md` notes

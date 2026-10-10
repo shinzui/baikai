@@ -339,14 +339,6 @@ openaiInclude =
 -- @Baikai.Models.Generated.anthropic_claude_fable_5_1@ with the Mythos id.
 -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
 -- https://platform.claude.com/docs/en/about-claude/pricing
---
--- 2026-10-10: @claude-haiku-5-5@ is deliberately absent although models.dev
--- carries it. Prompts over 100,000 tokens pay higher rates, including a $1/M
--- one-hour cache write, but 'Model.PricingPolicy' has one long-write rate for
--- every tier and would bill those writes at $0.20/M. Plan 91
--- (docs/plans/91-price-claude-haiku-5-5-s-prompt-length-tiers-and-add-it-to-the-catalog.md)
--- makes the long rate per tier and then curates the id.
--- https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing
 anthropicInclude :: Map Text AnthropicGenerationFacts
 anthropicInclude =
   Map.fromList
@@ -393,6 +385,14 @@ anthropicInclude =
       ("claude-sonnet-4-5", budgetWithSampling),
       -- 2026-08-27: budget shape, sampling parameters accepted — same source.
       ("claude-haiku-4-5", budgetWithSampling),
+      -- 2026-10-10: adaptive thinking on by default, and manual budget
+      -- thinking returns 400; nondefault sampling returns 400. Forced tool
+      -- choice is accepted, and that response starts with the tool call
+      -- and has no thinking block. No fast mode.
+      -- https://platform.claude.com/docs/en/models/haiku-5-5/overview
+      -- https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide
+      -- https://platform.claude.com/docs/en/build-with-claude/effort
+      ("claude-haiku-5-5", adaptiveNoSampling),
       -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
       ("claude-fable-5", adaptiveNoSampling),
       -- 2026-09-07: always-on adaptive thinking; omit sampling parameters.
@@ -679,6 +679,9 @@ renderModel m =
 -- https://platform.claude.com/docs/en/models/fable-5-1/overview
 -- https://platform.claude.com/docs/en/models/opus-5-5/overview
 -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
+-- Claude Haiku 5.5 verified 2026-10-10: prompts over 100,000 tokens,
+-- counting cache reads and writes, pay the higher rates on every category.
+-- https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing
 pricingPolicies :: Map (Text, Text) Model.PricingPolicy
 pricingPolicies =
   Map.fromList
@@ -690,7 +693,8 @@ pricingPolicies =
       (("openai", "gpt-6.1-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5) Nothing] Nothing),
       (("openai", "gpt-6-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5) Nothing] Nothing),
       (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) Nothing] Nothing),
-      (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20))
+      (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20)),
+      (("anthropic", "claude-haiku-5-5"), Model.PricingPolicy [Model.InputPriceTier 100000 (Model.ModelCost 0.5 2.5 0.05 0.625) (Just 1)] (Just 0.2))
     ]
 
 renderPricingPolicy :: Model.PricingPolicy -> Text

@@ -170,6 +170,41 @@ anthropic_claude_haiku_4_5 =
             }
     }
 
+anthropic_claude_haiku_5_5 :: Model
+anthropic_claude_haiku_5_5 =
+  emptyModel
+    { modelId = "claude-haiku-5-5",
+      name = "Claude Haiku 5.5",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      cost =
+        ModelCost
+          { inputCost = 1 % 10,
+            outputCost = 1 % 2,
+            cacheReadCost = 1 % 100,
+            cacheWriteCost = 1 % 8
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 100000 (ModelCost (1 % 2) (5 % 2) (1 % 20) (5 % 8)) (Just (1 % 1))] (Just (1 % 5))),
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False,
+              supportsFastMode = False,
+              supportsForcedToolChoice = True
+            }
+    }
+
 anthropic_claude_opus_4_5 :: Model
 anthropic_claude_opus_4_5 =
   emptyModel
@@ -1328,6 +1363,7 @@ allModels =
   [ anthropic_claude_fable_5,
     anthropic_claude_fable_5_1,
     anthropic_claude_haiku_4_5,
+    anthropic_claude_haiku_5_5,
     anthropic_claude_opus_4_5,
     anthropic_claude_opus_4_6,
     anthropic_claude_opus_4_7,

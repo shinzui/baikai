@@ -55,7 +55,9 @@ tests =
         (computeCostWith (Just CacheRetentionLong) haikuShaped (writes 50000)).usd @?= 1 / 100
         (computeCostWith (Just CacheRetentionShort) haikuShaped (writes 50000)).usd @?= 1 / 160
         (computeCost haikuShaped (prompt 90000)).usd @?= 97 / 2000
-        (computeCost haikuShaped (prompt 80000)).usd @?= 87 / 10000,
+        (computeCost haikuShaped (prompt 80000)).usd @?= 87 / 10000
+        Models.anthropic_claude_haiku_5_5.cost @?= haikuShaped.cost
+        Models.anthropic_claude_haiku_5_5.pricingPolicy @?= haikuShaped.pricingPolicy,
       testCase "requested tiers never substitute for observed service" $ do
         let unknown = N.normalizeUsage N.InclusiveInput (N.ReportedUsage (Just 1000) (Just 0) (Just 0) (Just 0) Nothing)
             standard = U.observeBilling [U.BillingServiceTier "default"] unknown

@@ -111,6 +111,7 @@ expectedAnthropicFacts =
   [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True, False)),
     ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False, False)),
     ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True, False)),
+    ("claude-haiku-5-5", (AnthropicThinkingAdaptive, False, True, False)),
     ("claude-opus-4-5", (AnthropicThinkingBudget, True, True, False)),
     ("claude-opus-4-6", (AnthropicThinkingAdaptive, True, True, False)),
     ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True, False)),

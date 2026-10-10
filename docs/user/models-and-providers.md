@@ -27,6 +27,7 @@ import Baikai.Models.Generated qualified as Models
 Models.anthropic_claude_opus_4_8
 Models.anthropic_claude_sonnet_4_6
 Models.anthropic_claude_haiku_4_5
+Models.anthropic_claude_haiku_5_5
 Models.anthropic_claude_fable_5
 Models.anthropic_claude_fable_5_1
 Models.anthropic_claude_sonnet_5_5
@@ -226,8 +227,8 @@ service tier. If a project default routes a call to one, the reported tier other
 than `default` or `standard` is recorded as an unsupported service tier, and the
 cost remains a standard-rate estimate.
 
-The October 10 refresh found one new model, Claude Haiku 5.5, which is not yet
-in the catalog. It also corrected two shipped values:
+The October 10 refresh found one new model, Claude Haiku 5.5, which is curated
+separately (see below). It also corrected two shipped values:
 
 - **`anthropic_claude_sonnet_5_5`:** cache reads now cost $0.10/M, following
   Anthropic's 2026-10-07 price cut. Calls before this release overstated
@@ -242,19 +243,33 @@ OpenAI's model list has no ID newer than GPT-6.1 Sol. The GPT-6 Luna Decisions A
 beta (2026-10-06) is a separate endpoint that baikai does not implement.
 
 [Claude Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
-(`claude-haiku-5-5`, released 2026-10-07) uses Messages with adaptive thinking,
-rejects sampling parameters, accepts forced tool choice, and has a 1,000,000-token
-context and 128,000-token output limit. Unlike every curated Claude model, its
-price depends on prompt length. Prompts over 100,000 tokens, counting cache reads
-and writes, pay $0.50/$0.05/$0.625/$2.50 instead of $0.10/$0.01/$0.125/$0.50 per
-million input, cached input, cache write and output tokens. The one-hour cache-write
-rate rises from $0.20 to $1. Baikai's pricing policy has one long-write rate for all
-tiers, so it would bill those writes at $0.20, and the catalog does not ship the
-model until
-[plan 91](../plans/91-price-claude-haiku-5-5-s-prompt-length-tiers-and-add-it-to-the-catalog.md)
-makes the rate tier-aware. A hand-rolled model can call it today, with an
-adaptive compat record and sampling disabled (see "Hand-rolled models"). Its
-reported cost is only as accurate as the prices and policy the caller supplies.
+(`claude-haiku-5-5`, released 2026-10-07) was added on 2026-10-10 as
+`anthropic_claude_haiku_5_5`. It is verified offline only; the live
+`haiku55-text` and `haiku55-tools` cases have not yet passed. It uses Messages,
+has a 1,000,000-token context and 128,000-token output limit, and accepts text
+and images.
+
+Unlike every other curated Claude model, its price depends on prompt length.
+Prompt length counts all input tokens, including cache reads and cache writes,
+and each request is priced on its own. Up to 100,000 tokens, the rates per
+million input, cached input, cache write and output tokens are
+$0.10/$0.01/$0.125/$0.50. Above 100,000 tokens they are $0.50/$0.05/$0.625/$2.50
+for every token in the request. One-hour cache writes cost $0.20/M up to the
+threshold and $1/M above it; the catalog selects the long rate from the same tier
+as the other rates when the shaped request uses the one-hour cache. Batch
+discounts and US-only inference pricing do not apply, because baikai sends
+neither. See [Anthropic's pricing page](https://platform.claude.com/docs/en/about-claude/pricing).
+
+Adaptive thinking is on by default at `medium` effort, and baikai sends every
+level explicitly. Sampling options are dropped and recorded as
+`sampling_dropped_unsupported_model`, and `SpeedFast` is dropped because Haiku
+5.5 has no fast mode. Unlike Sonnet 5.5, Opus 5.5 and Fable 5.1, Haiku 5.5
+accepts forced tool choice: `ToolChoiceRequired` is sent as `{"type": "any"}`
+and `ToolChoiceSpecific` as a named tool. The response then starts with the
+tool call and carries no thinking block. As with Sonnet 5.5, thinking blocks are
+valid only for the producing account and an unchanged conversation prefix, so
+replay them unchanged and keep history append-only. See the
+[migration guide](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).
 
 ### Focused compatibility checks
 
@@ -533,7 +548,7 @@ shape selected by the model's compatibility record:
 | Destination | Mapping |
 |-------------|---------|
 | Native OpenAI | Preserves all six canonical spellings in the final JSON request. |
-| Anthropic adaptive thinking | Maps `minimal` to `low` and sends `low`, `medium`, `high`, `xhigh`, and `max` explicitly. The provider default differs by model (Opus 5.5 defaults to `medium`, the others to `high`), so no level relies on it. |
+| Anthropic adaptive thinking | Maps `minimal` to `low` and sends `low`, `medium`, `high`, `xhigh`, and `max` explicitly. The provider default differs by model (Opus 5.5 and Haiku 5.5 default to `medium`, the others to `high`), so no level relies on it. |
 | Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |
 | DeepSeek, OpenRouter, and Together | Maps `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
 | Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
@@ -577,7 +592,7 @@ recorded in the call's evidence rather than being silent:
 
 Anthropic's adaptive-era generations — `claude-sonnet-5`, `claude-sonnet-5-5`,
 `claude-opus-4-7`, `claude-opus-4-8`, `claude-opus-5`, `claude-opus-5-5`,
-`claude-fable-5`, `claude-fable-5-1` — return a 400 for
+`claude-fable-5`, `claude-fable-5-1`, `claude-haiku-5-5` — return a 400 for
 `temperature`, `top_p` and `top_k`. baikai reads
 `AnthropicMessagesCompat.supportsSamplingParameters` off the model's
 catalog record, omits the parameters rather than sending a request it

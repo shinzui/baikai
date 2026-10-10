@@ -403,8 +403,8 @@ computeThinking compat m (Just lvl)
 -- | The effort word sent for each level on the adaptive style.
 --
 -- Every level sends a word, @high@ included. Anthropic's defaults differ
--- by model (Claude Opus 5.5 defaults to @medium@, other adaptive models
--- to @high@; see
+-- by model (Claude Opus 5.5 and Claude Haiku 5.5 default to @medium@,
+-- other adaptive models to @high@; see
 -- <https://platform.claude.com/docs/en/build-with-claude/effort>), so an
 -- omitted field does not mean @high@. Sending a model's default
 -- explicitly is documented as identical to omitting it.
