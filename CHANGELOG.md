@@ -7,6 +7,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.8.0.0] - 2026-10-10
+
 ### Added
 
 - Catalog: `anthropic_claude_haiku_5_5` (Claude Haiku 5.5, released
@@ -41,26 +43,89 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Documentation: the 2026-10-02 model refresh found no new OpenAI or Anthropic
   models; the catalog is unchanged. `docs/user/models-and-providers.md` notes
   Anthropic's retirement of Claude Sonnet 4.5 on 2026-11-30 (deprecation of
-  `anthropic_claude_sonnet_4_5` is planned in plan 89 for removal in 0.8.0.0),
+  `anthropic_claude_sonnet_4_5` is planned in plan 89 for a future release;
+  it remains in 0.8.0.0),
   why the access-gated Claude Mythos models are not curated, and how GPT-6
   Astra's new ultrafast service tier is costed.
 
 ### Fixed
 
-- Both batch CLI providers now own POSIX process groups and join their pipe
-  readers before acknowledging cancellation, preserving the asynchronous
-  exception and synchronously reaping direct children. This includes active
-  synthetic-stream consumption and executable-version evidence probes. Codex
-  removes its temporary schema only after subprocess cleanup. Darwin/Linux
-  coverage excludes children that deliberately escape the group and adopted
-  descendant reaping; Windows retains direct-child-only cleanup. See plan 90
-  and BUG-1. This fix is unreleased.
+- The shared batch subprocess scope now owns POSIX process groups, joins pipe
+  readers, and synchronously reaps direct children before acknowledging
+  cancellation. Executable-version probes use the same scope. Darwin/Linux
+  coverage excludes processes that deliberately escape the group and adopted
+  descendant reaping; Windows retains direct-child cleanup. The provider fixes
+  ship in `baikai-claude 0.7.1.1` and `baikai-openai 0.7.1.1`; see
+  [plan 90](docs/plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md)
+  and [BUG-1](docs/bug-reports/batch-cli-cancellation-leaves-child-alive.md).
 
 - `baikai`'s source distribution now ships `data/models/*.json` and the test
   suite's fixtures under `test/fixtures/`. Without them, running the suite from
   the Hackage tarball failed 27 of 794 tests on missing files: the fixtures
   themselves, plus the catalog round-trip test, whose `baikai-gen-models` run
   had no model data to read.
+
+## [baikai-claude 0.7.1.1] - 2026-10-10
+
+### Fixed
+
+- Batch `claude -p` calls stop owned POSIX process-group members and join pipe
+  readers before acknowledging cancellation, including active synthetic streams
+  and evidence probes. Preserves the original asynchronous exception. Resolves
+  [BUG-1](docs/bug-reports/batch-cli-cancellation-leaves-child-alive.md).
+
+### Changed
+
+- Requires `baikai ^>=0.8.0` for shared subprocess ownership and the new pricing
+  tier field. No provider API change. Haiku 5.5 request contracts are covered
+  by offline tests.
+
+## [baikai-openai 0.7.1.1] - 2026-10-10
+
+### Fixed
+
+- Batch `codex exec` calls stop owned POSIX process-group members and join pipe
+  readers before acknowledging cancellation, including active synthetic streams,
+  repeated cancellation, and evidence probes. The temporary schema survives
+  until subprocess cleanup finishes. Resolves
+  [BUG-1](docs/bug-reports/batch-cli-cancellation-leaves-child-alive.md).
+
+### Changed
+
+- Requires `baikai ^>=0.8.0` for shared subprocess ownership and the new pricing
+  tier field. No provider API change.
+
+## [baikai-trace-otel 0.4.0.2] - 2026-10-10
+
+### Changed
+
+- Requires `baikai ^>=0.8.0` for compatibility with the core pricing tier
+  change. No package API change.
+
+## [baikai-effectful 0.4.0.3] - 2026-10-10
+
+### Changed
+
+- Requires `baikai ^>=0.8.0` for compatibility with the core pricing tier
+  change. No package API change.
+
+## [baikai-kit 0.4.0.1] - 2026-10-10
+
+### Changed
+
+- Requires `baikai ^>=0.8.0` for compatibility with the core pricing tier
+  change. No package API change.
+
+## [baikai-agent 0.2.0.2] - 2026-10-10
+
+### Changed
+
+- Requires `baikai ^>=0.8.0` for compatibility with the core pricing tier
+  change. No package API change.
+- Raises the provider bounds to `baikai-claude ^>=0.7.1.1` and
+  `baikai-openai ^>=0.7.1.1`, so installing the tool selects the fixed batch
+  adapters. Binary regressions use the shared process fixture and cover both
+  cancellation and a 1MiB output flood.
 
 ## [baikai-kit 0.4.0.0] - 2026-10-02
 

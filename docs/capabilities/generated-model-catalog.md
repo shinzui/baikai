@@ -103,5 +103,11 @@ $ cabal test baikai               # CatalogSpec proves the two agree
   which carry the same `OpenAIResponses` override, and Claude Opus 5.5; it adds
   no new `compat` field. baikai 0.7.2.0 adds GPT-6.1 Sol (also on
   `OpenAIResponses`) and Claude Sonnet 5.5, again with no new `compat` field.
+  baikai 0.8.0.0 adds Claude Haiku 5.5 on Messages with adaptive thinking,
+  forced tool choice, and a 100,000-token pricing threshold. Its tier carries
+  its own long cache-write rate ([CAP-26](tiered-cache-write-pricing.md)). The
+  same refresh corrects Sonnet 5.5 cache-read pricing and Sonnet 4.5's context
+  window. The source distribution also ships the catalog JSON and test fixtures,
+  so its generation round trip can run outside the repository.
 - The refresh pipeline is driven by the repository's `update-models` skill, which
   is a maintainer tool in this repository and not something a consumer runs.

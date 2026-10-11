@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-10-10
+* **Release**: [BUG-1](batch-cli-cancellation-leaves-child-alive.md). Name core
+  0.8.0.0 and both adapters 0.7.1.1 as the fixed releases; consumer qualification
+  remains required before its guard can be removed.
 * **Fixed**: [BUG-1](batch-cli-cancellation-leaves-child-alive.md). Verify the fix committed in 87996dd on master: core and adapter cancellation suites pass, and the reproduction no longer reproduces for either adapter. Set status `fixed` with `fixedVersion: unreleased`; no fixed release is on Hackage yet.
 
 ## 2026-10-06

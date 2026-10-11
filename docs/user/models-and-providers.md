@@ -203,7 +203,8 @@ on 2026-09-30 and retires it on 2026-11-30, after which requests through
 to `anthropic_claude_sonnet_5_5`, which uses adaptive thinking, drops sampling
 options and rejects forced tool choice locally (see above).
 [Plan 89](../plans/89-carry-the-claude-sonnet-4-5-binding-through-its-retirement-without-silent-catalog-removal.md)
-adds a deprecation warning and schedules removal for baikai 0.8.0.0.
+proposes a deprecation warning and removal in a future release. The model
+remains available without a deprecation warning in baikai 0.8.0.0.
 
 Claude Mythos 5 and Mythos 5.1 are not in the catalog: Anthropic offers them only
 to approved [Project Glasswing](https://anthropic.com/glasswing) customers, and

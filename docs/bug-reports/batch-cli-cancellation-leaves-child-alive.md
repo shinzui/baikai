@@ -2,10 +2,10 @@
 type: Bug Report
 bugId: BUG-1
 title: "Cancelling a batch CLI provider leaves its child process alive"
-description: "Both released batch CLI adapters leave an owned fake executable's five-second child alive after cancellation is requested."
+description: "Both batch CLI adapters through 0.7.1.0 leave an owned fake executable's five-second child alive after cancellation is requested; fixed in 0.7.1.1 with core 0.8.0.0."
 status: fixed
-fixedVersion: unreleased
-resolution: "Fixed on master by 87996dd (shared owned process-group scope for both batch adapters and version probes) and qualified on Darwin and Linux by e95544f. Not yet published; released baikai 0.7.2.0 and adapters 0.7.1.0 still carry the defect, and the consumer guard stays until a fixed release passes positive probes."
+fixedVersion: "baikai 0.8.0.0; baikai-claude 0.7.1.1; baikai-openai 0.7.1.1"
+resolution: "Released in baikai 0.8.0.0 and baikai-claude/baikai-openai 0.7.1.1: owned POSIX process-group cleanup joins readers and preserves asynchronous cancellation. The consumer guard remains until its positive probes against these releases pass."
 severity: degraded
 origin: mori://shinzui/shikigami/plans/80-configure-model-providers-and-agent-launches-through-baikai
 affects: mori://shinzui/baikai
@@ -295,9 +295,10 @@ removal after cancellation.
 Validation counts and platform evidence are maintained in plan 90. The design
 findings in the earlier changes-requested self-review are addressed by this
 implementation and its regressions; the historical review remains recorded.
-BUG-1 stays `in-progress`, without a `fixedVersion`, until a fixed release is
-published. The consumer's `BatchCancellationReleaseRequired` guard remains in
-place and requires positive probes against that release before removal.
+At that implementation checkpoint, BUG-1 remained `in-progress`, without a
+`fixedVersion`, pending qualification and publication. The consumer's
+`BatchCancellationReleaseRequired` guard requires positive probes against a
+fixed release before removal.
 
 ## Fixed on master; release pending (verified 2026-10-10)
 
@@ -329,9 +330,12 @@ OpenAICompletionsCli worker_after_fixture_cleanup=Just "async"
   recorded child is gone. The script's non-zero exit now means the defect did
   not reproduce.
 
-Hackage still lists `baikai` 0.7.2.0 and `baikai-claude`/`baikai-openai` 0.7.1.0
-as the latest releases, so every published version still has the defect. The
-changelog's `[Unreleased]` section carries the fix. When the next releases are
-published, set `fixedVersion` to them. Shikigami must then run positive
-no-survivor probes against those releases before removing its
-`BatchCancellationReleaseRequired` guard.
+## Released fix — 2026-10-10
+
+The fix ships in `baikai 0.8.0.0`, `baikai-claude 0.7.1.1`, and
+`baikai-openai 0.7.1.1`. Earlier released versions carry the defect. The
+release sections in `CHANGELOG.md` describe the package changes, and
+[CAP-25](../capabilities/batch-cli-cancellation.md) records the guarantee.
+The consumer in mori://shinzui/shikigami must run positive no-survivor probes
+against these releases before removing its `BatchCancellationReleaseRequired`
+guard. Publication alone does not qualify the consumer.

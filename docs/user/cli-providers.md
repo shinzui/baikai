@@ -438,7 +438,8 @@ nothing" rather than "the call was free".
 
 ## Cancellation and subprocess ownership
 
-The unreleased fix for [BUG-1](../bug-reports/batch-cli-cancellation-leaves-child-alive.md)
+The fix in `baikai 0.8.0.0`, `baikai-claude 0.7.1.1`, and
+`baikai-openai 0.7.1.1` for [BUG-1](../bug-reports/batch-cli-cancellation-leaves-child-alive.md)
 uses the same process ownership scope for both batch providers and their optional
 `--version` evidence probe. On Darwin and Linux, cancelling a running complete
 call or a thread actively consuming the synthetic stream stops the invocation's
@@ -458,7 +459,7 @@ Windows performs direct-child cleanup without a descendant guarantee. POSIX
 cleanup requires `/bin/ps` to distinguish running processes from zombies, and
 executables using these providers must link the threaded Haskell runtime.
 
-The released adapters still have BUG-1 until a fixed version is published. See
+Adapters through 0.7.1.0 still have BUG-1; upgrade both adapters and core. See
 [plan 90](../plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md)
 for the offline regression evidence. Simply abandoning an unevaluated stream
 starts no batch process; active cancellation is the operation verified here.

@@ -61,6 +61,8 @@ documented as outside the PVP contract, and the OpenAI Responses backend
 | [Provider-native agent-asset layouts](agent-asset-layouts.md) | CAP-22 | `baikai` | 0.1.0.0 | Pure path rules for where each tool discovers skills and agents |
 | [OpenAI Responses API backend](openai-responses-backend.md) | CAP-23 | `baikai-openai` | 0.7.0.0 | The native Responses protocol, registered explicitly, with stateless reasoning replay |
 | [Inference speed preference and speed-aware pricing](inference-speed-control.md) | CAP-24 | `baikai` | 0.7.0.0 | One `Options.speed`, catalog-gated fast mode, cost priced at the observed speed |
+| [Batch cancellation with owned subprocess cleanup](batch-cli-cancellation.md) | CAP-25 | `baikai-claude`, `baikai-openai`, `baikai` | 0.7.1.1 | Owned POSIX groups stop, readers join, and direct children are reaped before cancellation propagates |
+| [Context-tiered cache-write duration pricing](tiered-cache-write-pricing.md) | CAP-26 | `baikai` | 0.8.0.0 | A crossed input tier supplies its own long cache-write rate |
 
 ## Deliberately excluded
 

@@ -32,13 +32,13 @@ evidence:
     proves: "The codex exec argument vector, including option termination before a dash-leading prompt and survival of a 1MiB stderr flood without deadlock."
   - kind: test
     resource: baikai/test/CliProcessSpec.hs
-    proves: "Unreleased shared ownership regression: group escalation, early leader reaping with an unreaped anchor, joined readers, repeated cancellation, successful-callback cleanup cancellation, and version-probe timeout."
+    proves: "Shared ownership regression in baikai 0.8.0.0: group escalation, early leader reaping with an unreaped anchor, joined readers, repeated cancellation, successful-callback cleanup cancellation, and version-probe timeout."
   - kind: test
     resource: baikai-claude/test/CliCancellationSpec.hs
-    proves: "Unreleased public Claude batch adapter: descendant cleanup precedes acknowledged cancellation for complete, active synthetic streams, and evidence probes."
+    proves: "Public Claude batch adapter in baikai-claude 0.7.1.1: descendant cleanup precedes acknowledged cancellation for complete, active synthetic streams, and evidence probes."
   - kind: test
     resource: baikai-openai/test/CliCancellationSpec.hs
-    proves: "Unreleased public Codex batch adapter: descendant cleanup precedes acknowledged cancellation, including repeated cancellation, active streams, version probes, and schema lifetime through termination."
+    proves: "Public Codex batch adapter in baikai-openai 0.7.1.1: descendant cleanup precedes acknowledged cancellation, including repeated cancellation, active streams, version probes, and schema lifetime through termination."
   - kind: guide
     resource: docs/user/cli-providers.md
     proves: "When to reach for a CLI provider instead of an API provider, how to configure each, the response shape they produce, and their limitations."
@@ -120,12 +120,14 @@ completeRequest modelWithCliTag ctx opts -- spawns `claude -p`
   release of either tool can change its event schema, and the failure mode is
   fields quietly going absent.
 
-## Unreleased cancellation fix
+## Cancellation ownership
 
-The positive regressions above verify the working-tree fix for
-[BUG-1](../bug-reports/batch-cli-cancellation-leaves-child-alive.md), implemented in
-[plan 90](../plans/90-terminate-owned-batch-cli-process-groups-before-acknowledging-cancellation.md).
-They add no claim about released adapters: a fixed release is still required.
+`baikai-claude 0.7.1.1` and `baikai-openai 0.7.1.1`, with `baikai 0.8.0.0`,
+fix [BUG-1](../bug-reports/batch-cli-cancellation-leaves-child-alive.md).
+The separately versioned guarantee is
+[CAP-25 — batch cancellation with owned subprocess cleanup](batch-cli-cancellation.md);
+consumers pinned to earlier adapters still have the batch providers described
+here, but lack that cleanup guarantee.
 On Darwin and Linux the shared scope stops inherited process-group members,
 joins pipe readers, reaps the CLI and ownership anchor, and preserves the first
 asynchronous exception before completing cancellation. The version evidence

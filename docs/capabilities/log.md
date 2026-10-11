@@ -1,5 +1,20 @@
 # Bundle Update Log
 
+## 2026-10-10
+
+* **Release**: Add [CAP-25](batch-cli-cancellation.md), first shipped in
+  `baikai-claude 0.7.1.1` and `baikai-openai 0.7.1.1` with `baikai 0.8.0.0`.
+  [CAP-15](subscription-cli-backends.md) retains its original `since` and links
+  the independently versioned cancellation guarantee.
+* **Release**: Add [CAP-26](tiered-cache-write-pricing.md), first shipped in
+  `baikai 0.8.0.0`, for the tier-specific long cache-write rate that earlier
+  policies cannot express. [CAP-7](usage-and-cost-accounting.md) retains its
+  original `since` and describes the constructor migration.
+* **Update**: [CAP-3](generated-model-catalog.md) records Haiku 5.5, corrected
+  Sonnet rates/context, and the source-distribution fixture fix. Existing
+  capability availability dates remain unchanged. Both new Haskell Shape blocks
+  have compiled doc-shapes counterparts.
+
 ## 2026-10-06
 * **Update**: [CAP-15](subscription-cli-backends.md). Add unreleased batch cancellation contract, real-process regression evidence, and explicit POSIX group/platform limits.
 

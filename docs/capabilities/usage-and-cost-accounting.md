@@ -59,6 +59,12 @@ produce explicitly identified standard-rate estimates. `computeCost` remains the
 ordinary standard-policy helper; `computeCostForService` checks observed billing
 facts, and `computeCostAtRates` prices an explicitly resolved rate set once.
 
+`baikai 0.8.0.0` combines a context tier with its own long cache-write rate;
+[CAP-26 — context-tiered cache-write duration pricing](tiered-cache-write-pricing.md)
+records that separately because the earlier pricing policy cannot express it.
+The new third `InputPriceTier` field breaks positional constructions; JSON
+without the key still decodes as `Nothing`.
+
 `Baikai.Cost.Log` adds an opt-in JSONL sink: each open handle owns a channel and
 a worker thread, `appendEntry` is a cheap channel push, and the worker drains to
 disk. Disk latency therefore never pads the apparent latency of

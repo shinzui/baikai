@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-10-10
+* **Release**: [CLI Providers](cli-providers.md) names the fixed core and batch
+  adapter versions and their cancellation contract. [Models & Providers](models-and-providers.md)
+  clarifies that Sonnet 4.5 removal remains future work after core 0.8.0.0.
+
 ## 2026-10-02
 * **Update**: Kit Packages documents item visibility, shared Claude links,
   guarded Codex config entries, the required Codex launcher session arguments,
