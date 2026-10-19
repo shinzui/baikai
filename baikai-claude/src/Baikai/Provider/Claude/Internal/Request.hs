@@ -344,6 +344,15 @@ emptyThinkingPlan =
 -- Display changes visibility only; it does not establish reasoning depth.
 -- Returning only the first is what this provider used to do, and it is
 -- why a caller could never tell an honoured request from a dropped one.
+--
+-- 'ThinkingNone' sends @thinking: {"type": "disabled"}@ when the
+-- generation accepts it ('supportsThinkingDisabled'), on either style:
+-- an adaptive generation would otherwise think by default, and on a
+-- budget one the explicit value is documented as identical to omitting
+-- the field. It carries no effort and no display, because Anthropic
+-- rejects @display@ beside @disabled@. A generation that rejects
+-- @disabled@ falls through to the adaptive branch below, where 'adaptiveEffort'
+-- clamps @none@ to @low@ and the clamp is recorded.
 computeThinking ::
   AnthropicMessagesCompat ->
   Model ->
@@ -361,6 +370,41 @@ computeThinking compat m (Just lvl)
             wireField = Nothing,
             displayText = Nothing,
             adjustments = [ThinkingDroppedUnsupportedModel lvl]
+          }
+      )
+  | lvl == ThinkingNone && compat ^. #supportsThinkingDisabled =
+      -- Opus 5 and Haiku 5.5 accept @disabled@ only at effort @high@ or
+      -- below. That is safe here: this branch sends no effort, so
+      -- @output_config@ effort is omitted.
+      ( ThinkingPlan
+          { field = Just Messages.ThinkingDisabled,
+            effort = Nothing,
+            budget = Nothing
+          },
+        ThinkingTranslation
+          { requested = Just lvl,
+            mode = ThinkingModeToggle,
+            effortText = Nothing,
+            budgetTokens = Nothing,
+            wireField = Just "thinking",
+            displayText = Nothing,
+            adjustments = []
+          }
+      )
+  | lvl == ThinkingNone && thinkingStyle compat /= AnthropicThinkingAdaptive =
+      -- Only a hand-rolled compat record reaches this: a budget-style
+      -- host that rejects @disabled@. Omitting the field is the provider
+      -- default, which a budget-era generation documents as no thinking,
+      -- but nothing on the wire says so.
+      ( emptyThinkingPlan,
+        ThinkingTranslation
+          { requested = Just lvl,
+            mode = ThinkingModeUnsupported,
+            effortText = Nothing,
+            budgetTokens = Nothing,
+            wireField = Nothing,
+            displayText = Nothing,
+            adjustments = [EffortOmitted lvl]
           }
       )
   | thinkingStyle compat == AnthropicThinkingAdaptive =
@@ -408,8 +452,13 @@ computeThinking compat m (Just lvl)
 -- <https://platform.claude.com/docs/en/build-with-claude/effort>), so an
 -- omitted field does not mean @high@. Sending a model's default
 -- explicitly is documented as identical to omitting it.
+--
+-- 'ThinkingNone' reaches this only on a generation that rejects
+-- @thinking: {"type": "disabled"}@, where @low@ is the least thinking
+-- the model can be asked for.
 adaptiveEffort :: ThinkingLevel -> Text
 adaptiveEffort = \case
+  ThinkingNone -> "low"
   ThinkingMinimal -> "low"
   ThinkingLow -> "low"
   ThinkingMedium -> "medium"

@@ -14,6 +14,7 @@ import Baikai.Provider.Claude.Internal.Stream (Assembler, emptyAssembler, transl
 import Claude.V1.Messages qualified as Messages
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BSL
 import Data.Char qualified as Char
 import Data.Generics.Labels ()
@@ -48,6 +49,7 @@ tests =
       tooSmallCapDropsThinkingTest,
       mergedOutputConfigTest,
       explicitCompatOverridesDefaultTest,
+      thinkingNoneTests,
       anthropicModelsCoverCatalogTest,
       testGroup "fast-mode catalog facts" [testCase name ((anthropicMessagesCompatFor m ^. #supportsFastMode) @?= fast) | (name, m, _, _, _, fast) <- anthropicModels],
       testGroup "forced-tool catalog facts" [testCase name ((anthropicMessagesCompatFor m ^. #supportsForcedToolChoice) @?= forced) | (name, m, _, _, forced, _) <- anthropicModels],
@@ -355,6 +357,113 @@ explicitCompatOverridesDefaultTest =
     requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
     (req ^. #output_config >>= Messages.effort) @?= Just "low"
 
+-- | 'ThinkingNone' against every catalog model, and the wire bytes it
+-- and the settings it sits beside produce.
+--
+-- Whether a model accepts @thinking: {"type": "disabled"}@ is pinned
+-- by hand in @CatalogSpec@; here it is read off the record, because
+-- what is under test is the request built from it.
+thinkingNoneTests :: TestTree
+thinkingNoneTests =
+  testGroup
+    "ThinkingNone"
+    ( [ testCase (name <> " none") $ do
+          let opts = emptyOptions & #thinking .~ Just ThinkingNone
+          (req, t) <- mappedFor model emptyContext opts
+          t ^. #requested @?= Just ThinkingNone
+          if anthropicMessagesCompatFor model ^. #supportsThinkingDisabled
+            then do
+              requestThinking req @?= Just Messages.ThinkingDisabled
+              (req ^. #output_config >>= Messages.effort) @?= Nothing
+              req ^. #max_tokens @?= model ^. #maxOutputTokens
+              t ^. #mode @?= ThinkingModeToggle
+              t ^. #wireField @?= Just "thinking"
+              t ^. #effortText @?= Nothing
+              t ^. #displayText @?= Nothing
+              t ^. #adjustments @?= []
+            else do
+              -- Anthropic rejects "disabled" here, so the least thinking
+              -- the model can be asked for is adaptive at low effort.
+              requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
+              (req ^. #output_config >>= Messages.effort) @?= Just "low"
+              t ^. #mode @?= ThinkingModeAdaptive
+              t ^. #adjustments @?= [EffortClamped ThinkingNone "low"]
+      | (name, model, _, _, _, _) <- anthropicModels
+      ]
+        <> [ testCase "Haiku 5.5 none sends exactly {\"type\":\"disabled\"} and no output_config" $ do
+               body <- requestBody anthropic_claude_haiku_5_5 (emptyOptions & #thinking .~ Just ThinkingNone)
+               KeyMap.lookup "thinking" body @?= Just (Aeson.object ["type" Aeson..= ("disabled" :: Text.Text)])
+               KeyMap.member "output_config" body @?= False,
+             testCase "Haiku 5.5 with no level still omits thinking and output_config" $ do
+               -- Nothing leaves the model's own default in force; on an
+               -- adaptive generation that is to think. Unchanged by the
+               -- arrival of ThinkingNone.
+               body <- requestBody anthropic_claude_haiku_5_5 emptyOptions
+               KeyMap.member "thinking" body @?= False
+               KeyMap.member "output_config" body @?= False,
+             testCase "Haiku 5.5 low still sends adaptive with summarized display" $ do
+               body <- requestBody anthropic_claude_haiku_5_5 (emptyOptions & #thinking .~ Just ThinkingLow)
+               KeyMap.lookup "thinking" body
+                 @?= Just
+                   ( Aeson.object
+                       [ "type" Aeson..= ("adaptive" :: Text.Text),
+                         "display" Aeson..= ("summarized" :: Text.Text)
+                       ]
+                   )
+               KeyMap.lookup "output_config" body
+                 @?= Just (Aeson.object ["effort" Aeson..= ("low" :: Text.Text)]),
+             testCase "none keeps a JSON-schema output_config without an effort" $ do
+               let schema = Aeson.object ["type" Aeson..= ("object" :: Text.Text)]
+                   opts =
+                     emptyOptions
+                       & #thinking .~ Just ThinkingNone
+                       & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "answer" schema))
+               req <- requestFor anthropic_claude_haiku_5_5 opts
+               requestThinking req @?= Just Messages.ThinkingDisabled
+               req ^. #output_config @?= Just (Messages.jsonSchemaConfig schema),
+             testCase "a budget-style host that rejects disabled omits the field and says so" $ do
+               let model =
+                     anthropic_claude_haiku_4_5
+                       & #compat .~ CompatAnthropicMessages (defaultAnthropicMessagesCompat {supportsThinkingDisabled = False})
+                   opts = emptyOptions & #thinking .~ Just ThinkingNone
+               (req, t) <- mappedFor model emptyContext opts
+               requestThinking req @?= Nothing
+               req ^. #max_tokens @?= model ^. #maxOutputTokens
+               t ^. #mode @?= ThinkingModeUnsupported
+               t ^. #wireField @?= Nothing
+               t ^. #adjustments @?= [EffortOmitted ThinkingNone],
+             testCase "strict evidence accepts none where disabled is sent" $
+               checkEvidenceRequirements
+                 (EvidenceRequired EvidenceRequestedOnly)
+                 (declaredStrength AnthropicMessages)
+                 (describeThinkingFor anthropic_claude_haiku_5_5 (emptyOptions & #thinking .~ Just ThinkingNone))
+                 @?= [],
+             testCase "strict evidence refuses none where it is clamped to low" $
+               assertBool "Opus 5.5 cannot turn thinking off, so a strict caller is refused" $
+                 not . null $
+                   checkEvidenceRequirements
+                     (EvidenceRequired EvidenceRequestedOnly)
+                     (declaredStrength AnthropicMessages)
+                     (describeThinkingFor anthropic_claude_opus_5_5 (emptyOptions & #thinking .~ Just ThinkingNone)),
+             testCase "strict evidence accepts none on a model that cannot reason" $ do
+               let model = anthropic_claude_haiku_4_5 & #reasoning .~ False
+                   opts = emptyOptions & #thinking .~ Just ThinkingNone
+               t <- translationFor model opts
+               t ^. #adjustments @?= [ThinkingDroppedUnsupportedModel ThinkingNone]
+               checkEvidenceRequirements
+                 (EvidenceRequired EvidenceRequestedOnly)
+                 (declaredStrength AnthropicMessages)
+                 t
+                 @?= []
+           ]
+    )
+  where
+    requestBody model opts = do
+      req <- requestFor model opts
+      case Aeson.toJSON req of
+        Aeson.Object o -> pure o
+        other -> assertFailure ("request did not encode as an object: " <> show other)
+
 requestFor :: Model -> Options -> IO Messages.CreateMessage
 requestFor model opts = fst <$> mappedFor model emptyContext opts
 
@@ -372,6 +481,7 @@ requestThinking Messages.CreateMessage {Messages.thinking = t} = t
 
 adaptiveEffort :: ThinkingLevel -> Maybe Text.Text
 adaptiveEffort = \case
+  ThinkingNone -> Just "low"
   ThinkingMinimal -> Just "low"
   ThinkingLow -> Just "low"
   ThinkingMedium -> Just "medium"

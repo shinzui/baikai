@@ -413,7 +413,7 @@ jobs {
     provider      "claude"          // required: claude | codex
     working-dir   "."               // required; must stay inside the repository
     model         "sonnet"          // optional
-    effort        "high"            // optional: minimal|low|medium|high|xhigh|max
+    effort        "high"            // optional: none|minimal|low|medium|high|xhigh|max
     timeout       "45m"             // optional; no limit when omitted
     output        "inherit"         // inherit | capture | tee; default inherit
     output-format "text"            // text | json; default text
@@ -477,7 +477,7 @@ $ baikai agent run review --prompt "look" --set executable=/opt/bin/claude
 | `safety.capability` | `read-only` \| `edit-workspace` \| `full-access` | yes | — |
 | `executable` | path | no | resolved on `PATH` |
 | `model` | text | no | the tool's own default |
-| `effort` | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | no | the tool's own default |
+| `effort` | `none` \| `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | no | the tool's own default |
 | `extra-dirs` | list of paths | no | empty |
 | `timeout` | duration | no | no limit |
 | `output` | `inherit` \| `capture` \| `tee` | no | `inherit` |
@@ -875,8 +875,8 @@ Three cross-provider facts matter more than the tables:
   prompt is given, `codex exec` appends standard input as a `<stdin>` block.
 
 Reasoning effort follows each tool's own vocabulary. Claude receives
-`--effort`, whose values do not include `minimal`, so `minimal` maps up to
-`low`. Codex receives `-c model_reasoning_effort=<level>` and takes all six
+`--effort`, whose values include neither `none` nor `minimal`, so both map up to
+`low`. Codex receives `-c model_reasoning_effort=<level>` and takes all seven
 canonical levels unchanged. A blank `model` emits no `--model` flag on either
 provider.
 

@@ -3,7 +3,7 @@
 -- | Provider-agnostic reasoning-effort preference.
 --
 -- Each provider maps the value to its own primitive. The canonical
--- rendering spans @minimal@ through @max@, while provider boundaries
+-- rendering spans @none@ through @max@, while provider boundaries
 -- may preserve, translate, or clamp values according to their APIs.
 -- 'thinkingTokenBudget' provides the recommended budget for
 -- token-based providers.
@@ -25,7 +25,17 @@ import Numeric.Natural (Natural)
 -- provider's vocabulary, fine enough to influence behaviour in a
 -- meaningful way.
 data ThinkingLevel
-  = ThinkingMinimal
+  = -- | Ask for no reasoning at all. This is not the same as leaving
+    -- 'Baikai.Options.thinking' at 'Nothing': that sends nothing and
+    -- leaves the model's own default in force, which on an adaptive
+    -- Anthropic generation such as Claude Haiku 5.5 is to think. This
+    -- level asks for thinking to be turned off: Anthropic Messages
+    -- sends @thinking: {"type": "disabled"}@ to a model whose catalog
+    -- record says it accepts that ('Baikai.Compat.supportsThinkingDisabled')
+    -- and otherwise clamps to the lowest effort the model has; native
+    -- OpenAI sends the effort word @none@.
+    ThinkingNone
+  | ThinkingMinimal
   | ThinkingLow
   | ThinkingMedium
   | ThinkingHigh
@@ -37,6 +47,7 @@ data ThinkingLevel
 -- | Render the canonical Baikai name for a reasoning-effort level.
 renderThinkingLevel :: ThinkingLevel -> Text
 renderThinkingLevel = \case
+  ThinkingNone -> "none"
   ThinkingMinimal -> "minimal"
   ThinkingLow -> "low"
   ThinkingMedium -> "medium"
@@ -51,6 +62,7 @@ renderThinkingLevel = \case
 -- @Baikai.Agent.Cli@ — did the first time a level was added.
 parseThinkingLevel :: Text -> Maybe ThinkingLevel
 parseThinkingLevel = \case
+  "none" -> Just ThinkingNone
   "minimal" -> Just ThinkingMinimal
   "low" -> Just ThinkingLow
   "medium" -> Just ThinkingMedium
@@ -60,9 +72,11 @@ parseThinkingLevel = \case
   _ -> Nothing
 
 -- | Recommended token budget for providers that take an explicit
--- count (Anthropic's @thinking.budget_tokens@).
+-- count (Anthropic's @thinking.budget_tokens@). 'ThinkingNone' asks
+-- for no budget, so it is @0@; no provider sends a budget for it.
 thinkingTokenBudget :: ThinkingLevel -> Natural
 thinkingTokenBudget = \case
+  ThinkingNone -> 0
   ThinkingMinimal -> 1024
   ThinkingLow -> 2048
   ThinkingMedium -> 8192

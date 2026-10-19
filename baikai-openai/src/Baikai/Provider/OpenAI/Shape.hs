@@ -164,7 +164,8 @@ injectThinkingShape compat modelReasons opts body =
 
 -- | Resolve to the nearest accepted level at or above the request, or
 -- the greatest accepted level when the request exceeds the policy.
--- Invalid empty policies are rejected by request validation.
+-- Invalid empty policies are rejected by request validation. A policy
+-- that does not list @none@ resolves it to its lowest level.
 resolveSupportedEffort :: Maybe [ThinkingLevel] -> ThinkingLevel -> ThinkingLevel
 resolveSupportedEffort Nothing lvl = lvl
 resolveSupportedEffort (Just []) lvl = lvl
@@ -226,11 +227,11 @@ injectEffort compat modelReasons opts body =
               effortTranslation lvl e "reasoning_effort"
             )
       ThinkingFormatZai ->
-        ( insertTop "enable_thinking" (Bool True) body,
+        ( insertTop "enable_thinking" (Bool (lvl /= ThinkingNone)) body,
           toggleTranslation lvl
         )
       ThinkingFormatQwen ->
-        ( insertTop "enable_thinking" (Bool True) body,
+        ( insertTop "enable_thinking" (Bool (lvl /= ThinkingNone)) body,
           toggleTranslation lvl
         )
 
@@ -275,7 +276,8 @@ effortTranslation lvl wire field =
 -- Every level collapses, including the ones whose canonical name a
 -- richer host would have accepted, because the wire carries no depth:
 -- a caller asking for @max@ and a caller asking for @low@ produce
--- byte-identical requests here.
+-- byte-identical requests here. @none@ is the one level such a host
+-- expresses exactly: it sends @enable_thinking: false@.
 toggleTranslation :: ThinkingLevel -> ThinkingTranslation
 toggleTranslation lvl =
   ThinkingTranslation
@@ -285,7 +287,7 @@ toggleTranslation lvl =
       budgetTokens = Nothing,
       wireField = Just "enable_thinking",
       displayText = Nothing,
-      adjustments = [EffortCollapsedToToggle lvl]
+      adjustments = [EffortCollapsedToToggle lvl | lvl /= ThinkingNone]
     }
 
 injectCacheControl :: OpenAICompletionsCompat -> Options -> Aeson.Value -> Aeson.Value
@@ -390,9 +392,11 @@ key :: Text -> AesonKey.Key
 key = AesonKey.fromText
 
 -- | Common effort vocabulary supported by the non-native
--- OpenAI-compatible request shapes above.
+-- OpenAI-compatible request shapes above. It has no word for no
+-- reasoning, so @none@ clamps to @low@ and the clamp is recorded.
 compatibleEffort :: ThinkingLevel -> Text
 compatibleEffort = \case
+  ThinkingNone -> "low"
   ThinkingMinimal -> "low"
   ThinkingLow -> "low"
   ThinkingMedium -> "medium"

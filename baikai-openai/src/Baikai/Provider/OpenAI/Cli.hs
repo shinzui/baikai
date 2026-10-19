@@ -186,7 +186,7 @@ codexCliCommandWith cfg schemaFile m ctx opts =
   )
 
 -- | Render Codex's reasoning-effort config override from
--- 'Options.thinking'. Codex accepts all six Baikai levels verbatim;
+-- 'Options.thinking'. Codex accepts all seven Baikai levels verbatim;
 -- when 'thinking' is unset, no override is emitted.
 effortArgs :: Options -> [String]
 effortArgs opts = case opts ^. #thinking of
@@ -194,7 +194,7 @@ effortArgs opts = case opts ^. #thinking of
   Just lvl -> ["-c", "model_reasoning_effort=" <> Text.unpack (codexEffortValue lvl)]
 
 -- | The word codex's @model_reasoning_effort@ override receives. Codex
--- accepts all six baikai levels verbatim, which makes this the identity
+-- accepts all seven baikai levels verbatim, which makes this the identity
 -- — and makes it the one transport in baikai that expresses every level
 -- exactly.
 codexEffortValue :: ThinkingLevel -> Text

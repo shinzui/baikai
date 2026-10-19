@@ -148,7 +148,7 @@ compatibleHigherEffortClampTest =
     lookupTop "reasoning_effort" value @?= Just (String "high")
 
 -- ============================================================
--- The forty-two-row translation table
+-- The forty-nine-row translation table
 -- ============================================================
 
 -- | Every canonical level against every wire shape: what goes on the
@@ -196,7 +196,8 @@ everyThinkingFormat =
 -- empty adjustment list means.
 effortRows :: [(ThinkingLevel, Text.Text, Text.Text, [ThinkingAdjustment])]
 effortRows =
-  [ (ThinkingMinimal, "minimal", "low", [EffortClamped ThinkingMinimal "low"]),
+  [ (ThinkingNone, "none", "low", [EffortClamped ThinkingNone "low"]),
+    (ThinkingMinimal, "minimal", "low", [EffortClamped ThinkingMinimal "low"]),
     (ThinkingLow, "low", "low", []),
     (ThinkingMedium, "medium", "medium", []),
     (ThinkingHigh, "high", "high", []),
@@ -258,7 +259,8 @@ expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
     )
   where
     -- Z.ai and Qwen carry no depth at all, so every level collapses --
-    -- including the ones a richer host would have accepted verbatim.
+    -- including the ones a richer host would have accepted verbatim --
+    -- except none, which a toggle expresses exactly by switching off.
     collapsed =
       ( ThinkingTranslation
           { requested = Just lvl,
@@ -267,9 +269,9 @@ expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
             budgetTokens = Nothing,
             wireField = Just "enable_thinking",
             displayText = Nothing,
-            adjustments = [EffortCollapsedToToggle lvl]
+            adjustments = [EffortCollapsedToToggle lvl | lvl /= ThinkingNone]
           },
-        [("enable_thinking", Bool True)],
+        [("enable_thinking", Bool (lvl /= ThinkingNone))],
         ["reasoning_effort", "reasoning", "thinking"]
       )
 

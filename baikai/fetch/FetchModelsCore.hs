@@ -204,6 +204,8 @@ data AnthropicGenerationFacts = AnthropicGenerationFacts
   { thinkingStyle :: !AnthropicThinkingStyle,
     supportsSamplingParameters :: !Bool,
     supportsForcedToolChoice :: !Bool,
+    -- | Whether the generation accepts @thinking: {"type": "disabled"}@.
+    supportsThinkingDisabled :: !Bool,
     fastModeCost :: !(Maybe CatalogCost)
   }
   deriving stock (Eq, Show, Generic)
@@ -371,11 +373,11 @@ anthropicInclude =
       -- and sent it budget_tokens — same source.
       ("claude-sonnet-5", adaptiveNoSampling),
       -- 2026-09-29: adaptive thinking on by default; forced tool choice and
-      -- nondefault sampling return 400; no fast mode. Baikai never sends
-      -- the rejected "disabled" thinking type.
+      -- nondefault sampling return 400; no fast mode. The "disabled" thinking
+      -- type returns 400 too; its lowest setting is "between_tools".
       -- https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
       -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
-      ("claude-sonnet-5-5", adaptiveNoSampling & #supportsForcedToolChoice .~ False),
+      ("claude-sonnet-5-5", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False),
       -- 2026-08-27: as claude-opus-4-6 — budget deprecated but functional,
       -- sampling accepted; baikai prefers the non-deprecated shape — same
       -- source. Plan 40 left this membership to a live check that never
@@ -394,23 +396,27 @@ anthropicInclude =
       -- https://platform.claude.com/docs/en/build-with-claude/effort
       ("claude-haiku-5-5", adaptiveNoSampling),
       -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
-      ("claude-fable-5", adaptiveNoSampling),
+      ("claude-fable-5", adaptiveNoSampling & #supportsThinkingDisabled .~ False),
       -- 2026-09-07: always-on adaptive thinking; omit sampling parameters.
       -- https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1
-      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False)
+      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False)
     ]
   where
-    opus55Facts = adaptiveNoSampling & #supportsForcedToolChoice .~ False & #fastModeCost ?~ CatalogCost 8 40 0.4 10
+    opus55Facts = adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False & #fastModeCost ?~ CatalogCost 8 40 0.4 10
     -- 2026-09-23: Fable 5.1 and Opus 5.5 reject forced choice; older curated
     -- models accept it subject to their separate manual-thinking constraint.
     -- https://platform.claude.com/docs/en/api/errors
     -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
+    -- 2026-10-19: Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject
+    -- thinking {"type": "disabled"} with a 400; every other curated model
+    -- accepts it (Haiku 5.5 and Opus 5 only at effort high or below).
+    -- https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
     -- 2026-09-07: Opus 5 and 4.8 only; cache multipliers stack on fast rates.
     -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
     fastAdaptive = adaptiveNoSampling & #fastModeCost ?~ CatalogCost 10 50 1 12.5
-    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True Nothing
-    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True Nothing
-    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True Nothing
+    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True True Nothing
+    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True True Nothing
+    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True True Nothing
 
 -- | OpenAI curation with a Chat default and explicit Responses overrides.
 openaiSpec :: ProviderSpec
@@ -722,7 +728,8 @@ renderModelCompat (Just (CatalogAnthropicCompat facts)) =
       <> jsonBool (facts ^. #supportsSamplingParameters)
       <> ",",
     "        \"supportsFastMode\": " <> jsonBool (maybe False (const True) (facts ^. #fastModeCost)) <> ",",
-    "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice),
+    "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice) <> ",",
+    "        \"supportsThinkingDisabled\": " <> jsonBool (facts ^. #supportsThinkingDisabled),
     "      },"
   ]
 renderModelCompat (Just (CatalogOpenAICompat facts)) =

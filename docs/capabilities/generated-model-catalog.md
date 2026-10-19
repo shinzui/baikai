@@ -108,6 +108,9 @@ $ cabal test baikai               # CatalogSpec proves the two agree
   its own long cache-write rate ([CAP-26](tiered-cache-write-pricing.md)). The
   same refresh corrects Sonnet 5.5 cache-read pricing and Sonnet 4.5's context
   window. The source distribution also ships the catalog JSON and test fixtures,
-  so its generation round trip can run outside the repository.
+  so its generation round trip can run outside the repository. The next
+  release adds `supportsThinkingDisabled` to the Anthropic block (legacy JSON
+  defaults it to `True`); it is `false` for Opus 5.5, Sonnet 5.5, Fable 5 and
+  Fable 5.1, which reject `thinking: {"type": "disabled"}`.
 - The refresh pipeline is driven by the repository's `update-models` skill, which
   is a maintainer tool in this repository and not something a consumer runs.

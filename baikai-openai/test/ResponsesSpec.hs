@@ -76,14 +76,15 @@ tests =
         field "output" (items !! 3) @?= Just (String "found")
         field "previous_response_id" req.requestBody @?= Nothing
         req.translation @?= R.describeThinking model emptyOptions,
-      testCase "every accepted effort survives; minimal adjusts with evidence" $ do
-        forM_ [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax] $ \level -> do
+      testCase "every accepted effort survives; none and minimal adjust with evidence" $ do
+        forM_ [ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax] $ \level -> do
           let opts = emptyOptions & #thinking .~ Just level
-              expected = if level == ThinkingMinimal then "low" else renderThinkingLevel level
+              clamped = level < ThinkingLow
+              expected = if clamped then "low" else renderThinkingLevel level
           req <- mapped model emptyContext opts
           field "reasoning" req.requestBody @?= Just (object ["effort" .= expected])
           req.translation @?= R.describeThinking model opts
-          req.translation.adjustments @?= [EffortClamped ThinkingMinimal "low" | level == ThinkingMinimal],
+          req.translation.adjustments @?= [EffortClamped level "low" | clamped],
       testCase "sampling restriction is visible even without thinking" $ do
         let opts = emptyOptions & #temperature .~ Just 0.5 & #topP .~ Just 0.8
         req <- mapped model emptyContext opts
