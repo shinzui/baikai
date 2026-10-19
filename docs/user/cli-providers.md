@@ -389,9 +389,9 @@ types compile:
    accepted to keep the dispatch signature uniform, not because the
    CLI providers consume most of it. There are three exceptions.
    `Options.thinking` is forwarded as the app's reasoning-effort flag —
-   `claude -p` receives `--effort <level>` (with `minimal` collapsed to
-   `low`, since the `claude` CLI has no `minimal`) and `codex exec`
-   receives `-c model_reasoning_effort=<level>` (all six levels
+   `claude -p` receives `--effort <level>` (with `none` and `minimal` collapsed to
+   `low`, since the `claude` CLI has neither) and `codex exec`
+   receives `-c model_reasoning_effort=<level>` (all seven levels
    verbatim); leaving `thinking = Nothing` emits no effort flag.
    `Options.responseFormat` is forwarded when it is a `JsonSchema`
    (see [Structured output](#structured-output)). And

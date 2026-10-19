@@ -7,6 +7,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `Baikai.ThinkingLevel.ThinkingNone` (canonical spelling `none`) asks for no
+  reasoning, where `thinking = Nothing` keeps the model's default. Anthropic
+  Messages sends `thinking: {"type": "disabled"}` with no effort and no
+  display. Claude Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject
+  `disabled`, so there `none` is sent as adaptive `low` and recorded as
+  `effort_clamped`. Sonnet 5.5's documented off switch,
+  `thinking: {"type": "between_tools"}`, is a deliberate follow-up; for now
+  Sonnet 5.5 clamps to adaptive `low`.
+  Native OpenAI and codex send `none` verbatim, Z.ai and Qwen send
+  `enable_thinking: false`, and DeepSeek, OpenRouter, Together and
+  `claude --effort` clamp it to `low`.
+
+- `Baikai.Compat.AnthropicMessagesCompat` gains `supportsThinkingDisabled`,
+  curated in the catalog: `false` for Opus 5.5, Sonnet 5.5, Fable 5 and
+  Fable 5.1, `true` elsewhere. Legacy JSON defaults it to `True`.
+
+### Changed (breaking)
+
+- `ThinkingLevel` gains a first constructor, `ThinkingNone`, below
+  `ThinkingMinimal`. __Breaking__ for an exhaustive `case` over
+  `ThinkingLevel`, and for code that relies on `ThinkingMinimal` being its
+  least value.
+
 ## [baikai 0.8.0.0] - 2026-10-10
 
 ### Added

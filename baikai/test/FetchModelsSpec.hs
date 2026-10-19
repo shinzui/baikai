@@ -111,6 +111,7 @@ expectedAnthropic =
                           { thinkingStyle = AnthropicThinkingBudget,
                             supportsSamplingParameters = True,
                             supportsForcedToolChoice = True,
+                            supportsThinkingDisabled = True,
                             fastModeCost = Nothing
                           }
                       )
@@ -281,7 +282,8 @@ tests =
                 "        \"thinkingStyle\": \"budget\",",
                 "        \"supportsSamplingParameters\": true,",
                 "        \"supportsFastMode\": false,",
-                "        \"supportsForcedToolChoice\": true",
+                "        \"supportsForcedToolChoice\": true,",
+                "        \"supportsThinkingDisabled\": true",
                 "      },"
               ]
               `Text.isInfixOf` rendered

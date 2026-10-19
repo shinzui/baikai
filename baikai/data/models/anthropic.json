@@ -22,7 +22,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": false
       },
       "enabled": true
     },
@@ -45,7 +46,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": false
+        "supportsForcedToolChoice": false,
+        "supportsThinkingDisabled": false
       },
       "enabled": true
     },
@@ -67,7 +69,8 @@
         "thinkingStyle": "budget",
         "supportsSamplingParameters": true,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -90,7 +93,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -112,7 +116,8 @@
         "thinkingStyle": "budget",
         "supportsSamplingParameters": true,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -134,7 +139,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": true,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -156,7 +162,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -180,7 +187,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": true,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -204,7 +212,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": true,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -228,7 +237,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": true,
-        "supportsForcedToolChoice": false
+        "supportsForcedToolChoice": false,
+        "supportsThinkingDisabled": false
       },
       "enabled": true
     },
@@ -250,7 +260,8 @@
         "thinkingStyle": "budget",
         "supportsSamplingParameters": true,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -272,7 +283,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": true,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -294,7 +306,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": true
+        "supportsForcedToolChoice": true,
+        "supportsThinkingDisabled": true
       },
       "enabled": true
     },
@@ -317,7 +330,8 @@
         "thinkingStyle": "adaptive",
         "supportsSamplingParameters": false,
         "supportsFastMode": false,
-        "supportsForcedToolChoice": false
+        "supportsForcedToolChoice": false,
+        "supportsThinkingDisabled": false
       },
       "enabled": true
     }

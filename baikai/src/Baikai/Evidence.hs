@@ -320,13 +320,17 @@ data ThinkingAdjustment
 -- the requested thinking level; it must not refuse one merely because
 -- a sampling parameter had nowhere to go. The six level-carrying
 -- constructors weaken thinking; the sampling and speed ones do not.
+--
+-- One exception: a model or host that cannot reason at all already
+-- does what 'ThinkingNone' asks, so dropping a @none@ request there
+-- weakens nothing.
 weakensThinking :: ThinkingAdjustment -> Bool
 weakensThinking = \case
   EffortClamped {} -> True
   EffortCollapsedToToggle {} -> True
   EffortOmitted {} -> True
-  ThinkingDroppedUnsupportedModel {} -> True
-  ThinkingDroppedUnsupportedHost {} -> True
+  ThinkingDroppedUnsupportedModel lvl -> lvl /= ThinkingNone
+  ThinkingDroppedUnsupportedHost lvl -> lvl /= ThinkingNone
   ThinkingDroppedBudgetExceeded {} -> True
   SamplingDroppedUnsupportedModel {} -> False
   SamplingDroppedUnsupportedApi {} -> False

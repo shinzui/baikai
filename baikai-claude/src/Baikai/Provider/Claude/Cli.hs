@@ -67,7 +67,7 @@ import Baikai.Response qualified as Resp
 import Baikai.ResponseFormat (ResponseFormat (..), declaredStructuredOutput)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.ThinkingLevel (ThinkingLevel (ThinkingMinimal), renderThinkingLevel)
+import Baikai.ThinkingLevel (ThinkingLevel (ThinkingMinimal, ThinkingNone), renderThinkingLevel)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Exception (SomeException, displayException, fromException)
 import Control.Lens ((&), (.~), (^.))
@@ -171,7 +171,8 @@ structuredBody r = case r ^. #structuredOutput of
     | otherwise -> Right (Internal.decodeUtf8Lenient (LBS.toStrict (Aeson.encode v)))
 
 -- | Render @--effort@ from 'Options.thinking'. Claude's @--effort@ has
--- no @minimal@, so the lowest Baikai level collapses to @low@; when
+-- no @minimal@ and no way to turn thinking off, so the two lowest Baikai
+-- levels, @none@ and @minimal@, collapse to @low@; when
 -- 'thinking' is unset, no effort flag is emitted.
 effortArgs :: Options -> [String]
 effortArgs opts = case opts ^. #thinking of
@@ -179,6 +180,7 @@ effortArgs opts = case opts ^. #thinking of
   Just lvl -> ["--effort", Text.unpack (claudeEffortValue lvl)]
 
 claudeEffortValue :: ThinkingLevel -> Text
+claudeEffortValue ThinkingNone = "low"
 claudeEffortValue ThinkingMinimal = "low"
 claudeEffortValue lvl = renderThinkingLevel lvl
 

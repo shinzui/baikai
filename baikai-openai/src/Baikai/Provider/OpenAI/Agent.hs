@@ -121,7 +121,7 @@ codexAgentCommand cfg req
 -- The adjustment list is derived by comparing what 'effortArgs' actually
 -- sends — through the same 'codexEffortValue' — with the canonical level
 -- name, rather than being hardcoded empty. It is empty at every level,
--- because codex is the one tool baikai drives that accepts all six
+-- because codex is the one tool baikai drives that accepts all seven
 -- verbatim; writing @[]@ by hand would keep claiming that after someone
 -- changed the mapping.
 --
@@ -195,7 +195,7 @@ modelArgs req = case Text.strip <$> req ^. #modelId of
   Just mid -> ["--model", Text.unpack mid]
 
 -- | Codex receives reasoning effort through a config override and
--- accepts all six canonical Baikai levels, so there is no clamp here —
+-- accepts all seven canonical Baikai levels, so there is no clamp here —
 -- unlike Claude, whose @--effort@ has no @minimal@ value. The
 -- provider-only @none@ and @ultra@ values remain available through raw
 -- provider arguments.
@@ -206,7 +206,7 @@ effortArgs req = case req ^. #effort of
     ["-c", "model_reasoning_effort=" <> Text.unpack (codexEffortValue lvl)]
 
 -- | The word codex's @model_reasoning_effort@ override receives. Codex
--- accepts all six baikai levels verbatim, which makes this the identity.
+-- accepts all seven baikai levels verbatim, which makes this the identity.
 codexEffortValue :: ThinkingLevel -> Text
 codexEffortValue = renderThinkingLevel
 

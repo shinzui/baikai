@@ -542,22 +542,25 @@ API callers select a provider-neutral reasoning preference through
 let opts = emptyOptions & #thinking .~ Just ThinkingXHigh
 ```
 
-`ThinkingLevel` has six ordered values: `ThinkingMinimal`,
-`ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`, `ThinkingXHigh`, and
-`ThinkingMax`. Their canonical spellings are `minimal`, `low`,
-`medium`, `high`, `xhigh`, and `max`. Leaving `thinking = Nothing`
-omits the reasoning control and lets the provider use its default.
+`ThinkingLevel` has seven ordered values: `ThinkingNone`,
+`ThinkingMinimal`, `ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`,
+`ThinkingXHigh`, and `ThinkingMax`. Their canonical spellings are
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Leaving
+`thinking = Nothing` omits the reasoning control and lets the provider
+use its default, which on an adaptive Anthropic model such as Claude
+Haiku 5.5 is to think. `ThinkingNone` asks for no reasoning instead.
 
 Providers translate this shared vocabulary according to the request
 shape selected by the model's compatibility record:
 
 | Destination | Mapping |
 |-------------|---------|
-| Native OpenAI | Preserves all six canonical spellings in the final JSON request. |
+| Native OpenAI | Preserves all seven canonical spellings in the final JSON request. A catalog policy that does not list `none` resolves it to the policy's lowest level. |
+| Anthropic, `none` | Sends `thinking: {"type": "disabled"}` with no effort and no display where the catalog's `supportsThinkingDisabled` says the model accepts it. Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject it, so there `none` is sent as adaptive thinking at `low` effort and recorded as `effort_clamped`. |
 | Anthropic adaptive thinking | Maps `minimal` to `low` and sends `low`, `medium`, `high`, `xhigh`, and `max` explicitly. The provider default differs by model (Opus 5.5 and Haiku 5.5 default to `medium`, the others to `high`), so no level relies on it. |
 | Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |
-| DeepSeek, OpenRouter, and Together | Maps `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
-| Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
+| DeepSeek, OpenRouter, and Together | Maps `none` and `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
+| Z.ai and Qwen | Sends the host's boolean “enable thinking” control: `false` for `none`, `true` for every other level, whose depth is not represented. |
 | `ThinkingFormatNone` | Omits the control. |
 
 The chosen model must still support reasoning: on **both** API
@@ -629,9 +632,9 @@ an arbitrary map would trade a silent drop for a 400.
 
 The batch `claude -p` and `codex exec` providers forward
 `Options.thinking` as the app's reasoning-effort flag: `claude -p`
-receives `--effort <level>` (mapping `minimal` to `low`, since the
-`claude` CLI has no `minimal`) and `codex exec` receives `-c
-model_reasoning_effort=<level>` for all six levels. Leaving `thinking =
+receives `--effort <level>` (mapping `none` and `minimal` to `low`, since the
+`claude` CLI has neither) and `codex exec` receives `-c
+model_reasoning_effort=<level>` for all seven levels. Leaving `thinking =
 Nothing` emits no effort flag. Interactive Claude Code and Codex
 launches carry the same preference through
 `InteractiveLaunchRequest.effort`; see

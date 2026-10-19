@@ -16,7 +16,8 @@ tests =
 
 levels :: [(String, ThinkingLevel, Text, Integer)]
 levels =
-  [ ("minimal", ThinkingMinimal, "minimal", 1024),
+  [ ("none", ThinkingNone, "none", 0),
+    ("minimal", ThinkingMinimal, "minimal", 1024),
     ("low", ThinkingLow, "low", 2048),
     ("medium", ThinkingMedium, "medium", 8192),
     ("high", ThinkingHigh, "high", 16384),
