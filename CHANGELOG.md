@@ -7,6 +7,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai-claude`: a `cacheRetention` of `CacheRetentionShort` or
+  `CacheRetentionLong` now also puts a `cache_control` breakpoint on the system
+  prompt, which is sent as one text block instead of a plain string. The
+  top-level automatic marker caches only up to the end of the request, so two
+  requests sharing a static system prompt but differing in their first user
+  message never hit; with the system-prompt breakpoint the second reads the
+  shared prefix from the cache. The block carries the same TTL as the top-level
+  and last-tool markers; together they use three of Anthropic's four
+  breakpoints. Requests without retention, or without a system prompt, are
+  unchanged. A new `baikai-smoke` case checks the hit live: on 2026-10-19,
+  Claude Sonnet 5.5 wrote 7,496 tokens on the first call and read 7,483 on a
+  second call with a different user message.
+
 ## [baikai 0.8.0.0] - 2026-10-10
 
 ### Added

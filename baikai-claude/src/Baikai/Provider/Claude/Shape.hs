@@ -12,6 +12,7 @@ module Baikai.Provider.Claude.Shape
     replaceToolSchemas,
     injectToolChoiceNone,
     injectToolCacheControl,
+    injectSystemCacheControl,
   )
 where
 
@@ -36,7 +37,8 @@ shapeRequestBody ::
   Aeson.Value ->
   Aeson.Value
 shapeRequestBody compat ctx opts =
-  injectToolCacheControl compat opts
+  injectSystemCacheControl compat opts
+    . injectToolCacheControl compat opts
     . injectToolChoiceNone opts
     . replaceToolSchemas ctx
 
@@ -72,6 +74,47 @@ injectToolCacheControl compat opts body =
       | Just marker <- cacheControlMarker compat retention ->
           mapObject (adjustKey (key "tools") (markLastTool marker)) body
     _ -> body
+
+-- | Put a @cache_control@ breakpoint on the system prompt when the
+-- caller asked for cache retention.
+--
+-- The top-level marker that
+-- 'Baikai.Provider.Claude.Internal.Request.computeCacheControl' sends is
+-- Anthropic's automatic caching: it places its breakpoint on the last
+-- cacheable block, so it only hits when a later request repeats the
+-- whole prefix up to there — an append-only conversation. Two requests
+-- that share a system prompt but differ in their first user message
+-- never hit. The system-block breakpoint caches that shared prefix
+-- (tools, then system) on its own.
+--
+-- A plain-string @system@ becomes a one-element array of text blocks
+-- carrying the same marker, with the same TTL as the top-level one, so
+-- Anthropic's "longer TTL first" ordering rule holds. Together with the
+-- automatic and the last-tool breakpoints this uses three of the four
+-- slots Anthropic allows. An absent or empty system prompt is left
+-- alone: Anthropic rejects empty text blocks.
+injectSystemCacheControl :: AnthropicMessagesCompat -> Options -> Aeson.Value -> Aeson.Value
+injectSystemCacheControl compat opts body =
+  case cacheRetention opts of
+    Just retention
+      | Just marker <- cacheControlMarker compat retention ->
+          mapObject (adjustKey (key "system") (markSystem marker)) body
+    _ -> body
+
+markSystem :: Aeson.Value -> Aeson.Value -> Aeson.Value
+markSystem marker = \case
+  String txt
+    | txt /= "" ->
+        Array
+          ( Vector.singleton
+              ( Aeson.object
+                  [ "type" .= ("text" :: Text),
+                    "text" .= txt,
+                    "cache_control" .= marker
+                  ]
+              )
+          )
+  other -> other
 
 mapTools :: [Tool.Tool] -> Aeson.Value -> Aeson.Value
 mapTools toolDefs = \case
