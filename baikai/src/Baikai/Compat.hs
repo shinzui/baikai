@@ -243,8 +243,9 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     --   long-retention preferences silently downgrade to ephemeral.
     --   Consumed by @Baikai.Provider.Claude.Internal.Request.computeCacheControl@
     --   for top-level cache markers and by
-    --   @Baikai.Provider.Claude.Shape.injectToolCacheControl@ for
-    --   tool cache markers.
+    --   @Baikai.Provider.Claude.Shape.injectToolCacheControl@ and
+    --   @Baikai.Provider.Claude.Shape.injectSystemCacheControl@ for
+    --   tool and system-prompt cache markers.
     supportsLongCacheRetention :: !Bool,
     -- | Whether tool definitions accept @cache_control@ markers.
     --   Consumed by

@@ -30,7 +30,10 @@ import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 
 runCacheCases :: IO Bool
-runCacheCases = runClaudeCacheReadWriteCase
+runCacheCases = do
+  readWrite <- runClaudeCacheReadWriteCase
+  sharedPrefix <- runClaudeSharedSystemPrefixCase
+  pure (readWrite || sharedPrefix)
 
 runClaudeCacheReadWriteCase :: IO Bool
 runClaudeCacheReadWriteCase = do
@@ -74,6 +77,37 @@ runClaudeCacheReadWriteCase = do
         envVar
         (firstUsage ^. #cost ^. #breakdown ^. #cachedWriteUsd)
         (secondUsage ^. #cost ^. #breakdown ^. #cachedInputUsd)
+      pure True
+
+-- | Two calls share the system prompt but differ in their user message.
+-- Only the system-prompt breakpoint can make the second one hit: the
+-- automatic top-level breakpoint sits at the end of the request, which
+-- differs between the two.
+runClaudeSharedSystemPrefixCase :: IO Bool
+runClaudeSharedSystemPrefixCase = do
+  matched <- firstSetEnv ["ANTHROPIC_API_KEY", "ANTHROPIC_KEY"]
+  case matched of
+    Nothing -> do
+      hPutStrLn stderr "[baikai-smoke] no ANTHROPIC_API_KEY set; skipping shared system prefix case."
+      pure False
+    Just (envVar, key) -> do
+      let model = Models.anthropic_claude_sonnet_5_5 & #maxOutputTokens .~ 64
+          ctxFor question =
+            emptyContext
+              & #systemPrompt .~ Just bigStablePreamble
+              & #messages .~ Vector.singleton (user question)
+          opts =
+            emptyOptions
+              & #maxTokens .~ Just 16
+              & #cacheRetention .~ Just CacheRetentionShort
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
+      firstResp <- completeRequest model (ctxFor "Reply with the single word: pong.") opts
+      let firstUsage = firstResp ^. #message ^. #usage
+      logUsage "shared-prefix first call" envVar firstUsage
+      secondResp <- completeRequest model (ctxFor "Reply with the single word: ping.") opts
+      let secondUsage = secondResp ^. #message ^. #usage
+      logUsage "shared-prefix second call" envVar secondUsage
+      assertCachePositive envVar (firstUsage ^. #cacheWriteTokens) (secondUsage ^. #cacheReadTokens)
       pure True
 
 -- | Fail loudly if the cached token classes cost nothing.

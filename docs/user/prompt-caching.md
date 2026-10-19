@@ -158,8 +158,14 @@ invoice or an assertion that standard service ran.
 - **Opt-in.** `cacheRetention` defaults to `Nothing`; no marker is sent
   until you ask.
 - **Preference, not placement.** On Claude, baikai places the top-level
-  `cache_control` marker and per-tool markers for you. There is no API
-  here for hand-placing cache breakpoints on individual messages.
+  `cache_control` marker, a marker on the last tool definition, and a
+  marker on the system prompt (sent as one text block) for you — three of
+  Anthropic's four breakpoints, all with the same TTL. The top-level
+  marker alone caches only up to the end of the request, so it hits only
+  when a later call repeats the whole conversation; the system-prompt
+  marker lets calls that share the system prompt but ask different
+  questions reuse it. There is no API here for hand-placing cache
+  breakpoints on individual messages.
 - **CLI providers carry what the tool reports, which is no cache split.**
   Both tools do report token counts and baikai carries them, but neither
   breaks out cache reads or writes, so the cache counters stay zero
