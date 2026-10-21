@@ -11,6 +11,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex"
     at: 2026-09-26T14:42:51Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-21T16:18:40Z
+      mode: "update"
+      note: "Add optional per-field confidence map to DataContent at plan 84's request"
 ---
 
 # Preserve structured data and probability evidence across Baikai
@@ -47,6 +53,8 @@ Trace terminals and `CallLogEntry` currently carry only accounting fields; neith
 
 2026-09-26: Expose named full-response codecs; do not add overlapping Response, Usage, Cost or AssistantPayload instances. The byte-stability contract applies to the codec's own encoded representation, with the existing model-header redaction and decimal cost representation preserved.
 
+2026-10-21: Add an optional per-field `confidence` map to `DataContent`. TypeSafe's OpenAPI 0.2.0 specification marks `confidence` required on choice and score answers, and OpenAI's Decisions API returns it on the same answer kinds; plan 84 preserves provider-reported confidence rather than deriving it (ADR 0002/0003), so the carrier must exist here. The change is additive, encoded under the key `confidence` and omitted when absent, so every other contract in this plan is unchanged. Requested by `docs/plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md`, revision of 2026-10-21.
+
 
 ## Outcomes & Retrospective
 
@@ -68,7 +76,7 @@ Follow [ADR 0002](../adr/0002-requested-translated-observed-are-never-collapsed.
 
 ### Milestone 1 — Usable structured content and typed refusal
 
-Add `DataContent` to `Baikai.Content`, with `value :: Value`, `probabilities :: Maybe (Map Text (Map Text Double))`, and `method :: Maybe Text`; add `UserData Value` and `AssistantData DataContent`. Keep the existing constructor tags unchanged. The new tags are `user_data` and `assistant_data`; the assistant's nested object uses `value`, `probabilities`, and `method`, omitting absent optional fields. A plain JSON data block is valid with no probabilities or method. JSON decoding rejects non-finite/out-of-range probabilities and malformed distribution maps. Do not require sums of one or invent a requirement tying the generic JSON value's shape to a particular provider's judgments.
+Add `DataContent` to `Baikai.Content`, with `value :: Value`, `probabilities :: Maybe (Map Text (Map Text Double))`, `confidence :: Maybe (Map Text Double)`, and `method :: Maybe Text`; add `UserData Value` and `AssistantData DataContent`. The confidence map holds a provider-reported per-field confidence in [0,1] for the fields that have one; it is never derived from the distribution. Keep the existing constructor tags unchanged. The new tags are `user_data` and `assistant_data`; the assistant's nested object uses `value`, `probabilities`, `confidence`, and `method`, omitting absent optional fields. A plain JSON data block is valid with no probabilities, confidence or method. JSON decoding rejects non-finite/out-of-range probabilities and confidences and malformed distribution maps. Do not require sums of one or invent a requirement tying the generic JSON value's shape to a particular provider's judgments.
 
 Add total `userData`, `userDataAt`, and `userDataNow` helpers alongside the existing text/image message helpers. Add `flattenAssistantData :: Vector AssistantContent -> Vector DataContent` to `Baikai.Response`. Export the intended public names through `baikai/src/Baikai.hs`. Audit comments promising only text/images or three assistant variants.
 
@@ -123,7 +131,7 @@ Update this plan with the actual tests and results at milestone boundaries. Comm
 
 ## Validation and Acceptance
 
-Use a fixture value with `urgent: true`, `category: technical`, and `severity: 2`; probability maps contain true/false, billing/technical, and 0/1/2 respectively. Include a choice distribution totaling 0.9 to prove no sum-to-one validation was introduced. Valid individual zero/one probabilities pass; negative, greater-than-one, nonnumeric, and non-finite decoder inputs fail. Provider-facing validation must check finiteness before constructing DataContent; a non-finite Double must never become a JSON null masquerading as a probability in a successful provider response.
+Use a fixture value with `urgent: true`, `category: technical`, and `severity: 2`; probability maps contain true/false, billing/technical, and 0/1/2 respectively, and the confidence map holds entries for category and severity only. Include a choice distribution totaling 0.9 to prove no sum-to-one validation was introduced. Valid individual zero/one probabilities pass; negative, greater-than-one, nonnumeric, and non-finite decoder inputs fail. Provider-facing validation must check finiteness before constructing DataContent; a non-finite Double must never become a JSON null masquerading as a probability in a successful provider response.
 
 The same content must be equal after event reconstruction, the named response codec, a consumer-style response codec without call evidence, and actual trace/log/sink output. For byte checks compare `canonicalEncode (responseToJSON response)` before and after parsing, rather than comparing only decoded Values. Mixed block ordering and failure after DataEnd are required cases. Preserve golden legacy JSON and old commitment digests. Core and all existing provider packages must compile and pass their offline suites before marking this plan Complete.
 
@@ -135,6 +143,11 @@ Tests use temporary files and scoped synthetic providers; they can be rerun with
 
 ## Interfaces and Dependencies
 
-The public contract is `Baikai.Content.DataContent`, `UserData`, `AssistantData`, `Baikai.Stream.Event.DataStart`/`DataEnd`, `Baikai.Response.flattenAssistantData`, the named `Baikai.Response.JSON` codec pair, and `Baikai.Error.RequestProblem`/smart constructors. The provider plan uses these exact names and map key conventions. Response-call evidence and answer-probability content remain independent.
+The public contract is `Baikai.Content.DataContent` (value, probabilities, confidence, method), `UserData`, `AssistantData`, `Baikai.Stream.Event.DataStart`/`DataEnd`, `Baikai.Response.flattenAssistantData`, the named `Baikai.Response.JSON` codec pair, and `Baikai.Error.RequestProblem`/smart constructors. The provider plan uses these exact names and map key conventions. Response-call evidence and answer-probability content remain independent.
 
 Use existing Aeson, containers, vector and streamly dependencies. Before relying on an unfamiliar dependency API, locate its source through `mori registry list`, `mori registry search`, `mori registry show --full`, and `mori registry docs`; inspect the discovered source. No new dependency bounds are selected by this plan. Any required change must first compare the current package registry release and upstream tags. Never inspect `/nix/store` or search the filesystem root.
+
+
+## Revision Notes
+
+2026-10-21: Added the optional per-field `confidence` map to `DataContent` (Milestone 1, Validation and Acceptance, Interfaces and Dependencies) at plan 84's request, so provider-reported confidence from TypeSafe and OpenAI Decisions answers has a carrier. No other contract changed.
