@@ -11,6 +11,12 @@ provenance:
     model: "claude-fable-5-1"
     harness: "claude-code"
     at: 2026-10-22T03:14:33Z
+  revisions:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T04:20:50Z
+      mode: "update"
+      note: "Fix question order: required-array order when complete, ascending key order otherwise"
 ---
 
 # Add a provider-neutral judgment layer and judgment-only catalog facts to core
@@ -61,6 +67,10 @@ This plan is a child of `docs/masterplans/14-support-typesafe-system-one-judgmen
   Rationale: TypeSafe accepts string, object, array or null content while OpenAI accepts only strings, so the compiler cannot pick one rule. A single entry point with a fixed order means every adapter reports the same first error for the same bad request.
   Date: 2026-10-22
 
+- Decision: Question order is the schema's `required` array order when that array lists every declared property exactly once, and ascending key order otherwise.
+  Rationale: An aeson `Object` does not preserve the declaration order of its keys, so "schema property order" cannot be read from a `Value`. A caller that cares about order lists every property in `required` in declaration order, which the Shikumi consumer's derived schemas already do; a schema without a complete `required` gets a deterministic fallback. The consumer's parity test between its own schema reader and `compileJudgments` (`mori://shinzui/shikumi/plans/63-declare-decision-outputs-and-route-them-to-system-one-models`) depends on this rule being stated.
+  Date: 2026-10-22
+
 
 ## Outcomes & Retrospective
 
@@ -99,7 +109,7 @@ Add `baikai/data/models/typesafe.json` with provider `typesafe`, base URL `https
 
 ### Milestone 2 — Compiling judgments and refusing what judgment models cannot take
 
-Create `baikai/src/Baikai/Judgment.hs`, exported through `baikai/src/Baikai.hs`, with these types. `JudgmentKind` is `PredicateJudgment (Maybe (Value, Value))` (the optional pair holds the true and false criteria descriptions), `ChoiceJudgment (Vector (Text, Maybe Value))` (labels in declared order with their descriptions) or `ScoreJudgment (Vector (Maybe Value))` (level descriptions in index order). `Judgment` is a record with `name :: Text`, `instructions :: Value` and `kind :: JudgmentKind`. `Judgments` is an abstract type holding the judgments in schema property order plus a name index; expose `judgmentList :: Judgments -> Vector Judgment` and `lookupJudgment :: Text -> Judgments -> Maybe Judgment`, and keep the constructor internal so an adapter cannot build an inconsistent value.
+Create `baikai/src/Baikai/Judgment.hs`, exported through `baikai/src/Baikai.hs`, with these types. `JudgmentKind` is `PredicateJudgment (Maybe (Value, Value))` (the optional pair holds the true and false criteria descriptions), `ChoiceJudgment (Vector (Text, Maybe Value))` (labels in declared order with their descriptions) or `ScoreJudgment (Vector (Maybe Value))` (level descriptions in index order). `Judgment` is a record with `name :: Text`, `instructions :: Value` and `kind :: JudgmentKind`. `Judgments` is an abstract type holding the judgments in question order plus a name index; expose `judgmentList :: Judgments -> Vector Judgment` and `lookupJudgment :: Text -> Judgments -> Maybe Judgment`, and keep the constructor internal so an adapter cannot build an inconsistent value. Question order is the schema's `required` array order when that array lists every declared property exactly once, and ascending key order otherwise, because an aeson `Object` does not preserve the declaration order of its keys (see the Decision Log).
 
 `compileJudgments :: JsonSchemaFormat -> Either BaikaiError Judgments` applies these rules, each failure an `unsupportedFeature` whose path starts at `Options.responseFormat.schema` (for example `Options.responseFormat.schema.properties.severity`). The schema must be an object with `"type": "object"` and a nonempty `properties` object. A property of `"type": "boolean"` compiles to a predicate without criteria. A property written as `anyOf` or `oneOf` of exactly a `const true` branch and a `const false` branch compiles to a predicate whose branch descriptions become the criteria. A nonempty, distinct string `enum`, or `anyOf`/`oneOf` of string `const` branches, compiles to a choice with 1 to 255 labels in declared order; an adapter whose dialect needs at least two labels applies that stricter bound itself. An integer `enum` or `const` branches whose values are exactly 0 to N-1 with N from 2 to 10 compiles to a score; the order is numeric regardless of the order in the schema, so an object-map ordering can never redefine it. Integer values must be integral JSON numbers; a boolean is not a number. Reject duplicates, mixed types, sparse or nonzero-based integer sets, free-form or nested properties (objects, arrays, open strings, numbers), empty properties, malformed branches and sizes outside the bounds, each by the offending path.
 
@@ -176,7 +186,7 @@ The fixture schema is the one the TypeSafe adapter and its loopback fixture use,
 }
 ```
 
-`compileJudgments` on it yields, in order, `urgent` as a predicate without criteria and instructions `"Is service blocked?"`, `category` as a choice with labels `billing` then `technical` and their descriptions, and `severity` as a score with levels `Minor`, `Disruptive`, `Blocking`. A second variant replaces `urgent` with `anyOf` of `{"const": true, "description": "Blocked"}` and `{"const": false, "description": "Degraded or fine"}` and yields a predicate whose criteria are those two strings.
+`compileJudgments` on it yields, in order, `urgent` as a predicate without criteria and instructions `"Is service blocked?"`, `category` as a choice with labels `billing` then `technical` and their descriptions, and `severity` as a score with levels `Minor`, `Disruptive`, `Blocking`. That order comes from `required`; with `required` removed, the same schema yields `category`, `severity`, `urgent`, in ascending key order, and a test asserts both. A second variant replaces `urgent` with `anyOf` of `{"const": true, "description": "Blocked"}` and `{"const": false, "description": "Degraded or fine"}` and yields a predicate whose criteria are those two strings.
 
 The neutral fixture answers are `urgent` as `PredicateAnswer 0.83`, `category` as a `ChoiceAnswer` selecting `technical` with probabilities billing 0.2 and technical 0.7 and confidence 0.65, and `severity` as a `ScoreAnswer` with expected 1.5, probabilities 0.1, 0.3 and 0.6 for levels 0, 1 and 2, and confidence 0.55. `validateAnswers` must produce one `DataContent` whose value is `{"urgent": true, "category": "technical", "severity": 1.5}`, whose probabilities are `{"urgent": {"true": 0.83, "false": 0.17}, "category": {"billing": 0.2, "technical": 0.7}, "severity": {"0": 0.1, "1": 0.3, "2": 0.6}}` (compare the predicate's false entry as `1 - 0.83` computed in `Double`, not as a literal), whose confidence map is `{"category": 0.65, "severity": 0.55}`, and whose method is `provider_classification`. The choice total of 0.9 must pass unchanged.
 
@@ -195,3 +205,8 @@ Every step is additive and repeatable. Catalog changes live in `baikai/data/mode
 Public surface added by this plan, all in the core package: `Baikai.Api.TypeSafeSystemOne` (wire text `typesafe-system-one`); `Baikai.Model.OutputKind` (`GenerativeOutput`, `JudgmentOutput`), `Model.outputKind`, `isJudgmentOnly`, and `InputModality.InputData` (catalog spelling `data`); the two generated catalog aliases; and `Baikai.Judgment` exporting `JudgmentKind (..)`, `Judgment (..)`, `Judgments`, `judgmentList`, `lookupJudgment`, `compileJudgments`, `judgmentUserMessage`, `refuseGenerationControls`, `prepareJudgment`, `JudgmentAnswer (..)`, `validateAnswers` and `judgmentMethod`. `docs/plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md` consumes these names exactly and defines none of them; any later adapter does the same and extends only `refuseGenerationControls` when its dialect accepts a control.
 
 Consumed from `docs/plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md`: `Baikai.Content.DataContent` with `value`, `probabilities`, `confidence` and `method`; `Baikai.Error.RequestProblem`, `unsupportedFeature` and `unsupportedModel`. This plan adds no Hackage dependency; it uses the core package's existing `aeson`, `containers`, `vector` and `text`. Before relying on an unfamiliar dependency API, locate its source with `mori registry search` and `mori registry show <project> --full` and read it on disk; never search `/nix/store` or the filesystem root.
+
+
+## Revision Notes
+
+2026-10-22: Fixed how `Judgments` recover question order from an aeson object (`required` order when complete, ascending key order otherwise), found while reconciling the Shikumi consumer's parity test with this plan. Milestone 2, Validation and Acceptance and the Decision Log carry the rule.
