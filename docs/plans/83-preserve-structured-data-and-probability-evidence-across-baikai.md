@@ -17,6 +17,12 @@ provenance:
       at: 2026-10-21T16:18:40Z
       mode: "update"
       note: "Add optional per-field confidence map to DataContent at plan 84's request"
+  reviews:
+    - model: "claude-fable-5-1"
+      harness: "claude-code"
+      at: 2026-10-22T03:06:57Z
+      verdict: "approved"
+      note: "Verified cited modules, functions, helper naming pattern and the 2.5 evidence schema baseline against the working tree"
 ---
 
 # Preserve structured data and probability evidence across Baikai
