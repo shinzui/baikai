@@ -618,12 +618,19 @@ user does. Install the published package into a scratch directory — not onto
 your `PATH`, where it would shadow whatever you already have:
 
 ```bash
-installdir=$(mktemp -d)
+released_agent_version=$(awk '$1 == "version:" {print $2}' baikai-agent/baikai-agent.cabal)
+installroot=$(mktemp -d)
+installdir="$installroot/bin"
 cabal update
-cabal install baikai-agent --installdir="$installdir" --install-method=copy
+(cd "$installroot" && cabal install "baikai-agent-$released_agent_version" \
+  --installdir="$installdir" --install-method=copy)
 "$installdir"/baikai --help
 "$installdir"/baikai agent --help
 ```
+
+Run the install outside the repository and specify the exact published version;
+an in-workspace unversioned target can select the checkout instead of Hackage.
+Use the refreshed HTTPS configuration from step 6 if the default index is stale.
 
 `--help` is the whole check: the executable has no `--version` flag, and every
 other subcommand reads configuration or spawns a coding agent. Confirm the
