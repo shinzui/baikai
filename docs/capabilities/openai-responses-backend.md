@@ -117,7 +117,10 @@ model-call evidence](model-call-evidence.md) the other API providers do.
 - Only OpenAI itself is known to serve this endpoint. The compatible hosts CAP-14
   covers speak Chat Completions; none of them is tested here.
 
-## Native prompt caching (unreleased)
+## Native prompt caching
+
+Ships in `baikai 0.10.0.0` with `baikai-openai 0.7.3.0`; this record keeps
+its original `since` for the existing capability.
 
 Endpoint-specific catalog policy gates native retention and stable system-prefix
 breakpoints. Modern Short uses `30m`; absent/None controls preserve wire shape

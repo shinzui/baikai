@@ -108,10 +108,10 @@ The September 23 refresh also adds `openai_gpt_6_sol`,
 `OpenAIResponses` for function tools at their default reasoning effort; their
 Chat Completions route supports function calling only with effort `none`.
 They each have a 1,050,000-token context and 128,000-token output limit.
-Baikai exposes low through max on this Responses route; its thinking-level
-vocabulary has no `none` value, so callers cannot request the models' optional
-no-reasoning mode through these bindings. Sampling options are omitted at the
-supported efforts and recorded as adjustments.
+With `baikai 0.10.0.0` and `baikai-openai 0.7.3.0`, this Responses route
+accepts `ThinkingNone` as well as low through max. Earlier releases cannot
+request the models' optional no-reasoning mode. Sampling options are omitted
+at the supported efforts and recorded as adjustments.
 Their standard short-context prices per million input, cached input, cache
 write, and output tokens are respectively $2/$0.20/$2.50/$10 for
 [Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) and
@@ -541,6 +541,9 @@ API callers select a provider-neutral reasoning preference through
 ```haskell
 let opts = emptyOptions & #thinking .~ Just ThinkingXHigh
 ```
+
+`ThinkingNone` first ships in `baikai 0.10.0.0`; use `baikai-claude 0.7.3.0`
+or `baikai-openai 0.7.3.0` for its provider mapping.
 
 `ThinkingLevel` has seven ordered values: `ThinkingNone`,
 `ThinkingMinimal`, `ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`,

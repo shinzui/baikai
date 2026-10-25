@@ -21,6 +21,11 @@ Baikai exposes this as a single provider-agnostic preference and reports
 the cache split back to you in `Usage` and `Cost`, so you can confirm
 the cache is actually hitting.
 
+Shared system-prefix markers and the native OpenAI endpoint policies described
+here ship in `baikai 0.10.0.0`, `baikai-claude 0.7.3.0` and
+`baikai-openai 0.7.3.0`. Earlier releases already support retention preferences
+and cache accounting, with fewer prefix controls.
+
 ## The preference: `CacheRetention`
 
 Set `cacheRetention` on `Options`. It is a coarse *retention* bucket,

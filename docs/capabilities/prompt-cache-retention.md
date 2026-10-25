@@ -68,6 +68,14 @@ print (resp ^. #message . #usage . #cacheReadTokens)
 print (resp ^. #message . #usage . #cost . #basis)
 ```
 
+## Release evolution
+
+`baikai 0.10.0.0`, `baikai-claude 0.7.3.0` and `baikai-openai 0.7.3.0`
+add shared system-prefix breakpoints, endpoint-specific native cache policies
+and duration-aware evidence and pricing. Earlier releases already provide
+retention control and cache accounting, so this record keeps its original
+`since`. Upgrade explicit compatibility-record construction for the new fields.
+
 ## Limits
 
 - **Provider-specific behavior.** Claude can downgrade long retention when

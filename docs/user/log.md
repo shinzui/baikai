@@ -2,6 +2,12 @@
 
 ## 2026-10-25
 
+* **Release**: [Models & Providers](models-and-providers.md) names core
+  0.10.0.0 and provider 0.7.3.0 for explicit reasoning off and corrects the
+  older Sol/Luna paragraph that said no off value existed.
+  [Prompt Caching](prompt-caching.md) names the same versions for shared-prefix
+  markers and native endpoint policies.
+
 * **Release**: TypeSafe Judgments now installs `baikai-typesafe 0.1.0.0` with
   `baikai 0.9.0.0` from Hackage; Getting Started lists the new provider.
 

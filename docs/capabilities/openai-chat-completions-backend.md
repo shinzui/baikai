@@ -121,7 +121,10 @@ completeRequest m ctx opts
   hosts actually work today is proven only by `CompatSmoke` and `MultiHostSmoke`,
   both of which need live credentials.
 
-## Native prompt caching (unreleased)
+## Native prompt caching
+
+Ships in `baikai 0.10.0.0` with `baikai-openai 0.7.3.0`; this record keeps
+its original `since` for the existing capability.
 
 Endpoint-specific catalog policy gates native retention and stable system-prefix
 breakpoints. Modern Short uses `30m`; absent/None controls preserve wire shape

@@ -64,10 +64,10 @@ documented as outside the PVP contract, and the OpenAI Responses backend
 | [Batch cancellation with owned subprocess cleanup](batch-cli-cancellation.md) | CAP-25 | `baikai-claude`, `baikai-openai`, `baikai` | 0.7.1.1 | Owned POSIX groups stop, readers join, and direct children are reaped before cancellation propagates |
 | [Context-tiered cache-write duration pricing](tiered-cache-write-pricing.md) | CAP-26 | `baikai` | 0.8.0.0 | A crossed input tier supplies its own long cache-write rate |
 | [TypeSafe judgments with answer evidence](typesafe-judgments.md) | CAP-27 | `baikai-typesafe`, `baikai` | 0.1.0.0 | Closed-set state/schema calls with preserved probabilities and confidence |
-
 | [Structured answer content and persistence](structured-answer-content.md) | CAP-28 | `baikai` | 0.9.0.0 | Preserve structured input and answer values, probabilities and confidence through atomic streams, response codecs, traces and call logs. |
 | [Provider-neutral closed-set judgments](neutral-judgments.md) | CAP-29 | `baikai` | 0.9.0.0 | Compile closed-set schemas, order questions, refuse unsupported generation controls and validate provider-neutral judgment answers. |
 | [Structured answer export through OpenTelemetry](structured-answer-span-export.md) | CAP-30 | `baikai-trace-otel`, `baikai` | 0.4.1.0 | Export structured answer values and probability evidence as canonical JSON on successful and failed provider spans. |
+| [Explicit reasoning off with truthful fallback evidence](explicit-reasoning-off.md) | CAP-31 | `baikai`, `baikai-claude`, `baikai-openai` | 0.10.0.0 | Request off distinctly from provider defaults, with catalog-gated translation and strict refusal of substitutions. |
 
 ## Deliberately excluded
 

@@ -134,7 +134,9 @@ $ baikai agent run review --prompt-stdin --evidence-file run.json
   thinking *display* setting a transport asked for plus the
   `thinking_summary_unavailable` diagnosis for a successful response whose
   thinking blocks carry no readable summary, and `2.5` added
-  `refusal_category`. None of these changed the digest inputs, so a record
+  `refusal_category`. Core 0.9.0.0 ships `2.6` for structured answers; core
+  0.10.0.0 ships `2.8`, including explicit off (`2.7`) and content-free native
+  cache controls and input structure (`2.8`). None of these changed the digest inputs, so a record
   produced on an older release still verifies under its own `schema_version`.
 - The `adjustments` list carries **sampling** changes as well as reasoning ones:
   `sampling_dropped_unsupported_model` and `sampling_dropped_unsupported_api`

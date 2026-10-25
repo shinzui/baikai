@@ -2,6 +2,18 @@
 
 ## 2026-10-25
 
+* **Release**: Add [CAP-31](explicit-reasoning-off.md) for explicit reasoning
+  off in `baikai 0.10.0.0`, with `baikai-claude 0.7.3.0` and
+  `baikai-openai 0.7.3.0`, and its compiled Shape. [CAP-11](reasoning-effort-control.md)
+  keeps its original availability and links the new capability.
+* **Release**: [CAP-12](prompt-cache-retention.md) records shared system-prefix
+  markers, endpoint policies and verified Luna Long pricing in those versions.
+  [CAP-19](model-call-evidence.md) names evidence schema 2.8. Existing `since`
+  values remain unchanged. [CAP-3](generated-model-catalog.md),
+  [CAP-14](openai-chat-completions-backend.md), [CAP-23](openai-responses-backend.md)
+  and [CAP-26](tiered-cache-write-pricing.md) now name the published versions
+  for their previously unreleased compatibility and native-cache evolution.
+
 * **Release**: [CAP-27](typesafe-judgments.md) ships in `baikai-typesafe 0.1.0.0`.
   Add [CAP-28](structured-answer-content.md) and [CAP-29](neutral-judgments.md)
   for core 0.9.0.0, and [CAP-30](structured-answer-span-export.md) for

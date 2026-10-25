@@ -69,8 +69,9 @@ completeRequest model ctx opts
 
 ## Limits
 
-- `ThinkingNone` and `supportsThinkingDisabled` are unreleased additions. The
-  capability's `since` remains the first release of reasoning control.
+- `ThinkingNone` and `supportsThinkingDisabled` ship in `baikai 0.10.0.0`.
+  Explicit off is [CAP-31](explicit-reasoning-off.md); this capability's `since`
+  remains the first release of reasoning control.
 - Strict evidence refuses a substituted or dropped off request before dispatch.
   A host without controls is not proof that reasoning is disabled. An explicit
   wire setting is translation evidence, not a server observation.

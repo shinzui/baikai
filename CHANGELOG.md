@@ -7,46 +7,112 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Fixed
-
-- Native OpenAI Short caching now marks shared non-empty system prefixes on
-  catalog-supported Responses and Chat bindings. Endpoint policies survive
-  legacy JSON and catalog refresh; unsupported native requests fail locally.
-  Effective duration reaches terminal pricing, partial usage and evidence.
-  Evidence schema 2.8 includes content-free native controls and input structure.
-  Funded live prefix checks pass for Luna Responses Short/Long and GPT-5.6 Chat
-  Short. Luna Long uses verified 12h base/tier rates; unsupported Chat Long and
-  unverified modern bindings remain locally refused.
-  Exported compatibility-record changes require PVP major-release review.
-
-- `baikai-claude`: short and long `cacheRetention` now mark non-empty system
-  prompts so fresh conversations with different first questions can reuse the
-  tools-and-system prefix. System, last-tool and automatic markers share the
-  effective TTL, including host downgrades, and use at most three breakpoints.
-  Empty or absent system prompts and disabled caching keep their existing shape.
-  Regression coverage includes tool compatibility and a live shared-prefix case
-  isolated from earlier smoke runs. Implements issue #2 and the approach in PR #3.
+## [baikai 0.10.0.0] - 2026-10-25
 
 ### Added
 
 - `ThinkingNone` (`none`) explicitly requests reasoning off; `Nothing` still
-  leaves provider defaults untouched. Claude Messages uses catalog-gated
-  `thinking: {"type": "disabled"}` without effort, display, or a budget.
-  OpenAI-compatible Chat (including Ollama) and Responses carry `none` where
-  supported. Z.ai and Qwen emit `enable_thinking: false`.
-- Anthropic compatibility records declare `supportsThinkingDisabled`; legacy
-  records conservatively default to False. Unsupported off requests remain
-  visible adjustments and fail strict evidence before dispatch. A host with
-  no thinking controls is not assumed to be a non-reasoning model.
-- Evidence schema 2.7 records the new `none` preference; digest rules and the
-  separation of requested, translated, and observed reasoning are unchanged.
-- OpenAI catalog effort policies distinguish GPT-5/o-series models that cannot
-  disable reasoning, Sol/Luna that accept none, and Astra/GPT-6.1 Sol that do not.
+  leaves provider defaults untouched. Anthropic compatibility records declare
+  `supportsThinkingDisabled`; legacy records conservatively default to False.
+- Endpoint-specific `NativeCachePolicy` records distinguish modern, legacy and
+  unsupported native OpenAI cache controls. Policies survive legacy JSON and
+  catalog refresh; Luna Responses Long has verified 12h base and tier rates.
+- Evidence schema 2.8 includes the `none` preference and content-free native
+  cache controls and input structure. Digest rules and the separation of
+  requested, translated and observed reasoning are unchanged.
 
 ### Changed (breaking)
 
 - `ThinkingLevel` gains `ThinkingNone` as its least constructor. Update exhaustive
-  matches; this public sum expansion requires the next core PVP major release.
+  matches. Anthropic and OpenAI compatibility records gain fields; use the
+  default records or update explicit record construction.
+- All seven dependent packages now require `baikai ^>=0.10.0` and release
+  independently below. The unchanged adapters take dependency-only patch bumps.
+
+## [baikai-claude 0.7.3.0] - 2026-10-25
+
+### Added
+
+- Export `injectSystemCacheControl` for shared system-prefix cache markers.
+- `ThinkingNone` sends catalog-gated `thinking: {"type": "disabled"}` without
+  effort, display or a budget. Unsupported off requests remain visible
+  adjustments and fail strict evidence before dispatch. A host with no thinking
+  controls is not assumed to be a non-reasoning model.
+
+### Fixed
+
+- Short and long `cacheRetention` mark non-empty system prompts so fresh
+  conversations with different first questions can reuse the tools-and-system
+  prefix. System, last-tool and automatic markers share the effective TTL,
+  including host downgrades, and use at most three breakpoints. Empty or absent
+  system prompts and disabled caching keep their existing shape. Regression
+  coverage includes tool compatibility and an isolated live shared-prefix case.
+  Implements issue #2 and the approach in PR #3.
+
+### Changed
+
+- Require `baikai ^>=0.10.0`.
+
+## [baikai-openai 0.7.3.0] - 2026-10-25
+
+### Added
+
+- Export `applyNativeCache` for validated native cache plans.
+- OpenAI-compatible Chat (including Ollama) and Responses carry `none` where
+  supported. Z.ai and Qwen emit `enable_thinking: false`; unsupported off
+  requests remain visible adjustments and fail strict evidence before dispatch.
+
+### Fixed
+
+- Native OpenAI Short caching marks shared non-empty system prefixes on
+  catalog-supported Responses and Chat bindings. Unsupported native requests
+  fail locally. Effective duration reaches terminal pricing, partial usage
+  and evidence.
+- Funded live prefix checks pass for Luna Responses Short/Long and GPT-5.6 Chat
+  Short. Luna Long uses verified 12h base and tier rates; unsupported Chat Long
+  and unverified modern bindings remain locally refused.
+
+### Changed
+
+- Require `baikai ^>=0.10.0`. Catalog effort policies distinguish GPT-5/o-series
+  models that cannot disable reasoning, Sol/Luna that accept none, and
+  Astra/GPT-6.1 Sol that do not.
+
+## [baikai-typesafe 0.1.0.1] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.10.0`. Dependency-only update; no package API change.
+
+## [baikai-trace-otel 0.4.1.1] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.10.0`. Dependency-only update; no package API change.
+
+## [baikai-effectful 0.4.0.5] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.10.0`. Dependency-only update; no package API change.
+
+## [baikai-kit 0.4.0.3] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.10.0`. Dependency-only update; no package API change.
+
+## [baikai-agent 0.2.0.4] - 2026-10-25
+
+### Fixed
+
+- Layered job configuration accepts `thinking "none"` through the shared
+  canonical parser, keeping explicit off distinct from an absent preference.
+
+### Changed
+
+- Require `baikai ^>=0.10.0`, `baikai-claude ^>=0.7.3` and
+  `baikai-openai ^>=0.7.3` for explicit-off handling in both vendor renderers.
 
 ## [baikai 0.9.0.0] - 2026-10-25
 
