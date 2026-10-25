@@ -98,7 +98,7 @@ Publish in this order — a dependency must be on Hackage before its dependents:
    `baikai`.
 4. **`baikai-typesafe`** — `baikai-typesafe/` — explicitly registered TypeSafe
    System One judgment provider. Depends on `baikai` and released `typesafe-hs`.
-   Its first Hackage upload must use a candidate; check the registry each run.
+   First published at `0.1.0.0` on 2026-10-25; check the registry each run.
 5. **`baikai-trace-otel`** — `baikai-trace-otel/` — OpenTelemetry `TraceSink`
    adapter. Depends on `baikai`.
 6. **`baikai-effectful`** — `baikai-effectful/` — `effectful` binding over
@@ -204,9 +204,10 @@ correct package with wrong instructions. Step 3 covers this.
 
 ### First upload of a package
 
-The seven established packages are on Hackage. `baikai-typesafe` is a new
-publishable package as of 2026-10-25; verify whether its first upload has happened
-rather than assuming that a tag or prepared version proves publication.
+All eight publishable packages are on Hackage as of 2026-10-25;
+`baikai-typesafe` first shipped at `0.1.0.0` that day. This section applies to
+future additions. Check the registry rather than assuming that a tag or
+prepared version proves publication.
 
 A first upload also creates the package name on Hackage, and it is where a
 missing source file or an unbuildable stanza shows up. It therefore deserves the
@@ -270,8 +271,8 @@ curl -s -H 'Accept: application/json' https://hackage.haskell.org/package/baikai
 
 A package with no tag at all has never been released, so "changes since its last
 tag" does not apply — review its whole directory and give it a starting version
-(`0.1.0.0`) rather than inferring a bump. This applies to `baikai-typesafe`
-until its first release; confirm with both tags and Hackage.
+(`0.1.0.0`) rather than inferring a bump. Confirm the baseline with both tags
+and Hackage; all eight current packages now have release tags.
 
 A version may already have been bumped by implementation work. Compare the
 current `.cabal` version with the last tag and Hackage before editing it; reuse
