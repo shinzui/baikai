@@ -38,7 +38,6 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as TextIO
-import GHC.IO.Handle (hDuplicate, hDuplicateTo)
 import Options.Applicative qualified as Options
 import Settei.Env (EnvSnapshot, envSnapshot)
 import Settei.Key (parseKey)
@@ -52,10 +51,11 @@ import System.Directory
     setOwnerExecutable,
     setPermissions,
   )
-import System.Environment (setEnv)
+import System.Environment (getExecutablePath, setEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
-import System.IO (IOMode (..), hClose, openFile, stdin)
 import System.IO.Temp (withSystemTempDirectory)
+import System.Process qualified as P
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -1223,21 +1223,19 @@ refusesAnEmptyPromptTest =
 
 readsThePromptFromStandardInputTest :: TestTree
 readsThePromptFromStandardInputTest =
-  testCase "the standard-input reader decodes UTF-8 explicitly" $
-    -- The fixture above uses a file, because standard input cannot be
-    -- piped in-process; this is the narrow test of the transport the
-    -- motivating script actually uses. The real handle is duplicated
-    -- and restored so no other test is affected.
-    withWorkspace $ \dir -> do
-      path <- writeDocument dir "prompt.txt" fixturePrompt
-      saved <- hDuplicate stdin
-      source <- openFile path ReadMode
-      hDuplicateTo source stdin
-      hClose source
-      outcome <- readPromptSource PromptStdin
-      hDuplicateTo saved stdin
-      hClose saved
-      outcome @?= Right fixturePrompt
+  testCase "the standard-input reader decodes UTF-8 explicitly" $ do
+    -- Reading stdin closes it. Replacing the suite's shared handle races
+    -- with parallel subprocess fixtures, which can then reuse descriptor zero
+    -- for a pipe. Exercise the real reader in a child instead, under an ASCII
+    -- locale so locale-dependent decoding cannot accidentally pass.
+    executable <- getExecutablePath
+    let spec =
+          (P.proc executable ["--fixture-read-prompt-stdin"])
+            { P.env = Just [("LANG", "C"), ("LC_ALL", "C")]
+            }
+    (code, output, err) <- P.readCreateProcessWithExitCode spec (Text.unpack fixturePrompt)
+    assertBool ("stdin reader failed: " <> show (code, err)) (code == ExitSuccess)
+    output @?= Text.unpack fixturePrompt
 
 readsThePromptFromAFileTest :: TestTree
 readsThePromptFromAFileTest =

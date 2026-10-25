@@ -12,6 +12,7 @@ import Baikai.Agent
     agentRunRequest,
     capturedBytes,
   )
+import Baikai.Agent.Cli (PromptSource (..), readPromptSource)
 import Baikai.Agent.Run (runAgentCommand, timeoutMicros)
 import Baikai.Evidence (noThinkingRequested)
 import BinaryTests (binaryTests)
@@ -33,7 +34,8 @@ import System.Directory
     setOwnerExecutable,
     setPermissions,
   )
-import System.Exit (ExitCode (..))
+import System.Environment (getArgs)
+import System.Exit (ExitCode (..), die)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process qualified as P
@@ -41,16 +43,26 @@ import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 main :: IO ()
-main =
-  defaultMain $
-    testGroup
-      "baikai-agent"
-      [ runTests,
-        configTests,
-        cliTests,
-        binaryTests,
-        PublicSurfaceSpec.tests
-      ]
+main = do
+  args <- getArgs
+  case args of
+    ["--fixture-read-prompt-stdin"] -> do
+      outcome <- readPromptSource PromptStdin
+      case outcome of
+        Left problem -> die (Text.unpack problem)
+        Right prompt -> BS.putStr (Text.encodeUtf8 prompt)
+    _ -> defaultMain tests
+
+tests :: TestTree
+tests =
+  testGroup
+    "baikai-agent"
+    [ runTests,
+      configTests,
+      cliTests,
+      binaryTests,
+      PublicSurfaceSpec.tests
+    ]
 
 runTests :: TestTree
 runTests =

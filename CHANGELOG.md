@@ -108,6 +108,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Layered job configuration accepts `thinking "none"` through the shared
   canonical parser, keeping explicit off distinct from an absent preference.
+- The UTF-8 stdin test runs in a child process under an ASCII locale, avoiding
+  shared-stdin descriptor races with parallel subprocess tests in the tarball.
 
 ### Changed
 
