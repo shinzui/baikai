@@ -10,6 +10,12 @@ provenance:
     model: "gpt-6-astra"
     harness: "codex-cli"
     at: 2026-10-25T14:50:02Z
+  revisions:
+    - model: "gpt-6-astra"
+      harness: "codex-cli"
+      at: 2026-10-25T16:13:40Z
+      mode: "update"
+      note: "Record successful Claude short- and long-retention live verification; OpenAI implementation remains planned."
 ---
 
 # Cache shared OpenAI prompt prefixes with catalog-gated controls and truthful accounting
@@ -35,7 +41,7 @@ Support both native OpenAI Responses and OpenAI Chat Completions when the select
 - [ ] Effective retention drives accurate write pricing and privacy-preserving request evidence, including partial and repeated usage snapshots.
 - [ ] Focused live checks, documentation, capability evidence and regression suites demonstrate the supported contract and disclose unverified combinations.
 
-No implementation has started. The related Claude fix was implemented separately during review of issue #2 and PR #3. Its provider suite passed 473 tests; its live smoke extension compiled but was not run because Anthropic credentials were absent.
+No OpenAI implementation has started. The related Claude fix was implemented separately during review of issue #2 and PR #3 and shipped to the repository in commit `7eb0d56`. Its provider suite passed 473 tests. On 2026-10-25, the focused live `CacheSmoke.runCacheCases` check passed against Claude Sonnet 4.6 with both Short and Long retention: each case wrote 5,084 tokens, read 5,084 on an identical request, then read 5,072 on a fresh conversation with a different first question. All six calls completed successfully and reported nonzero cache costs. This verifies shared-prefix reuse; it does not claim invoice reconciliation or validate OpenAI behavior.
 
 
 ## Surprises & Discoveries
