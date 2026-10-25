@@ -547,6 +547,17 @@ The `cabal update` is not optional. Hackage's index is what the unpacked tarball
 resolves against, and a local index from before this run's earlier uploads makes
 the build fail with a missing dependency that is in fact already published.
 
+Confirm the refreshed index actually lists each dependency version published in
+this run before building its dependent. An upload can appear on the package page
+before the index or a mirror catches up. A stale snapshot or HTTP mirror failure
+is an index problem, not grounds to change correct bounds or rewrite a tag.
+If the configuration uses `http://hackage.haskell.org/`, try the official HTTPS
+URL in a scratch Cabal config selected with `--config-file` or `CABAL_CONFIG`.
+Keep signed repository verification enabled and preserve the operator's global
+config and credentials; build-only scratch configs need no upload credentials.
+Retry the refresh after diagnosing the cause. Never substitute workspace
+siblings or a local tarball repository for the Hackage-only verification.
+
 A failure here means the tarball is wrong, not the workspace. The usual causes
 are a source file that no stanza references, test data missing from
 `extra-source-files`, or an internal bound that admits only a version you have
