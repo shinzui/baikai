@@ -50,6 +50,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
+import Baikai.Context qualified as Context
 import Baikai.Error (BaikaiError, decodeError, processError, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
@@ -70,6 +71,7 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.ThinkingLevel (ThinkingLevel (ThinkingMinimal), renderThinkingLevel)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Exception (SomeException, displayException, fromException)
+import Control.Exception qualified
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.ByteString qualified as BS
@@ -220,6 +222,7 @@ modelArgs m = case Text.strip (m ^. #modelId) of
 
 runClaudeCli :: ClaudeCliConfig -> Model -> Context -> Options -> IO Resp.Response
 runClaudeCli cfg m ctx opts = do
+  either Control.Exception.throwIO pure (Context.refuseAssistantDataHistory ctx)
   let (exe, args) = claudeCliCommand cfg m ctx opts
   start <- getCurrentTime
   executed <-

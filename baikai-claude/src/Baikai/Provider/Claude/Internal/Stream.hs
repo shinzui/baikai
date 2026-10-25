@@ -32,6 +32,7 @@ where
 import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
+import Baikai.Context qualified as Context
 import Baikai.Cost (CostEstimateReason (CacheDurationNotReported, SpeedNotReported), estimateCost)
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
@@ -208,37 +209,39 @@ resolvedBaseUrl m = case m ^. #baseUrl of
 
 prepareCall ::
   Model -> Context -> Options -> IO (Either BaikaiError ClaudeCall)
-prepareCall m ctx opts = do
-  case mapRequest m ctx opts of
-    Left e -> pure (Left (invalidRequest e))
-    Right (req, translation) -> do
-      let url = resolvedBaseUrl m
-          compat = anthropicMessagesCompatFor m
-          version = Just "2023-06-01"
-      -- Checked before the key is resolved, so a base URL baikai will
-      -- not send to never causes a credential to be read out of the
-      -- environment. The message names the problem and what to write
-      -- instead; it renders the URL without its userinfo or query, so an
-      -- error reaching a log cannot carry a key someone put in either.
-      case Url.baseUrlProblem url of
-        Just problem ->
-          pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
-        Nothing -> do
-          key <- Transport.resolveKey url opts
-          env <- Transport.getClientEnvCached url
-          let body = streamRequestBody compat ctx opts req
-              headers = Transport.requestHeaders key version compat ctx m opts
-          pure
-            ( Right
-                ClaudeCall
-                  { clientEnv = env,
-                    requestHeaders = headers,
-                    timeoutMs = opts ^. #timeoutMs,
-                    requestBody = body,
-                    baseUrl = url,
-                    thinking = translation
-                  }
-            )
+prepareCall m ctx opts
+  | Left e <- Context.refuseAssistantDataHistory ctx = pure (Left e)
+  | otherwise = do
+      case mapRequest m ctx opts of
+        Left e -> pure (Left (invalidRequest e))
+        Right (req, translation) -> do
+          let url = resolvedBaseUrl m
+              compat = anthropicMessagesCompatFor m
+              version = Just "2023-06-01"
+          -- Checked before the key is resolved, so a base URL baikai will
+          -- not send to never causes a credential to be read out of the
+          -- environment. The message names the problem and what to write
+          -- instead; it renders the URL without its userinfo or query, so an
+          -- error reaching a log cannot carry a key someone put in either.
+          case Url.baseUrlProblem url of
+            Just problem ->
+              pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
+            Nothing -> do
+              key <- Transport.resolveKey url opts
+              env <- Transport.getClientEnvCached url
+              let body = streamRequestBody compat ctx opts req
+                  headers = Transport.requestHeaders key version compat ctx m opts
+              pure
+                ( Right
+                    ClaudeCall
+                      { clientEnv = env,
+                        requestHeaders = headers,
+                        timeoutMs = opts ^. #timeoutMs,
+                        requestBody = body,
+                        baseUrl = url,
+                        thinking = translation
+                      }
+                )
 
 -- | Worker body: drive the SDK's typed callback, forwarding events onto
 -- the frame queue. Any synchronous exception is converted into a

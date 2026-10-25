@@ -42,6 +42,7 @@ import Baikai.Content
     ToolResultContent (..),
     UserContent (..),
   )
+import Baikai.Content qualified as Content
 import Baikai.Context (Context)
 import Baikai.Cost (Cost (..), providerReportedBasis, zeroCost, zeroCostBreakdown)
 import Baikai.Error (BaikaiError (..), ErrorCategory (..), decodeError, processError)
@@ -129,6 +130,7 @@ renderPrompt ctx =
     flattenUser = Text.concat . Vector.toList . Vector.mapMaybe pickU
       where
         pickU (UserText (TextContent t)) = Just t
+        pickU (UserData v) = Just (Content.canonicalDataText v)
         pickU _ = Nothing
 
     flattenAssistant :: Vector AssistantContent -> Text

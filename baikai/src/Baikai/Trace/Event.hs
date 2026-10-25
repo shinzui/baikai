@@ -15,6 +15,7 @@ module Baikai.Trace.Event
   )
 where
 
+import Baikai.Content (DataContent)
 import Baikai.Cost (CostBasis)
 import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Usage (UsageAvailability)
@@ -34,6 +35,7 @@ import Data.Char (toLower)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import Data.Vector (Vector)
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
@@ -87,7 +89,8 @@ data TraceEvent
         totalTokens :: !(Maybe Natural),
         costBasis :: !(Maybe CostBasis),
         usageAvailability :: !(Maybe UsageAvailability),
-        usd :: !(Maybe Scientific)
+        usd :: !(Maybe Scientific),
+        structuredData :: !(Maybe (Vector DataContent))
       }
   | CallFailed
       { eventId :: !Text,
@@ -104,6 +107,7 @@ data TraceEvent
         costBasis :: !(Maybe CostBasis),
         usageAvailability :: !(Maybe UsageAvailability),
         usd :: !(Maybe Scientific),
+        structuredData :: !(Maybe (Vector DataContent)),
         errorMessage :: !Text
       }
   | -- | The complete evidence record for one terminal provider call.
@@ -198,6 +202,7 @@ instance FromJSON TraceEvent where
           <*> d .:? "costBasis"
           <*> d .:? "usageAvailability"
           <*> d .:? "usd"
+          <*> d .:? "structuredData"
       "call_failed" ->
         CallFailed
           <$> d .: "eventId"
@@ -214,6 +219,7 @@ instance FromJSON TraceEvent where
           <*> d .:? "costBasis"
           <*> d .:? "usageAvailability"
           <*> d .:? "usd"
+          <*> d .:? "structuredData"
           <*> d .: "errorMessage"
       "call_evidence" ->
         fail

@@ -48,6 +48,7 @@ module Baikai
     -- * Streaming
     module Baikai.Stream,
     module Baikai.Stream.Event,
+    module Baikai.Response.JSON,
   )
 where
 
@@ -69,6 +70,7 @@ import Baikai.Model
 import Baikai.Options
 import Baikai.Provider
 import Baikai.Response
+import Baikai.Response.JSON
 import Baikai.ResponseFormat
 import Baikai.Speed
 import Baikai.StopReason

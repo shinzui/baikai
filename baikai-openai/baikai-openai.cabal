@@ -111,6 +111,7 @@ test-suite baikai-openai-test
     CliEvidenceSpec
     CliProcessFixture
     Contract
+    DataInputSpec
     EndpointModels
     ErrorClassSpec
     EvidenceSpec

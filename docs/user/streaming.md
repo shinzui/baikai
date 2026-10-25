@@ -294,3 +294,11 @@ For Fable 5.1, leave earlier messages, system instructions and tool definitions
 unchanged when replaying their thinking blocks. An omitted caller effort means
 no explicit preference; it does not assert that always-on provider reasoning
 was disabled. See [tool-history responsibilities](tools.md#fable-51-history-and-tool-choice).
+
+Structured output uses atomic `DataStart` and `DataEnd` events. `DataEnd.content`
+is a `DataContent` with the chosen JSON value and optional provider probability,
+confidence and method fields. There are no data deltas. Completed blocks survive
+stream failure; an unclosed data block creates no answer. Use
+`flattenAssistantData (response ^. #message . #content)` to read these blocks.
+For full-response persistence use `Baikai.Response.JSON.responseToJSON` and
+`responseFromJSON`; neither installs global response instances.

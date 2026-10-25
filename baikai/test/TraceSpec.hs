@@ -1240,6 +1240,7 @@ sampleFinished =
       totalTokens = Just 26,
       costBasis = Nothing,
       usageAvailability = Nothing,
+      structuredData = Nothing,
       usd = Just 0
     }
 
@@ -1259,6 +1260,7 @@ sampleFailed =
       totalTokens = Nothing,
       costBasis = Nothing,
       usageAvailability = Nothing,
+      structuredData = Nothing,
       usd = Nothing,
       errorMessage = "boom"
     }

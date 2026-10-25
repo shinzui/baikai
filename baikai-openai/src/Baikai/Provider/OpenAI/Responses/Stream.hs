@@ -10,6 +10,7 @@ where
 
 import Baikai.Content qualified as C
 import Baikai.Context (Context)
+import Baikai.Context qualified as Context
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
@@ -31,6 +32,7 @@ import Baikai.Url qualified as Url
 import Baikai.Usage qualified as U
 import Control.Applicative ((<|>))
 import Control.Exception (SomeAsyncException, SomeException, fromException, throwIO, try)
+import Control.Exception qualified
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.Key (Key)
@@ -56,6 +58,7 @@ liveResponsesDriver = responsesSseStreamValueWithHeaders
 openaiResponsesStreamWith :: SseDriver -> Model -> Context -> Options -> Stream IO E.AssistantMessageEvent
 openaiResponsesStreamWith driver m ctx opts = Stream.concatEffect $ do
   setup <- trySync $ do
+    either Control.Exception.throwIO pure (Context.refuseAssistantDataHistory ctx)
     req <- either (throwIO . invalidRequest) pure (R.mapRequest m ctx opts)
     let url = resolvedUrl m
     case Url.baseUrlProblem url of

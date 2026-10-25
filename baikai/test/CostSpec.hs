@@ -280,6 +280,7 @@ sampleEntry now =
       cacheWriteTokens = Nothing,
       costBasis = Nothing,
       usageAvailability = Nothing,
+      structuredData = Nothing,
       usd = Nothing,
       latencyMs = 0,
       promptSummary = ""

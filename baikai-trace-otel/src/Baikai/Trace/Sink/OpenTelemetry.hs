@@ -146,7 +146,7 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext}
   -- evidence, and, because 'Otel.addAttributes' replaces an existing key
   -- and evidence is pushed before the terminal, overwrote the genuinely
   -- observed value on every call that did.
-  CallFinished {eventId, timestamp, latencyMs, inputTokens, outputTokens, usd, costBasis, usageAvailability} ->
+  CallFinished {eventId, timestamp, latencyMs, inputTokens, outputTokens, usd, costBasis, usageAvailability, structuredData} ->
     case Map.lookup eventId m of
       -- A terminal without a live span is unreachable for normal withTraceStream
       -- usage because each traced call drives a fresh fold. Keep the silent drop so
@@ -155,19 +155,20 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext}
       Just sp -> do
         let attrs :: HashMap.HashMap Text Attr.Attribute
             attrs =
-              maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_inputTokens (fromIntegral n :: Int64)) inputTokens $
-                maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_outputTokens (fromIntegral n :: Int64)) outputTokens $
-                  maybe id (\b -> HashMap.insert "baikai.cost.basis" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON b))))) costBasis $
-                    maybe id (\a -> HashMap.insert "baikai.usage.availability" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON a))))) usageAvailability $
-                      maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
-                        HashMap.fromList
-                          [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
-                          ]
+              maybe id (\ds -> HashMap.insert "baikai.response.structured_data" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON ds))))) structuredData $
+                maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_inputTokens (fromIntegral n :: Int64)) inputTokens $
+                  maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_outputTokens (fromIntegral n :: Int64)) outputTokens $
+                    maybe id (\b -> HashMap.insert "baikai.cost.basis" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON b))))) costBasis $
+                      maybe id (\a -> HashMap.insert "baikai.usage.availability" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON a))))) usageAvailability $
+                        maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
+                          HashMap.fromList
+                            [ ("baikai.latency_ms", Attr.toAttribute latencyMs)
+                            ]
         Otel.addAttributes sp attrs
         Otel.setStatus sp Otel.Ok
         Otel.endSpan sp (Just (utcToTimestamp timestamp))
         pure (Map.delete eventId m)
-  CallFailed {eventId, timestamp, latencyMs, errorMessage, inputTokens, outputTokens, usd, costBasis, usageAvailability} ->
+  CallFailed {eventId, timestamp, latencyMs, errorMessage, inputTokens, outputTokens, usd, costBasis, usageAvailability, structuredData} ->
     case Map.lookup eventId m of
       -- A terminal without a live span is unreachable for normal withTraceStream
       -- usage because each traced call drives a fresh fold. Keep the silent drop so
@@ -175,15 +176,16 @@ stepEvent tracer OtelSinkOptions {spanName, includePromptSummary, parentContext}
       Nothing -> pure m
       Just sp -> do
         Otel.addAttributes sp $
-          maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_inputTokens (fromIntegral n :: Int64)) inputTokens $
-            maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_outputTokens (fromIntegral n :: Int64)) outputTokens $
-              maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
-                maybe id (\b -> HashMap.insert "baikai.cost.basis" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON b))))) costBasis $
-                  maybe id (\a -> HashMap.insert "baikai.usage.availability" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON a))))) usageAvailability $
-                    HashMap.fromList
-                      [ ("baikai.latency_ms", Attr.toAttribute latencyMs),
-                        ("baikai.error", Attr.toAttribute errorMessage)
-                      ]
+          maybe id (\ds -> HashMap.insert "baikai.response.structured_data" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON ds))))) structuredData $
+            maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_inputTokens (fromIntegral n :: Int64)) inputTokens $
+              maybe id (\n -> AttrMap.insertByKey SC.genAi_usage_outputTokens (fromIntegral n :: Int64)) outputTokens $
+                maybe id (\s -> HashMap.insert "baikai.cost.usd" (Attr.toAttribute (Scientific.toRealFloat s :: Double))) usd $
+                  maybe id (\b -> HashMap.insert "baikai.cost.basis" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON b))))) costBasis $
+                    maybe id (\a -> HashMap.insert "baikai.usage.availability" (Attr.toAttribute (Text.decodeUtf8 (Ev.canonicalEncode (Aeson.toJSON a))))) usageAvailability $
+                      HashMap.fromList
+                        [ ("baikai.latency_ms", Attr.toAttribute latencyMs),
+                          ("baikai.error", Attr.toAttribute errorMessage)
+                        ]
         Otel.setStatus sp (Otel.Error errorMessage)
         Otel.endSpan sp (Just (utcToTimestamp timestamp))
         pure (Map.delete eventId m)

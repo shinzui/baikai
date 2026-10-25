@@ -23,6 +23,7 @@ import Data.Map.Strict qualified as Map
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
 import Data.Vector qualified as V
+import DataContentSpec qualified
 import EmbeddingSpec qualified
 import ErrorInfoSpec qualified
 import ErrorSpec qualified
@@ -112,6 +113,7 @@ main = do
         CliInternalSpec.tests,
         CliProcessSpec.tests,
         ContextSpec.tests,
+        DataContentSpec.tests,
         CostSpec.tests,
         EmbeddingSpec.tests,
         ErrorInfoSpec.tests,

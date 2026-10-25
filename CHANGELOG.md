@@ -5,6 +5,17 @@ All notable changes to baikai are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- Core: add `UserData`, `AssistantData`/`DataContent` (value, optional probabilities,
+  confidence and method), user-data message helpers, atomic data events, and named
+  full-response JSON codecs. Generative providers encode user data canonically and
+  refuse assistant data history with a typed request problem before dispatch.
+- Core and OpenTelemetry: preserve structured answer payloads in terminal traces,
+  both call-log paths and `baikai.response.structured_data`. Evidence schema 2.6
+  includes structured response commitments; existing digest rules are unchanged.
+- Public content/event sums and error/trace/log records have PVP major changes.
+
 ## [Unreleased]
 
 ## [baikai 0.8.0.0] - 2026-10-10

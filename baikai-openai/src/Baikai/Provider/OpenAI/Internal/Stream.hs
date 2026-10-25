@@ -45,6 +45,7 @@ where
 import Baikai.Compat (OpenAICompletionsCompat (requiresThinkingAsText))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
+import Baikai.Context qualified as Context
 import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
@@ -216,35 +217,37 @@ resolvedBaseUrl m = case m ^. #baseUrl of
   u -> u
 
 prepareCall :: Model -> Context -> Options -> IO (Either BaikaiError OpenAICall)
-prepareCall m ctx opts = case mapRequest m ctx opts of
-  Left e -> pure (Left (invalidRequest e))
-  Right req -> do
-    let url = resolvedBaseUrl m
-    -- Checked before the key is resolved, so a base URL baikai will not
-    -- send to never causes a credential to be read out of the
-    -- environment. The message names the problem and what to write
-    -- instead; it renders the URL without its userinfo or query, so an
-    -- error reaching a log cannot carry a key someone put in either.
-    case Url.baseUrlProblem url of
-      Just problem ->
-        pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
-      Nothing -> do
-        key <- Transport.resolveKey url opts
-        env <- Transport.getClientEnvCached url
-        let compat = openaiCompletionsCompatFor m
-            (body, translation) = streamRequestBody compat (m ^. #reasoning) opts req
-            headers = Transport.requestHeaders key m opts
-        pure
-          ( Right
-              OpenAICall
-                { clientEnv = env,
-                  requestHeaders = headers,
-                  timeoutMs = opts ^. #timeoutMs,
-                  requestBody = body,
-                  baseUrl = url,
-                  thinking = translation
-                }
-          )
+prepareCall m ctx opts
+  | Left e <- Context.refuseAssistantDataHistory ctx = pure (Left e)
+  | otherwise = case mapRequest m ctx opts of
+      Left e -> pure (Left (invalidRequest e))
+      Right req -> do
+        let url = resolvedBaseUrl m
+        -- Checked before the key is resolved, so a base URL baikai will not
+        -- send to never causes a credential to be read out of the
+        -- environment. The message names the problem and what to write
+        -- instead; it renders the URL without its userinfo or query, so an
+        -- error reaching a log cannot carry a key someone put in either.
+        case Url.baseUrlProblem url of
+          Just problem ->
+            pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
+          Nothing -> do
+            key <- Transport.resolveKey url opts
+            env <- Transport.getClientEnvCached url
+            let compat = openaiCompletionsCompatFor m
+                (body, translation) = streamRequestBody compat (m ^. #reasoning) opts req
+                headers = Transport.requestHeaders key m opts
+            pure
+              ( Right
+                  OpenAICall
+                    { clientEnv = env,
+                      requestHeaders = headers,
+                      timeoutMs = opts ^. #timeoutMs,
+                      requestBody = body,
+                      baseUrl = url,
+                      thinking = translation
+                    }
+              )
 
 -- | A loose summary of one streamed chunk. The raw 'Aeson.Value' is
 -- pre-parsed into the fields we care about; unknown fields are

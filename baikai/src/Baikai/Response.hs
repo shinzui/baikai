@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | The provider response envelope.
 --
 -- A 'Response' wraps the model's assistant payload ('message') with
@@ -16,13 +18,14 @@ module Baikai.Response
     responseMessage,
     flattenAssistantBlocks,
     flattenAssistantText,
+    flattenAssistantData,
     responseError,
     errorResponse,
   )
 where
 
 import Baikai.Api (Api (..))
-import Baikai.Content (AssistantContent (..), TextContent (..))
+import Baikai.Content (AssistantContent (..), DataContent, TextContent (..))
 import Baikai.Error (BaikaiError, providerError)
 import Baikai.Error qualified as Error
 import Baikai.Evidence (ModelCallEvidence)
@@ -139,3 +142,7 @@ errorResponse m ts latency err =
       errorInfo = Just err,
       evidence = Nothing
     }
+
+-- | Structured output blocks in content order, independent of call evidence.
+flattenAssistantData :: Vector AssistantContent -> Vector DataContent
+flattenAssistantData = V.mapMaybe (\case AssistantData d -> Just d; _ -> Nothing)

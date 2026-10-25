@@ -16,6 +16,8 @@ import Baikai.Compat
   )
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
+import Baikai.Context qualified as Context
+import Baikai.Error qualified as Error
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
@@ -49,6 +51,7 @@ import OpenAI.V1.ToolCall qualified as ToolCall
 mapRequest ::
   Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
 mapRequest m ctx opts = do
+  either (Left . Error.message) pure (Context.refuseAssistantDataHistory ctx)
   let capability = openaiCompletionsCompatFor m
       forced = case opts ^. #toolChoice of
         Just Tool.ToolChoiceRequired -> True
@@ -272,6 +275,7 @@ mapMessage = \case
 userContentToPart :: Content.UserContent -> Chat.Content
 userContentToPart = \case
   Content.UserText (Content.TextContent t) -> Chat.Text {Chat.text = t}
+  Content.UserData v -> Chat.Text {Chat.text = Content.canonicalDataText v}
   Content.UserImage img ->
     let encoded = Text.decodeUtf8 (Base64.encode (Content.imageData img))
         uri = "data:" <> Content.mimeType img <> ";base64," <> encoded
@@ -288,6 +292,7 @@ collectAssistantText =
           Content.AssistantText (Content.TextContent t) -> Just t
           Content.AssistantThinking _ -> Nothing
           Content.AssistantToolCall _ -> Nothing
+          Content.AssistantData _ -> Nothing
       )
 
 collectToolCalls :: Vector Content.AssistantContent -> Vector ToolCall.ToolCall

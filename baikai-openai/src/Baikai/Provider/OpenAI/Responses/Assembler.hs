@@ -287,6 +287,7 @@ deltaEvent "function_call" n txt = E.ToolCallDelta (E.DeltaPayload n txt)
 deltaEvent _ n txt = E.TextDelta (E.DeltaPayload n txt)
 
 endEvent :: Int -> C.AssistantContent -> E.AssistantMessageEvent
+endEvent n (C.AssistantData c) = E.DataEnd (E.DataEndPayload n c)
 endEvent n (C.AssistantThinking c) = E.ThinkingEnd (E.ThinkingEndPayload n c)
 endEvent n (C.AssistantToolCall c) = E.ToolCallEnd (E.ToolCallEndPayload n c)
 endEvent n (C.AssistantText c) = E.TextEnd (E.BlockEndPayload n c.text)

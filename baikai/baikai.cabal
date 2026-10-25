@@ -94,6 +94,7 @@ library
     Baikai.Provider.Registry
     Baikai.Provider.Transport.Classify
     Baikai.Response
+    Baikai.Response.JSON
     Baikai.ResponseFormat
     Baikai.Speed
     Baikai.StopReason
@@ -112,7 +113,10 @@ library
   -- it so an evidence record can name the build that produced it,
   -- centrally rather than through a literal in each of the five
   -- packages that construct evidence.
-  other-modules: Paths_baikai
+  other-modules:
+    Baikai.Internal.JSON
+    Paths_baikai
+
   autogen-modules: Paths_baikai
   build-depends:
     aeson ^>=2.2,
@@ -210,6 +214,7 @@ test-suite baikai-test
     CliProcessSpec
     ContextSpec
     CostSpec
+    DataContentSpec
     EmbeddingSpec
     ErrorInfoSpec
     ErrorSpec

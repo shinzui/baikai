@@ -1,6 +1,9 @@
 module Baikai.Error
   ( BaikaiError (..),
     ErrorCategory (..),
+    RequestProblem (..),
+    unsupportedFeature,
+    unsupportedModel,
 
     -- * Smart constructors
     providerError,
@@ -37,6 +40,8 @@ import Data.Aeson
     genericParseJSON,
     genericToJSON,
   )
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -93,6 +98,28 @@ instance FromJSON ErrorCategory where
     genericParseJSON
       defaultOptions {constructorTagModifier = camelTo2 '_'}
 
+-- | A machine-readable request refusal, with its offending field or model.
+data RequestProblem = UnsupportedFeature Text | UnsupportedModel Text
+  deriving stock (Eq, Show, Generic)
+
+instance ToJSON RequestProblem where
+  toJSON (UnsupportedFeature path) = Aeson.object ["kind" Aeson..= ("unsupported_feature" :: Text), "field" Aeson..= path]
+  toJSON (UnsupportedModel model) = Aeson.object ["kind" Aeson..= ("unsupported_model" :: Text), "model" Aeson..= model]
+
+instance FromJSON RequestProblem where
+  parseJSON = Aeson.withObject "RequestProblem" $ \o -> do
+    k <- o Aeson..: "kind"
+    case k :: Text of
+      "unsupported_feature" -> UnsupportedFeature <$> o Aeson..: "field"
+      "unsupported_model" -> UnsupportedModel <$> o Aeson..: "model"
+      _ -> fail "unknown request problem kind"
+
+unsupportedFeature :: Text -> Text -> BaikaiError
+unsupportedFeature path msg = (invalidRequest msg) {requestProblem = Just (UnsupportedFeature path)}
+
+unsupportedModel :: Text -> Text -> BaikaiError
+unsupportedModel model msg = (invalidRequest msg) {requestProblem = Just (UnsupportedModel model)}
+
 -- | A failed baikai call. The 'category' drives caller policy; the
 -- remaining fields carry optional structured hints. No record-field
 -- prefixes (project convention): fields are plain names.
@@ -109,15 +136,16 @@ data BaikaiError = BaikaiError
     exitCode :: !(Maybe Int),
     -- | Provider-reported refusal category, an open vocabulary. Present only
     -- when a content refusal names one; never inferred from message text.
-    refusalCategory :: !(Maybe Text)
+    refusalCategory :: !(Maybe Text),
+    requestProblem :: !(Maybe RequestProblem)
   }
   deriving stock (Eq, Show, Generic)
 
 -- | Fields serialize as snake_case (e.g. @http_status@, @retry_after_seconds@).
 instance ToJSON BaikaiError where
-  toJSON =
-    genericToJSON
-      defaultOptions {fieldLabelModifier = camelTo2 '_'}
+  toJSON e = case genericToJSON defaultOptions {fieldLabelModifier = camelTo2 '_'} e of
+    Aeson.Object o | Nothing <- requestProblem e -> Aeson.Object (KM.delete "request_problem" o)
+    v -> v
 
 instance FromJSON BaikaiError where
   parseJSON =
@@ -137,7 +165,8 @@ baseError c m =
       httpStatus = Nothing,
       retryAfterSeconds = Nothing,
       exitCode = Nothing,
-      refusalCategory = Nothing
+      refusalCategory = Nothing,
+      requestProblem = Nothing
     }
 
 -- Smart constructors. These keep call sites close to the old API: an

@@ -33,6 +33,7 @@ module Baikai.Stream.Event
   ( AssistantMessageEvent (..),
     StartPayload (..),
     IndexPayload (..),
+    DataEndPayload (..),
     DeltaPayload (..),
     BlockEndPayload (..),
     ThinkingEndPayload (..),
@@ -44,12 +45,14 @@ module Baikai.Stream.Event
   )
 where
 
-import Baikai.Content (ThinkingContent, ToolCall)
+import Baikai.Content (DataContent, ThinkingContent, ToolCall)
 import Baikai.Error (BaikaiError)
 import Baikai.Evidence (ModelCallEvidence)
+import Baikai.Internal.JSON (parseEvidence, parseMessage)
 import Baikai.Message (Message)
 import Baikai.StopReason (StopReason)
-import Data.Aeson (ToJSON)
+import Data.Aeson
+import Data.Aeson.Types (Parser)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -92,6 +95,8 @@ data AssistantMessageEvent
     -- carries the full 'ThinkingContent', including provider
     -- signature and redacted flag when available.
     ThinkingEnd ThinkingEndPayload
+  | DataStart IndexPayload
+  | DataEnd DataEndPayload
   | -- | A tool-call content block is about to receive argument-JSON
     -- chunks. The tool's @id_@ and @name@ become known on this event
     -- when the upstream API delivers them up front (Anthropic), or on
@@ -168,6 +173,14 @@ data BlockEndPayload = BlockEndPayload
 data ThinkingEndPayload = ThinkingEndPayload
   { contentIndex :: !Int,
     content :: !ThinkingContent
+  }
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (ToJSON)
+
+-- | Atomic structured block; there are no incremental data deltas.
+data DataEndPayload = DataEndPayload
+  { contentIndex :: !Int,
+    content :: !DataContent
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -257,3 +270,48 @@ isTerminal = \case
   EventDone {} -> True
   EventError {} -> True
   _ -> False
+
+instance FromJSON IndexPayload where parseJSON = genericParseJSON defaultOptions
+
+instance FromJSON DeltaPayload where parseJSON = genericParseJSON defaultOptions
+
+instance FromJSON BlockEndPayload where parseJSON = genericParseJSON defaultOptions
+
+instance FromJSON ThinkingEndPayload where parseJSON = genericParseJSON defaultOptions
+
+instance FromJSON ToolCallEndPayload where parseJSON = genericParseJSON defaultOptions
+
+instance FromJSON DataEndPayload where parseJSON = genericParseJSON defaultOptions
+
+instance FromJSON StartPayload where
+  parseJSON = withObject "StartPayload" $ \o -> StartPayload <$> (o .: "partial" >>= parseMessage) <*> o .:? "responseId"
+
+instance FromJSON TerminalPayload where
+  parseJSON = withObject "TerminalPayload" $ \o ->
+    TerminalPayload
+      <$> o .: "reason"
+      <*> (o .: "message" >>= parseMessage)
+      <*> o .:? "responseId"
+      <*> o .:? "errorInfo"
+      <*> (o .:? "evidence" >>= traverse parseEvidence)
+
+instance FromJSON AssistantMessageEvent where
+  parseJSON = withObject "AssistantMessageEvent" $ \o -> do
+    tag <- o .: "tag" :: Parser Text
+    v <- o .: "contents"
+    case tag of
+      "EventStart" -> EventStart <$> parseJSON v
+      "TextStart" -> TextStart <$> parseJSON v
+      "TextDelta" -> TextDelta <$> parseJSON v
+      "TextEnd" -> TextEnd <$> parseJSON v
+      "ThinkingStart" -> ThinkingStart <$> parseJSON v
+      "ThinkingDelta" -> ThinkingDelta <$> parseJSON v
+      "ThinkingEnd" -> ThinkingEnd <$> parseJSON v
+      "ToolCallStart" -> ToolCallStart <$> parseJSON v
+      "ToolCallDelta" -> ToolCallDelta <$> parseJSON v
+      "ToolCallEnd" -> ToolCallEnd <$> parseJSON v
+      "DataStart" -> DataStart <$> parseJSON v
+      "DataEnd" -> DataEnd <$> parseJSON v
+      "EventDone" -> EventDone <$> parseJSON v
+      "EventError" -> EventError <$> parseJSON v
+      _ -> fail "unknown assistant event tag"

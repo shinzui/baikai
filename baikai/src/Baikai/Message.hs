@@ -38,6 +38,9 @@ module Baikai.Message
     ToolResultPayload (..),
     ToolResult (..),
     user,
+    userData,
+    userDataAt,
+    userDataNow,
     userAt,
     userNow,
     userImage,
@@ -72,7 +75,7 @@ import Baikai.Content
   )
 import Baikai.StopReason (StopReason (..))
 import Baikai.Usage (Usage, zeroUsage)
-import Data.Aeson (ToJSON)
+import Data.Aeson (ToJSON, Value)
 import Data.Text (Text)
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Vector (Vector)
@@ -194,6 +197,18 @@ userImageNow :: ImageContent -> Maybe Text -> IO Message
 userImageNow img mPrefix = do
   now <- getCurrentTime
   pure (userImageAt now img mPrefix)
+
+-- | Build one structured user block, without a timestamp.
+userData :: Value -> Message
+userData v = UserMessage (UserPayload (V.singleton (UserData v)) Nothing)
+
+-- | Build one structured user block at an explicit timestamp.
+userDataAt :: UTCTime -> Value -> Message
+userDataAt ts v = UserMessage (UserPayload (V.singleton (UserData v)) (Just ts))
+
+-- | Build one structured user block using the current time.
+userDataNow :: Value -> IO Message
+userDataNow v = (\ts -> userDataAt ts v) <$> getCurrentTime
 
 -- | Build a one-text-block assistant message with zero usage, a @stop@
 -- stop reason, and no recorded timestamp.

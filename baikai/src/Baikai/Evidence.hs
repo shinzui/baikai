@@ -916,7 +916,9 @@ evidenceSchemaVersion :: Text
 -- thinking_summary_unavailable diagnostic; existing digest rules are unchanged.
 -- Version 2.5 adds error_info.refusal_category, an optional provider fact.
 -- Older error objects decode with Nothing; digest inputs are unchanged.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.5"
+-- Version 2.6 adds structured response content and optional request_problem.
+-- The canonical encoding and data-free commitment fixtures are unchanged.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.6"
 
 -- | Everything Baikai can say about one completed provider call.
 --

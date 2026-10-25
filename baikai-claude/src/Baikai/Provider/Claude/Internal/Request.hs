@@ -23,6 +23,8 @@ import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Compat (AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
+import Baikai.Context qualified as Context
+import Baikai.Error qualified as Error
 import Baikai.Evidence
   ( ThinkingAdjustment (..),
     ThinkingMode (..),
@@ -79,6 +81,7 @@ nonEmptyStops xs = Just (Vector.fromList xs)
 mapRequest ::
   Model -> Context -> Options -> Either Text (Messages.CreateMessage, ThinkingTranslation)
 mapRequest m ctx opts = do
+  either (Left . Error.message) pure (Context.refuseAssistantDataHistory ctx)
   case opts ^. #toolChoice of
     Just Tool.ToolChoiceRequired | not (anthropicMessagesCompatFor m).supportsForcedToolChoice -> unsupportedForcedChoice
     Just (Tool.ToolChoiceSpecific _) | not (anthropicMessagesCompatFor m).supportsForcedToolChoice -> unsupportedForcedChoice
@@ -616,6 +619,7 @@ userContentToBlock = \case
     | Text.null t -> Nothing
     | otherwise ->
         Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
+  Content.UserData v -> userContentToBlock (Content.UserText (Content.TextContent (Content.canonicalDataText v)))
   Content.UserImage img ->
     Just
       Messages.Content_Image
@@ -649,6 +653,7 @@ assistantContentToBlock = \case
                 Messages.signature = sig
               }
         Nothing -> Nothing
+  Content.AssistantData _ -> Nothing
   Content.AssistantToolCall tc ->
     Just
       Messages.Content_Tool_Use

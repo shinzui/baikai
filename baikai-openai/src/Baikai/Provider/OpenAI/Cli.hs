@@ -50,6 +50,7 @@ where
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
+import Baikai.Context qualified as Context
 import Baikai.Error (BaikaiError, processError, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
@@ -70,6 +71,7 @@ import Baikai.Stream (liftCompleteToStream)
 import Baikai.ThinkingLevel (ThinkingLevel, renderThinkingLevel)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Exception (IOException, SomeException, bracket, displayException, fromException, try)
+import Control.Exception qualified
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (void)
 import Data.Aeson qualified as Aeson
@@ -254,6 +256,7 @@ compactJson = Text.unpack . Internal.decodeUtf8Lenient . LBS.toStrict . Aeson.en
 
 runCodexCli :: CodexCliConfig -> Model -> Context -> Options -> IO Resp.Response
 runCodexCli cfg m ctx opts = do
+  either Control.Exception.throwIO pure (Context.refuseAssistantDataHistory ctx)
   let schema = requestedSchema opts
       -- The envelope names the schema itself where the spawned vector
       -- names its temporary file: the random path would make the

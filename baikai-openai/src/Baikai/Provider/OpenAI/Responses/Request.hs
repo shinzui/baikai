@@ -20,6 +20,8 @@ import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Compat (OpenAIResponsesCompat (..))
 import Baikai.Content qualified as C
 import Baikai.Context (Context (..))
+import Baikai.Context qualified as Context
+import Baikai.Error qualified as Error
 import Baikai.Evidence qualified as E
 import Baikai.Message qualified as M
 import Baikai.Model (Model, api, maxOutputTokens, modelId, openaiResponsesCompatFor, reasoning)
@@ -55,6 +57,7 @@ data PreparedRequest = PreparedRequest
 
 mapRequest :: Model -> Context -> Options -> Either Text PreparedRequest
 mapRequest m ctx opts = do
+  either (Left . Error.message) pure (Context.refuseAssistantDataHistory ctx)
   unless (normaliseApi m.api == OpenAIResponses) (Left "Responses requires Model.api = OpenAIResponses")
   let compat = openaiResponsesCompatFor m
       unsupported = [name | (name, present) <- [("stopSequences", not (null opts.stopSequences)), ("seed", isJust opts.seed), ("frequencyPenalty", isJust opts.frequencyPenalty), ("presencePenalty", isJust opts.presencePenalty)], present]
@@ -174,6 +177,7 @@ messageItems m = \case
     pure [Aeson.toJSON R.Item_Input_Function_Call_Output {R.id = Nothing, R.call_id = p.toolCallId, R.output = output, R.status = Nothing}]
   where
     assistantItem = \case
+      C.AssistantData _ -> Left "Cannot replay AssistantData evidence"
       C.AssistantText t -> pure [object ["role" .= ("assistant" :: Text), "content" .= t.text]]
       C.AssistantToolCall tc -> do
         unless (not (Text.null tc.id_) && not (Text.null tc.name)) (Left "Responses tool calls need a nonempty call_id and name")
@@ -188,6 +192,7 @@ messageItems m = \case
 userPart :: C.UserContent -> Value
 userPart = \case
   C.UserText t -> Aeson.toJSON (R.Input_Text t.text)
+  C.UserData v -> Aeson.toJSON (R.Input_Text (C.canonicalDataText v))
   C.UserImage img ->
     Aeson.toJSON
       R.Input_Image

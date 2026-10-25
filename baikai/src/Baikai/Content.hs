@@ -4,9 +4,9 @@
 --
 -- A message no longer carries a single opaque blob of text. Instead it
 -- holds a vector of typed blocks. For user input the blocks can be text
--- or an inline base64-encoded image. For assistant output a block can be
+-- or an inline base64-encoded image, or structured JSON. Assistant output can be
 -- text, a thinking trace (for reasoning-capable models), or a tool
--- invocation. For tool-result messages (a caller-supplied reply to a
+-- invocation or structured data with answer evidence. For tool-result messages (a caller-supplied reply to a
 -- model-issued tool call) blocks can be text or image.
 --
 -- Image content is restricted to
@@ -17,6 +17,8 @@
 module Baikai.Content
   ( -- * Block primitives
     TextContent (..),
+    DataContent (..),
+    canonicalDataText,
     ThinkingContent (..),
     ThinkingReplay (..),
     ToolCall (..),
@@ -40,6 +42,7 @@ module Baikai.Content
 where
 
 import Baikai.Api (Api)
+import Baikai.Evidence (canonicalEncode)
 import Data.Aeson
   ( FromJSON (parseJSON),
     Options (..),
@@ -60,6 +63,8 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Base64 qualified as Base64
+import Data.Map.Strict (Map)
+import Data.Scientific qualified as Scientific
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -72,6 +77,35 @@ newtype TextContent = TextContent
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+-- | Structured output and optional provider-reported answer evidence.
+-- Probabilities need not sum to one. Confidence is never derived locally.
+data DataContent = DataContent
+  { value :: !Value,
+    probabilities :: !(Maybe (Map Text (Map Text Double))),
+    confidence :: !(Maybe (Map Text Double)),
+    method :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show, Generic)
+
+instance ToJSON DataContent where
+  toJSON d =
+    object $
+      ["value" .= value d]
+        <> maybe [] (\x -> ["probabilities" .= x]) (probabilities d)
+        <> maybe [] (\x -> ["confidence" .= x]) (confidence d)
+        <> maybe [] (\x -> ["method" .= x]) (method d)
+
+instance FromJSON DataContent where
+  parseJSON = withObject "DataContent" $ \o -> do
+    v <- o .: "value"
+    ps <- o .:? "probabilities"
+    cs <- o .:? "confidence"
+    m <- o .:? "method"
+    let check n
+          | n < 0 || n > (1 :: Scientific.Scientific) = fail "expected a probability in [0,1]"
+          | otherwise = pure (Scientific.toRealFloat n :: Double)
+    DataContent v <$> traverse (traverse (traverse check)) ps <*> traverse (traverse check) cs <*> pure m
 
 -- | A reasoning trace block produced by thinking-capable models. The
 -- @signature@ field is an opaque continuation token returned by the
@@ -169,6 +203,7 @@ data ImageContent = ImageContent
 data UserContent
   = UserText !TextContent
   | UserImage !ImageContent
+  | UserData !Value
   deriving stock (Eq, Show, Generic)
 
 -- | What a provider can put into a 'Baikai.Message.AssistantMessage'.
@@ -176,6 +211,7 @@ data AssistantContent
   = AssistantText !TextContent
   | AssistantThinking !ThinkingContent
   | AssistantToolCall !ToolCall
+  | AssistantData !DataContent
   deriving stock (Eq, Show, Generic)
 
 -- | What a caller can put into a 'Baikai.Message.ToolResultMessage'.
@@ -283,3 +319,7 @@ instance FromJSON ToolResultContent where
 
 instance ToJSON ToolResultContent where
   toJSON = genericToJSON contentSumOptions
+
+-- | Deterministic UTF-8 JSON text for a structured input block.
+canonicalDataText :: Value -> Text
+canonicalDataText = Text.decodeUtf8 . canonicalEncode

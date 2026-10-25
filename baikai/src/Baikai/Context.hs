@@ -19,6 +19,7 @@ module Baikai.Context
     messages,
     tools,
     emptyContext,
+    refuseAssistantDataHistory,
     contextOf,
     systemUser,
     addUser,
@@ -30,6 +31,7 @@ module Baikai.Context
 where
 
 import Baikai.Content (AssistantContent (..), ToolCall (..), isCutOffToolCall)
+import Baikai.Error (BaikaiError, unsupportedFeature)
 import Baikai.Message (Message (..), ToolResult, toolResultErrorText, toolResultFromCallNow, toolResultText, user)
 import Baikai.Response (Response (..), responseError, responseMessage)
 import Baikai.Tool (Tool)
@@ -38,6 +40,7 @@ import Control.Lens ((&), (.~), (^.))
 import Data.Aeson (ToJSON)
 import Data.Generics.Labels ()
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import GHC.Generics (Generic)
@@ -169,3 +172,12 @@ appendToolResultText ::
   IO Context
 appendToolResultText ctx resp dispatcher =
   appendToolResult ctx resp (fmap toolResultText . dispatcher)
+
+-- | Generative transports cannot replay structured answer evidence losslessly.
+refuseAssistantDataHistory :: Context -> Either BaikaiError ()
+refuseAssistantDataHistory ctx = case [ "messages[" <> Text.pack (show i) <> "].content[" <> Text.pack (show j) <> "]"
+                                      | (i, AssistantMessage p) <- zip [0 :: Int ..] (V.toList (messages ctx)),
+                                        (j, AssistantData _) <- zip [0 :: Int ..] (V.toList (p ^. #content))
+                                      ] of
+  [] -> Right ()
+  path : _ -> Left (unsupportedFeature path "This transport cannot replay AssistantData evidence")

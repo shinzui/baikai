@@ -184,7 +184,7 @@ including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
 Those changes introduced version 2.0. Records now say
-`baikai.model-call-evidence/2.5`. Version 2.5 adds optional
+`baikai.model-call-evidence/2.6`. Version 2.6 adds structured answer content to response commitments and optional typed request problems. It retains the existing canonical algorithm. Version 2.5 adds optional
 `error_info.refusal_category`, preserving the provider category separately from
 the readable error message. Legacy errors decode without a category; digest
 inputs are unchanged. Version 2.4 adds optional
@@ -449,3 +449,8 @@ data will not match totals over new data.
 
 **If you use `baikai-trace-otel`.** It gains span attributes and loses
 nothing. `Baikai.Cost.Log`'s `CallLogEntry` is unchanged in shape.
+
+Answer distributions and confidence are response content (`AssistantData`),
+independent of evidence opt-in. Terminal traces and call logs include optional
+`structuredData`; OpenTelemetry includes the same ordered payloads as canonical
+JSON in `baikai.response.structured_data`. Data-free records omit the new fields.

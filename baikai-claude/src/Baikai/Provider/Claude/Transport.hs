@@ -149,7 +149,8 @@ timeoutError ms =
       httpStatus = Nothing,
       retryAfterSeconds = Nothing,
       exitCode = Nothing,
-      refusalCategory = Nothing
+      refusalCategory = Nothing,
+      requestProblem = Nothing
     }
 
 -- | Apply caller overrides over the provider's own headers.

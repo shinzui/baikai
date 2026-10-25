@@ -70,6 +70,8 @@ import Baikai.Error (BaikaiError, providerError)
 -- does 'Baikai.Trace.Event.TraceEvent'. They mean different things and
 -- both belong in this module, so the status constructors stay behind
 -- the @Evidence.@ qualifier.
+
+import Baikai.Content (DataContent)
 import Baikai.Evidence
   ( ModelCallEvidence,
     newCallId,
@@ -82,10 +84,10 @@ import Baikai.Options (Options)
 import Baikai.Prelude
 import Baikai.Provider.Registry (ProviderRegistry, globalProviderRegistry)
 import Baikai.Provider.Registry qualified as Registry
-import Baikai.Response (Response)
+import Baikai.Response (Response, flattenAssistantData)
 import Baikai.StopReason (StopReason (ErrorReason))
 import Baikai.Stream (reassembleResponse, streamRequestWith)
-import Baikai.Stream.Event (AssistantMessageEvent (..), TerminalPayload (..))
+import Baikai.Stream.Event (AssistantMessageEvent (..), DataEndPayload (..), TerminalPayload (..))
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Usage (Usage)
@@ -97,8 +99,10 @@ import Control.Exception (Exception (..), SomeException, mask, onException, try,
 import Control.Monad (forM_, unless, void)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.IntMap.Strict qualified as IntMap
 import Data.Maybe (fromMaybe, isJust)
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
+import Data.Vector qualified as V
 import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -218,6 +222,7 @@ data TraceState = TraceState
     closed :: !(IORef Bool),
     sinkError :: !(IORef (Maybe SomeException)),
     terminalSent :: !(IORef Bool),
+    dataBlocks :: !(IORef (IntMap.IntMap DataContent)),
     stableRoot :: !(IORef (Maybe (StablePtr TraceState)))
   }
   deriving stock (Generic)
@@ -229,8 +234,9 @@ newTraceState = do
   r <- newIORef False
   e <- newIORef Nothing
   t <- newIORef False
+  dat <- newIORef IntMap.empty
   root <- newIORef Nothing
-  let state = TraceState {chan = c, done = d, closed = r, sinkError = e, terminalSent = t, stableRoot = root}
+  let state = TraceState {chan = c, done = d, closed = r, sinkError = e, terminalSent = t, dataBlocks = dat, stableRoot = root}
   sp <- newStablePtr state
   writeIORef root (Just sp)
   pure state
@@ -276,6 +282,7 @@ finalizeTrace reg s eid start m opts = mask $ \restore -> do
                   costBasis = Nothing,
                   usageAvailability = Nothing,
                   usd = Nothing,
+                  structuredData = Nothing,
                   errorMessage = abortText
                 }
         -- The consumer stopped before the terminal event, so no adapter
@@ -483,6 +490,17 @@ traceEvent ::
   IO AssistantMessageEvent
 traceEvent reg state eid start m opts ev = do
   case ev of
+    DataEnd DataEndPayload {contentIndex = i, content = d} ->
+      atomicModifyIORef' (state ^. #dataBlocks) (\old -> (IntMap.insert i d old, ()))
+    _ -> pure ()
+  closed <- readIORef (state ^. #dataBlocks)
+  let dataFor msg = case msg of
+        AssistantMessage p ->
+          let ds = flattenAssistantData (p ^. #content)
+              complete = if V.null ds then V.fromList (IntMap.elems closed) else ds
+           in if V.null complete then Nothing else Just complete
+        _ -> Nothing
+  case ev of
     EventDone TerminalPayload {message = msg, evidence = mev} -> do
       now <- getCurrentTime
       let latency = millisBetween start now
@@ -513,6 +531,7 @@ traceEvent reg state eid start m opts ev = do
                 -- common case rather than a corner.
                 costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
                 usageAvailability = mu >>= Usage.availability,
+                structuredData = dataFor msg,
                 usd = fmap (usdAsScientific . Usage.cost) mu
               }
       -- Evidence goes out *before* the terminal, so a sink that keys
@@ -549,6 +568,7 @@ traceEvent reg state eid start m opts ev = do
                 totalTokens = fmap Usage.totalTokens mu,
                 costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
                 usageAvailability = mu >>= Usage.availability,
+                structuredData = dataFor msg,
                 usd = fmap (usdAsScientific . Usage.cost) mu,
                 errorMessage = errMsg
               }
@@ -634,6 +654,7 @@ runRequestWithRegistry reg sink h m ctx opts = do
             -- zero.
             usd = fmap (usdAsScientific . Usage.cost) mu,
             latencyMs = resp ^. #latencyMs,
+            structuredData = let ds = flattenAssistantData ((resp ^. #message) ^. #content) in if V.null ds then Nothing else Just ds,
             promptSummary = summarizeContext ctx
           }
   appendEntry h entry

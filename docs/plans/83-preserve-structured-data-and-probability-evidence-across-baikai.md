@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-21T16:18:40Z
       mode: "update"
       note: "Add optional per-field confidence map to DataContent at plan 84's request"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-25T12:24:53Z
+      mode: "implement"
+      note: "Implement structured content, typed refusals, streams, persistence, and sinks"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -39,9 +44,9 @@ This implements the provider-neutral portion of [IR-10](../improvement-requests/
 
 ## Progress
 
-- [ ] Milestone 1: structured blocks and typed request-problem errors round-trip, and every existing provider explicitly handles structured input/history without loss or pattern-match failures.
-- [ ] Milestone 2: atomic data events and named full-response codecs preserve distributions and method tags, including mixed-block and failure recovery cases.
-- [ ] Milestone 3: actual trace, call-log, and OpenTelemetry output retains structured data; offline package tests and documented content examples pass.
+- [x] Milestone 1: structured blocks and typed request-problem errors round-trip, and every existing provider explicitly handles structured input/history without loss or pattern-match failures.
+- [x] Milestone 2: atomic data events and named full-response codecs preserve distributions and method tags, including mixed-block and failure recovery cases.
+- [x] Milestone 3: actual trace, call-log, and OpenTelemetry output retains structured data; offline package tests and documented content examples pass.
 
 
 ## Surprises & Discoveries
@@ -63,6 +68,10 @@ Trace terminals and `CallLogEntry` currently carry only accounting fields; neith
 
 
 ## Outcomes & Retrospective
+
+Completed 2026-10-25. `nix develop --no-write-lock-file -c cabal build all` passes. Offline acceptance passed: core 817 tests, OpenAI 298, Claude 433 (serial after compilation), OpenTelemetry 11, effectful 4, and doc-shapes. `DataContentSpec` proves mixed event recovery, serialized events, full-response byte stability including observed usage/evidence and decimal costs, cache-style evidence removal, and actual file trace plus both call-log entry points. `DataInputSpec` in both provider packages proves canonical wire text and zero driver calls on typed refusal; the OpenAI group includes Responses. The in-memory OTel exporter retains canonical structured data without evidence opt-in. Legacy commitment tests pass. ADR [0027](../adr/0027-structured-answer-evidence-is-content.md) records the durable boundary.
+
+[FRIC-1](../friction-log/1-claude-cancellation-fixture-races-fixed-startup-delay-under-build-load.md) is accepted: the pre-existing Claude cancellation fixture races a fixed startup delay under load; all 433 tests pass serially after compilation. No initiative friction remains logged.
 
 
 ## Context and Orientation

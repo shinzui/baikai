@@ -40,7 +40,8 @@ module Baikai.Cost.Log
   )
 where
 
-import Baikai.Content (TextContent (..), UserContent (..))
+import Baikai.Content (DataContent, TextContent (..), UserContent (..))
+import Baikai.Content qualified as Content
 import Baikai.Context (Context)
 import Baikai.Cost (CostBasis, usdAsScientific)
 import Baikai.Cost qualified as Cost
@@ -55,7 +56,7 @@ import Baikai.Provider.Registry
     completeRequestWith,
     globalProviderRegistry,
   )
-import Baikai.Response (Response)
+import Baikai.Response (Response, flattenAssistantData)
 import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
 import Control.Concurrent (forkIO)
@@ -68,6 +69,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Lazy qualified as BSL
 import Data.Foldable (find)
 import Data.Function ((&))
@@ -113,10 +115,17 @@ data CallLogEntry = CallLogEntry
     reasoningTokens :: !(Maybe Natural),
     usd :: !(Maybe Scientific),
     latencyMs :: !Int,
-    promptSummary :: !Text
+    promptSummary :: !Text,
+    structuredData :: !(Maybe (Vector.Vector DataContent))
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+
+instance FromJSON CallLogEntry where parseJSON = Aeson.genericParseJSON Aeson.defaultOptions
+
+instance ToJSON CallLogEntry where
+  toJSON e = case Aeson.genericToJSON Aeson.defaultOptions e of
+    Aeson.Object o | Nothing <- structuredData e -> Aeson.Object (KM.delete "structuredData" o)
+    v -> v
 
 -- | Opaque handle for an open call log.
 data CallLogHandle = CallLogHandle
@@ -230,6 +239,7 @@ runRequestWithLogWith reg h m ctx opts = do
             -- which entry point produced it.
             usd = Just (usdAsScientific (Usage.cost u)),
             latencyMs = resp ^. #latencyMs,
+            structuredData = nonEmptyData (flattenAssistantData ((resp ^. #message) ^. #content)),
             promptSummary = summarizeContext ctx
           }
   appendEntry h entry
@@ -283,4 +293,8 @@ concatUserText :: Vector.Vector UserContent -> Text
 concatUserText = Text.concat . Vector.toList . Vector.mapMaybe pickText
   where
     pickText (UserText (TextContent t)) = Just t
+    pickText (UserData v) = Just (Content.canonicalDataText v)
     pickText _ = Nothing
+
+nonEmptyData :: Vector.Vector a -> Maybe (Vector.Vector a)
+nonEmptyData v = if Vector.null v then Nothing else Just v

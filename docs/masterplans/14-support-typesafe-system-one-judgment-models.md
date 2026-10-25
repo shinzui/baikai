@@ -32,6 +32,11 @@ provenance:
       at: 2026-10-25T11:58:00Z
       mode: "update"
       note: "Verify typesafe-hs 0.1.0.0 on Hackage and upstream tag; satisfy external gates and use the released dependency; cascade to EP-84"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-25T12:24:53Z
+      mode: "implement"
+      note: "Begin EP-83 structured-content foundation and offline acceptance"
 ---
 
 # Support TypeSafe System One judgment models
@@ -61,7 +66,7 @@ The relevant local decisions are [ADR 0002](../adr/0002-requested-translated-obs
 
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
-| 83 | Preserve structured data and probability evidence across Baikai | [docs/plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md](../plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md) | None | None | Not Started |
+| 83 | Preserve structured data and probability evidence across Baikai | [docs/plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md](../plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md) | None | None | Complete |
 | 99 | Add a provider-neutral judgment layer and judgment-only catalog facts to core | [docs/plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md](../plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md) | EP-83 | None | Not Started |
 | 84 | Deliver the TypeSafe System One provider and judgment catalog | [docs/plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md](../plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md) | EP-83, EP-99 | None | Not Started |
 
@@ -109,7 +114,7 @@ During implementation, EP-83 records the durable content/serialization and typed
 
 ## Progress
 
-Planning complete; all three child plans are Not Started. EP-83 is ready to implement; EP-99 follows it and needs nothing outside this repository; EP-84 waits only on EP-83 and EP-99. The client's wire-codec and Hackage-publication prerequisites are satisfied by `typesafe-hs` 0.1.0.0 (verified 2026-10-25). Remaining initiative gates are the exact offline three-question HTTP fixture with its noul-criteria variant, the refusal/malformed-response matrix through both public call modes, full-response and trace/log round trips, package/example/version integration, and the isolated source-distribution build using the released client without a source override. The opt-in live test must exist and be key-gated; report separately whether it was actually exercised.
+EP-83 is Complete (2026-10-25): the workspace builds and core, provider, sink, effectful and documentation offline gates pass. Structured content, typed errors, events, named response persistence and trace/log preservation are available. EP-99 is next, followed by EP-84. External client gates remain satisfied by typesafe-hs 0.1.0.0. Remaining gates are the neutral judgment/catalog tests, adapter HTTP matrix, final packaging and source-distribution verification; live verification remains explicitly selected and must be reported separately.
 
 
 ## Surprises & Discoveries

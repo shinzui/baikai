@@ -41,6 +41,7 @@ import Data.ByteString.Char8 qualified as BS8
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import DataInputSpec qualified
 import ErrorClassSpec qualified
 import EvidenceSpec qualified
 import LifecycleSpec qualified
@@ -71,7 +72,8 @@ main =
   defaultMain $
     testGroup
       "Baikai.Provider.OpenAI"
-      [ commandRenderingTest,
+      [ DataInputSpec.tests,
+        commandRenderingTest,
         effortRenderingTests,
         safetyRefusalTest,
         refusesRejectedApprovalPoliciesTest,

@@ -56,6 +56,7 @@ import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event
   ( AssistantMessageEvent (..),
     BlockEndPayload (..),
+    DataEndPayload (..),
     DeltaPayload (..),
     IndexPayload (..),
     StartPayload (..),
@@ -273,6 +274,9 @@ step s event
               i
               (AssistantThinking tc)
           & #thinkBuf %~ IntMap.delete i
+      DataStart _ -> s
+      DataEnd DataEndPayload {contentIndex = i, content = d} ->
+        s & #blocks %~ IntMap.insert i (AssistantData d)
       ToolCallStart IndexPayload {contentIndex = i} ->
         s & #toolArgsBuf %~ IntMap.insert i Text.empty
       ToolCallDelta DeltaPayload {contentIndex = i, delta = d} ->
@@ -325,7 +329,7 @@ finalizeState s = do
       finalContent
         | not sawTerminal = assembled
         | Vector.null terminalContent = assembled
-        | terminalFailed = terminalContent <> Vector.fromList (IntMap.elems dangling)
+        | terminalFailed = Vector.fromList (IntMap.elems (IntMap.unions [s ^. #blocks, IntMap.fromList (zip [0 ..] (Vector.toList terminalContent)), dangling]))
         | otherwise = terminalContent
       message' = overrideBlocksAndReason terminalReason terminalMsg finalContent now
       latency = case (s ^. #skeleton >>= messageTimestamp, assistantPayloadTimestamp message') of
@@ -545,6 +549,7 @@ blockEvent i = \case
       ThinkingDelta DeltaPayload {contentIndex = i, delta = t},
       ThinkingEnd ThinkingEndPayload {contentIndex = i, content = th}
     ]
+  AssistantData d -> [DataStart (IndexPayload i), DataEnd (DataEndPayload i d)]
   AssistantToolCall tc ->
     let argsText =
           Text.decodeUtf8 (BSL.toStrict (Aeson.encode (Content.arguments tc)))
