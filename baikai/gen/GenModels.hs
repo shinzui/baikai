@@ -36,6 +36,7 @@ import Data.Text.IO qualified as TIO
 import GenModelsCore
   ( checkAnthropicCompat,
     checkIdentifierCollisions,
+    checkNativeCacheCompat,
     flattenEntries,
     renderModule,
   )
@@ -60,6 +61,9 @@ main = do
     Left err -> die (Text.unpack err)
     Right () -> pure ()
   case checkAnthropicCompat allEntries of
+    Left err -> die (Text.unpack err)
+    Right () -> pure ()
+  case checkNativeCacheCompat allEntries of
     Left err -> die (Text.unpack err)
     Right () -> pure ()
   let sorted = sortOn fst allEntries

@@ -47,7 +47,12 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Cost"
-    [ fastCostTests,
+    [ testCase "synthetic native duration rates select the complete input tier once" $ do
+        let m = knownModel & #pricingPolicy .~ Just (PricingPolicy [InputPriceTier 100 (ModelCost 2 4 (1 / 5) (5 / 2)) (Just 5)] (Just (5 / 2)))
+            u = Usage.observeBilling [Usage.BillingServiceTier "default"] (zeroUsage & #cacheWriteTokens .~ 200 & #totalTokens .~ 200)
+        (computeCostForService (Just CacheRetentionShort) Nothing m u) ^. #usd @?= 1 / 2000
+        (computeCostForService (Just CacheRetentionLong) Nothing m u) ^. #usd @?= 1 / 1000,
+      fastCostTests,
       computeTests,
       attachCostTests,
       callLogTests

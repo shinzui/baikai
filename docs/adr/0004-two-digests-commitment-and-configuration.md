@@ -128,3 +128,14 @@ local pricing remains outside response commitments. The digest and canonical
 encoding algorithms are unchanged. See
 [0027](0027-structured-answer-evidence-is-content.md) and
 [0029](0029-typesafe-wire-validation-and-scoped-http-judgments.md).
+
+### Native cache controls and Responses input (2026-10-25)
+
+Evidence schema 2.8 projects native retention and the allow-listed `mode`/`ttl`
+controls, plus structural summaries of Responses instructions and input. Native
+breakpoint indexes and safe control vocabulary record placement in Chat and
+Responses. Prompt text, cache identities, opaque replay and unknown nested policy
+fields are excluded. Content changes still affect the full request commitment;
+configuration changes affect the configuration fingerprint. Legacy envelopes
+without the added fields retain their golden digests. Neither digest establishes
+provider cache reuse; reported usage and a live hit are separate observations.

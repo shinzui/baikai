@@ -21,6 +21,7 @@ import Baikai.Error qualified as Error
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, openaiCompletionsCompatFor)
 import Baikai.Options (Options (..))
+import Baikai.Provider.OpenAI.Internal.Cache qualified as Cache
 import Baikai.Provider.OpenAI.Shape (resolveSupportedEffort)
 import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..))
@@ -51,6 +52,7 @@ import OpenAI.V1.ToolCall qualified as ToolCall
 mapRequest ::
   Model -> Context -> Options -> Either Text Chat.CreateChatCompletion
 mapRequest m ctx opts = do
+  _ <- Cache.chatCachePlan m opts
   either (Left . Error.message) pure (Context.refuseAssistantDataHistory ctx)
   let capability = openaiCompletionsCompatFor m
       forced = case opts ^. #toolChoice of

@@ -25,6 +25,9 @@ requires:
   - CAP-19
 evidence:
   - kind: test
+    resource: baikai-openai/test/NativeCacheSpec.hs
+    proves: "Native prefix shaping and public dispatch preserve replay, refuse unsupported controls before credentials, and use effective-duration pricing with explicit estimates; synthetic Long fixtures do not establish provider support."
+  - kind: test
     resource: baikai-openai/test/ResponsesSpec.hs
     proves: "Stateless request mapping: text, image, system prompt, token cap and metadata; every accepted effort survives while minimal adjusts with evidence; function tools keep permissive schemas; JSON schema and JSON object both use the Responses text.format shape; an unsupported option fails rather than disappearing; and foreign, malformed, duplicated or Anthropic-scoped replay state is refused without exposing the payload."
   - kind: test
@@ -113,3 +116,18 @@ model-call evidence](model-call-evidence.md) the other API providers do.
   `InvalidRequest` before transport, not a silent drop.
 - Only OpenAI itself is known to serve this endpoint. The compatible hosts CAP-14
   covers speak Chat Completions; none of them is tested here.
+
+## Native prompt caching (unreleased)
+
+Endpoint-specific catalog policy gates native retention and stable system-prefix
+breakpoints. Modern Short uses `30m`; absent/None controls preserve wire shape
+while the documented modern default supplies Short for pricing. Long requires
+verified endpoint support plus base and every tier's long-write rate. It remains
+disabled in curated modern bindings. Legacy `24h` uses base write pricing without
+a modern premium. Unknown duration with reported writes and duration-sensitive
+rates is an explicit estimate; conflicting duration details mark usage inconsistent.
+
+`NativeCacheSpec` verifies request capture, public dispatch and exact synthetic
+prices offline. OpenAI live reuse remains pending: the 2026-10-25 Responses
+probe returned HTTP 429 quota exhaustion. See the [caching guide](../user/prompt-caching.md)
+for isolated endpoint checks and the supported policy matrix.

@@ -46,6 +46,7 @@ import ErrorClassSpec qualified
 import EvidenceSpec qualified
 import LifecycleSpec qualified
 import MidStreamSpec qualified
+import NativeCacheSpec qualified
 import OpenAI.V1.Chat.Completions qualified as Chat
 import OpenAI.V1.ResponseFormat qualified as RF
 import PublicSurfaceSpec qualified
@@ -72,7 +73,8 @@ main =
   defaultMain $
     testGroup
       "Baikai.Provider.OpenAI"
-      [ DataInputSpec.tests,
+      [ NativeCacheSpec.tests,
+        DataInputSpec.tests,
         commandRenderingTest,
         effortRenderingTests,
         safetyRefusalTest,

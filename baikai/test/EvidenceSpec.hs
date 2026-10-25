@@ -27,7 +27,14 @@ tests :: TestTree
 tests =
   testGroup
     "Evidence"
-    [ translationDisplayTests,
+    [ testCase "native cache configuration redacts replay and records marker position" $ do
+        let marker = object ["mode" .= ("explicit" :: Text.Text), "secret" .= ("PRIVATE_CONTROL" :: Text.Text)]
+            block marked = object (["type" .= ("input_text" :: Text.Text), "text" .= ("PRIVATE_TEXT" :: Text.Text)] <> ["prompt_cache_breakpoint" .= marker | marked])
+            body marked = object ["prompt_cache_options" .= object ["ttl" .= ("30m" :: Text.Text), "cache_key" .= ("PRIVATE_KEY" :: Text.Text)], "input" .= [object ["role" .= ("developer" :: Text.Text), "content" .= [block marked]], object ["type" .= ("reasoning" :: Text.Text), "encrypted_content" .= ("PRIVATE_REPLAY" :: Text.Text), "id" .= ("PRIVATE_ID" :: Text.Text)]]]
+            projection = Text.pack (show (configurationProjection (body True)))
+        assertBool "no private content" (not ("PRIVATE" `Text.isInfixOf` projection))
+        assertBool "marker placement matters" (configurationDigest (body True) /= configurationDigest (body False)),
+      translationDisplayTests,
       canonicalTests,
       digestTests,
       usageEnvelopeTests,
@@ -271,7 +278,7 @@ usageEnvelopeTests =
   testGroup
     "usage envelope"
     [ testCase "cost basis is serialized additively without changing provider commitments" $ do
-        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.7"
+        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.8"
         let estimated = zeroUsage {cost = estimateCost [CacheWriteUsageNotReported] zeroCost}
         usageEnvelope estimated @?= usageEnvelope zeroUsage
         assertBool "usage JSON retains the local calculation basis" (Aeson.toJSON estimated /= Aeson.toJSON zeroUsage),

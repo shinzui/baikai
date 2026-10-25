@@ -21,6 +21,9 @@ requires:
   - CAP-7
 evidence:
   - kind: test
+    resource: baikai-openai/test/NativeCacheSpec.hs
+    proves: "Catalog-gated native controls, identical stable prefixes across fresh questions, public complete/stream dispatch, local refusal, synthetic duration pricing and content-free evidence; this is offline evidence, not a live cache-hit claim."
+  - kind: test
     resource: baikai-claude/test/ShapeSpec.hs
     proves: "System, last-tool and automatic markers share the effective TTL, including long-retention downgrade; empty system text is preserved and the tool-marker flag gates only tools."
   - kind: test
@@ -41,9 +44,8 @@ evidence:
 
 `CacheRetention` has three values — `None`, `Short`, `Long` — and each provider
 maps them to its own primitive. Anthropic's `Short` is the ephemeral
-`cache_control` marker with no TTL; `Long` asks for `ttl: "1h"`. A host that does
-not advertise long retention gets a transparent downgrade to short rather than a
-rejected request, and a host with no prompt caching at all ignores the preference.
+`cache_control` marker with no TTL; `Long` asks for `ttl: "1h"`. Anthropic-style hosts that lack long retention downgrade to short. Native
+OpenAI bindings refuse unsupported explicit preferences locally.
 
 The accounting half matters as much as the request half. Cache-read and
 cache-write tokens come back on `Usage` as their own disjoint classes and are
@@ -76,15 +78,18 @@ print (resp ^. #message . #usage . #cost . #basis)
   non-empty system prompt and the last tool definition, at most three slots.
   Only the tool marker is gated by `supportsCacheControlOnTools`. All markers
   use the same effective TTL, including a long-to-short downgrade.
-- On the OpenAI-compatible transport a marker is emitted only where the host's
-  compat record sets `cacheControlFormat = Just CacheControlFormatAnthropic` —
-  OpenRouter in the shipped table. `api.openai.com` gets no marker at all,
-  because this adapter relies on automatic caching and does not yet map
-  OpenAI's native cache controls, so on that path the capability is the
-  accounting half only.
-- The separate Responses backend supports catalog-gated retention shaping.
-  Astra uses `prompt_cache_options` with its supported short TTL and rejects
-  an unsupported long preference before dispatch.
+- Native OpenAI controls use an optional endpoint-specific `NativeCachePolicy`.
+  Modern Short emits `30m` and one non-empty system-prefix breakpoint, preserving
+  implicit caching. Responses moves the original instruction into exactly one
+  developer input block; Chat preserves its instruction role. Legacy bindings
+  emit only supported `in_memory` or `24h` values and no breakpoint. Native
+  unsupported preferences fail before credentials; absent policy preserves legacy
+  Responses behavior and disables native Chat controls. Compatible Anthropic
+  markers retain their long-to-short downgrade.
+- Modern Long stays disabled while `12h` endpoint support is unverified. The
+  2026-10-25 Responses probe returned quota exhaustion, not acceptance or usage.
+  Offline native tests prove serialization, dispatch, pricing and redaction;
+  OpenAI live shared-prefix reuse remains pending.
 - Whether a cache hit actually occurs depends on prefix stability, host policy,
   and timing. baikai reports what the host said it did; it cannot make a hit
   happen.

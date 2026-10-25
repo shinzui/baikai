@@ -33,6 +33,7 @@ module Baikai.Compat
         requiresThinkingAsText,
         thinkingFormat,
         cacheControlFormat,
+        nativeCachePolicy,
         supportsToolCalls,
         supportsSamplingParameters,
         supportedReasoningEfforts,
@@ -43,9 +44,11 @@ module Baikai.Compat
     MaxTokensField (..),
     ThinkingFormat (..),
     CacheControlFormat (..),
+    NativeCachePolicy (..),
+    validateNativeCachePolicy,
 
     -- * OpenAI Responses compat
-    OpenAIResponsesCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsLongCacheRetention, supportsPromptCacheOptions),
+    OpenAIResponsesCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsLongCacheRetention, supportsPromptCacheOptions, nativeCachePolicy),
     defaultOpenAIResponsesCompat,
 
     -- * Anthropic Messages compat
@@ -133,6 +136,25 @@ data CacheControlFormat = CacheControlFormatAnthropic
   deriving stock (Eq, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
+-- | Endpoint-specific native OpenAI caching. Absence on a compat record
+-- preserves its legacy behavior; explicit unsupported overrides old flags.
+-- Legacy arguments declare in_memory and 24h independently. Modern arguments
+-- declare 12h and prefix breakpoints; modern always supports the 30m default.
+-- The sum prevents mixing legacy retention with modern breakpoints.
+data NativeCachePolicy
+  = NativeCacheUnsupported
+  | NativeCacheLegacy !Bool !Bool
+  | NativeCacheModern !Bool !Bool
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- | Reject contradictory caller-built as well as curated endpoint facts.
+validateNativeCachePolicy :: Maybe CacheControlFormat -> Maybe NativeCachePolicy -> Either Text ()
+validateNativeCachePolicy format policy = case (format, policy) of
+  (Just _, Just _) -> Left "native and Anthropic cache controls cannot share a binding"
+  (_, Just (NativeCacheLegacy False False)) -> Left "legacy cache policy must accept at least one retention value"
+  _ -> Right ()
+
 -- | Which request shape an Anthropic-compatible host/model accepts
 -- for extended thinking. Budget-era models take
 -- @{"type":"enabled","budget_tokens":N}@; adaptive-era models take
@@ -195,10 +217,11 @@ data OpenAICompletionsCompat = OpenAICompletionsCompat
     --   Anthropic-style cache_control marker. Consumed by
     --   @Baikai.Provider.OpenAI.Shape.injectCacheControl@ when
     --   'cacheControlFormat' is 'Just CacheControlFormatAnthropic'.
-    supportsLongCacheRetention :: !Bool
+    supportsLongCacheRetention :: !Bool,
+    nativeCachePolicy :: !(Maybe NativeCachePolicy)
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving anyclass (ToJSON)
 
 -- | OpenAI's own host: every flag at the OpenAI default.
 defaultOpenAICompletionsCompat :: OpenAICompletionsCompat
@@ -213,7 +236,8 @@ defaultOpenAICompletionsCompat =
       supportsToolCalls = True,
       supportsSamplingParameters = True,
       supportedReasoningEfforts = Nothing,
-      supportsLongCacheRetention = True
+      supportsLongCacheRetention = True,
+      nativeCachePolicy = Nothing
     }
 
 -- | Model and endpoint facts for native Responses. This is separate
@@ -223,10 +247,11 @@ data OpenAIResponsesCompat = OpenAIResponsesCompat
     supportsSamplingParameters :: !Bool,
     supportsLongCacheRetention :: !Bool,
     -- | Use prompt_cache_options rather than legacy prompt_cache_retention.
-    supportsPromptCacheOptions :: !Bool
+    supportsPromptCacheOptions :: !Bool,
+    nativeCachePolicy :: !(Maybe NativeCachePolicy)
   }
   deriving stock (Eq, Show, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+  deriving anyclass (ToJSON)
 
 defaultOpenAIResponsesCompat :: OpenAIResponsesCompat
 defaultOpenAIResponsesCompat =
@@ -234,8 +259,34 @@ defaultOpenAIResponsesCompat =
     { supportedReasoningEfforts = Nothing,
       supportsSamplingParameters = True,
       supportsLongCacheRetention = True,
-      supportsPromptCacheOptions = False
+      supportsPromptCacheOptions = False,
+      nativeCachePolicy = Nothing
     }
+
+-- New policy fields are optional in persisted compatibility JSON.
+instance FromJSON OpenAICompletionsCompat where
+  parseJSON = withObject "OpenAICompletionsCompat" $ \o ->
+    OpenAICompletionsCompat
+      <$> o .: "maxTokensField"
+      <*> o .: "supportsStrictMode"
+      <*> o .: "requiresThinkingAsText"
+      <*> o .: "thinkingFormat"
+      <*> o .:? "cacheControlFormat"
+      <*> o .: "supportsUsageInStreaming"
+      <*> o .: "supportsToolCalls"
+      <*> o .: "supportsSamplingParameters"
+      <*> o .:? "supportedReasoningEfforts"
+      <*> o .: "supportsLongCacheRetention"
+      <*> o .:? "nativeCachePolicy"
+
+instance FromJSON OpenAIResponsesCompat where
+  parseJSON = withObject "OpenAIResponsesCompat" $ \o ->
+    OpenAIResponsesCompat
+      <$> o .:? "supportedReasoningEfforts"
+      <*> o .: "supportsSamplingParameters"
+      <*> o .: "supportsLongCacheRetention"
+      <*> o .: "supportsPromptCacheOptions"
+      <*> o .:? "nativeCachePolicy"
 
 -- | Feature flags for one Anthropic Messages-compatible host.
 data AnthropicMessagesCompat = AnthropicMessagesCompat

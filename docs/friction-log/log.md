@@ -1,9 +1,10 @@
 # Bundle Update Log
 
 ## 2026-10-25
-
+* **Update**: FRIC-3 accepted: Keep endpoint acceptance and live cache reuse unverified after the bounded quota failure; no retries added.
+* **Addition**: FRIC-3 records blocked environment friction with https://developers.openai.com/api/docs/guides/prompt-caching: OpenAI cache verification exhausted account quota
 * **Update**: FRIC-1 records a readiness-based repair of both lifecycle fixtures
-  during release preparation; the full offline gate passes.
+during release preparation; the full offline gate passes.
 * **Update**: FRIC-2 accepted: Triage the pre-existing strict-metadata baseline separately from TypeSafe acceptance.
 * **Addition**: FRIC-2 records detour tooling friction with mori://shinzui/baikai: Capability strict validation encounters pre-existing missing review metadata
 * **Update**: FRIC-1 accepted: Triage after EP-83: serial full-suite verification passes; retain the observed startup-race cost.

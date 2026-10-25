@@ -12,18 +12,20 @@
 -- smoke cases.
 module CacheSmoke
   ( runCacheCases,
+    runOpenAICacheCase,
   )
 where
 
 import Baikai
+import Baikai.Model (openaiCompletionsCompatFor, openaiResponsesCompatFor)
 import Baikai.Models.Generated qualified as Models
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (unless, when)
 import Data.Foldable (find)
 import Data.Generics.Labels ()
-import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Time.Clock (getCurrentTime)
 import Data.Vector qualified as Vector
 import GHC.Clock (getMonotonicTimeNSec)
 import Numeric.Natural (Natural)
@@ -76,9 +78,9 @@ runClaudeCacheReadWriteCase retention = do
       assertCachePositive envVar written readBack
       -- Tokens alone do not prove the money: a rate the catalog left at
       -- zero, or a breakdown that never attributed the cached classes,
-      -- would report positive counts and a zero bill. (Note that a
-      -- one-hour write is priced at the five-minute rate — see
-      -- docs/user/prompt-caching.md.)
+      -- would report positive counts and a zero bill. Duration-aware
+      -- rates are documented in
+      -- docs/user/prompt-caching.md.
       assertCacheCosts
         envVar
         (firstUsage ^. #cost ^. #breakdown ^. #cachedWriteUsd)
@@ -188,6 +190,48 @@ bigStablePreamble =
 firstSetEnv :: [String] -> IO (Maybe (String, String))
 firstSetEnv vars = do
   results <- traverse (\v -> fmap (\m -> (v, m)) (lookupEnv v)) vars
-  pure $ case find (\(_, m) -> isJust m) results of
+  pure $ case find (\(_, m) -> maybe False (not . null) m) results of
     Just (v, Just val) -> Just (v, val)
     _ -> Nothing
+
+-- | Exactly two calls per enabled duration, no retries or unrelated smoke work.
+runOpenAICacheCase :: Bool -> String -> IO Bool
+runOpenAICacheCase requireKey name = do
+  matched <- firstSetEnv ["OPENAI_API_KEY", "OPENAI_KEY"]
+  case matched of
+    Nothing -> do
+      hPutStrLn stderr "[baikai-smoke] no OpenAI key; skipping selected cache case."
+      when requireKey exitFailure
+      pure False
+    Just (envVar, key) -> do
+      let model = if name == "openai-cache-responses" then Models.openai_gpt_6_luna else Models.openai_gpt_5_6
+          policy = if name == "openai-cache-responses" then (openaiResponsesCompatFor model) ^. #nativeCachePolicy else (openaiCompletionsCompatFor model) ^. #nativeCachePolicy
+          long = case policy of Just (NativeCacheModern True _) -> True; _ -> False
+          durations = [CacheRetentionShort] <> [CacheRetentionLong | long]
+      unless long (hPutStrLn stderr "[baikai-smoke] Long disabled: endpoint support remains unverified.")
+      mapM_ (runPair model envVar key) durations
+      pure True
+  where
+    runPair model envVar key retention = do
+      nonce <- getMonotonicTimeNSec
+      date <- getCurrentTime
+      let prefix = "Cache run " <> Text.pack (show nonce) <> ". " <> bigStablePreamble
+          ctx = systemUser prefix "Reply with the single word: pong."
+          opts =
+            emptyOptions
+              & #maxTokens .~ Just 1024
+              & #thinking .~ Just ThinkingLow
+              & #timeoutMs .~ Just 60000
+              & #cacheRetention .~ Just retention
+              & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
+      hPutStrLn stderr ("[baikai-smoke] " <> show date <> " model=" <> Text.unpack (model ^. #modelId) <> " endpoint=" <> name <> " ttl=" <> if retention == CacheRetentionShort then "30m" else "12h")
+      first <- completeRequest model ctx opts
+      assertCompleted "write call" first
+      let firstUsage = first ^. #message . #usage
+      logUsage "write" envVar firstUsage
+      second <- completeRequest model (ctx & #messages .~ Vector.singleton (user "Reply with the single word: ping.")) opts
+      assertCompleted "fresh question" second
+      let secondUsage = second ^. #message . #usage
+      logUsage "read" envVar secondUsage
+      assertCachePositive envVar (firstUsage ^. #cacheWriteTokens) (secondUsage ^. #cacheReadTokens)
+      assertCacheCosts envVar (firstUsage ^. #cost . #breakdown . #cachedWriteUsd) (secondUsage ^. #cost . #breakdown . #cachedInputUsd)

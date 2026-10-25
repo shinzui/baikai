@@ -15,6 +15,7 @@ module Baikai.Provider.OpenAI.Shape
     describeThinkingShape,
     resolveSupportedEffort,
     injectCacheControl,
+    applyNativeCache,
   )
 where
 
@@ -40,6 +41,7 @@ import Baikai.Evidence
     noThinkingRequested,
   )
 import Baikai.Options (Options, cacheRetention, temperature, thinking, topP)
+import Baikai.Provider.OpenAI.Internal.Cache (CachePlan (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel)
 import Control.Lens ((%~), (&), (^.))
 import Data.Aeson (Value (..), (.=))
@@ -50,6 +52,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import OpenAI.V1.Chat.Completions qualified as Chat
@@ -403,3 +406,24 @@ compatibleEffort = \case
   ThinkingHigh -> "high"
   ThinkingXHigh -> "high"
   ThinkingMax -> "high"
+
+-- | Apply the already validated native plan. Only the initial instruction
+-- message can carry the prefix marker; all later history stays byte-for-byte.
+applyNativeCache :: CachePlan -> Value -> Value
+applyNativeCache plan = mapObject $ \o ->
+  let fields = KeyMap.union (KeyMap.fromList (cacheFields plan)) o
+   in if markPrefix plan then adjustKey "messages" markInitial fields else fields
+  where
+    markInitial (Array xs) = case Vector.uncons xs of
+      Just (Object first, rest)
+        | KeyMap.lookup "role" first `elem` [Just (String "system"), Just (String "developer")],
+          Just text <- instructionText =<< KeyMap.lookup "content" first,
+          not (Text.null text) ->
+            Array (Vector.cons (Object (KeyMap.insert "content" (Aeson.toJSON [Aeson.object ["type" .= ("text" :: Text), "text" .= text, "prompt_cache_breakpoint" .= Aeson.object ["mode" .= ("explicit" :: Text)]]]) first)) rest)
+      _ -> Array xs
+    markInitial v = v
+    instructionText (String text) = Just text
+    instructionText (Array xs) = case Vector.toList xs of
+      [Object part] | KeyMap.lookup "type" part == Just (String "text"), Just (String text) <- KeyMap.lookup "text" part -> Just text
+      _ -> Nothing
+    instructionText _ = Nothing

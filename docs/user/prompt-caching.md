@@ -34,34 +34,42 @@ data CacheRetention
   | CacheRetentionLong   -- Long bucket (Anthropic: ttl "1h").
 ```
 
-What each bucket becomes depends on the host, not on the API family. The
-OpenAI-compatible provider emits Anthropic-style markers only where the
-host's compat record sets `cacheControlFormat = Just
-CacheControlFormatAnthropic` — OpenRouter, in the shipped table. On
-`api.openai.com` Baikai's Chat Completions adapter currently emits no
-cache controls and relies on the provider's automatic caching. This is a
-limit of the adapter: OpenAI also offers model-dependent retention and
-explicit-breakpoint controls. Baikai's separate Responses adapter maps
-short retention to `prompt_cache_options.ttl: "30m"` on catalogued models
-with that capability, otherwise to `prompt_cache_retention: "in_memory"`.
-It sends `"24h"` for supported legacy long retention and rejects unsupported
-long requests. Neither OpenAI adapter currently places OpenAI explicit
-prefix breakpoints or exposes `prompt_cache_key`. See
-[OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
-for the provider's current controls.
+Native OpenAI controls are catalog facts for each model and endpoint. Modern
+bindings, including GPT-6 Luna on Responses and GPT-5.6 on Chat Completions,
+map Short to `prompt_cache_options.ttl: "30m"`. With a non-empty `systemPrompt`,
+Baikai marks that stable prefix with `prompt_cache_breakpoint: {mode: "explicit"}`.
+Responses sends it once as the first developer `input_text` block and omits
+`instructions`; Chat retains the initial instruction role and text. Implicit
+conversation caching remains enabled. Fresh conversations can therefore reuse
+identical system prefixes even when their first questions differ.
 
-| Value | Anthropic | OpenRouter | Other OpenAI-compatible hosts |
-|---|---|---|---|
-| `CacheRetentionNone` (or unset) | no `cache_control` | no marker | no marker |
-| `CacheRetentionShort` | `cache_control: {type: ephemeral}` | `{type: ephemeral}` | no marker |
-| `CacheRetentionLong` | `cache_control.ttl: "1h"` | `{type: ephemeral, ttl: "1h"}` | no marker |
+| Binding | Short | Long |
+|---|---|---|
+| Modern native OpenAI | `30m`, stable-prefix breakpoint | Locally refused while `12h` remains unverified |
+| GPT-4.1 legacy native | `in_memory`, no breakpoint | `24h`, no breakpoint |
+| GPT-5.5 legacy native | Locally refused | `24h`, no breakpoint |
+| Anthropic / compatible Anthropic markers | ephemeral | `1h`, or short downgrade |
+| Unknown compatible Chat host | Existing behavior; no native controls | Existing behavior; no native controls |
 
-`CacheRetentionLong` **downgrades to short automatically** on hosts that
-don't advertise long retention (`supportsLongCacheRetention = False` in
-the host's compat record), so the same call is safe to run against
-Anthropic, OpenAI, and third-party OpenAI-compatible endpoints without
-special-casing. Anthropic tool-definition markers are applied only when
-the host advertises `supportsCacheControlOnTools`.
+Absent and None preferences emit no explicit controls and do not disable
+provider automatic caching. A declared modern policy still establishes the
+provider's default Short duration for pricing. Unknown endpoints establish no
+default duration. Native unsupported preferences fail before credential lookup;
+Anthropic-style compatibility downgrades retain their existing behavior.
+`NativeCachePolicy` overrides older native capability flags when present.
+Older persisted compatibility JSON without it preserves the previous Responses
+mapping and leaves native Chat controls disabled. No model name or host spelling
+grants new native capabilities. Baikai does not expose cache keys, prewarming,
+explicit-only mode, per-message placement or mixed TTLs.
+
+The [OpenAI caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+and endpoint references disagree on `12h` availability. On 2026-10-25 a bounded
+GPT-6 Luna Responses probe returned HTTP 429 `credit_balance_exhausted`, with no
+usage or acceptance evidence. Short shaping is covered offline; native OpenAI
+live reuse and Long support remain unverified. Claude Sonnet 4.6 separately
+passed live Short and Long shared-prefix checks on that date.
+
+Anthropic tool-definition markers remain gated by `supportsCacheControlOnTools`.
 
 ## Making a cached call
 
@@ -185,15 +193,28 @@ invoice or an assertion that standard service ran.
 - **Write rates follow the shaped duration.** Fable 5.1 writes cost $12.50/M
   at five minutes and $20/M at one hour. Baikai uses the marker that actually
   reached the request body, so a host compatibility downgrade uses the short
-  rate. If writes are reported without a selected cache marker, the calculation
-  records `CacheDurationNotReported`. Observed service and speed are
+  rate. For native OpenAI, reported writes with unknown duration and duration-sensitive
+  rates add `CacheDurationNotReported`. A modern default establishes Short even
+  when no controls were requested. Legacy `24h` has no modern write premium. Observed service and speed are
   recorded separately; uncurated products remain explicit estimates. Baikai
   selects one shaped write duration per call and does not price a mixed-duration
-  breakdown it cannot observe through the current SDK.
+  breakdown. Reported duration details are consistency checks against the aggregate
+  and selected TTL; contradictory details mark usage inconsistent without adding
+  the same writes twice.
 - **Verify with the smoke suite.** `baikai-smoke`'s `CacheSmoke` case
   makes a write-then-read pair against a live host and asserts the
   second call reports `cacheReadTokens > 0`. Run it with a real
-  `ANTHROPIC_API_KEY` to see the numbers end-to-end.
+  `ANTHROPIC_API_KEY` to see the numbers end-to-end. Focused OpenAI checks run
+  only the named endpoint, with two calls per enabled duration and no retries:
+
+```bash
+nix develop --no-write-lock-file -c cabal test baikai-smoke:baikai-smoke --test-options='--case openai-cache-responses --require-keys'
+nix develop --no-write-lock-file -c cabal test baikai-smoke:baikai-smoke --test-options='--case openai-cache-chat --require-keys'
+```
+
+These use `OPENAI_API_KEY` or `OPENAI_KEY`, a nonce at the beginning of a stable
+prefix, and a different fresh question for the second call. Without keys they
+skip unless `--require-keys` is set. A quota failure or a skip is not live proof.
 
 ## Where next
 

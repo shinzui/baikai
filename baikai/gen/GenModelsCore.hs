@@ -15,6 +15,7 @@ module GenModelsCore
     flattenEntries,
     checkIdentifierCollisions,
     checkAnthropicCompat,
+    checkNativeCacheCompat,
     parseAnthropicThinkingStyle,
     sanitizeIdentifier,
     renderModule,
@@ -36,9 +37,11 @@ import Baikai.Compat
     AnthropicThinkingStyle (..),
     CacheControlFormat (..),
     MaxTokensField (..),
+    NativeCachePolicy (..),
     OpenAICompletionsCompat
       ( cacheControlFormat,
         maxTokensField,
+        nativeCachePolicy,
         requiresThinkingAsText,
         supportedReasoningEfforts,
         supportsLongCacheRetention,
@@ -53,6 +56,7 @@ import Baikai.Compat
     defaultAnthropicMessagesCompat,
     defaultOpenAICompletionsCompat,
     defaultOpenAIResponsesCompat,
+    validateNativeCachePolicy,
   )
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified as Model
@@ -124,8 +128,9 @@ parseResponsesCompat o = do
     _ -> pure ()
   sampling <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
   long <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
+  native <- o .:? "nativeCachePolicy"
   modern <- o .:? "supportsPromptCacheOptions" .!= d.supportsPromptCacheOptions
-  pure d {supportedReasoningEfforts = efforts, supportsSamplingParameters = sampling, supportsLongCacheRetention = long, supportsPromptCacheOptions = modern}
+  pure d {nativeCachePolicy = native, supportedReasoningEfforts = efforts, supportsSamplingParameters = sampling, supportsLongCacheRetention = long, supportsPromptCacheOptions = modern}
 
 parseOpenAICompat :: Aeson.Object -> Parser OpenAICompletionsCompat
 parseOpenAICompat o = do
@@ -134,6 +139,7 @@ parseOpenAICompat o = do
   sst <- o .:? "supportsStrictMode" .!= supportsStrictMode d
   rtat <- o .:? "requiresThinkingAsText" .!= requiresThinkingAsText d
   tf <- optionalField o "thinkingFormat" parseThinkingFormat (thinkingFormat d)
+  native <- o .:? "nativeCachePolicy"
   ccf <- optionalMaybeField o "cacheControlFormat" parseCacheControlFormat (cacheControlFormat d)
   sus <- o .:? "supportsUsageInStreaming" .!= d.supportsUsageInStreaming
   slcr <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
@@ -146,7 +152,8 @@ parseOpenAICompat o = do
     _ -> pure ()
   pure
     d
-      { supportsToolCalls = stc,
+      { nativeCachePolicy = native,
+        supportsToolCalls = stc,
         supportsSamplingParameters = ssp,
         supportedReasoningEfforts = efforts,
         maxTokensField = mtf,
@@ -427,6 +434,26 @@ checkAnthropicCompat entries =
         <> ",\"thinkingStyle\":\"budget\"|\"adaptive\""
         <> ",\"supportsSamplingParameters\":true|false}"
 
+-- | Validate native endpoint facts and modern Long pricing together.
+checkNativeCacheCompat :: [(Text, GeneratedEntry)] -> Either Text ()
+checkNativeCacheCompat entries = mapM_ checkNative (map snd entries)
+  where
+    checkNative e = do
+      let (format, policy) = case e.compat of
+            CatalogCompatOpenAI c -> (c.cacheControlFormat, c.nativeCachePolicy)
+            CatalogCompatResponses c -> (Nothing, c.nativeCachePolicy)
+            _ -> (Nothing, Nothing)
+          named = either (Left . ((e.modelId <> ": ") <>)) Right
+      named (validateNativeCachePolicy format policy)
+      case policy of
+        Just (NativeCacheModern True _) -> named $ case e.pricingPolicy of
+          Just p
+            | Just _ <- p.longCacheWriteCost,
+              all (\t -> t.longCacheWriteCost /= Nothing) (Model.inputTiers p) ->
+                Right ()
+          _ -> Left "modern Long requires base and every tier long cache-write rates"
+        _ -> Right ()
+
 -- | Replace any non-identifier character with @_@. Haskell allows
 -- letters, digits, underscore, and apostrophe; everything else
 -- (slash, dash, dot, colon, ...) becomes an underscore.
@@ -482,9 +509,11 @@ renderModule entries =
         "      ),",
         "    AnthropicThinkingStyle (..),",
         "    CacheControlFormat (..),",
+        "    NativeCachePolicy (..),",
         "    MaxTokensField (..),",
         "    OpenAICompletionsCompat",
-        "      ( cacheControlFormat,",
+        "      ( nativeCachePolicy,",
+        "        cacheControlFormat,",
         "        maxTokensField,",
         "        requiresThinkingAsText,",
         "        supportedReasoningEfforts,",
@@ -652,7 +681,8 @@ renderCompat = \case
       "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
       "              supportedReasoningEfforts = " <> maybe "Nothing" (\xs -> "Just [" <> Text.intercalate ", " (map (Text.pack . show) xs) <> "]") c.supportedReasoningEfforts <> ",",
       "              supportsUsageInStreaming = " <> renderBool c.supportsUsageInStreaming <> ",",
-      "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention,
+      "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention <> ",",
+      "              nativeCachePolicy = " <> renderNativeCache c.nativeCachePolicy,
       "            }"
     ]
   CatalogCompatResponses c ->
@@ -662,7 +692,8 @@ renderCompat = \case
       "            { supportedReasoningEfforts = " <> maybe "Nothing" (\xs -> "Just [" <> Text.intercalate ", " (map (Text.pack . show) xs) <> "]") c.supportedReasoningEfforts <> ",",
       "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
       "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention <> ",",
-      "              supportsPromptCacheOptions = " <> renderBool c.supportsPromptCacheOptions,
+      "              supportsPromptCacheOptions = " <> renderBool c.supportsPromptCacheOptions <> ",",
+      "              nativeCachePolicy = " <> renderNativeCache c.nativeCachePolicy,
       "            }"
     ]
   CatalogCompatAnthropic c ->
@@ -720,3 +751,7 @@ renderFastCost (Just c) =
       "              }",
       "          ),"
     ]
+
+renderNativeCache :: Maybe NativeCachePolicy -> Text
+renderNativeCache Nothing = "Nothing"
+renderNativeCache (Just p) = "Just (" <> Text.pack (show p) <> ")"

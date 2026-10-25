@@ -10,4 +10,5 @@ okf_version: "0.2"
 
 - [Claude cancellation fixture races fixed startup delay under build load](1-claude-cancellation-fixture-races-fixed-startup-delay-under-build-load.md) - The existing Claude lifecycle cancellation fixture failed twice during parallel suite builds and passed when its suite ran serially.
 - [Capability strict validation encounters pre-existing missing review metadata](2-capability-strict-validation-encounters-pre-existing-missing-review-metadata.md) - Strict capability-bundle validation reports missing recommended reviews on older records unrelated to TypeSafe.
+- [OpenAI cache verification exhausted account quota](3-openai-cache-verification-exhausted-account-quota.md) - OpenAI rejected the bounded 12h endpoint probe before cache behavior could be observed.
 

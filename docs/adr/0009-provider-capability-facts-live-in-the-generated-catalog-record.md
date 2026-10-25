@@ -198,3 +198,21 @@ Sonnet 5.5's `between_tools` suppresses up-front thinking but still permits
 thinking blocks between calls. Full disable does not silently mean that
 partial mode. It remains a recorded best-effort substitution, rejected by
 strict evidence, until a distinct partial-thinking preference is designed.
+
+## Native cache policies are endpoint facts (2026-10-25)
+
+An optional `NativeCachePolicy` belongs to each OpenAI compatibility record.
+The sum distinguishes explicit unsupported, independently accepted legacy
+`in_memory`/`24h` values, and modern `30m` with optional `12h` and explicit prefix
+breakpoints. Modern and Anthropic-style controls cannot share a binding. Explicit
+policy overrides old flags; absent policy preserves prior Responses mappings and
+leaves native Chat controls disabled. Runtime preparation validates caller-built
+models before credentials, and catalog generation validates curated facts and
+modern Long prices. No adapter infers these capabilities from model identifiers.
+
+A supported requested duration permits the adapter to mark one non-empty stable
+system prefix while keeping implicit conversation caching enabled. Responses
+moves the original text into one developer input block because `instructions`
+cannot carry a breakpoint; Chat retains its instruction role. Unrequested controls
+preserve wire shape. API documentation disagreement does not establish capability:
+modern Long remains disabled until endpoint acceptance and prices are verified.

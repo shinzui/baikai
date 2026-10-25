@@ -925,7 +925,9 @@ evidenceSchemaVersion :: Text
 -- The canonical encoding and data-free commitment fixtures are unchanged.
 -- Version 2.7 adds the explicit none thinking preference. Existing digests and
 -- observations are unchanged; a transmitted off request remains unobserved.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.7"
+-- Version 2.8 projects native cache controls and content-free Responses input
+-- structure. Envelopes lacking the new fields preserve their prior digests.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.8"
 
 -- | Everything Baikai can say about one completed provider call.
 --
@@ -1276,6 +1278,10 @@ configurationProjection = \case
   where
     keep (k, v) = case Key.toText k of
       "messages" -> [(k, summariseMessages v)]
+      "input" -> [(k, summariseInput v)]
+      "instructions" -> [(k, charSummary v)]
+      "prompt_cache_options" -> [(k, summariseNativeControl v)]
+      "prompt_cache_retention" -> [(k, allowedString ["in_memory", "24h"] v)]
       "system" -> [(k, charSummary v)]
       "tools" -> [(k, summariseTools v)]
       "output_config" -> [(k, summariseOutputConfig v)]
@@ -1318,10 +1324,12 @@ summariseMessage :: Value -> Value
 summariseMessage = \case
   Object m ->
     object
-      [ "role" .= roleOf (KeyMap.lookup "role" m),
-        "blocks" .= blockCount (KeyMap.lookup "content" m),
-        "chars" .= maybe 0 totalStringChars (KeyMap.lookup "content" m)
-      ]
+      ( [ "role" .= roleOf (KeyMap.lookup "role" m),
+          "blocks" .= blockCount (KeyMap.lookup "content" m),
+          "chars" .= maybe 0 totalStringChars (KeyMap.lookup "content" m)
+        ]
+          <> markerSummary (KeyMap.lookup "content" m)
+      )
   _ -> Null
   where
     roleOf = \case
@@ -1333,6 +1341,44 @@ summariseMessage = \case
       Just Null -> 0
       Nothing -> 0
       Just _ -> 1
+
+-- Only native policy vocabulary is configuration. Unknown nested fields,
+-- cache identities, text, replay IDs and encrypted state never enter it.
+allowedString :: [Text] -> Value -> Value
+allowedString values v@(String t) | t `elem` values = v
+allowedString _ _ = Null
+
+summariseNativeControl :: Value -> Value
+summariseNativeControl (Object o) =
+  Object
+    ( KeyMap.fromList
+        [(k, allowedString values v) | (k, values) <- [("mode", ["implicit", "explicit"]), ("ttl", ["30m", "12h"])], Just v <- [KeyMap.lookup k o]]
+    )
+summariseNativeControl _ = Null
+
+markerSummary :: Maybe Value -> [(Key.Key, Value)]
+markerSummary (Just (Array parts)) =
+  let markers =
+        [ object ["index" .= i, "control" .= summariseNativeControl marker]
+        | (i, Object part) <- zip [0 :: Int ..] (Vector.toList parts),
+          Just marker <- [KeyMap.lookup "prompt_cache_breakpoint" part]
+        ]
+   in [("cache_breakpoints", toJSON markers) | not (null markers)]
+markerSummary _ = []
+
+summariseInput :: Value -> Value
+summariseInput (Array items) = toJSON (map item (Vector.toList items))
+  where
+    item (Object o) =
+      object
+        ( [ "role" .= maybe Null (allowedString ["system", "developer", "user", "assistant"]) (KeyMap.lookup "role" o),
+            "type" .= maybe Null (allowedString ["message", "reasoning", "function_call", "function_call_output"]) (KeyMap.lookup "type" o),
+            "chars" .= totalStringChars (Object o)
+          ]
+            <> markerSummary (KeyMap.lookup "content" o)
+        )
+    item v = charSummary v
+summariseInput v = charSummary v
 
 -- | Total characters across every JSON string anywhere inside a value.
 -- Recursive on purpose: a content block's text can sit at any depth,

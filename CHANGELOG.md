@@ -9,6 +9,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Native OpenAI Short caching now marks shared non-empty system prefixes on
+  catalog-supported Responses and Chat bindings. Endpoint policies survive
+  legacy JSON and catalog refresh; unsupported native requests fail locally.
+  Effective duration reaches terminal pricing, partial usage and evidence.
+  Evidence schema 2.8 includes content-free native controls and input structure.
+  Modern Long remains gated; live OpenAI verification is pending account credits.
+  Exported compatibility-record changes require PVP major-release review.
+
 - `baikai-claude`: short and long `cacheRetention` now mark non-empty system
   prompts so fresh conversations with different first questions can reuse the
   tools-and-system prefix. System, last-tool and automatic markers share the

@@ -31,6 +31,7 @@ import Baikai.Compat
     supportsThinkingDisabled,
     thinkingStyle,
   )
+import Baikai.Compat qualified as C
 import Baikai.Model
   ( Compat (CompatAnthropicMessages, CompatOpenAIResponses),
     Model,
@@ -38,6 +39,7 @@ import Baikai.Model
     compat,
     modelId,
   )
+import Baikai.Model qualified as M
 import Baikai.Models.Generated (allModels)
 import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Data.ByteString qualified as BS
@@ -52,7 +54,17 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Models.Generated"
-    [ testCase "Astra selects Responses with explicit endpoint facts" $ do
+    [ testCase "native cache facts are endpoint specific and Long remains gated" $ do
+        let findModel mid = case filter ((== mid) . modelId) allModels of [m] -> pure m; _ -> assertFailure "missing model"
+        luna <- findModel "gpt-6-luna"
+        chat <- findModel "gpt-5.6"
+        both <- findModel "gpt-4.1"
+        longOnly <- findModel "gpt-5.5"
+        (M.openaiResponsesCompatFor luna).nativeCachePolicy @?= Just (C.NativeCacheModern False True)
+        (M.openaiCompletionsCompatFor chat).nativeCachePolicy @?= Just (C.NativeCacheModern False True)
+        (M.openaiCompletionsCompatFor both).nativeCachePolicy @?= Just (C.NativeCacheLegacy True True)
+        (M.openaiCompletionsCompatFor longOnly).nativeCachePolicy @?= Just (C.NativeCacheLegacy False True),
+      testCase "Astra selects Responses with explicit endpoint facts" $ do
         [api m | m <- allModels, modelId m == "gpt-6-astra"] @?= [OpenAIResponses]
         case [compat m | m <- allModels, modelId m == "gpt-6-astra"] of
           [CompatOpenAIResponses c] -> do

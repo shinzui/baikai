@@ -8,10 +8,10 @@ module Baikai.Provider.OpenAI.Responses.Stream
   )
 where
 
+import Baikai.CacheRetention (CacheRetention)
 import Baikai.Content qualified as C
 import Baikai.Context (Context)
 import Baikai.Context qualified as Context
-import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
@@ -19,6 +19,7 @@ import Baikai.Message qualified as M
 import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Internal.StreamWorker
+import Baikai.Provider.OpenAI.Internal.Cache qualified as Cache
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyErrorFrame, classifyException)
 import Baikai.Provider.OpenAI.Internal.Stream (SseDriver)
 import Baikai.Provider.OpenAI.Internal.Usage qualified as Billing
@@ -84,13 +85,14 @@ openaiResponsesStreamWith driver m ctx opts = Stream.concatEffect $ do
               Left ex -> pushFrame q (Left (exceptionToError ex))
               Right (Just err) -> pushFrame q (Left err)
               Right Nothing -> pure ()
-          initial = State q meta m (A.emptyAssembler (m ^. #modelId)) Nothing [E.EventStart (E.StartPayload (message V.empty U.zeroUsage Stop Nothing start) Nothing)] False evidence
+          initial = State q meta m req.effectiveRetention (A.emptyAssembler (m ^. #modelId)) Nothing [E.EventStart (E.StartPayload (message V.empty U.zeroUsage Stop Nothing start) Nothing)] False evidence
       pure (withFrameWorker q worker (Stream.unfoldrM step initial))
 
 data State = State
   { queue :: !(FrameQueue (Either BaikaiError Value)),
     metadata :: !(IORef (Maybe ResponseMetadata)),
     model :: !Model,
+    effectiveRetention :: !(Maybe CacheRetention),
     assembler :: !A.Assembler,
     observed :: !(Maybe Value),
     pending :: ![E.AssistantMessageEvent],
@@ -130,7 +132,7 @@ terminate err s = do
         Nothing -> (s.assembler, [])
         Just _ -> A.closePartial s.assembler
       reason = maybe (fromMaybe Stop (A.terminalReason assembled)) (const ErrorReason) err
-      usage = responseUsage s.model s.observed
+      usage = responseUsage s.model s.effectiveRetention s.observed
       payload = M.AssistantPayload (A.assembledContent assembled) usage reason (fmap (^. #message) err) (Just now)
       msg = M.AssistantMessage payload
       rid = s.observed >>= textField "id"
@@ -169,10 +171,10 @@ mergeObservation (Just (Object old)) (Just (Object new)) =
 mergeObservation _ new = new
 
 -- Known counts and their availability travel together into payload and evidence.
-responseUsage :: Model -> Maybe Value -> U.Usage
-responseUsage m raw =
-  let normalized = U.observeBilling [U.BillingServiceTier tier | Just tier <- [raw >>= textField "service_tier"]] (fromMaybe Billing.unreportedUsage (raw >>= lookupField "usage" >>= Billing.readUsage Billing.ResponsesUsage))
-   in normalized & #cost .~ Pricing.computeCostForService Nothing Nothing m normalized
+responseUsage :: Model -> Maybe CacheRetention -> Maybe Value -> U.Usage
+responseUsage m duration raw =
+  let normalized = Billing.checkCacheDuration Billing.ResponsesUsage duration (raw >>= lookupField "usage") $ U.observeBilling [U.BillingServiceTier tier | Just tier <- [raw >>= textField "service_tier"]] (fromMaybe Billing.unreportedUsage (raw >>= lookupField "usage" >>= Billing.readUsage Billing.ResponsesUsage))
+   in normalized & #cost .~ Cache.cacheCost duration m normalized
 
 observe :: Ev.CallStatus -> Maybe ResponseMetadata -> Maybe Value -> M.AssistantPayload -> Ev.ModelCallEvidence -> Ev.ModelCallEvidence
 observe status md raw payload ev =

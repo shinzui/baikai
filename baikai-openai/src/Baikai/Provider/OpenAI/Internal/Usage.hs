@@ -4,8 +4,9 @@
 -- Chat's prompt_tokens_details.cache_write_tokens is documented at
 -- https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
 -- (verified 2026-09-07).
-module Baikai.Provider.OpenAI.Internal.Usage (UsageEndpoint (..), readUsage, unreportedUsage, mergeUsage) where
+module Baikai.Provider.OpenAI.Internal.Usage (UsageEndpoint (..), readUsage, unreportedUsage, mergeUsage, checkCacheDuration) where
 
+import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Usage qualified as U
 import Baikai.Usage.Normalize qualified as N
 import Data.Aeson (Value (..))
@@ -53,3 +54,29 @@ mergeUsage (Just old) (Just new) = Just (merge new old)
     merge Null previous = previous
     merge (Object newer) (Object previous) = Object (KM.unionWith merge newer previous)
     merge newer _ = newer
+
+-- | Duration counters are a consistency check, never extra aggregate writes.
+-- Missing subcategories stay missing across partial cumulative snapshots.
+checkCacheDuration :: UsageEndpoint -> Maybe CacheRetention -> Maybe Value -> U.Usage -> U.Usage
+checkCacheDuration endpoint duration raw usage =
+  usage {U.availability = (\a -> a {U.inconsistent = U.inconsistent a || bad}) <$> U.availability usage}
+  where
+    inputKey = case endpoint of ChatUsage -> "prompt_tokens_details"; ResponsesUsage -> "input_tokens_details"
+    details = raw >>= field inputKey >>= field "cache_write_tokens_details"
+    shortRaw = details >>= field "ttl_30m_tokens"
+    longRaw = details >>= field "ttl_12h_tokens"
+    totalRaw = raw >>= field inputKey >>= field "cache_write_tokens"
+    short = shortRaw >>= count
+    long = longRaw >>= count
+    total = totalRaw >>= count
+    bad =
+      (case details of Just (Object _) -> False; Just _ -> True; Nothing -> False)
+        || any (\v -> isJust v && isNothing (v >>= count)) [shortRaw, longRaw]
+        || (case total of Just t -> maybe 0 id short + maybe 0 id long > t; Nothing -> False)
+        || (maybe False (> 0) short && maybe False (> 0) long)
+        || (case (short, long, total) of (Just s, Just l, Just t) -> s + l /= t; _ -> False)
+        || (case duration of Just CacheRetentionShort -> maybe False (> 0) long; Just CacheRetentionLong -> maybe False (> 0) short; _ -> False)
+    field k (Object o) = case KM.lookup k o of Just Null -> Nothing; v -> v
+    field _ _ = Nothing
+    count (Number n) | n >= 0, fromInteger (floor n) == n = Just (fromInteger (floor n) :: Natural)
+    count _ = Nothing

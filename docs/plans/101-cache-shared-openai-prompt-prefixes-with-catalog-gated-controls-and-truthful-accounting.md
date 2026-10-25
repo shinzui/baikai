@@ -21,6 +21,11 @@ provenance:
       at: 2026-10-25T16:20:37Z
       mode: "update"
       note: "Fix vacuous validation; specify native policy migration, runtime pricing guards, duration evidence, and bounded smoke routing."
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-25T16:23:28Z
+      mode: "implement"
+      note: "Implement catalog-owned native caching, shared prefixes, duration-aware accounting and bounded endpoint checks."
   reviews:
     - model: "gpt-6-astra"
       harness: "codex-cli"
@@ -32,7 +37,7 @@ provenance:
 # Cache shared OpenAI prompt prefixes with catalog-gated controls and truthful accounting
 
 
-This ExecPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current. Follow `agents/skills/exec-plan/PLANS.md`; record implementation friction using the companion `FRICTION.md` workflow. The current deliverable is this plan, not an implementation of its milestones.
+This ExecPlan is a living document. Keep Progress, Surprises & Discoveries, Decision Log, and Outcomes & Retrospective current. Follow `agents/skills/exec-plan/PLANS.md`; record implementation friction using the companion `FRICTION.md` workflow. This session implements the plan; offline implementation is verified and live acceptance remains separately tracked below.
 
 
 ## Purpose / Big Picture
@@ -46,16 +51,18 @@ Support both native OpenAI Responses and OpenAI Chat Completions when the select
 ## Progress
 
 
-- [ ] Model and endpoint cache capabilities survive legacy decoding, catalog refresh and regeneration, with documented evidence for supported retention values.
-- [ ] Responses requests preserve instructions exactly once and cache their stable prefix; public completion and streaming paths use the same prepared request.
-- [ ] Chat requests place the native breakpoint only on supported models and preserve the existing OpenRouter/compatible-host behavior.
-- [ ] Effective retention drives accurate write pricing and privacy-preserving request evidence, including partial and repeated usage snapshots.
-- [ ] Focused live checks, documentation, capability evidence and regression suites demonstrate the supported contract and disclose unverified combinations.
+- [x] (2026-10-25) Model and endpoint policies survive legacy runtime JSON, fetch rendering and regeneration. Catalog examples pin modern Responses/Chat, legacy-both and legacy-24h-only bindings; generation and runtime reject contradictory or unpriced Long policies. Official schemas establish Short; the bounded 12h probe returned quota exhaustion, so modern Long remains disabled.
+- [ ] Responses offline implementation verified (2026-10-25): exactly one developer prefix, unchanged unrequested shapes, preserved tool/reasoning replay, and captured public complete/stream bodies pass. The early Short provider pair remains unverified: its first write call failed, following the quota-exhausted probe; no retry or second call ran.
+- [x] (2026-10-25) Chat marks only explicitly supported initial system/developer text, retains its role, emits supported legacy retention without breakpoints, and refuses unsupported native preferences before credentials. Existing compatible-host and OpenRouter suites pass.
+- [x] (2026-10-25) Both terminal paths carry effective duration. Exact synthetic Short/Long tier prices survive cumulative snapshots and partial errors; missing-rate refusals, unknown-duration estimates and duration consistency checks pass. Schema 2.8 projections redact prompt/replay data and preserve legacy golden hashes.
+- [ ] Offline implementation and documentation verified (2026-10-25): isolated smoke routing, optional/required keys, guide shapes, capability validation, regression suites and formatting pass. Both selected endpoint smoke runs stopped at their first unsuccessful write call; live reuse and endpoint acceptance remain pending restored account credits.
 
-No OpenAI implementation has started. The related Claude fix was implemented separately during review of issue #2 and PR #3 and shipped to the repository in commit `7eb0d56`. Its provider suite passed 473 tests. On 2026-10-25, the focused live `CacheSmoke.runCacheCases` check passed against Claude Sonnet 4.6 with both Short and Long retention: each case wrote 5,084 tokens, read 5,084 on an identical request, then read 5,072 on a fresh conversation with a different first question. All six calls completed successfully and reported nonzero cache costs. This verifies shared-prefix reuse; it does not claim invoice reconciliation or validate OpenAI behavior.
+The OpenAI implementation is present, with native Short controls enabled only by endpoint policy and modern Long conservatively disabled. The related Claude fix was implemented separately during review of issue #2 and PR #3 and shipped to the repository in commit `7eb0d56`. Its provider suite passed 473 tests. On 2026-10-25, the focused live `CacheSmoke.runCacheCases` check passed against Claude Sonnet 4.6 with both Short and Long retention: each case wrote 5,084 tokens, read 5,084 on an identical request, then read 5,072 on a fresh conversation with a different first question. All six calls completed successfully and reported nonzero cache costs. This verifies shared-prefix reuse; it does not claim invoice reconciliation or validate OpenAI behavior.
 
 
 ## Surprises & Discoveries
+
+Implementation on 2026-10-25 found that the configured OpenAI key has no credits: the single bounded GPT-6 Luna Responses `12h` probe returned HTTP 429 `credit_balance_exhausted`, without usage. Later focused Short smoke selectors each stopped at their first unsuccessful write call. No cache-hit or TTL-acceptance claim follows from those failures. FRIC-3 in `docs/friction-log/` records the environment limitation. There were three attempted network calls in total: the long probe and the first Short write on each endpoint; no retries or second-pair calls ran.
 
 
 Review on 2026-10-25 reproduced a false-green validation command: `cabal test baikai --test-options='-p CatalogSpec'` reported “All 0 tests passed”. Tasty filters displayed group names, not module names. The corrected catalog/fetch/generator filter in Concrete Steps runs 32 tests, all passing on the review baseline.
@@ -64,6 +71,8 @@ Review also found that `Baikai.Cost.Pricing.resolveRates` falls back to the base
 
 
 ## Decision Log
+
+On 2026-10-25, implement the conservative Short contract and leave all curated modern Long policies disabled after the quota failure. `NativeCachePolicy` is a sum type: unsupported, legacy with independent short/long acceptance, or modern with Short always available and independent Long/prefix capabilities. An absent policy preserves legacy Responses behavior and disables native Chat controls. Existing short rates already match the curated catalog; Long arithmetic uses explicitly synthetic rates in tests, without adding unverified provider Long prices. Native generation validation runs before writing output. Older optional compatibility fields remain optional in runtime decoding as well as the new policy field.
 
 
 On 2026-10-25, keep `Options.cacheRetention` as the caller-facing control and let adapters own breakpoint placement. Do not introduce a vendor JSON escape hatch or make applications rewrite `Context` themselves. Keep the implicit conversation cache enabled alongside the stable-prefix marker; switching to explicit-only caching would change existing conversation behavior.
@@ -80,7 +89,11 @@ On 2026-10-25, review clarified that an absent native policy preserves the docum
 ## Outcomes & Retrospective
 
 
-(To be filled during implementation.)
+The offline implementation is complete and committed with this plan, while the two live acceptance milestones remain open. Callers can request Short against curated modern bindings and get one shared system-prefix breakpoint through either public API. Unsupported native preferences fail locally; compatible Anthropic marker behavior stays covered by the existing suite. Both stream implementations price from preparation, disclose duration uncertainty, check duration subcounters without double-counting, and carry billing through partial failures and evidence.
+
+Acceptance evidence on 2026-10-25: core 840 tests, OpenAI 327 tests and Claude 473 tests pass; the focused catalog/fetch/generator selection passes 36 tests. Smoke option checks and doc-shapes pass (28 Haskell blocks, one KDL resolution, one intentional skip), and the smoke executable builds. Actual no-key selector runs confirm optional mode skips and `--require-keys` fails before any driver or CLI work. Strict capability validation passes all 30 concepts. Formatting and whitespace checks pass; catalog regeneration remains byte-identical. Native cache regression cases are consolidated in `baikai-openai/test/NativeCacheSpec.hs`, with normalization, core cost, evidence and catalog coverage in their existing suites.
+
+FRIC-3 is accepted as an environment limitation: live acceptance requires restored OpenAI credits. The focused live commands are implemented and fail rather than claiming cache success; no release or version bump occurred. The exported compatibility additions require PVP major-release review. Durable policy, evidence and pricing decisions are recorded in ADR 0009, ADR 0004 and ADR 0020 respectively. This outcome proves offline behavior and arithmetic, not provider acceptance, measured OpenAI reuse or invoice reconciliation.
 
 
 ## Context and Orientation
@@ -246,3 +259,5 @@ The already-shipped Responses stream and continuation implementation is the prer
 
 
 2026-10-25: Validated the plan against request/stream preparation, compatibility decoding, catalog generation, pricing, evidence, smoke routing, the five cited ADRs, and current official documentation. Fixed the zero-test command, made native-policy migration and runtime refusals explicit, specified missing-rate and unknown-duration handling, separated early Short integration from contested Long acceptance, and made smoke routing and call bounds concrete. The corrected catalog/fetch/generator selection passed all 32 existing tests; strict capability validation passed all 30 concepts. The Responses reference was retrieved through its Markdown endpoint and its TTL inconsistency confirmed. This review changes the plan only; no OpenAI implementation or live verification occurred.
+
+2026-10-25 implementation: Added endpoint-native cache policies, legacy decoding, generation validation, Responses and Chat prefix placement, effective-duration billing, subcounter consistency checks, content-free evidence schema 2.8, isolated smoke selection and documentation. Preserved legacy behavior where policy is absent. Offline acceptance passed; quota exhaustion leaves live Short reuse and contested Long support explicitly pending.

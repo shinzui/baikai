@@ -26,6 +26,7 @@ import Baikai.Evidence qualified as E
 import Baikai.Message qualified as M
 import Baikai.Model (Model, api, maxOutputTokens, modelId, openaiResponsesCompatFor, reasoning)
 import Baikai.Options (Options (..))
+import Baikai.Provider.OpenAI.Internal.Cache qualified as Cache
 import Baikai.Provider.OpenAI.Shape (resolveSupportedEffort)
 import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
 import Baikai.ThinkingLevel (renderThinkingLevel)
@@ -51,7 +52,8 @@ import OpenAI.V1.Responses qualified as R
 -- No Show instance: a prepared body can contain opaque continuation.
 data PreparedRequest = PreparedRequest
   { requestBody :: !Value,
-    translation :: !E.ThinkingTranslation
+    translation :: !E.ThinkingTranslation,
+    effectiveRetention :: !(Maybe CacheRetention)
   }
   deriving stock (Eq, Generic)
 
@@ -71,14 +73,16 @@ mapRequest m ctx opts = do
   let ids = [i | Object item <- items, Just (String i) <- [KM.lookup "id" item]]
   unless (length ids == length (nub ids)) (Left "Responses history contains duplicate item IDs")
   choice <- toolChoiceFields ctx opts
-  cache <- cacheFields m opts
+  cache <- Cache.responsesCachePlan m opts
+  let marked = cache.markPrefix && maybe False (not . Text.null) ctx.systemPrompt
+      prefix = [object ["role" .= ("developer" :: Text), "content" .= [object ["type" .= ("input_text" :: Text), "text" .= text, "prompt_cache_breakpoint" .= object ["mode" .= ("explicit" :: Text)]]]] | marked, Just text <- [ctx.systemPrompt]]
   let (reasoning, translation) = thinkingFields m opts
       cap = fromMaybe m.maxOutputTokens opts.maxTokens
       base =
         Aeson.toJSON
           R._CreateResponse
             { R.model = SDK.Model m.modelId,
-              R.instructions = ctx.systemPrompt,
+              R.instructions = if marked then Nothing else ctx.systemPrompt,
               R.store = Just False,
               R.stream = Just True,
               R.include = Just (V.singleton "reasoning.encrypted_content"),
@@ -88,9 +92,9 @@ mapRequest m ctx opts = do
               R.metadata = if Map.null metadata then Nothing else Just metadata,
               R.tools = if V.null ctx.tools then Nothing else Just (V.map sdkTool ctx.tools)
             }
-      extras = [("input", Aeson.toJSON items)] <> reasoning <> choice <> cache <> formatFields opts
+      extras = [("input", Aeson.toJSON (prefix <> items))] <> reasoning <> choice <> cache.cacheFields <> formatFields opts
   case base of
-    Object obj -> pure (PreparedRequest (Object (KM.union (KM.fromList extras) obj)) translation)
+    Object obj -> pure (PreparedRequest (Object (KM.union (KM.fromList extras) obj)) translation cache.effectiveRetention)
     _ -> Left "Responses SDK request did not encode as an object"
   where
     metadataText (String t) | Text.length t <= 512 = Right t
@@ -152,19 +156,6 @@ formatFields opts = case opts.responseFormat of
           ]
       )
     ]
-
-cacheFields :: Model -> Options -> Either Text [(Aeson.Key, Value)]
-cacheFields m opts = case opts.cacheRetention of
-  Nothing -> pure []
-  Just CacheRetentionNone -> pure []
-  Just CacheRetentionShort
-    | compat.supportsPromptCacheOptions -> pure [("prompt_cache_options", object ["ttl" .= ("30m" :: Text)])]
-    | otherwise -> pure [("prompt_cache_retention", String "in_memory")]
-  Just CacheRetentionLong
-    | compat.supportsPromptCacheOptions || not compat.supportsLongCacheRetention -> Left "This Responses model cannot honor long cache retention"
-    | otherwise -> pure [("prompt_cache_retention", String "24h")]
-  where
-    compat = openaiResponsesCompatFor m
 
 messageItems :: Model -> M.Message -> Either Text [Value]
 messageItems m = \case

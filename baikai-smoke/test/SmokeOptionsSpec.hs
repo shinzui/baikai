@@ -30,6 +30,13 @@ main = do
     let (key, keys) = if caseProvider name == Just "openai" then ("OPENAI_KEY", openaiKeys) else ("ANTHROPIC_KEY", anthropicKeys)
     check (name <> " requires only its provider") (null (missingKeys [(key, Just "synthetic")] [keys]))
     check (name <> " missing key fails preflight") (missingKeys [] [keys] == [keys])
+  forM_ cacheCaseNames $ \name -> do
+    check (name <> " standalone route") (parseSmokeOptions ["--case", name, "--require-keys"] == Right (SmokeOptions False True (Just name)))
+    check (name <> " cache route") (isCacheCase name && caseProvider name == Just "openai")
+    check (name <> " rejects new-models") (case parseSmokeOptions ["--new-models", "--case", name] of Left _ -> True; _ -> False)
+    check (name <> " absent required key") (missingKeys [] [openaiKeys] == [openaiKeys])
+    check (name <> " ignores Anthropic key") (missingKeys [("ANTHROPIC_KEY", Just "synthetic")] [openaiKeys] == [openaiKeys])
+  check "duplicate selectors refused" (case parseSmokeOptions ["--case", "openai-cache-chat", "--case", "astra-text", "--new-models"] of Left _ -> True; _ -> False)
   putStrLn "all smoke option and credential checks passed (no environment access)."
   where
     check label ok = unless ok (fail label)

@@ -65,7 +65,7 @@ module FetchModelsCore
   )
 where
 
-import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
+import Baikai.Compat (AnthropicThinkingStyle (..), NativeCachePolicy (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified as Model
 import Baikai.Prelude
@@ -269,7 +269,10 @@ openaiInclude :: Map Text (Maybe CatalogModelCompat)
 openaiInclude =
   Map.union
     ( Map.fromList
-        [ ("gpt-5", Just (CatalogOpenAICompat gpt5Facts)),
+        [ ("gpt-5.6", Just (CatalogOpenAICompat (defaultOpenAICompletionsCompat & #nativeCachePolicy .~ Just (NativeCacheModern False True)))),
+          ("gpt-5.5", Just (CatalogOpenAICompat (defaultOpenAICompletionsCompat & #nativeCachePolicy .~ Just (NativeCacheLegacy False True)))),
+          ("gpt-4.1", Just (CatalogOpenAICompat (defaultOpenAICompletionsCompat & #nativeCachePolicy .~ Just (NativeCacheLegacy True True)))),
+          ("gpt-5", Just (CatalogOpenAICompat gpt5Facts)),
           ("gpt-5-mini", Just (CatalogOpenAICompat gpt5Facts)),
           ("gpt-5-nano", Just (CatalogOpenAICompat gpt5Facts)),
           ("o1", Just (CatalogOpenAICompat oSeriesFacts)),
@@ -310,6 +313,10 @@ openaiInclude =
           ]
       ]
   where
+    -- 2026-10-25: Endpoint cache facts from the caching guide and Chat/Responses
+    -- references: https://developers.openai.com/api/docs/guides/prompt-caching
+    -- Modern short and breakpoint support verified in the schemas; conflicting
+    -- 12h documentation remains gated (live probe returned quota exhaustion).
     -- 2026-09-23: Sol and Luna require Responses for function calling at
     -- their default reasoning effort; Chat permits it only at effort none.
     -- https://developers.openai.com/api/docs/models/gpt-6-sol
@@ -330,7 +337,8 @@ openaiInclude =
     -- https://developers.openai.com/api/docs/guides/latest-model
     astraResponsesFacts =
       defaultOpenAIResponsesCompat
-        { supportsPromptCacheOptions = True,
+        { nativeCachePolicy = Just (NativeCacheModern False True),
+          supportsPromptCacheOptions = True,
           supportsLongCacheRetention = False,
           supportsSamplingParameters = False,
           supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
@@ -753,6 +761,7 @@ renderModelCompat (Just (CatalogOpenAICompat facts)) =
     "        \"kind\": \"openai-completions\",",
     "        \"supportsToolCalls\": " <> jsonBool (facts ^. #supportsToolCalls) <> ",",
     "        \"supportsSamplingParameters\": " <> jsonBool (facts ^. #supportsSamplingParameters) <> ",",
+    "        \"nativeCachePolicy\": " <> maybe "null" (decodeUtf8 . LBS.toStrict . encode) (facts ^. #nativeCachePolicy) <> ",",
     "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
     "      },"
   ]
@@ -762,6 +771,7 @@ renderModelCompat (Just (CatalogResponsesCompat facts)) =
     "        \"supportsSamplingParameters\": " <> jsonBool (facts ^. #supportsSamplingParameters) <> ",",
     "        \"supportsLongCacheRetention\": " <> jsonBool (facts ^. #supportsLongCacheRetention) <> ",",
     "        \"supportsPromptCacheOptions\": " <> jsonBool (facts ^. #supportsPromptCacheOptions) <> ",",
+    "        \"nativeCachePolicy\": " <> maybe "null" (decodeUtf8 . LBS.toStrict . encode) (facts ^. #nativeCachePolicy) <> ",",
     "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
     "      },"
   ]

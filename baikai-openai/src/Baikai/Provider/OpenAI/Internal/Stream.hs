@@ -42,11 +42,11 @@ module Baikai.Provider.OpenAI.Internal.Stream
   )
 where
 
+import Baikai.CacheRetention (CacheRetention)
 import Baikai.Compat (OpenAICompletionsCompat (requiresThinkingAsText))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Context qualified as Context
-import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
@@ -60,10 +60,11 @@ import Baikai.Provider.Internal.StreamWorker
     pushFrame,
     withFrameWorker,
   )
+import Baikai.Provider.OpenAI.Internal.Cache qualified as Cache
 import Baikai.Provider.OpenAI.Internal.ErrorClass (classifyErrorFrame, classifyException)
 import Baikai.Provider.OpenAI.Internal.Request (mapRequest)
 import Baikai.Provider.OpenAI.Internal.Usage qualified as Billing
-import Baikai.Provider.OpenAI.Shape (describeThinkingShape, streamRequestBody)
+import Baikai.Provider.OpenAI.Shape (applyNativeCache, describeThinkingShape, streamRequestBody)
 import Baikai.Provider.OpenAI.Sse (ResponseMetadata, capturedHeaderNames, openaiSseStreamValueWithHeaders)
 import Baikai.Provider.OpenAI.Transport qualified as Transport
 import Baikai.StopReason qualified as Stop
@@ -170,7 +171,7 @@ openaiChatStreamWith driver m ctx opts =
               ProducerState
                 { chan = q,
                   pending = [EventStart StartPayload {partial = skeletonStart m startTime, responseId = Nothing}],
-                  assembler = emptyAssembler m startTime,
+                  assembler = emptyAssembler m startTime & #effectiveRetention .~ (call ^. #effectiveRetention),
                   finished = False,
                   terminalRef = tref,
                   metadataRef = mref,
@@ -205,7 +206,8 @@ data OpenAICall = OpenAICall
     -- request, as 'streamRequestBody' described it. Carried from here
     -- rather than recomputed at the terminal: only the shaping step
     -- knows which of the seven host wire shapes was used.
-    thinking :: !Ev.ThinkingTranslation
+    thinking :: !Ev.ThinkingTranslation,
+    effectiveRetention :: !(Maybe CacheRetention)
   }
   deriving stock (Generic)
 
@@ -221,33 +223,38 @@ prepareCall m ctx opts
   | Left e <- Context.refuseAssistantDataHistory ctx = pure (Left e)
   | otherwise = case mapRequest m ctx opts of
       Left e -> pure (Left (invalidRequest e))
-      Right req -> do
-        let url = resolvedBaseUrl m
-        -- Checked before the key is resolved, so a base URL baikai will not
-        -- send to never causes a credential to be read out of the
-        -- environment. The message names the problem and what to write
-        -- instead; it renders the URL without its userinfo or query, so an
-        -- error reaching a log cannot carry a key someone put in either.
-        case Url.baseUrlProblem url of
-          Just problem ->
-            pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
-          Nothing -> do
-            key <- Transport.resolveKey url opts
-            env <- Transport.getClientEnvCached url
-            let compat = openaiCompletionsCompatFor m
-                (body, translation) = streamRequestBody compat (m ^. #reasoning) opts req
-                headers = Transport.requestHeaders key m opts
-            pure
-              ( Right
-                  OpenAICall
-                    { clientEnv = env,
-                      requestHeaders = headers,
-                      timeoutMs = opts ^. #timeoutMs,
-                      requestBody = body,
-                      baseUrl = url,
-                      thinking = translation
-                    }
-              )
+      Right req -> case Cache.chatCachePlan m opts of
+        Left err -> pure (Left (invalidRequest err))
+        Right cache -> prepare req cache
+  where
+    prepare req cache = do
+      let url = resolvedBaseUrl m
+      -- Checked before the key is resolved, so a base URL baikai will not
+      -- send to never causes a credential to be read out of the
+      -- environment. The message names the problem and what to write
+      -- instead; it renders the URL without its userinfo or query, so an
+      -- error reaching a log cannot carry a key someone put in either.
+      case Url.baseUrlProblem url of
+        Just problem ->
+          pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
+        Nothing -> do
+          key <- Transport.resolveKey url opts
+          env <- Transport.getClientEnvCached url
+          let compat = openaiCompletionsCompatFor m
+              (body, translation) = streamRequestBody compat (m ^. #reasoning) opts req
+              headers = Transport.requestHeaders key m opts
+          pure
+            ( Right
+                OpenAICall
+                  { clientEnv = env,
+                    requestHeaders = headers,
+                    timeoutMs = opts ^. #timeoutMs,
+                    requestBody = applyNativeCache cache body,
+                    baseUrl = url,
+                    thinking = translation,
+                    effectiveRetention = Cache.effectiveRetention cache
+                  }
+            )
 
 -- | A loose summary of one streamed chunk. The raw 'Aeson.Value' is
 -- pre-parsed into the fields we care about; unknown fields are
@@ -800,6 +807,7 @@ data Assembler = Assembler
     -- between them produces 0, 1, 2, … in the order the host sent them,
     -- which is the order reassembly rebuilds the message in.
     nextContentIndex :: !Int,
+    effectiveRetention :: !(Maybe CacheRetention),
     usage :: !Usage.Usage,
     stopReason :: !Stop.StopReason,
     -- | 'True' once a chunk carrying @finish_reason@ has been
@@ -858,6 +866,7 @@ emptyAssembler m s =
       toolArgs = IntMap.empty,
       closed = IntMap.empty,
       nextContentIndex = 0,
+      effectiveRetention = Nothing,
       usage = Usage.zeroUsage,
       stopReason = Stop.Stop,
       finishSeen = False,
@@ -1229,8 +1238,8 @@ closeOpenStream now mErr ass
 -- cannot report different numbers for the same call.
 finalUsage :: Assembler -> Usage.Usage
 finalUsage ass =
-  let usageBare = Usage.observeBilling (map Usage.BillingServiceTier (Set.toList (ass ^. #serviceTiers))) (if ass ^. #usageReported then ass ^. #usage else Billing.unreportedUsage)
-   in usageBare & #cost .~ Pricing.computeCostForService Nothing Nothing (ass ^. #model) usageBare
+  let usageBare = Billing.checkCacheDuration Billing.ChatUsage (ass ^. #effectiveRetention) (ass ^. #usageSnapshot) $ Usage.observeBilling (map Usage.BillingServiceTier (Set.toList (ass ^. #serviceTiers))) (if ass ^. #usageReported then ass ^. #usage else Billing.unreportedUsage)
+   in usageBare & #cost .~ Cache.cacheCost (ass ^. #effectiveRetention) (ass ^. #model) usageBare
 
 finalMessage ::
   Assembler -> UTCTime -> Maybe Text -> Stop.StopReason -> Msg.Message

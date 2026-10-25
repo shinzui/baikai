@@ -24,6 +24,9 @@ requires:
   - CAP-1
 evidence:
   - kind: test
+    resource: baikai-openai/test/NativeCacheSpec.hs
+    proves: "Native prefix shaping and public dispatch preserve replay, refuse unsupported controls before credentials, and use effective-duration pricing with explicit estimates; synthetic Long fixtures do not establish provider support."
+  - kind: test
     resource: baikai-openai/test/TransportSpec.hs
     proves: "The HTTP transport beneath the provider and its failure paths, including that the connection cache allocates once per normalised base URL and that an unusable base URL — a query string, credentials in the URL, no scheme, or a full endpoint path — is refused as an InvalidRequest before any key is read from the environment."
   - kind: test
@@ -117,3 +120,18 @@ completeRequest m ctx opts
 - Offline evidence is recorded frames and hand-built requests. Which compatible
   hosts actually work today is proven only by `CompatSmoke` and `MultiHostSmoke`,
   both of which need live credentials.
+
+## Native prompt caching (unreleased)
+
+Endpoint-specific catalog policy gates native retention and stable system-prefix
+breakpoints. Modern Short uses `30m`; absent/None controls preserve wire shape
+while the documented modern default supplies Short for pricing. Long requires
+verified endpoint support plus base and every tier's long-write rate. It remains
+disabled in curated modern bindings. Legacy `24h` uses base write pricing without
+a modern premium. Unknown duration with reported writes and duration-sensitive
+rates is an explicit estimate; conflicting duration details mark usage inconsistent.
+
+`NativeCacheSpec` verifies request capture, public dispatch and exact synthetic
+prices offline. OpenAI live reuse remains pending: the 2026-10-25 Responses
+probe returned HTTP 429 quota exhaustion. See the [caching guide](../user/prompt-caching.md)
+for isolated endpoint checks and the supported policy matrix.

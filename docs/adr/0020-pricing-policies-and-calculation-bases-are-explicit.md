@@ -114,3 +114,20 @@ rate when the policy has one", because a missing tier rate would otherwise fall
 back silently to the lower tier's price. Tier long rates must be nonnegative.
 Adding the field changes the exported `InputPriceTier` constructor, so it ships
 in a major release. Plan 91 records the implementation.
+
+## OpenAI cache duration follows preparation (2026-10-25)
+
+The native OpenAI cache plan supplies wire controls, prefix placement and the
+pricing duration together. Modern models have a documented Short default even
+without explicit controls. Legacy `24h` has no modern write premium and uses base
+write prices. A modern Long capability requires a base long rate and a long rate
+for every input tier; preparation refuses missing rates before credentials.
+
+When reported writes have unknown duration and rates depend on duration, the
+provider adds `CacheDurationNotReported` to its standard-rate estimate. Shared
+pricing helpers retain their legacy default behavior. Reported duration counters
+check aggregate writes and the prepared uniform TTL; they never add writes again.
+Conflicting totals, invalid counters or another duration mark usage inconsistent.
+Partial and repeated cumulative snapshots retain the same checks and pricing on
+both successful and error terminals. Synthetic Long fixtures establish arithmetic
+and plumbing without claiming provider support or invoice reconciliation.

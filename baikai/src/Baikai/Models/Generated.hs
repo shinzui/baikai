@@ -20,9 +20,11 @@ import Baikai.Compat
       ),
     AnthropicThinkingStyle (..),
     CacheControlFormat (..),
+    NativeCachePolicy (..),
     MaxTokensField (..),
     OpenAICompletionsCompat
-      ( cacheControlFormat,
+      ( nativeCachePolicy,
+        cacheControlFormat,
         maxTokensField,
         requiresThinkingAsText,
         supportedReasoningEfforts,
@@ -685,7 +687,21 @@ openai_gpt_4_1 =
       contextWindow = 1047576,
       maxOutputTokens = 32768,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Nothing,
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Just (NativeCacheLegacy True True)
+            }
     }
 
 openai_gpt_4_1_mini :: Model
@@ -827,7 +843,8 @@ openai_gpt_5 =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 
@@ -984,7 +1001,21 @@ openai_gpt_5_5 =
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Nothing,
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Just (NativeCacheLegacy False True)
+            }
     }
 
 openai_gpt_5_6 :: Model
@@ -1010,7 +1041,21 @@ openai_gpt_5_6 =
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Nothing,
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Just (NativeCacheModern False True)
+            }
     }
 
 openai_gpt_5_6_luna :: Model
@@ -1126,7 +1171,8 @@ openai_gpt_5_mini =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 
@@ -1165,7 +1211,8 @@ openai_gpt_5_nano =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 
@@ -1198,7 +1245,8 @@ openai_gpt_6_1_sol =
             { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
               supportsLongCacheRetention = False,
-              supportsPromptCacheOptions = True
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern False True)
             }
     }
 
@@ -1231,7 +1279,8 @@ openai_gpt_6_astra =
             { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
               supportsLongCacheRetention = False,
-              supportsPromptCacheOptions = True
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern False True)
             }
     }
 
@@ -1264,7 +1313,8 @@ openai_gpt_6_luna =
             { supportedReasoningEfforts = Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
               supportsLongCacheRetention = False,
-              supportsPromptCacheOptions = True
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern False True)
             }
     }
 
@@ -1297,7 +1347,8 @@ openai_gpt_6_sol =
             { supportedReasoningEfforts = Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
               supportsLongCacheRetention = False,
-              supportsPromptCacheOptions = True
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern False True)
             }
     }
 
@@ -1336,7 +1387,8 @@ openai_o1 =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 
@@ -1375,7 +1427,8 @@ openai_o3 =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 
@@ -1414,7 +1467,8 @@ openai_o3_mini =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 
@@ -1453,7 +1507,8 @@ openai_o4_mini =
               supportsSamplingParameters = True,
               supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
               supportsUsageInStreaming = True,
-              supportsLongCacheRetention = True
+              supportsLongCacheRetention = True,
+              nativeCachePolicy = Nothing
             }
     }
 

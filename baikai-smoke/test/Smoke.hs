@@ -40,17 +40,22 @@ main = do
   OpenAIResponses.register
   ClaudeCli.register
   CodexCli.register
-  if SmokeOptions.newModels selected
-    then NewModelsSmoke.runNewModels (SmokeOptions.requireKeys selected) (SmokeOptions.selectedCase selected) >>= \ok -> unless ok exitFailure
-    else do
-      when (SmokeOptions.requireKeys selected) $ do
-        let groups = map caseEnvVars apiCases
-        env <- traverse (\name -> (name,) <$> lookupEnv name) (concat groups)
-        let missing = SmokeOptions.missingKeys env groups
-        unless (null missing) $ do
-          hPutStrLn stderr ("[baikai-smoke] missing required environment alternatives: " <> show missing)
-          exitFailure
-      runOrdinary
+  if maybe False SmokeOptions.isCacheCase (SmokeOptions.selectedCase selected)
+    then case SmokeOptions.selectedCase selected of
+      Just name -> CacheSmoke.runOpenAICacheCase (SmokeOptions.requireKeys selected) name >> pure ()
+      Nothing -> pure ()
+    else
+      if SmokeOptions.newModels selected
+        then NewModelsSmoke.runNewModels (SmokeOptions.requireKeys selected) (SmokeOptions.selectedCase selected) >>= \ok -> unless ok exitFailure
+        else do
+          when (SmokeOptions.requireKeys selected) $ do
+            let groups = map caseEnvVars apiCases
+            env <- traverse (\name -> (name,) <$> lookupEnv name) (concat groups)
+            let missing = SmokeOptions.missingKeys env groups
+            unless (null missing) $ do
+              hPutStrLn stderr ("[baikai-smoke] missing required environment alternatives: " <> show missing)
+              exitFailure
+          runOrdinary
 
 runOrdinary :: IO ()
 runOrdinary = do

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 -- | Unit tests for the pure core of @baikai-fetch-models@
 -- ('FetchModelsCore'): filtering, curation, modality mapping, cost
 -- defaulting, and rendering, exercised against a checked-in
@@ -5,6 +7,7 @@
 module FetchModelsSpec (tests) where
 
 import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
+import Baikai.Compat qualified as C
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified
 import Baikai.Model qualified as Model
@@ -129,7 +132,19 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.FetchModels"
-    [ testCase "per-model API and Responses compat survive normalization and rendering" $ do
+    [ testCase "curated native cache facts survive fetch rendering and generator parsing" $ do
+        upstream <- loadUpstream
+        let sample = head (Map.elems (Map.findWithDefault Map.empty "openai" upstream))
+        forM_ [("gpt-6-luna", C.NativeCacheModern False True), ("gpt-5.6", C.NativeCacheModern False True), ("gpt-4.1", C.NativeCacheLegacy True True), ("gpt-5.5", C.NativeCacheLegacy False True)] $ \(mid, expected) -> do
+          let cat = normalizeProvider openaiSpec (Map.singleton mid (sample & #modelId .~ mid & #toolCall .~ True))
+          parsed <- either assertFailure pure (Aeson.eitherDecode (BSL.fromStrict (renderCatalog cat)))
+          let entries = Gen.flattenEntries parsed
+          case map (\(_, e) -> e.compat) entries of
+            [Gen.CatalogCompatOpenAI c] -> c ^. #nativeCachePolicy @?= Just expected
+            [Gen.CatalogCompatResponses c] -> c ^. #nativeCachePolicy @?= Just expected
+            _ -> assertFailure "missing native compat"
+          assertBool "generator renders policy" (Text.pack (show expected) `Text.isInfixOf` Gen.renderModule entries),
+      testCase "per-model API and Responses compat survive normalization and rendering" $ do
         upstream <- loadUpstream
         let spec =
               openaiSpec

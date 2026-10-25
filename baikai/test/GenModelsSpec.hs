@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
 module GenModelsSpec (tests) where
 
 import Baikai.Api (Api (AnthropicMessages, OpenAIChatCompletions, OpenAIResponses))
@@ -9,6 +11,7 @@ import Baikai.Compat
     supportsThinkingDisabled,
     thinkingStyle,
   )
+import Baikai.Compat qualified as C
 import Baikai.Model (InputModality (InputText))
 import Baikai.Model qualified
 import Control.Monad (forM_)
@@ -24,7 +27,24 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.GenModels"
-    [ testCase "legacy Anthropic model JSON does not invent disable support" $ do
+    [ testCase "legacy OpenAI runtime JSON defaults missing native policy" $ do
+        let legacy c = case Aeson.toJSON c of Aeson.Object o -> Aeson.Object (KM.delete "nativeCachePolicy" (KM.delete "cacheControlFormat" (KM.delete "supportedReasoningEfforts" o))); v -> v
+        case Aeson.fromJSON (legacy C.defaultOpenAIResponsesCompat) of
+          Aeson.Success c -> assertBool "absent Responses policy" ((c :: C.OpenAIResponsesCompat).nativeCachePolicy == Nothing)
+          Aeson.Error err -> assertFailure err
+        case Aeson.fromJSON (legacy C.defaultOpenAICompletionsCompat) of
+          Aeson.Success c -> assertBool "absent Chat policy" ((c :: C.OpenAICompletionsCompat).nativeCachePolicy == Nothing)
+          Aeson.Error err -> assertFailure err,
+      testCase "native catalog rejects contradictory controls and unpriced Long naming model" $ do
+        let conflicting = CatalogCompatOpenAI (C.defaultOpenAICompletionsCompat {C.cacheControlFormat = Just C.CacheControlFormatAnthropic, C.nativeCachePolicy = Just (C.NativeCacheModern False True)})
+            unpriced = CatalogCompatResponses (C.defaultOpenAIResponsesCompat {C.nativeCachePolicy = Just (C.NativeCacheModern True True)})
+            emptyLegacy = CatalogCompatResponses (C.defaultOpenAIResponsesCompat {C.nativeCachePolicy = Just (C.NativeCacheLegacy False False)})
+        forM_ [conflicting, unpriced, emptyLegacy] $ \block -> do
+          let c = collisionCatalog {models = [(model "invalid-cache-model") {entryCompatOverride = Just block}]}
+          case checkNativeCacheCompat (flattenEntries c) of
+            Left err -> assertBool "names model" ("invalid-cache-model" `Text.isInfixOf` err)
+            Right () -> assertFailure "invalid policy accepted",
+      testCase "legacy Anthropic model JSON does not invent disable support" $ do
         let raw = case Aeson.toJSON (defaultAnthropicMessagesCompat {supportsThinkingDisabled = True}) of
               Aeson.Object o -> Aeson.Object (KM.delete "supportsThinkingDisabled" o)
               other -> other

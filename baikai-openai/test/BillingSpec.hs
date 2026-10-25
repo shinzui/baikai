@@ -3,6 +3,7 @@
 module BillingSpec (tests) where
 
 import Baikai qualified as B
+import Baikai.CacheRetention (CacheRetention (..))
 import Baikai.Cost qualified as C
 import Baikai.Cost.Pricing (computeCost)
 import Baikai.Evidence (commitmentDigest, usageEnvelope)
@@ -25,7 +26,17 @@ tests :: TestTree
 tests =
   testGroup
     "Billing normalization"
-    [ testCase "Chat observes the reported tier and discloses unsupported pricing" $
+    [ testCase "duration details remain consistency checks across cumulative snapshots" $ do
+        let base = wire ResponsesUsage 1000 ["cached_tokens" .= (0 :: Int), "cache_write_tokens" .= (200 :: Int)]
+            details short long = object ["input_tokens_details" .= object ["cache_write_tokens_details" .= object ["ttl_30m_tokens" .= (short :: Int), "ttl_12h_tokens" .= (long :: Int)]]]
+        forM_ [(200, 0, False), (200, 1, True), (199, 0, True), (-1, 0, True)] $ \(s, l, bad) -> do
+          let merged = mergeUsage (Just base) (Just (details s l))
+          mergeUsage merged (Just (details s l)) @?= merged
+          u <- maybe (assertFailure "missing usage") (parsed ResponsesUsage) merged
+          let checked = checkCacheDuration ResponsesUsage (Just CacheRetentionShort) merged u
+          checked.cacheWriteTokens @?= 200
+          U.inconsistent <$> checked.availability @?= Just bad,
+      testCase "Chat observes the reported tier and discloses unsupported pricing" $
         forM_ [("default", Set.empty), ("priority", Set.singleton (C.UnsupportedServiceTier "priority"))] $ \(tier, reasons) -> do
           let frame = object ["service_tier" .= (tier :: Text), "usage" .= wire ChatUsage 1000 ["cached_tokens" .= (0 :: Int), "cache_write_tokens" .= (0 :: Int)], "choices" .= [object ["finish_reason" .= ("stop" :: Text), "delta" .= object []]]]
               driver _ _ _ _ emit = emit (Right frame)

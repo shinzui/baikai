@@ -17,7 +17,11 @@
       },
       "contextWindow": 1047576,
       "maxOutputTokens": 32768,
-      "enabled": true
+      "enabled": true,
+      "compat": {
+        "kind": "openai-completions",
+        "nativeCachePolicy": {"tag": "NativeCacheLegacy", "contents": [true, true]}
+      }
     },
     {
       "id": "gpt-4.1-mini",
@@ -224,7 +228,11 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
-      "enabled": true
+      "enabled": true,
+      "compat": {
+        "kind": "openai-completions",
+        "nativeCachePolicy": {"tag": "NativeCacheLegacy", "contents": [false, true]}
+      }
     },
     {
       "id": "gpt-5.6",
@@ -239,7 +247,11 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
-      "enabled": true
+      "enabled": true,
+      "compat": {
+        "kind": "openai-completions",
+        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [false, true]}
+      }
     },
     {
       "id": "gpt-5.6-luna",
@@ -302,6 +314,7 @@
       "api": "openai-responses",
       "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 20.0, "output": 75.0, "cacheRead": 2.0, "cacheWrite": 25.0}}]},
       "compat": {
+        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [false, true]},
         "kind": "openai-responses",
         "supportsSamplingParameters": false,
         "supportsLongCacheRetention": false,
@@ -326,6 +339,7 @@
       "api": "openai-responses",
       "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 0.2, "output": 0.75, "cacheRead": 0.02, "cacheWrite": 0.25}}]},
       "compat": {
+        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [false, true]},
         "kind": "openai-responses",
         "supportsSamplingParameters": false,
         "supportsLongCacheRetention": false,
@@ -350,6 +364,7 @@
       "api": "openai-responses",
       "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 4.0, "output": 15.0, "cacheRead": 0.4, "cacheWrite": 5.0}}]},
       "compat": {
+        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [false, true]},
         "kind": "openai-responses",
         "supportsSamplingParameters": false,
         "supportsLongCacheRetention": false,
@@ -374,6 +389,7 @@
       "api": "openai-responses",
       "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 4.0, "output": 15.0, "cacheRead": 0.2, "cacheWrite": 5.0}}]},
       "compat": {
+        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [false, true]},
         "kind": "openai-responses",
         "supportsSamplingParameters": false,
         "supportsLongCacheRetention": false,
