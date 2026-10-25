@@ -1,0 +1,14 @@
+.claude/
+.agents/
+CLAUDE.local.md
+.codex/
+.envrc.local
+dist
+dist-*
+cabal-dev
+.direnv
+cabal.project.local
+db/
+result
+result-*
+.pre-commit-config.yaml

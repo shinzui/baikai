@@ -2,7 +2,6 @@
 .agents/
 .mina/
 .seihou/manifest.json.tmp
-.envrc
 .envrc.local
 dist
 dist-*
@@ -14,3 +13,4 @@ result-*
 .pre-commit-config.yaml
 CLAUDE.local.md
 .codex/
+db/

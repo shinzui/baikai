@@ -19,6 +19,19 @@
       # shell must supply its own.
       haskellProject.extraDevPackages = [ pkgs.git ];
 
+      # Keep fourmolu/treefmt away from the code-generated, round-trip-tested
+      # Baikai.Models.Generated. These lived in the managed nix/treefmt.nix and
+      # nix/pre-commit.nix; moved here during the nix-haskell-flake 0.35.0 upgrade
+      # so the exclusions survive future template migrations (flake-parts merges
+      # these list options across modules). Baikai.Models.Generated is emitted
+      # verbatim by the code generator and a round-trip test asserts the committed
+      # file is byte-identical to that output, so fourmolu must not reformat it.
+      # treefmt's global excludes only apply when it traverses the tree (nix fmt);
+      # the pre-commit hook passes staged filenames explicitly and formats them
+      # regardless of global excludes, so the hook needs its own exclude too.
+      treefmt.settings.global.excludes = [ "baikai/src/Baikai/Models/Generated.hs" ];
+      pre-commit.settings.hooks.treefmt.excludes = [ "^baikai/src/Baikai/Models/Generated\\.hs$" ];
+
       # A Nix package output for the core `baikai` library is intentionally NOT
       # enabled. `callCabal2nix` resolves dependencies against nixpkgs'
       # `haskell.packages.ghc9124` set, which diverges from the Hackage versions
