@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-10-25
+
+* **Update**: Add [TypeSafe Judgments](typesafe-judgments.md), documenting the closed-set schema, refusal policy, evidence, transport and consumer migration.
+
 ## 2026-10-10
 * **Release**: [CLI Providers](cli-providers.md) names the fixed core and batch
   adapter versions and their cancellation contract. [Models & Providers](models-and-providers.md)

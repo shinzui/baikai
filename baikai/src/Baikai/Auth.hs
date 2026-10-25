@@ -69,6 +69,7 @@ defaultApiKeyEnvForBaseUrl baseUrl = do
   match host
   where
     match host
+      | hostMatchesSuffix host "api.typesafe.ai" = Just "TYPESAFE_API_KEY"
       | hostMatchesSuffix host "api.openai.com" = Just "OPENAI_API_KEY"
       | hostMatchesSuffix host "api.deepseek.com" = Just "DEEPSEEK_API_KEY"
       | hostMatchesSuffix host "openrouter.ai" = Just "OPENROUTER_API_KEY"

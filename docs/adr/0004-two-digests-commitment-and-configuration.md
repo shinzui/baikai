@@ -117,3 +117,14 @@ Neither digest is a signature and neither is presented as one. See
   explicit standard and fast configurations have distinct fingerprints;
   envelopes without speed retain the existing golden digests. Canonical
   encoding and response-commitment rules are unchanged.
+
+### Structured judgments (2026-10-25)
+
+Evidence schema 2.6 preserves structured answer values, probability maps,
+confidence and method in response commitments through the content encoder.
+TypeSafe request commitments cover the exact encoded state/questions envelope.
+The configuration allow-list excludes state and free-form question content;
+local pricing remains outside response commitments. The digest and canonical
+encoding algorithms are unchanged. See
+[0027](0027-structured-answer-evidence-is-content.md) and
+[0029](0029-typesafe-wire-validation-and-scoped-http-judgments.md).

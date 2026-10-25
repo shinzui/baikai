@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-10-25
+
+* **Update**: Add [CAP-27](typesafe-judgments.md) for default-branch TypeSafe judgment support, with `since: unreleased` and a compiled shape.
+
 ## 2026-10-10
 
 * **Release**: Add [CAP-25](batch-cli-cancellation.md), first shipped in

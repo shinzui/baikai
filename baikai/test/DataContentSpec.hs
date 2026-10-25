@@ -85,6 +85,26 @@ tests =
           r2 ^. #message @?= r ^. #message
         r <- S.fold (reassembleResponse modelFixture) (S.fromList [DataStart (IndexPayload 0)])
         flattenAssistantData ((r ^. #message) ^. #content) @?= V.empty,
+      testCase "gapped data indices are not duplicated and partial failure terminals recover all data" $ do
+        let first = sample
+            second = sample & #method .~ Just "second"
+            finalOne = (emptyResponse ^. #message) & #content .~ V.singleton (AssistantData first)
+            terminal = EventError (errorTerminal Nothing Nothing ErrorReason (AssistantMessage finalOne) (providerError "partial terminal"))
+            es = [DataStart (IndexPayload 2), DataEnd (DataEndPayload 2 first)]
+        r <- S.fold (reassembleResponse modelFixture) (S.fromList (es <> [terminal]))
+        flattenAssistantData (r ^. #message . #content) @?= V.singleton first
+        let both = es <> [DataStart (IndexPayload 5), DataEnd (DataEndPayload 5 second), terminal]
+        r2 <- S.fold (reassembleResponse modelFixture) (S.fromList both)
+        flattenAssistantData (r2 ^. #message . #content) @?= V.fromList [first, second]
+        reg <- newProviderRegistry
+        let stream _ _ _ = S.fromList both
+        registerApiProviderWith reg (apiProviderWith (Custom "data-fixture") stream (streamingComplete stream))
+        withSystemTempDirectory "baikai-gapped-data" $ \dir -> do
+          sink <- Sink.fileSink (dir </> "trace.jsonl")
+          _ <- withTraceWith reg sink modelFixture emptyContext emptyOptions
+          bytes <- BL.readFile (dir </> "trace.jsonl")
+          ts <- either assertFailure pure (traverse A.eitherDecode (filter (not . BL.null) (BL.split 10 bytes)) :: Either String [T.TraceEvent])
+          [ds | T.CallFailed {T.structuredData = ds} <- ts] @?= [Just (V.fromList [first, second])],
       testCase "named response bytes, optional evidence and response commitments" $ do
         ev <- Baikai.Evidence.Build.minimalEvidence modelFixture (emptyOptions & #evidence .~ Just (evidenceRequest "data-test")) TransportHttpApi noThinkingRequested (A.object []) (read "2026-10-25 00:00:00 UTC") (read "2026-10-25 00:00:01 UTC") CallSucceeded Nothing
         forM_ [responseFixture, responseFixture & #evidence .~ fmap (\e -> e & #usage .~ Observed (responseFixture ^. #message . #usage)) ev, responseFixture & #errorInfo .~ Just (unsupportedFeature "x" "refused") & #message . #stopReason .~ ErrorReason] $ \r -> do

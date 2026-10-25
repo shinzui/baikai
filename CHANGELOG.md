@@ -5,7 +5,15 @@ All notable changes to baikai are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [Unreleased]
+
+### baikai 0.9.0.0
+
+- Add `baikai-typesafe 0.1.0.0` for TypeSafe System One judgments using the
+  released `typesafe-hs ^>=0.1.0.0` dependency. Register providers explicitly.
+  Clear generation defaults after routing on `isJudgmentOnly`; send one
+  `UserData` and read `AssistantData`. Named response codecs preserve answer
+  evidence without conflicting global Response instances.
 
 - Core: add `Baikai.Judgment` for closed-set schema compilation, ordered questions,
   generation-control refusals and strict neutral answer validation. Preserve
@@ -23,7 +31,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   includes structured response commitments; existing digest rules are unchanged.
 - Public content/event sums and error/trace/log records have PVP major changes.
 
-## [Unreleased]
+### baikai-typesafe 0.1.0.0
+
+- Initial explicitly registered TypeSafe System One provider with strict request
+  and response validation, atomic synthetic streaming, truthful call evidence,
+  bounded HTTP calls and an opt-in live test. No retry policy is embedded.
+
+### baikai-openai 0.7.2.0 and baikai-claude 0.7.2.0
+
+- Require `baikai ^>=0.9.0`, encode user data as canonical JSON text, and refuse
+  structured assistant history before dispatch with a typed field path.
+
+### baikai-trace-otel 0.4.1.0
+
+- Require `baikai ^>=0.9.0` and export structured answer data as canonical JSON
+  under `baikai.response.structured_data`, on success and failure terminals.
+
+### Dependency-only updates
+
+- baikai-effectful 0.4.0.4, baikai-kit 0.4.0.2 and baikai-agent 0.2.0.3 require
+  `baikai ^>=0.9.0`. Their independently defined public interfaces are unchanged.
 
 ## [baikai 0.8.0.0] - 2026-10-10
 

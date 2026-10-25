@@ -78,6 +78,7 @@ test-suite baikai-smoke
     baikai,
     baikai-claude,
     baikai-openai,
+    baikai-typesafe,
     base >=4.20 && <5,
     base64-bytestring,
     bytestring,
@@ -126,6 +127,7 @@ test-suite doc-shapes
     Shape.Cap24
     Shape.Cap25
     Shape.Cap26
+    Shape.Cap27
     Shape.Cap4
     Shape.Cap5
     Shape.Cap6
@@ -143,6 +145,7 @@ test-suite doc-shapes
     baikai-kit,
     baikai-openai,
     baikai-trace-otel,
+    baikai-typesafe,
     base >=4.20 && <5,
     containers,
     directory,
@@ -154,4 +157,21 @@ test-suite doc-shapes
     settei-env ^>=0.2,
     streamly-core ^>=0.3,
     text ^>=2.1,
+    vector,
+
+test-suite typesafe-live
+  import: common-options
+  ghc-options: -threaded
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: TypeSafeSmoke.hs
+  build-depends:
+    aeson,
+    baikai,
+    baikai-typesafe,
+    base >=4.20 && <5,
+    containers,
+    generic-lens,
+    lens,
+    text,
     vector,

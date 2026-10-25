@@ -43,6 +43,15 @@ in  Schema.Project::{
         , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
         }
       , Schema.Package::{
+        , name = "baikai-typesafe"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "baikai-typesafe"
+        , description = Some "TypeSafe System One judgments with structured answer evidence"
+        -- Wire client: mori://shinzui/typesafe-hs/packages/typesafe-hs
+        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai", Schema.Dependency.ByName "shinzui/typesafe-hs:typesafe-hs" ]
+        }
+      , Schema.Package::{
         , name = "baikai-trace-otel"
         , type = Schema.PackageType.Library
         , language = Schema.Language.Haskell
@@ -94,6 +103,7 @@ in  Schema.Project::{
           [ Schema.Dependency.ByName "shinzui/baikai:baikai"
           , Schema.Dependency.ByName "shinzui/baikai:baikai-claude"
           , Schema.Dependency.ByName "shinzui/baikai:baikai-openai"
+          , Schema.Dependency.ByName "shinzui/baikai:baikai-typesafe"
           ]
         }
       ]
@@ -104,10 +114,19 @@ in  Schema.Project::{
       , "composewell/streamly"
       , "haskell-servant/servant"
       , "snoyberg/http-client"
+      -- mori://shinzui/typesafe-hs
+      , "shinzui/typesafe-hs"
       , "ekmett/lens"
       ]
     , docs =
       [ Schema.DocRef::{
+        , key = "typesafe-judgments"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some "TypeSafe closed-set judgments and structured answer evidence"
+        , location = Schema.DocLocation.LocalFile "docs/user/typesafe-judgments.md"
+        }
+      , Schema.DocRef::{
         , key = "getting-started"
         , kind = Schema.DocKind.Guide
         , audience = Schema.DocAudience.User

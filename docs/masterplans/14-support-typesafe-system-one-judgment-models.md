@@ -68,7 +68,7 @@ The relevant local decisions are [ADR 0002](../adr/0002-requested-translated-obs
 |---|-------|------|-----------|-----------|--------|
 | 83 | Preserve structured data and probability evidence across Baikai | [docs/plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md](../plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md) | None | None | Complete |
 | 99 | Add a provider-neutral judgment layer and judgment-only catalog facts to core | [docs/plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md](../plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md) | EP-83 | None | Complete |
-| 84 | Deliver the TypeSafe System One provider and judgment catalog | [docs/plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md](../plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md) | EP-83, EP-99 | None | Not Started |
+| 84 | Deliver the TypeSafe System One provider and judgment catalog | [docs/plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md](../plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md) | EP-83, EP-99 | None | Complete |
 
 Status values are Not Started, In Progress, Complete, and Cancelled. EP-84's external client prerequisites are satisfied; see Dependency Graph.
 
@@ -114,10 +114,12 @@ During implementation, EP-83 records the durable content/serialization and typed
 
 ## Progress
 
-EP-83 and EP-99 are Complete (2026-10-25). Core content/persistence and the provider-neutral judgment/catalog layer pass offline acceptance; the workspace builds with exhaustive matches. EP-84 is next. Its external client gates remain satisfied by typesafe-hs 0.1.0.0. Remaining gates are the adapter HTTP matrix, final packaging/documentation and isolated source-distribution verification; live verification remains explicitly selected and is reported separately.
+All three children and offline integration gates are Complete (2026-10-25). Core content/persistence, the neutral judgment/catalog layer and the TypeSafe HTTP adapter pass acceptance. All eight publishable source distributions build with tests enabled in an isolated archive-only project, where the TypeSafe suite also passes. Adoption examples compile, the new capability remains `since: unreleased`, and PVP versions/bounds are prepared. The live suite exists and correctly skips without explicit --live selection, even with a fixture key; live verification was not exercised. Publishing packages and release tags remain a separate operation.
 
 
 ## Surprises & Discoveries
+
+2026-10-25, integration: final review found that raw event indices and compacted terminal content positions are different coordinate systems. Recovery now matches existing data by value/multiplicity and inserts only missing completed blocks, with a shared helper for reassembly and traces. The sparse-index/partial-terminal regression test passes without duplicate or omitted data. ADR 0027 records the lasting constraint.
 
 The request describes a whole-response JSON round trip, but `baikai/src/Baikai/Response.hs` has no Aeson instances. The registered consumer supplies orphan instances in `mori://shinzui/shikumi`, project-relative path `shikumi-cache/src/Shikumi/Cache/ResponseJSON.hs` (artifact-level URI pending), and deliberately removes per-call evidence. Adding global instances in Baikai would conflict with those instances. Named codecs provide a testable core contract without that conflict.
 
@@ -154,6 +156,12 @@ Mori cannot currently resolve the consumer's new MasterPlan handle and has no re
 
 
 ## Outcomes & Retrospective
+
+Completed 2026-10-25 through EP-83 → EP-99 → EP-84. Callers can route on `isJudgmentOnly`, submit one `UserData` state with a closed-set schema, and receive provider selections, distributions, confidence and expected scores in one `AssistantData`. The same content survives atomic stream assembly, named response persistence, actual traces, both call logs and OpenTelemetry. Unsupported controls fail by typed path before dispatch; malformed replies fail after one HTTP request without data success events. The adapter uses the released in-house client, shared core transport policy and no retry loop.
+
+Final evidence: 827 core tests; TypeSafe 11 wire/HTTP groups; OpenAI 298; Claude 433; OpenTelemetry 11; effectful 4; kit and agent 116 each; smoke-options and all compiled shapes pass. All eight publishable source distributions build with tests enabled from extracted archives, and the isolated TypeSafe suite passes. The README example also compiles through the doc-shapes REPL. Existing published badges and released-since fields are unchanged. Live verification was not selected; package publication and tags were not performed.
+
+The final distillation pass promoted the content/persistence boundary to ADR 0027, core judgment/catalog ownership to ADR 0028, and TypeSafe wire/scoped-HTTP decisions to ADR 0029, extending ADR 0004 and ADR 0009 where their existing subjects apply. The sparse-index recovery regression is shared across reassembly and traces. [FRIC-2](../friction-log/2-capability-strict-validation-encounters-pre-existing-missing-review-metadata.md), an initiative-level documentation-validation cost, is accepted: new metadata is strictly valid while older missing-review recommendations remain explicitly recorded. No recurring cross-child friction or logged initiative entries remain.
 
 
 ## Revision Notes

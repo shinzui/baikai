@@ -71,13 +71,14 @@ import Baikai.Error (BaikaiError, providerError)
 -- both belong in this module, so the status constructors stay behind
 -- the @Evidence.@ qualifier.
 
-import Baikai.Content (DataContent)
+import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Evidence
   ( ModelCallEvidence,
     newCallId,
   )
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
+import Baikai.Internal.Data (recoverDataBlocks)
 import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
@@ -87,7 +88,7 @@ import Baikai.Provider.Registry qualified as Registry
 import Baikai.Response (Response, flattenAssistantData)
 import Baikai.StopReason (StopReason (ErrorReason))
 import Baikai.Stream (reassembleResponse, streamRequestWith)
-import Baikai.Stream.Event (AssistantMessageEvent (..), DataEndPayload (..), TerminalPayload (..))
+import Baikai.Stream.Event (AssistantMessageEvent (..), BlockEndPayload (..), DataEndPayload (..), TerminalPayload (..), ThinkingEndPayload (..), ToolCallEndPayload (..))
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Usage (Usage)
@@ -222,7 +223,7 @@ data TraceState = TraceState
     closed :: !(IORef Bool),
     sinkError :: !(IORef (Maybe SomeException)),
     terminalSent :: !(IORef Bool),
-    dataBlocks :: !(IORef (IntMap.IntMap DataContent)),
+    dataBlocks :: !(IORef (IntMap.IntMap AssistantContent)),
     stableRoot :: !(IORef (Maybe (StablePtr TraceState)))
   }
   deriving stock (Generic)
@@ -489,16 +490,23 @@ traceEvent ::
   AssistantMessageEvent ->
   IO AssistantMessageEvent
 traceEvent reg state eid start m opts ev = do
+  let remember i block = atomicModifyIORef' (state ^. #dataBlocks) (\old -> (IntMap.insert i block old, ()))
   case ev of
-    DataEnd DataEndPayload {contentIndex = i, content = d} ->
-      atomicModifyIORef' (state ^. #dataBlocks) (\old -> (IntMap.insert i d old, ()))
+    DataEnd DataEndPayload {contentIndex = i, content = d} -> remember i (AssistantData d)
+    TextEnd BlockEndPayload {contentIndex = i, content = t} -> remember i (AssistantText (TextContent t))
+    ThinkingEnd ThinkingEndPayload {contentIndex = i, content = t} -> remember i (AssistantThinking t)
+    ToolCallEnd ToolCallEndPayload {contentIndex = i, toolCall = t} -> remember i (AssistantToolCall t)
     _ -> pure ()
   closed <- readIORef (state ^. #dataBlocks)
-  let dataFor msg = case msg of
+  let dataFor failed msg = case msg of
         AssistantMessage p ->
-          let ds = flattenAssistantData (p ^. #content)
-              complete = if V.null ds then V.fromList (IntMap.elems closed) else ds
-           in if V.null complete then Nothing else Just complete
+          let blocks = p ^. #content
+              recovered
+                | V.null blocks = V.fromList (IntMap.elems closed)
+                | failed = recoverDataBlocks closed blocks
+                | otherwise = blocks
+              ds = flattenAssistantData recovered
+           in if V.null ds then Nothing else Just ds
         _ -> Nothing
   case ev of
     EventDone TerminalPayload {message = msg, evidence = mev} -> do
@@ -531,7 +539,7 @@ traceEvent reg state eid start m opts ev = do
                 -- common case rather than a corner.
                 costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
                 usageAvailability = mu >>= Usage.availability,
-                structuredData = dataFor msg,
+                structuredData = dataFor False msg,
                 usd = fmap (usdAsScientific . Usage.cost) mu
               }
       -- Evidence goes out *before* the terminal, so a sink that keys
@@ -568,7 +576,7 @@ traceEvent reg state eid start m opts ev = do
                 totalTokens = fmap Usage.totalTokens mu,
                 costBasis = mu >>= Cost.nonEmptyBasis . Usage.cost,
                 usageAvailability = mu >>= Usage.availability,
-                structuredData = dataFor msg,
+                structuredData = dataFor True msg,
                 usd = fmap (usdAsScientific . Usage.cost) mu,
                 errorMessage = errMsg
               }

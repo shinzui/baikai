@@ -4,23 +4,49 @@ title: Support TypeSafe System One judgment models
 description: >-
   Add a TypeSafe System One (Jev) provider and provider-neutral structured-data content that
   carries per-answer probability distributions, so callers can ask declared closed-set
-  questions and read calibrated evidence instead of generated text.
-timestamp: 2026-09-26T03:50:00Z
+  questions and read provider-reported evidence instead of generated text.
+timestamp: 2026-10-25T13:16:33Z
 requestId: IR-10
-status: proposed
+status: completed
 origin: mori://shinzui/shikumi
+reviews:
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-10-25T13:17:46Z"
+    document_timestamp: "2026-10-25T13:16:33Z"
+    context: "Completion self-check against EP-83/99/84 acceptance, offline HTTP and persistence tests, and isolated source-distribution builds; releases and live verification remain separate."
 ---
 
 # Improvement Request: Support TypeSafe System One Judgment Models
 
 ## Status
 
-Proposed. This is the Baikai-owned phase of
-`mori://shinzui/shikumi/masterplans/12-support-typesafe-jev-and-probability-backed-decision-outputs`.
-Shikumi's decision-type and local-derivation work can proceed offline without it. Routing a real
-program to Jev is blocked on it.
+Completed on the default branch on 2026-10-25 by [MasterPlan 14](../masterplans/14-support-typesafe-system-one-judgment-models.md)
+and child plans 83, 99 and 84. `baikai-typesafe` provides explicit registration,
+strict OpenAPI 0.2.0 request/reply validation, typed pre-dispatch refusals and
+synthetic atomic streams. Core owns structured content, named response codecs,
+judgment compilation/validation and catalog output facts. The accepted contract,
+including provider confidence/expected scores, restricted Content shapes and the
+strict generation-default refusal policy, is documented in
+[TypeSafe Judgments](../user/typesafe-judgments.md) and proved by
+`baikai-typesafe/test/Main.hs`, `baikai/test/JudgmentSpec.hs` and
+`baikai/test/DataContentSpec.hs`.
 
-## Context
+All offline integration and isolated source-distribution gates pass. The opt-in
+live test exists and was verified to skip unless explicitly selected; live
+verification did not run. Prepared releases remain unpublished. Consumer adoption
+continues under
+`mori://shinzui/shikumi/masterplans/12-support-typesafe-jev-and-probability-backed-decision-outputs`.
+The material below records the original request baseline; the guide and completed
+plans describe the delivered OpenAPI contract. A malformed reply necessarily
+follows one HTTP request; validation prevents any data success event.
+
+## Original context (2026-09-26)
 
 TypeSafe's System One models, currently the `jev-*` family (`jev-latest`, `jev-preview`, and
 versioned ids such as `jev-1.13.0`), are not generative. Each request carries one *state* and a

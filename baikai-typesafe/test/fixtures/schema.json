@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "properties": {
+    "urgent": {
+      "type": "boolean",
+      "description": "Is service blocked?"
+    },
+    "category": {
+      "description": "Classify the issue.",
+      "anyOf": [
+        {
+          "const": "billing",
+          "description": "Payment issue"
+        },
+        {
+          "const": "technical",
+          "description": "Product malfunction"
+        }
+      ]
+    },
+    "severity": {
+      "description": "Rate impact.",
+      "anyOf": [
+        {
+          "const": 0,
+          "description": "Minor"
+        },
+        {
+          "const": 1,
+          "description": "Disruptive"
+        },
+        {
+          "const": 2,
+          "description": "Blocking"
+        }
+      ]
+    }
+  },
+  "required": [
+    "urgent",
+    "category",
+    "severity"
+  ],
+  "additionalProperties": false
+}

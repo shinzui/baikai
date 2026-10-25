@@ -39,6 +39,7 @@ import Baikai.Error (BaikaiError, providerError, providerUnavailable)
 import Baikai.Evidence (ModelCallEvidence)
 import Baikai.Evidence qualified as Evidence
 import Baikai.Evidence.Build qualified as Build
+import Baikai.Internal.Data (recoverDataBlocks)
 import Baikai.Message (AssistantPayload (..), Message (AssistantMessage))
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model)
@@ -329,7 +330,7 @@ finalizeState s = do
       finalContent
         | not sawTerminal = assembled
         | Vector.null terminalContent = assembled
-        | terminalFailed = Vector.fromList (IntMap.elems (IntMap.unions [s ^. #blocks, IntMap.fromList (zip [0 ..] (Vector.toList terminalContent)), dangling]))
+        | terminalFailed = recoverDataBlocks (s ^. #blocks) terminalContent <> Vector.fromList (IntMap.elems dangling)
         | otherwise = terminalContent
       message' = overrideBlocksAndReason terminalReason terminalMsg finalContent now
       latency = case (s ^. #skeleton >>= messageTimestamp, assistantPayloadTimestamp message') of

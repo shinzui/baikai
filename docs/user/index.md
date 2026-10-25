@@ -14,6 +14,8 @@ okf_version: "0.2"
 - [Prompt Caching](prompt-caching.md) - Configure cache retention and inspect cache token and cost accounting.
 - [Tools](tools.md) - Define tools and implement blocking and streaming tool-call round trips.
 
+- [TypeSafe Judgments](typesafe-judgments.md) - Submit closed-set state/schema requests and preserve probabilities, confidence and call evidence.
+
 # Reference
 
 - [Agent Assets](agent-assets.md) - Reference provider-native path rules and rendering for local agent assets.

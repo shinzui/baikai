@@ -12,7 +12,7 @@ reader can open. There is no roadmap here: a capability that does not yet exist
 is an improvement request, not a record.
 
 baikai is a unified Haskell interface for working with multiple AI providers. It
-ships as eight packages that version independently, so `since` below names **the
+ships as nine packages that version independently, so `since` below names **the
 version of the first package listed in that record** — the one whose release
 gates availability. Comparing `since` across records is only meaningful within a
 package; the package column says which one.
@@ -63,6 +63,7 @@ documented as outside the PVP contract, and the OpenAI Responses backend
 | [Inference speed preference and speed-aware pricing](inference-speed-control.md) | CAP-24 | `baikai` | 0.7.0.0 | One `Options.speed`, catalog-gated fast mode, cost priced at the observed speed |
 | [Batch cancellation with owned subprocess cleanup](batch-cli-cancellation.md) | CAP-25 | `baikai-claude`, `baikai-openai`, `baikai` | 0.7.1.1 | Owned POSIX groups stop, readers join, and direct children are reaped before cancellation propagates |
 | [Context-tiered cache-write duration pricing](tiered-cache-write-pricing.md) | CAP-26 | `baikai` | 0.8.0.0 | A crossed input tier supplies its own long cache-write rate |
+| [TypeSafe judgments with answer evidence](typesafe-judgments.md) | CAP-27 | `baikai-typesafe`, `baikai` | unreleased | Closed-set state/schema calls with preserved probabilities and confidence |
 
 ## Deliberately excluded
 

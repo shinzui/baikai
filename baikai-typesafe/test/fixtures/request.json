@@ -1,0 +1,29 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "ticket": "Checkout is unavailable."
+  },
+  "questions": {
+    "urgent": {
+      "type": "noul",
+      "instructions": "Is service blocked?"
+    },
+    "category": {
+      "type": "choice",
+      "instructions": "Classify the issue.",
+      "criteria": {
+        "billing": "Payment issue",
+        "technical": "Product malfunction"
+      }
+    },
+    "severity": {
+      "type": "score",
+      "instructions": "Rate impact.",
+      "criteria": [
+        "Minor",
+        "Disruptive",
+        "Blocking"
+      ]
+    }
+  }
+}

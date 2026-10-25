@@ -1,0 +1,37 @@
+{
+  "answers": {
+    "urgent": {
+      "type": "noul",
+      "noul": 0.83
+    },
+    "category": {
+      "type": "choice",
+      "probabilities": {
+        "billing": 0.2,
+        "technical": 0.7
+      },
+      "choice": "technical",
+      "confidence": 0.65
+    },
+    "severity": {
+      "type": "score",
+      "probabilities": {
+        "0": 0.1,
+        "1": 0.3,
+        "2": 0.6
+      },
+      "score": 1.5,
+      "confidence": 0.55,
+      "legend": {
+        "0": "Minor",
+        "1": "Disruptive",
+        "2": "Blocking"
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 3
+  },
+  "model": "jev-fixture-version"
+}

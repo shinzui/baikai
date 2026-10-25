@@ -1,5 +1,13 @@
 # Bundle Update Log
 
+## 2026-10-25
+* **Completion**: [IR-10](support-typesafe-system-one-judgment-models.md) is completed
+  on the default branch by MasterPlan 14 and EP-83/99/84. Structured content and
+  answer evidence survive streams, response persistence, traces and logs; neutral
+  judgment/catalog APIs and the TypeSafe provider pass offline and isolated-sdist
+  acceptance. Versions are prepared but unpublished. Explicit live verification
+  was not selected and is reported separately.
+
 ## 2026-10-02
 * **Completion**: IR-12 is `completed`, closed by
 `docs/plans/88-let-a-kit-item-choose-tool-only-or-shared-visibility.md` as

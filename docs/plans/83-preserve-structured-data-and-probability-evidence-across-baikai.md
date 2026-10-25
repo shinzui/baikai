@@ -51,6 +51,8 @@ This implements the provider-neutral portion of [IR-10](../improvement-requests/
 
 ## Surprises & Discoveries
 
+2026-10-25, final integration: compacted error-terminal vectors cannot be keyed by raw event indices when those indices have gaps. The adapter handoff exposed a recovery duplication/loss risk. `Baikai.Internal.Data.recoverDataBlocks` now matches data by value/multiplicity and inserts only omitted blocks; reassembly and traces share it. `DataContentSpec` covers sparse indices and an error terminal containing only one of two completed data blocks, including actual trace output.
+
 `Response` currently derives only Eq, Show and Generic. The consumer at `mori://shinzui/shikumi`, project-relative path `shikumi-cache/src/Shikumi/Cache/ResponseJSON.hs` (artifact-level URI pending), defines orphan response/usage/cost decoders and deliberately excludes per-call evidence from cache JSON. This plan therefore adds named codecs rather than conflicting global instances. `AssistantContent` already has its own codecs, so the consumer's existing response encoding will automatically carry its new data constructor.
 
 Trace terminals and `CallLogEntry` currently carry only accounting fields; neither automatically serializes response blocks. Both need an explicit structured-data field.

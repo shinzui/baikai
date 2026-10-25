@@ -339,3 +339,8 @@ single price by hand, change the JSON and run only `baikai-gen-models`.
 ## License
 
 [BSD-3-Clause](./LICENSE) — (c) 2026 Nadeem Bitar.
+
+TypeSafe System One judgments are available on the default branch through
+`baikai-typesafe`. See [the guide](docs/user/typesafe-judgments.md) for one-state
+closed-set requests, answer distributions and confidence, explicit registry setup,
+and the generation-default refusal policy. The prepared versions remain unreleased.

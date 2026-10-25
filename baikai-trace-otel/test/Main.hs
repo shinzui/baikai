@@ -37,6 +37,7 @@ import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (threadDelay)
 import Control.Exception (throwIO)
 import Control.Lens ((&), (.~), (^.))
+import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.Generics.Labels ()
 import Data.HashMap.Strict qualified as HashMap
@@ -553,18 +554,20 @@ evidenceSpanTest =
       _ -> assertFailure "expected exactly one span"
 
 structuredDataSpanTest :: TestTree
-structuredDataSpanTest = testCase "structured data reaches the actual OTel exporter without evidence opt-in" $ do
-  let a = Custom "baikai-otel-data"
-      dat = DataContent (Aeson.object ["urgent" Aeson..= True]) Nothing Nothing (Just "provider_classification")
-      handler _ _ _ = pure (stubResponse a & #message . #content .~ V.singleton (AssistantData dat))
-  registerApiProvider (apiProviderWith a (liftCompleteToStream handler) handler)
-  (tracer, getSpans) <- newTracerWithInMemory
-  _ <- withTrace (otelSink tracer) (stubModel a) stubContext stubOptions
-  spans <- getSpans
-  case spans of
-    [sp] -> do
-      hot <- spanHotSnapshot sp
-      let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
-      HashMap.lookup "baikai.response.structured_data" attrs
-        @?= Just (Attr.toAttribute (TextEncoding.decodeUtf8 (canonicalEncode (Aeson.toJSON (V.singleton dat)))))
-    _ -> assertFailure ("expected one span, got " <> show (length spans))
+structuredDataSpanTest = testCase "structured data reaches the actual OTel exporter without evidence opt-in" $
+  forM_ [False, True] $ \failed -> do
+    let a = Custom (if failed then "baikai-otel-failed-data" else "baikai-otel-data")
+        dat = DataContent (Aeson.object ["urgent" Aeson..= True]) Nothing Nothing (Just "provider_classification")
+        response = stubResponse a & #message . #content .~ V.singleton (AssistantData dat)
+        handler _ _ _ = pure (if failed then response & #message . #stopReason .~ ErrorReason & #errorInfo .~ Just (providerError "failed") else response)
+    registerApiProvider (apiProviderWith a (liftCompleteToStream handler) handler)
+    (tracer, getSpans) <- newTracerWithInMemory
+    _ <- withTrace (otelSink tracer) (stubModel a) stubContext stubOptions
+    spans <- getSpans
+    case spans of
+      [sp] -> do
+        hot <- spanHotSnapshot sp
+        let attrs = Attr.getAttributeMap (Otel.hotAttributes hot)
+        HashMap.lookup "baikai.response.structured_data" attrs
+          @?= Just (Attr.toAttribute (TextEncoding.decodeUtf8 (canonicalEncode (Aeson.toJSON (V.singleton dat)))))
+      _ -> assertFailure ("expected one span, got " <> show (length spans))

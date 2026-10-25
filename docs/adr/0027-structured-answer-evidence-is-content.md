@@ -21,3 +21,12 @@ Full-response persistence uses the named `Baikai.Response.JSON` functions. Core 
 ## Consequences
 
 Consumers can remove call evidence while retaining answer evidence. Persistent public records and sums gain fields or constructors and require PVP major version preparation. The evidence schema's additive version is 2.6; the digest algorithm and old data-free commitments remain unchanged. Consumers that store prompt or response content must account for structured payloads in their existing content retention policy.
+
+## Recovery with sparse indices
+
+An error terminal carries a compact content vector, while event indices may have
+gaps. Recovery therefore matches already represented data blocks by value and
+multiplicity, and inserts only missing completed data at its closed-block ordinal.
+It does not treat compact vector positions as original event indices. Reassembly
+and terminal traces share that rule, so partial failure terminals retain all
+observed structured blocks without duplicating blocks already present.

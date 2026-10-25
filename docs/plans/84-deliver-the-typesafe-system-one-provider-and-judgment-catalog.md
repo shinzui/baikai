@@ -32,6 +32,11 @@ provenance:
       at: 2026-10-25T11:58:00Z
       mode: "update"
       note: "Use released typesafe-hs ^>=0.1.0.0 without source overrides; external prerequisites satisfied while local and sdist acceptance remain pending"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-25T12:45:37Z
+      mode: "implement"
+      note: "Implement released-client wire mapping, HTTP provider, strict offline acceptance and package adoption"
   reviews:
     - model: "claude-fable-5-1"
       harness: "claude-code"
@@ -56,11 +61,11 @@ The schema compiler, options audit and answer validator are a provider-neutral j
 
 ## Progress
 
-- [ ] Milestone 1: the `baikai-typesafe` package exists and its wire mapping on the in-house client passes offline contract tests against the OpenAPI 0.2.0 fixture: the exact three-question body in both variants, the numeric-description, box and unknown-answer refusals, and every decoder failure case.
-- [ ] Milestone 2: the registered HTTP provider passes exact-payload, zero-dispatch refusal, error, evidence, timeout and response-persistence tests through both public call modes.
-- [ ] Milestone 3: compiled adoption examples, explicitly selected live smoke, package/version preparation, and all offline integration gates pass; IR-10 completion and durable ADRs reflect the delivered contract.
+- [x] Milestone 1: the `baikai-typesafe` package exists and its wire mapping on the in-house client passes offline contract tests against the OpenAPI 0.2.0 fixture: the exact three-question body in both variants, the numeric-description, box and unknown-answer refusals, and every decoder failure case.
+- [x] Milestone 2: the registered HTTP provider passes exact-payload, zero-dispatch refusal, error, evidence, timeout and response-persistence tests through both public call modes.
+- [x] Milestone 3: compiled adoption examples, explicitly selected live smoke, package/version preparation, and all offline integration gates pass; IR-10 completion and durable ADRs reflect the delivered contract.
 
-The external client prerequisites are satisfied by the Hackage release of `typesafe-hs` 0.1.0.0 (verified 2026-10-25). All three milestones remain unstarted; implementation still waits on the two local hard dependencies.
+The external client prerequisites are satisfied by the Hackage release of `typesafe-hs` 0.1.0.0 (verified 2026-10-25). Milestone 1 accepted 2026-10-25: the released client resolves from Hackage with no source override, and all three pure contract groups pass (exact request in both variants, Content refusals, malformed replies). EP-83 and EP-99 are Complete; Milestone 2 accepted: all 11 offline wire/HTTP groups pass, including both dispatch modes, the full malformed-response matrix, zero-request local refusals, strict/opted-out evidence, actual trace/log files, timeout/cancellation and redirect handling. Milestone 3 accepted: all final offline suites, compiled examples, package checks and isolated source-distribution builds pass. The selected live suite exists and skips even with a fixture key unless --live is supplied; live verification was not exercised. No publication or release tag was created.
 
 
 ## Surprises & Discoveries
@@ -79,6 +84,8 @@ The consumer at `mori://shinzui/shikumi/masterplans/12-support-typesafe-jev-and-
 
 
 ## Decision Log
+
+2026-10-25: Verified Hackage and upstream release tags before version preparation. Core moves from 0.8.0.0 to 0.9.0.0 for public sum/record additions. OpenAI/Claude move to 0.7.2.0 for structured-input support; OpenTelemetry to 0.4.1.0 for the new data attribute; effectful, kit and agent take dependency-only patch releases (0.4.0.4, 0.4.0.2, 0.2.0.3). The new provider starts at 0.1.0.0. All core bounds become ^>=0.9.0. Badges and released-since metadata remain unchanged. Hackage lists typesafe-hs 0.1.0.0, http-client 0.7.19, http-client-tls 0.4.0, wai 3.2.5 and warp 3.4.16; upstream tags confirm the released client and HTTP/warp versions. Existing http-client ^>=0.7 and servant-client ^>=0.20 bounds intersect the released client in the solved workspace; fixture wai ^>=3.2 and warp ^>=3.4 cover current releases.
 
 2026-09-26: Refuse all explicitly supplied generation/sampling/reasoning controls before dispatch. IR-10 permits refusal, and it avoids silent adaptation or falsely recording a setting as sent. Transport controls and local evidence/metadata are still supported.
 
@@ -104,6 +111,14 @@ The consumer at `mori://shinzui/shikumi/masterplans/12-support-typesafe-jev-and-
 
 
 ## Outcomes & Retrospective
+
+Completed 2026-10-25. `baikai-typesafe` resolves `typesafe-hs 0.1.0.0` from Hackage with no source override and exposes explicit registration plus complete/atomic streaming calls. All 11 wire/HTTP groups pass, including both noul variants, boundary cardinalities, the refusal/malformed matrix in both public modes, exact bodies and headers, independent failure observations, HTTP classification, header/base rules, redirect suppression, whole-call timeout and response cancellation. Actual trace and both call-log paths preserve distributions/confidence; the real OTel exporter covers success and failure without evidence opt-in.
+
+Final offline suites pass: core 827, TypeSafe 11, OpenAI 298, Claude 433, OpenTelemetry 11, effectful 4, kit 116, agent 116, smoke-options, and doc-shapes (25 Haskell shapes plus the KDL example). The minimal README/guide example also loads in `cabal repl baikai-smoke:test:doc-shapes`. `cabal check` reports no warnings for the new package. All eight publishable source distributions build with tests enabled in a temporary project containing only extracted archives; the TypeSafe suite passes all 11 groups from that isolated project using the released client. The final recovery regression ensures sparse event indices and compact error terminals do not duplicate or omit data.
+
+CAP-27 has `since: unreleased`, passes isolated strict validation and has an honest implementation self-check; the full capability bundle passes required profile/log validation. User documentation and friction bundles pass strict checks. [FRIC-2](../friction-log/2-capability-strict-validation-encounters-pre-existing-missing-review-metadata.md) is accepted: older unrelated capability records still lack recommended review metadata, so the full existing corpus's strict check reports those historical recommendations. No review provenance was fabricated. No initiative friction remains logged.
+
+ADRs 0027–0029 and the additions to ADR 0004/0009 capture the durable contracts. IR-10 is completed on the default branch. The live suite was explicitly left unselected and verified to skip with a dummy key present: **no paid/live TypeSafe call ran**. Prepared versions are unreleased; no tag, publication or consumer-repository migration was performed.
 
 
 ## Context and Orientation

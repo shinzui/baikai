@@ -2,6 +2,7 @@ packages:
   baikai
   baikai-claude
   baikai-openai
+  baikai-typesafe
   baikai-smoke
   baikai-trace-otel
   baikai-effectful
