@@ -38,8 +38,17 @@ What each bucket becomes depends on the host, not on the API family. The
 OpenAI-compatible provider emits Anthropic-style markers only where the
 host's compat record sets `cacheControlFormat = Just
 CacheControlFormatAnthropic` — OpenRouter, in the shipped table. On
-`api.openai.com` it emits nothing at all, because Chat Completions caches
-automatically and offers no retention control.
+`api.openai.com` Baikai's Chat Completions adapter currently emits no
+cache controls and relies on the provider's automatic caching. This is a
+limit of the adapter: OpenAI also offers model-dependent retention and
+explicit-breakpoint controls. Baikai's separate Responses adapter maps
+short retention to `prompt_cache_options.ttl: "30m"` on catalogued models
+with that capability, otherwise to `prompt_cache_retention: "in_memory"`.
+It sends `"24h"` for supported legacy long retention and rejects unsupported
+long requests. Neither OpenAI adapter currently places OpenAI explicit
+prefix breakpoints or exposes `prompt_cache_key`. See
+[OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+for the provider's current controls.
 
 | Value | Anthropic | OpenRouter | Other OpenAI-compatible hosts |
 |---|---|---|---|
@@ -155,11 +164,20 @@ invoice or an assertion that standard service ran.
 
 ## Notes and limits
 
-- **Opt-in.** `cacheRetention` defaults to `Nothing`; no marker is sent
-  until you ask.
+- **Opt-in controls.** `cacheRetention` defaults to `Nothing`; Baikai sends
+  no cache marker until you ask. This does not disable a provider's
+  automatic caching.
 - **Preference, not placement.** On Claude, baikai places the top-level
-  `cache_control` marker and per-tool markers for you. There is no API
-  here for hand-placing cache breakpoints on individual messages.
+  `cache_control` marker, a marker on the last tool definition, and a
+  marker on a non-empty system prompt (sent as one text block) for you —
+  at most three of Anthropic's four breakpoints, all with the same TTL.
+  Tool markers remain gated by `supportsCacheControlOnTools`. The
+  system marker lets fresh conversations with different first questions
+  reuse the same tools-and-system prefix, even when no earlier
+  end-of-request entry matches. The prefix must still meet the model's
+  minimum cacheable size and be identical, including tools. There is no
+  API here for hand-placing cache breakpoints on individual messages.
+  See [Anthropic's combined caching example](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#combining-with-block-level-caching).
 - **CLI providers carry what the tool reports, which is no cache split.**
   Both tools do report token counts and baikai carries them, but neither
   breaks out cache reads or writes, so the cache counters stay zero

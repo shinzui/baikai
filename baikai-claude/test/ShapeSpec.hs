@@ -3,7 +3,7 @@ module ShapeSpec (tests) where
 import Baikai
 import Baikai.Models.Generated qualified as Models
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
-import Baikai.Provider.Claude.Shape (streamRequestBody)
+import Baikai.Provider.Claude.Shape (injectSystemCacheControl, streamRequestBody)
 import Baikai.Provider.Claude.Transport qualified as Transport
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
@@ -29,7 +29,8 @@ tests =
       verbatimToolSchemaTest,
       toolChoiceNoneTest,
       toolCacheControlTest,
-      toolCacheControlCompatGateTest
+      toolCacheControlCompatGateTest,
+      systemCacheControlTests
     ]
 
 verbatimToolSchemaTest :: TestTree
@@ -107,6 +108,100 @@ toolCacheControlCompatGateTest =
         opts = emptyOptions & #cacheRetention .~ Just CacheRetentionShort
     value <- shapedBody model ctx opts
     lookupPath ["tools", "0", "cache_control"] value @?= Nothing
+
+systemCacheControlTests :: TestTree
+systemCacheControlTests =
+  testGroup
+    "system prompt cache breakpoint"
+    [ testCase "without retention the system prompt stays a plain string" $ do
+        value <- shapedBody Models.anthropic_claude_haiku_4_5 systemCtx emptyOptions
+        lookupPath ["system"] value @?= Just (String systemText)
+        lookupPath ["cache_control"] value @?= Nothing,
+      testCase "CacheRetentionNone keeps the system prompt a plain string" $ do
+        value <- shapedBody Models.anthropic_claude_haiku_4_5 systemCtx (retention CacheRetentionNone)
+        lookupPath ["system"] value @?= Just (String systemText)
+        lookupPath ["cache_control"] value @?= Nothing,
+      testCase "short retention sends the system prompt as one ephemeral block" $ do
+        value <- shapedBody Models.anthropic_claude_haiku_4_5 systemCtx (retention CacheRetentionShort)
+        lookupPath ["system"] value @?= Just (systemBlocks ephemeral)
+        lookupPath ["cache_control"] value @?= Just ephemeral,
+      testCase "long retention gives the system block the 1h ttl" $ do
+        value <- shapedBody Models.anthropic_claude_haiku_4_5 systemCtx (retention CacheRetentionLong)
+        lookupPath ["system"] value @?= Just (systemBlocks oneHour)
+        lookupPath ["cache_control"] value @?= Just oneHour,
+      testCase "long retention downgrades with the host" $ do
+        let model =
+              Models.anthropic_claude_haiku_4_5
+                & #compat .~ CompatAnthropicMessages (defaultAnthropicMessagesCompat & #supportsLongCacheRetention .~ False)
+        value <- shapedBody model systemCtx (retention CacheRetentionLong)
+        lookupPath ["system"] value @?= Just (systemBlocks ephemeral)
+        lookupPath ["cache_control"] value @?= Just ephemeral,
+      testCase "without a system prompt no system field appears" $ do
+        value <- shapedBody Models.anthropic_claude_haiku_4_5 emptyContext (retention CacheRetentionShort)
+        lookupPath ["system"] value @?= Nothing
+        lookupPath ["cache_control"] value @?= Just ephemeral,
+      testCase "tools, system and automatic markers stay within four breakpoints" $ do
+        let ctx =
+              systemCtx
+                & #tools
+                  .~ Vector.singleton
+                    (emptyTool & #name .~ "lookup" & #description .~ "Lookup" & #parameters .~ objectSchema)
+        value <- shapedBody Models.anthropic_claude_haiku_4_5 ctx (retention CacheRetentionShort)
+        lookupPath ["tools", "0", "cache_control"] value @?= Just ephemeral
+        lookupPath ["system", "0", "cache_control"] value @?= Just ephemeral
+        lookupPath ["cache_control"] value @?= Just ephemeral,
+      testCase "empty system text never becomes an empty cacheable block" $
+        forM_ [CacheRetentionShort, CacheRetentionLong] $ \r -> do
+          value <- shapedBody Models.anthropic_claude_haiku_4_5 (emptyContext & #systemPrompt .~ Just "") (retention r)
+          lookupPath ["system"] value @?= Just (String ""),
+      testCase "system caching is independent of tool-marker support" $ do
+        let model =
+              Models.anthropic_claude_haiku_4_5
+                & #compat .~ CompatAnthropicMessages (defaultAnthropicMessagesCompat & #supportsCacheControlOnTools .~ False)
+            ctx = systemCtx & #tools .~ Vector.singleton (emptyTool & #name .~ "lookup" & #parameters .~ objectSchema)
+        value <- shapedBody model ctx (retention CacheRetentionLong)
+        lookupPath ["tools", "0", "cache_control"] value @?= Nothing
+        lookupPath ["system"] value @?= Just (systemBlocks oneHour)
+        lookupPath ["cache_control"] value @?= Just oneHour,
+      testCase "all markers share the effective TTL with multiple tools" $
+        forM_ [True, False] $ \supportsLong -> do
+          let model =
+                Models.anthropic_claude_haiku_4_5
+                  & #compat .~ CompatAnthropicMessages (defaultAnthropicMessagesCompat & #supportsLongCacheRetention .~ supportsLong)
+              ctx = systemCtx & #tools .~ Vector.fromList [emptyTool & #name .~ "first", emptyTool & #name .~ "last"]
+              marker = if supportsLong then oneHour else ephemeral
+          value <- shapedBody model ctx (retention CacheRetentionLong)
+          lookupPath ["tools", "0", "cache_control"] value @?= Nothing
+          lookupPath ["tools", "1", "cache_control"] value @?= Just marker
+          lookupPath ["system"] value @?= Just (systemBlocks marker)
+          lookupPath ["cache_control"] value @?= Just marker,
+      testCase "different first questions retain the same cacheable system prefix" $ do
+        let ctxFor question = systemCtx & #messages .~ Vector.singleton (user question)
+        first <- shapedBody Models.anthropic_claude_haiku_4_5 (ctxFor "First question") (retention CacheRetentionShort)
+        second <- shapedBody Models.anthropic_claude_haiku_4_5 (ctxFor "Different question") (retention CacheRetentionShort)
+        lookupPath ["system"] first @?= lookupPath ["system"] second
+        assertBool "user messages remain distinct" (lookupPath ["messages"] first /= lookupPath ["messages"] second),
+      testCase "system shaping preserves other fields and existing block arrays" $ do
+        let body = Aeson.object ["system" .= systemText, "unrelated" .= objectSchema]
+            expected = Aeson.object ["system" .= systemBlocks ephemeral, "unrelated" .= objectSchema]
+            inject = injectSystemCacheControl defaultAnthropicMessagesCompat (retention CacheRetentionShort)
+        inject body @?= expected
+        inject expected @?= expected
+    ]
+  where
+    systemText = "You are a careful assistant." :: Text.Text
+    systemCtx = emptyContext & #systemPrompt .~ Just systemText
+    retention r = emptyOptions & #cacheRetention .~ Just r
+    ephemeral = Aeson.object ["type" .= ("ephemeral" :: Text.Text)]
+    oneHour = Aeson.object ["type" .= ("ephemeral" :: Text.Text), "ttl" .= ("1h" :: Text.Text)]
+    systemBlocks marker =
+      Aeson.toJSON
+        [ Aeson.object
+            [ "type" .= ("text" :: Text.Text),
+              "text" .= systemText,
+              "cache_control" .= marker
+            ]
+        ]
 
 shapedBody :: Model -> Context -> Options -> IO Value
 shapedBody model ctx opts = do

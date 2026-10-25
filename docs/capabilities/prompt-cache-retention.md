@@ -22,7 +22,7 @@ requires:
 evidence:
   - kind: test
     resource: baikai-claude/test/ShapeSpec.hs
-    proves: "The cache marker lands on the last tool definition with the requested ttl, and supportsCacheControlOnTools gates whether tool cache markers are emitted at all."
+    proves: "System, last-tool and automatic markers share the effective TTL, including long-retention downgrade; empty system text is preserved and the tool-marker flag gates only tools."
   - kind: test
     resource: baikai-openai/test/BillingSpec.hs
     proves: "Reported cache reads and writes are normalized once, missing categories and inconsistent counts are explicit, and repeated snapshots preserve cumulative totals."
@@ -31,7 +31,7 @@ evidence:
     proves: "Fable write costs follow the shaped TTL, including a compatibility downgrade, and observed billing facts survive terminal snapshots."
   - kind: example
     resource: baikai-smoke/test/CacheSmoke.hs
-    proves: "A live two-call sequence against a real provider where the second call reports cache-read tokens."
+    proves: "A live sequence checks cache writes, an identical-request hit, and a shared-system-prefix hit with a different first question, including nonzero cache costs."
   - kind: guide
     resource: docs/user/prompt-caching.md
     proves: "The CacheRetention preference, the host-aware long/short downgrade, and how to read the cache token and cost split back off Usage."
@@ -72,14 +72,16 @@ print (resp ^. #message . #usage . #cost . #basis)
   the host lacks support; Responses rejects unsupported retention preferences
   before dispatch. The shaped marker determines the applied write price. A
   preference does not guarantee a cache hit.
-- The Anthropic path is the fully realised one — cache markers on content and on
-  the last tool definition, gated by `supportsCacheControlOnTools`. Elsewhere the
-  capability is mostly the *accounting* half.
+- The Anthropic path places an automatic marker plus explicit markers on a
+  non-empty system prompt and the last tool definition, at most three slots.
+  Only the tool marker is gated by `supportsCacheControlOnTools`. All markers
+  use the same effective TTL, including a long-to-short downgrade.
 - On the OpenAI-compatible transport a marker is emitted only where the host's
   compat record sets `cacheControlFormat = Just CacheControlFormatAnthropic` —
   OpenRouter in the shipped table. `api.openai.com` gets no marker at all,
-  because Chat Completions caches automatically and exposes no retention
-  control, so on that host the capability is the accounting half only.
+  because this adapter relies on automatic caching and does not yet map
+  OpenAI's native cache controls, so on that path the capability is the
+  accounting half only.
 - The separate Responses backend supports catalog-gated retention shaping.
   Astra uses `prompt_cache_options` with its supported short TTL and rejects
   an unsupported long preference before dispatch.

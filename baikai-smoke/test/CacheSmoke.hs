@@ -3,9 +3,10 @@
 -- Proves the request-side preference and the response-side accounting
 -- line up: a first call with a large, stable prefix seeds the cache
 -- ('cacheWriteTokens' > 0), and an identical second call reuses it
--- ('cacheReadTokens' > 0). Anthropic only caches a prefix above a
--- per-model token floor, so the case uses a deliberately oversized
--- system prompt held byte-for-byte identical across both calls.
+-- ('cacheReadTokens' > 0). A third call asks a different first question
+-- and must still read the shared system prefix. Anthropic only caches
+-- a prefix above a per-model token floor, so the case uses a deliberately
+-- oversized system prompt held byte-for-byte identical across all calls.
 --
 -- Skips cleanly when no Anthropic key is present, like the other
 -- smoke cases.
@@ -17,49 +18,57 @@ where
 import Baikai
 import Baikai.Models.Generated qualified as Models
 import Control.Lens ((&), (.~), (^.))
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Data.Foldable (find)
 import Data.Generics.Labels ()
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
+import GHC.Clock (getMonotonicTimeNSec)
 import Numeric.Natural (Natural)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
 
 runCacheCases :: IO Bool
-runCacheCases = runClaudeCacheReadWriteCase
+runCacheCases = or <$> traverse runClaudeCacheReadWriteCase [CacheRetentionShort, CacheRetentionLong]
 
-runClaudeCacheReadWriteCase :: IO Bool
-runClaudeCacheReadWriteCase = do
+runClaudeCacheReadWriteCase :: CacheRetention -> IO Bool
+runClaudeCacheReadWriteCase retention = do
   matched <- firstSetEnv ["ANTHROPIC_API_KEY", "ANTHROPIC_KEY"]
   case matched of
     Nothing -> do
       hPutStrLn stderr "[baikai-smoke] no ANTHROPIC_API_KEY set; skipping cache read/write case."
       pure False
     Just (envVar, key) -> do
-      let model = Models.anthropic_claude_sonnet_4_6 & #maxOutputTokens .~ 64
+      hPutStrLn stderr ("[baikai-smoke] Claude cache case: " <> show retention)
+      -- Isolate this run from earlier smoke runs, which may have left a
+      -- warm cache. Keep the nonce at the start and identical across calls.
+      nonce <- getMonotonicTimeNSec
+      let preamble = "Cache smoke run " <> Text.pack (show nonce) <> ". " <> bigStablePreamble
+          model = Models.anthropic_claude_sonnet_4_6 & #maxOutputTokens .~ 64
           ctx =
             emptyContext
-              & #systemPrompt .~ Just bigStablePreamble
+              & #systemPrompt .~ Just preamble
               & #messages .~ Vector.singleton (user "Reply with the single word: pong.")
           opts =
             emptyOptions
               & #maxTokens .~ Just 16
               & #temperature .~ Just 0.0
-              & #cacheRetention .~ Just CacheRetentionLong
+              & #cacheRetention .~ Just retention
               & #apiKey .~ Just (ApiKeyLiteral (Text.pack key))
 
       -- First call seeds the cache.
       firstResp <- completeRequest model ctx opts
+      assertCompleted "write call" firstResp
       let firstUsage = firstResp ^. #message ^. #usage
           written = firstUsage ^. #cacheWriteTokens
       logUsage "write call" envVar firstUsage
 
       -- Identical second call should read it back.
       secondResp <- completeRequest model ctx opts
+      assertCompleted "read call" secondResp
       let secondUsage = secondResp ^. #message ^. #usage
           readBack = secondUsage ^. #cacheReadTokens
       logUsage "read call" envVar secondUsage
@@ -74,7 +83,27 @@ runClaudeCacheReadWriteCase = do
         envVar
         (firstUsage ^. #cost ^. #breakdown ^. #cachedWriteUsd)
         (secondUsage ^. #cost ^. #breakdown ^. #cachedInputUsd)
+
+      -- A fresh conversation with a different first user message cannot
+      -- reuse the earlier end-of-request breakpoint. It needs the explicit
+      -- system breakpoint; no tools are present to supply another prefix.
+      let differentQuestion = ctx & #messages .~ Vector.singleton (user "Reply with the single word: ping.")
+      thirdResp <- completeRequest model differentQuestion opts
+      assertCompleted "shared system prefix call" thirdResp
+      let thirdUsage = thirdResp ^. #message ^. #usage
+      logUsage "shared system prefix call" envVar thirdUsage
+      assertCachePositive envVar written (thirdUsage ^. #cacheReadTokens)
+      assertCacheCosts
+        envVar
+        (firstUsage ^. #cost ^. #breakdown ^. #cachedWriteUsd)
+        (thirdUsage ^. #cost ^. #breakdown ^. #cachedInputUsd)
       pure True
+
+assertCompleted :: String -> Response -> IO ()
+assertCompleted label resp =
+  unless (responseError resp == Nothing && resp ^. #message ^. #stopReason == Stop) $ do
+    hPutStrLn stderr ("[baikai-smoke] cache " <> label <> " did not complete successfully.")
+    exitFailure
 
 -- | Fail loudly if the cached token classes cost nothing.
 assertCacheCosts :: String -> Rational -> Rational -> IO ()

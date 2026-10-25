@@ -7,6 +7,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `baikai-claude`: short and long `cacheRetention` now mark non-empty system
+  prompts so fresh conversations with different first questions can reuse the
+  tools-and-system prefix. System, last-tool and automatic markers share the
+  effective TTL, including host downgrades, and use at most three breakpoints.
+  Empty or absent system prompts and disabled caching keep their existing shape.
+  Regression coverage includes tool compatibility and a live shared-prefix case
+  isolated from earlier smoke runs. Implements issue #2 and the approach in PR #3.
+
 ### Added
 
 - `ThinkingNone` (`none`) explicitly requests reasoning off; `Nothing` still

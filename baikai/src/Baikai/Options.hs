@@ -105,6 +105,13 @@ data Options = Options
     -- | 'Nothing' and @Just 'CacheRetentionNone'@ are the same request:
     -- both send no cache-control marker. The constructor is kept for a
     -- caller who wants to say "no caching" explicitly.
+    --
+    -- On Anthropic Messages hosts a retention sets up to three cache
+    -- breakpoints: the top-level automatic marker (the end of the
+    -- request), the last tool definition, and the system prompt, which
+    -- is then sent as one text block carrying @cache_control@. The
+    -- system-prompt breakpoint lets requests that share a static system
+    -- prefix but differ in their messages read it from the cache.
     cacheRetention :: !(Maybe CacheRetention),
     -- | Nothing omits the speed field; standard explicitly requests standard
     -- speed. Fast is catalog-gated by Anthropic and dropped with evidence on
