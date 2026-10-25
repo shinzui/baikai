@@ -542,22 +542,43 @@ API callers select a provider-neutral reasoning preference through
 let opts = emptyOptions & #thinking .~ Just ThinkingXHigh
 ```
 
-`ThinkingLevel` has six ordered values: `ThinkingMinimal`,
-`ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`, `ThinkingXHigh`, and
-`ThinkingMax`. Their canonical spellings are `minimal`, `low`,
-`medium`, `high`, `xhigh`, and `max`. Leaving `thinking = Nothing`
-omits the reasoning control and lets the provider use its default.
+`ThinkingLevel` has seven ordered values: `ThinkingNone`,
+`ThinkingMinimal`, `ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`,
+`ThinkingXHigh`, and `ThinkingMax`. Their canonical spellings are
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Leaving
+`thinking = Nothing` omits the reasoning control and lets the provider
+use its default, which on an adaptive Anthropic model such as Claude
+Haiku 5.5 is to think. `ThinkingNone` asks for no reasoning instead.
+
+To require that the adapter transmits your off request without substitution, use
+strict evidence. This refuses unsupported translations before dispatch; it does
+not prove that the server executed the setting:
+
+```haskell
+let opts = emptyOptions
+      & #thinking .~ Just ThinkingNone
+      & #evidence .~ Just (evidenceRequest "fast-call"
+          & #strictness .~ EvidenceRequired EvidenceRequestedOnly)
+```
+
+For a local Ollama model, set `reasoning = True` and use its OpenAI-compatible
+endpoint. `ThinkingNone` then sends `reasoning_effort: "none"`; no native Ollama
+transport is required. Ollama 0.30.6 rejects `minimal`, so a custom model targeting
+that version can supply `supportedReasoningEfforts = Just [ThinkingNone,
+ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingMax]` in its OpenAI compatibility
+record. Host versions and model capabilities vary; `ThinkingLow` is not off.
 
 Providers translate this shared vocabulary according to the request
 shape selected by the model's compatibility record:
 
 | Destination | Mapping |
 |-------------|---------|
-| Native OpenAI | Preserves all six canonical spellings in the final JSON request. |
+| Native OpenAI | Uses `reasoning_effort` (Chat) or `reasoning.effort` (Responses). The catalog's accepted-effort policy controls the final value: GPT-5/o-series, Astra, and GPT-6.1 Sol cannot disable reasoning; GPT-6 Sol/Luna accept `none`. Every replacement is recorded. |
+| Anthropic, `none` | Sends `thinking: {"type": "disabled"}` with no effort and no display where the catalog's `supportsThinkingDisabled` says the model accepts it. Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject it, so there `none` is sent as adaptive thinking at `low` effort and recorded as `effort_clamped`. |
 | Anthropic adaptive thinking | Maps `minimal` to `low` and sends `low`, `medium`, `high`, `xhigh`, and `max` explicitly. The provider default differs by model (Opus 5.5 and Haiku 5.5 default to `medium`, the others to `high`), so no level relies on it. |
 | Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |
-| DeepSeek, OpenRouter, and Together | Maps `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
-| Z.ai and Qwen | Sends the host's boolean “enable thinking” control; the requested level is not represented. |
+| DeepSeek, OpenRouter, and Together | Maps `none` and `minimal` to `low` and clamps `xhigh` and `max` to `high`. |
+| Z.ai and Qwen | Sends the host's boolean “enable thinking” control: `false` for `none`, `true` for every other level, whose depth is not represented. |
 | `ThinkingFormatNone` | Omits the control. |
 
 The chosen model must still support reasoning: on **both** API
@@ -567,6 +588,15 @@ False` sends no reasoning control at all and records
 wire shape is consulted, because a host may speak a perfectly good
 reasoning dialect while the model selected on it cannot reason —
 `gpt-4o-mini` on OpenAI's own host, or `deepseek-chat` on DeepSeek's.
+
+Anthropic compatibility records without `supportsThinkingDisabled` default to
+`False`; callers restoring older saved models should refresh their catalog or
+supply the verified capability. A host without thinking controls may still run
+a model that thinks by default, so a dropped off request fails strict evidence.
+A model explicitly catalogued as non-reasoning can satisfy off by omission.
+Sonnet 5.5's `between_tools` mode suppresses up-front reasoning but can still
+return thinking blocks between tool calls; this full-off preference does not
+claim that mode as exact disable.
 
 Anthropic adaptive requests also send `thinking.display: summarized` and record
 that exact setting as `thinking.display_text` in evidence. Budget requests keep
@@ -629,9 +659,9 @@ an arbitrary map would trade a silent drop for a 400.
 
 The batch `claude -p` and `codex exec` providers forward
 `Options.thinking` as the app's reasoning-effort flag: `claude -p`
-receives `--effort <level>` (mapping `minimal` to `low`, since the
-`claude` CLI has no `minimal`) and `codex exec` receives `-c
-model_reasoning_effort=<level>` for all six levels. Leaving `thinking =
+receives `--effort <level>` (mapping `none` and `minimal` to `low`, since the
+`claude` CLI has neither) and `codex exec` receives `-c
+model_reasoning_effort=<level>` for all seven levels. Leaving `thinking =
 Nothing` emits no effort flag. Interactive Claude Code and Codex
 launches carry the same preference through
 `InteractiveLaunchRequest.effort`; see

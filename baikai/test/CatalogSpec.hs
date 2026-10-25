@@ -28,6 +28,7 @@ import Baikai.Compat
     supportsFastMode,
     supportsForcedToolChoice,
     supportsSamplingParameters,
+    supportsThinkingDisabled,
     thinkingStyle,
   )
 import Baikai.Model
@@ -69,7 +70,7 @@ tests =
                   c.supportsPromptCacheOptions @?= True
                   c.supportsLongCacheRetention @?= False
                   c.supportsSamplingParameters @?= False
-                  c.supportedReasoningEfforts @?= Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
+                  c.supportedReasoningEfforts @?= Just ([ThinkingNone | mid /= "gpt-6.1-sol"] <> [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax])
                 _ -> assertFailure "GPT-6 Sol/Luna need explicit OpenAI Responses facts"
           )
           ["gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"],
@@ -103,25 +104,25 @@ tests =
 anthropicCatalogModels :: [Model]
 anthropicCatalogModels = [m | m <- allModels, api m == AnthropicMessages]
 
--- | The shipped thinking style and sampling support of each Anthropic
--- catalog id, written out by hand from
--- @baikai\/data\/models\/anthropic.json@.
-expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool, Bool, Bool))]
+-- | The shipped thinking style, sampling, forced-choice, fast-mode and
+-- disabled-thinking support of each Anthropic catalog id, written out by
+-- hand from @baikai\/data\/models\/anthropic.json@.
+expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool, Bool, Bool, Bool))]
 expectedAnthropicFacts =
-  [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True, False)),
-    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False, False)),
-    ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True, False)),
-    ("claude-haiku-5-5", (AnthropicThinkingAdaptive, False, True, False)),
-    ("claude-opus-4-5", (AnthropicThinkingBudget, True, True, False)),
-    ("claude-opus-4-6", (AnthropicThinkingAdaptive, True, True, False)),
-    ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True, False)),
-    ("claude-opus-4-8", (AnthropicThinkingAdaptive, False, True, True)),
-    ("claude-opus-5", (AnthropicThinkingAdaptive, False, True, True)),
-    ("claude-opus-5-5", (AnthropicThinkingAdaptive, False, False, True)),
-    ("claude-sonnet-4-5", (AnthropicThinkingBudget, True, True, False)),
-    ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True, True, False)),
-    ("claude-sonnet-5", (AnthropicThinkingAdaptive, False, True, False)),
-    ("claude-sonnet-5-5", (AnthropicThinkingAdaptive, False, False, False))
+  [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True, False, False)),
+    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False, False, False)),
+    ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True, False, True)),
+    ("claude-haiku-5-5", (AnthropicThinkingAdaptive, False, True, False, True)),
+    ("claude-opus-4-5", (AnthropicThinkingBudget, True, True, False, True)),
+    ("claude-opus-4-6", (AnthropicThinkingAdaptive, True, True, False, True)),
+    ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True, False, True)),
+    ("claude-opus-4-8", (AnthropicThinkingAdaptive, False, True, True, True)),
+    ("claude-opus-5", (AnthropicThinkingAdaptive, False, True, True, True)),
+    ("claude-opus-5-5", (AnthropicThinkingAdaptive, False, False, True, False)),
+    ("claude-sonnet-4-5", (AnthropicThinkingBudget, True, True, False, True)),
+    ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True, True, False, True)),
+    ("claude-sonnet-5", (AnthropicThinkingAdaptive, False, True, False, True)),
+    ("claude-sonnet-5-5", (AnthropicThinkingAdaptive, False, False, False, False))
   ]
 
 assertFacts :: Model -> IO ()
@@ -139,5 +140,5 @@ assertFacts m = case compat m of
           <> show other
       )
   where
-    facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool, Bool, Bool)
-    facts c = (thinkingStyle c, c.supportsSamplingParameters, c.supportsForcedToolChoice, c.supportsFastMode)
+    facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool, Bool, Bool, Bool)
+    facts c = (thinkingStyle c, c.supportsSamplingParameters, c.supportsForcedToolChoice, c.supportsFastMode, c.supportsThinkingDisabled)

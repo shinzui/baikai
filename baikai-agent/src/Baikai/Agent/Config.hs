@@ -431,7 +431,7 @@ outputFormatDecoder =
 effortDecoder :: Decoder ThinkingLevel
 effortDecoder =
   parsedDecoder
-    "one of: minimal, low, medium, high, xhigh, max"
+    "one of: none, minimal, low, medium, high, xhigh, max"
     (maybe (Left "unknown effort") Right . parseThinkingLevel)
 
 pathDecoder :: Decoder FilePath

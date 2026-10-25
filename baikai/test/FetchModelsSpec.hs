@@ -4,11 +4,12 @@
 -- models.dev-shaped fixture. No network is involved.
 module FetchModelsSpec (tests) where
 
-import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAIResponsesCompat)
+import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified
 import Baikai.Model qualified as Model
 import Baikai.Prelude
+import Baikai.ThinkingLevel (ThinkingLevel (..))
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -67,7 +68,7 @@ expectedOpenAI =
               contextWindow = 400000,
               maxOutputTokens = 128000,
               apiOverride = Nothing,
-              compat = Nothing
+              compat = Just (CatalogOpenAICompat (defaultOpenAICompletionsCompat & #supportedReasoningEfforts .~ Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh]))
             },
           CatalogModel
             { modelId = "gpt-5.4",
@@ -115,6 +116,7 @@ expectedAnthropic =
                           { thinkingStyle = AnthropicThinkingBudget,
                             supportsSamplingParameters = True,
                             supportsForcedToolChoice = True,
+                            supportsThinkingDisabled = True,
                             fastModeCost = Nothing
                           }
                       )
@@ -157,6 +159,14 @@ tests =
               _ -> assertFailure "wrong entries"
             _ -> assertFailure "missing models"
           _ -> assertFailure "invalid rendered catalog",
+      testCase "refresh and generation preserve which OpenAI models accept none" $ do
+        upstream <- loadUpstream
+        let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
+        forM_ [("gpt-5", "ThinkingMinimal"), ("o3", "ThinkingLow"), ("gpt-6-sol", "ThinkingNone"), ("gpt-6-luna", "ThinkingNone"), ("gpt-6-astra", "ThinkingLow"), ("gpt-6.1-sol", "ThinkingLow")] $ \(mid, lowest) -> do
+          let refreshed = normalizeProvider openaiSpec (Map.singleton mid (sample & #modelId .~ mid))
+          case Aeson.eitherDecode (BSL.fromStrict (renderCatalog refreshed)) of
+            Left err -> assertFailure err
+            Right catalog -> assertBool (Text.unpack mid <> " preserves its lowest effort") (("supportedReasoningEfforts = Just [" <> lowest <> ",") `Text.isInfixOf` Gen.renderModule (Gen.flattenEntries catalog)),
       testCase "refresh preserves Astra endpoint restrictions despite upstream tool support" $ do
         upstream <- loadUpstream
         let sample = (upstream Map.! "openai") Map.! "gpt-5.4"
@@ -286,14 +296,16 @@ tests =
                 "        \"thinkingStyle\": \"budget\",",
                 "        \"supportsSamplingParameters\": true,",
                 "        \"supportsFastMode\": false,",
-                "        \"supportsForcedToolChoice\": true",
+                "        \"supportsForcedToolChoice\": true,",
+                "        \"supportsThinkingDisabled\": true",
                 "      },"
               ]
               `Text.isInfixOf` rendered
           ),
-      testCase "an OpenAI model renders no compat block" $ do
+      testCase "an unconstrained OpenAI model renders no compat block" $ do
         upstream <- loadUpstream
-        let rendered = renderText (catalogFor upstream openaiSpec)
+        let catalog = catalogFor upstream openaiSpec
+            rendered = renderText (catalog & #models .~ filter ((== "gpt-5.4") . (^. #modelId)) (catalog ^. #models))
         assertBool
           "no per-model compat block (the file-level \"compat\": \"auto\" stays)"
           (not ("\"compat\": {" `Text.isInfixOf` rendered)),

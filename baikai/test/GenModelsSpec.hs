@@ -6,12 +6,14 @@ import Baikai.Compat
     defaultAnthropicMessagesCompat,
     supportsFastMode,
     supportsSamplingParameters,
+    supportsThinkingDisabled,
     thinkingStyle,
   )
 import Baikai.Model (InputModality (InputText))
 import Baikai.Model qualified
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GenModelsCore
@@ -22,7 +24,14 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.GenModels"
-    [ testCase "fast capability and rates must agree in both directions" $ do
+    [ testCase "legacy Anthropic model JSON does not invent disable support" $ do
+        let raw = case Aeson.toJSON (defaultAnthropicMessagesCompat {supportsThinkingDisabled = True}) of
+              Aeson.Object o -> Aeson.Object (KM.delete "supportsThinkingDisabled" o)
+              other -> other
+        case Aeson.fromJSON raw of
+          Aeson.Error err -> assertFailure err
+          Aeson.Success c -> assertBool "missing fact is conservative" (not (supportsThinkingDisabled c)),
+      testCase "fast capability and rates must agree in both directions" $ do
         forM_ [(True, Nothing), (False, Just (CostEntry 10 50 1 12.5))] $ \(supported, rates) -> do
           let block = CatalogCompatAnthropic (defaultAnthropicMessagesCompat {supportsFastMode = supported})
               catalog = (anthropicCatalog CatalogCompatAuto (Just block)) {models = [(model "claude-x") {entryCompatOverride = Just block, entryFastModeCost = rates}]}

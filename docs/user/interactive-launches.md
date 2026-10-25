@@ -366,17 +366,18 @@ request =
     }
 ```
 
-Baikai provides six levels: `ThinkingMinimal`, `ThinkingLow`,
-`ThinkingMedium`, `ThinkingHigh`, `ThinkingXHigh`, and `ThinkingMax`.
-Claude Code receives `--effort low` for both `ThinkingMinimal` and
-`ThinkingLow`, because its CLI has no `minimal` value; the other four
-levels become `medium`, `high`, `xhigh`, and `max`. Codex receives all
-six canonical names through `-c model_reasoning_effort=<level>`.
+Baikai provides seven levels: `ThinkingNone`, `ThinkingMinimal`,
+`ThinkingLow`, `ThinkingMedium`, `ThinkingHigh`, `ThinkingXHigh`, and
+`ThinkingMax`. Claude Code receives `--effort low` for `ThinkingNone`,
+`ThinkingMinimal` and `ThinkingLow`, because its CLI has no `none` or
+`minimal` value; the other four levels become `medium`, `high`, `xhigh`,
+and `max`. Codex receives all seven canonical names through
+`-c model_reasoning_effort=<level>`.
 
 The default is `effort = Nothing`, which emits no effort argument and
 leaves the CLI default unchanged. It does not mean Codex's explicit
-`none` mode. Provider- and model-specific Codex values such as `none`
-or `ultra` remain available through `extraArgs`.
+`none` mode, which `ThinkingNone` now requests. Other provider- and
+model-specific Codex values such as `ultra` remain available through `extraArgs`.
 
 The same `ThinkingLevel` type is used by API requests through
 `Options.thinking`. Native OpenAI and Anthropic request paths preserve

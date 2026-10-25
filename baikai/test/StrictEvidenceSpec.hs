@@ -195,6 +195,14 @@ downgradeGateTests =
         "a thinking budget that will not fit the output ceiling is discarded"
         (ThinkingDroppedBudgetExceeded ThinkingMax 32000 8192)
         "does not fit inside the resolved output ceiling",
+      refusesDowngrade
+        "a host without controls may still think by default when none is requested"
+        (ThinkingDroppedUnsupportedHost ThinkingNone)
+        "exposes no reasoning controls",
+      refusesDowngrade
+        "a minimum positive effort cannot satisfy explicit off"
+        (EffortClamped ThinkingNone "low")
+        "would be sent as low",
       testCase "several downgrades on one call are reported together" $
         case checkEvidenceRequirements
           (EvidenceRequired EvidenceRequestedOnly)

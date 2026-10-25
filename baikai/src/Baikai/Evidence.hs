@@ -320,12 +320,16 @@ data ThinkingAdjustment
 -- the requested thinking level; it must not refuse one merely because
 -- a sampling parameter had nowhere to go. The six level-carrying
 -- constructors weaken thinking; the sampling and speed ones do not.
+--
+-- A model catalogued as non-reasoning already satisfies ThinkingNone.
+-- A host without controls may still reason by default: dropping none
+-- there cannot satisfy a strict caller.
 weakensThinking :: ThinkingAdjustment -> Bool
 weakensThinking = \case
   EffortClamped {} -> True
   EffortCollapsedToToggle {} -> True
   EffortOmitted {} -> True
-  ThinkingDroppedUnsupportedModel {} -> True
+  ThinkingDroppedUnsupportedModel lvl -> lvl /= ThinkingNone
   ThinkingDroppedUnsupportedHost {} -> True
   ThinkingDroppedBudgetExceeded {} -> True
   SamplingDroppedUnsupportedModel {} -> False
@@ -919,7 +923,9 @@ evidenceSchemaVersion :: Text
 -- Older error objects decode with Nothing; digest inputs are unchanged.
 -- Version 2.6 adds structured response content and optional request_problem.
 -- The canonical encoding and data-free commitment fixtures are unchanged.
-evidenceSchemaVersion = "baikai.model-call-evidence/2.6"
+-- Version 2.7 adds the explicit none thinking preference. Existing digests and
+-- observations are unchanged; a transmitted off request remains unobserved.
+evidenceSchemaVersion = "baikai.model-call-evidence/2.7"
 
 -- | Everything Baikai can say about one completed provider call.
 --

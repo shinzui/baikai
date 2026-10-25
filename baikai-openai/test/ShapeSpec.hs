@@ -13,8 +13,9 @@ import Baikai.Provider.OpenAI.Internal.Stream
     emptyAssembler,
     translate,
   )
-import Baikai.Provider.OpenAI.Shape (streamRequestBody)
+import Baikai.Provider.OpenAI.Shape (describeThinkingShape, streamRequestBody)
 import Control.Lens ((&), (.~), (^.))
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
@@ -24,6 +25,7 @@ import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
 import EndpointModels (chatRestrictedModel)
+import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 
@@ -31,7 +33,8 @@ tests :: TestTree
 tests =
   testGroup
     "ShapeSpec"
-    [ endpointPolicyTests,
+    [ thinkingNoneTests,
+      endpointPolicyTests,
       deepseekShapeTest,
       nativeHigherEffortTests,
       compatibleHigherEffortClampTest,
@@ -148,7 +151,7 @@ compatibleHigherEffortClampTest =
     lookupTop "reasoning_effort" value @?= Just (String "high")
 
 -- ============================================================
--- The forty-two-row translation table
+-- The forty-nine-row translation table
 -- ============================================================
 
 -- | Every canonical level against every wire shape: what goes on the
@@ -196,7 +199,8 @@ everyThinkingFormat =
 -- empty adjustment list means.
 effortRows :: [(ThinkingLevel, Text.Text, Text.Text, [ThinkingAdjustment])]
 effortRows =
-  [ (ThinkingMinimal, "minimal", "low", [EffortClamped ThinkingMinimal "low"]),
+  [ (ThinkingNone, "none", "low", [EffortClamped ThinkingNone "low"]),
+    (ThinkingMinimal, "minimal", "low", [EffortClamped ThinkingMinimal "low"]),
     (ThinkingLow, "low", "low", []),
     (ThinkingMedium, "medium", "medium", []),
     (ThinkingHigh, "high", "high", []),
@@ -258,7 +262,8 @@ expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
     )
   where
     -- Z.ai and Qwen carry no depth at all, so every level collapses --
-    -- including the ones a richer host would have accepted verbatim.
+    -- including the ones a richer host would have accepted verbatim --
+    -- except none, which a toggle expresses exactly by switching off.
     collapsed =
       ( ThinkingTranslation
           { requested = Just lvl,
@@ -267,9 +272,9 @@ expectationFor fmt lvl nativeWord compatWord clamps = case fmt of
             budgetTokens = Nothing,
             wireField = Just "enable_thinking",
             displayText = Nothing,
-            adjustments = [EffortCollapsedToToggle lvl]
+            adjustments = [EffortCollapsedToToggle lvl | lvl /= ThinkingNone]
           },
-        [("enable_thinking", Bool True)],
+        [("enable_thinking", Bool (lvl /= ThinkingNone))],
         ["reasoning_effort", "reasoning", "thinking"]
       )
 
@@ -526,3 +531,46 @@ endpointPolicyTests =
     ]
   where
     fake = chatRestrictedModel & #modelId .~ "arbitrary-generation"
+
+-- Exercise serialization and the actual registry gate, not a duplicated mapper.
+thinkingNoneTests :: TestTree
+thinkingNoneTests =
+  testGroup
+    "explicit thinking off"
+    [ testCase "Ollama-compatible localhost emits none; default omits the field" $ do
+        let model = emptyModel & #api .~ OpenAIChatCompletions & #modelId .~ "qwen3:0.6b" & #baseUrl .~ "http://localhost:11434/v1" & #reasoning .~ True
+        (body, translated) <- shapedCall model off emptyContext
+        lookupTop "reasoning_effort" body @?= Just (String "none")
+        translated ^. #requested @?= Just ThinkingNone
+        translated ^. #effortText @?= Just "none"
+        translated ^. #adjustments @?= []
+        defaultBody <- shapedBody model emptyOptions emptyContext
+        lookupTop "reasoning_effort" defaultBody @?= Nothing,
+      testCase "catalog reasoning models never send an unsupported none" $
+        forM_ [(Models.openai_gpt_5, "minimal"), (Models.openai_gpt_5_mini, "minimal"), (Models.openai_gpt_5_nano, "minimal"), (Models.openai_o1, "low"), (Models.openai_o3, "low"), (Models.openai_o3_mini, "low"), (Models.openai_o4_mini, "low")] $ \(model, wire) -> do
+          (body, translated) <- shapedCall model off emptyContext
+          lookupTop "reasoning_effort" body @?= Just (String wire)
+          translated ^. #adjustments @?= [EffortClamped ThinkingNone wire],
+      testCase "non-reasoning catalog model satisfies off without a field" $ do
+        (body, translated) <- shapedCall Models.openai_gpt_4o_mini off emptyContext
+        lookupTop "reasoning_effort" body @?= Nothing
+        translated ^. #adjustments @?= [ThinkingDroppedUnsupportedModel ThinkingNone]
+        checkEvidenceRequirements (EvidenceRequired EvidenceRequestedOnly) EvidenceModelObserved translated @?= [],
+      testCase "strict complete and stream refuse off on a host with no controls before dispatch" $ do
+        let model = emptyModel & #api .~ OpenAIChatCompletions & #reasoning .~ True & #compat .~ CompatOpenAICompletions (defaultOpenAICompletionsCompat {thinkingFormat = ThinkingFormatNone})
+            opts = off & #evidence .~ Just (evidenceRequest "off" & #strictness .~ EvidenceRequired EvidenceRequestedOnly)
+            describe m = describeThinkingShape (openaiCompletionsCompatFor m) (m ^. #reasoning)
+            provider = apiProviderWith OpenAIChatCompletions (\_ _ _ -> error "stream dispatched") (\_ _ _ -> error "complete dispatched") & #describeThinking .~ describe & #strengthCeiling .~ EvidenceModelObserved
+        reg <- newProviderRegistry
+        registerApiProviderWith reg provider
+        response <- completeRequestWith reg model emptyContext opts
+        case responseError response of
+          Just err -> err ^. #category @?= InvalidRequest
+          Nothing -> assertFailure "strict off unexpectedly succeeded"
+        events <- Stream.toList (streamRequestWith reg model emptyContext opts)
+        case events of
+          [EventStart _, EventError payload] -> (payload ^. #errorInfo) /= Nothing @?= True
+          other -> assertFailure ("expected pre-dispatch stream refusal: " <> show other)
+    ]
+  where
+    off = emptyOptions & #thinking .~ Just ThinkingNone

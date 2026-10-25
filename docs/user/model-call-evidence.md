@@ -184,7 +184,10 @@ including it made the digest change whenever a price was edited, and left
 a verifier holding only the response unable to recompute it.
 
 Those changes introduced version 2.0. Records now say
-`baikai.model-call-evidence/2.6`. Version 2.6 adds structured answer content to response commitments and optional typed request problems. It retains the existing canonical algorithm. Version 2.5 adds optional
+`baikai.model-call-evidence/2.7`. Version 2.7 adds the explicit `none` thinking
+preference without changing digest rules. Disabling reasoning is a transmitted
+request, not an observation of server execution. Strict mode refuses an off
+request that must be clamped or omitted on a host lacking controls. Version 2.6 adds structured answer content to response commitments and optional typed request problems. It retains the existing canonical algorithm. Version 2.5 adds optional
 `error_info.refusal_category`, preserving the provider category separately from
 the readable error message. Legacy errors decode without a category; digest
 inputs are unchanged. Version 2.4 adds optional

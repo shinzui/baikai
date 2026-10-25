@@ -1,7 +1,7 @@
 ---
 title: "Cross-provider reasoning-effort control"
 type: Capability
-description: "Set one canonical ThinkingLevel — minimal through max — and have each transport translate it into its own primitive: an Anthropic thinking budget, one of seven OpenAI-compatible wire shapes, a claude --effort flag, or a codex model_reasoning_effort override, with every clamp and drop recorded rather than silent."
+description: "Set one canonical ThinkingLevel — none through max — and have each transport translate it into its own primitive: an Anthropic thinking budget, one of seven OpenAI-compatible wire shapes, a claude --effort flag, or a codex model_reasoning_effort override, with every clamp and drop recorded rather than silent."
 generated:
   by: claude-code/opus-5
   at: "2026-08-27T00:00:00Z"
@@ -22,13 +22,13 @@ requires:
 evidence:
   - kind: test
     resource: baikai/test/ThinkingLevelSpec.hs
-    proves: "The canonical six-level vocabulary and its rendering."
+    proves: "The canonical seven-level vocabulary and its rendering."
   - kind: test
     resource: baikai-claude/test/ThinkingSpec.hs
     proves: "How a level becomes an Anthropic thinking budget, including the manual-versus-adaptive model split and the budget-versus-output-ceiling interaction."
   - kind: test
-    resource: baikai-openai/test/ReasoningSpec.hs
-    proves: "A forty-two-row table pinning the translation and the shaped request body for every one of the seven OpenAI-compatible wire shapes at every one of the six levels."
+    resource: baikai-openai/test/ShapeSpec.hs
+    proves: "A forty-nine-row table pinning the translation and the shaped request body for every one of the seven OpenAI-compatible wire shapes at every one of the seven levels."
   - kind: test
     resource: baikai-openai/test/ShapeSpec.hs
     proves: "Two named cases assert the OpenAI-native shape sends the canonical level verbatim and is deliberately excluded from the compatibleEffort clamp that governs the other six shapes."
@@ -39,17 +39,20 @@ evidence:
 
 # Cross-provider reasoning-effort control
 
-`Options.thinking` takes a canonical `ThinkingLevel` — `minimal`, `low`,
+`Options.thinking` takes a canonical `ThinkingLevel` — `none`, `minimal`, `low`,
 `medium`, `high`, `xhigh`, `max` — and each transport maps it to whatever its
 backend actually accepts. Anthropic gets a token budget sized against the
-resolved output ceiling; the OpenAI-native shape gets the level verbatim; the six
-non-native OpenAI-compatible shapes clamp through `compatibleEffort`; `claude -p`
-gets `--effort`; `codex exec` gets `-c model_reasoning_effort=…`.
+resolved output ceiling; the OpenAI-native shape respects its catalog effort policy; other
+OpenAI-compatible shapes use their documented effort or toggle mapping; `claude -p`
+gets `--effort`; `codex exec` gets `-c model_reasoning_effort=…`. `none` asks
+for no reasoning at all: Anthropic sends `thinking: {"type": "disabled"}` to
+the generations that accept it, and `Nothing` still sends nothing.
 
 The translations are lossy in ways that used to be invisible. A level whose
 budget will not fit under `maxTokens` is dropped; `minimal` on an
 adaptive-thinking Anthropic model is sent as `low`; Z.ai and Qwen accept only a bare
-`enable_thinking: true`, so every level collapses to the same request there. None
+`enable_thinking` toggle, so every positive level collapses to the same request
+there, while `none` sends `false`. None
 of that is hidden any more — each adapter emits a `ThinkingTranslation`
 describing what actually happened, which is what
 [CAP-19 — verifiable model-call evidence](model-call-evidence.md) records.
@@ -66,15 +69,27 @@ completeRequest model ctx opts
 
 ## Limits
 
+- `ThinkingNone` and `supportsThinkingDisabled` are unreleased additions. The
+  capability's `since` remains the first release of reasoning control.
+- Strict evidence refuses a substituted or dropped off request before dispatch.
+  A host without controls is not proof that reasoning is disabled. An explicit
+  wire setting is translation evidence, not a server observation.
+
 - **The level is a request, not a guarantee.** Two of the seven OpenAI-compatible
   shapes cannot express depth at all, so a caller asking for `max` and a caller
   asking for `low` produce byte-identical requests on those hosts. Only the
   evidence record distinguishes them.
+- `none` cannot turn thinking off on Claude Opus 5.5, Sonnet 5.5, Fable 5 or
+  Fable 5.1, which reject `disabled`; there it is sent as adaptive `low` and
+  reports as `effort_clamped`. It also collapses to `low` on `claude -p` and on
+  the non-native effort-word shapes. Z.ai and Qwen express it exactly, as
+  `enable_thinking: false`.
 - `minimal` does not survive everywhere: it collapses to `low` on the `claude`
   CLI's `--effort` flag and on the four non-native effort-word shapes, and
   reports as `effort_clamped` on adaptive Anthropic models.
 - `xhigh` and `max` clamp to `high` on every non-native OpenAI-compatible shape.
-  Only the OpenAI-native path and `codex exec` express all six levels exactly.
+  Native OpenAI applies catalog effort restrictions; the Codex CLI forwards the
+  requested word and leaves model validation to Codex.
 - Asking for thinking on a model that does not advertise `reasoning` drops the
   option — on **both** API providers, and before the host's wire shape is
   consulted — and lowering `maxTokens` alone is enough to make an Anthropic

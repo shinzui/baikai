@@ -271,7 +271,7 @@ usageEnvelopeTests =
   testGroup
     "usage envelope"
     [ testCase "cost basis is serialized additively without changing provider commitments" $ do
-        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.6"
+        evidenceSchemaVersion @?= "baikai.model-call-evidence/2.7"
         let estimated = zeroUsage {cost = estimateCost [CacheWriteUsageNotReported] zeroCost}
         usageEnvelope estimated @?= usageEnvelope zeroUsage
         assertBool "usage JSON retains the local calculation basis" (Aeson.toJSON estimated /= Aeson.toJSON zeroUsage),

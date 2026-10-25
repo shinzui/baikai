@@ -21,7 +21,12 @@ tests :: TestTree
 tests =
   testGroup
     "Responses request mapping"
-    [ testCase "Sol, GPT-6.1 Sol, and Luna catalog bindings retain Responses shaping and replay identity" $
+    [ testCase "none is preserved only for catalog models that accept it" $
+        forM_ [(openai_gpt_6_sol, "none", []), (openai_gpt_6_luna, "none", []), (openai_gpt_6_astra, "low", [EffortClamped ThinkingNone "low"]), (openai_gpt_6_1_sol, "low", [EffortClamped ThinkingNone "low"])] $ \(m, wire, changes) -> do
+          req <- mapped m emptyContext (emptyOptions & #thinking .~ Just ThinkingNone)
+          field "reasoning" req.requestBody @?= Just (object ["effort" .= (wire :: Text)])
+          req.translation.adjustments @?= changes,
+      testCase "Sol, GPT-6.1 Sol, and Luna catalog bindings retain Responses shaping and replay identity" $
         forM_ [openai_gpt_6_sol, openai_gpt_6_1_sol, openai_gpt_6_luna] $ \m -> do
           m.api @?= OpenAIResponses
           let opts = emptyOptions & #thinking .~ Just ThinkingLow & #temperature .~ Just 0.5 & #topP .~ Just 0.8
@@ -76,14 +81,15 @@ tests =
         field "output" (items !! 3) @?= Just (String "found")
         field "previous_response_id" req.requestBody @?= Nothing
         req.translation @?= R.describeThinking model emptyOptions,
-      testCase "every accepted effort survives; minimal adjusts with evidence" $ do
-        forM_ [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax] $ \level -> do
+      testCase "every accepted effort survives; none and minimal adjust with evidence" $ do
+        forM_ [ThinkingNone, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax] $ \level -> do
           let opts = emptyOptions & #thinking .~ Just level
-              expected = if level == ThinkingMinimal then "low" else renderThinkingLevel level
+              clamped = level < ThinkingLow
+              expected = if clamped then "low" else renderThinkingLevel level
           req <- mapped model emptyContext opts
           field "reasoning" req.requestBody @?= Just (object ["effort" .= expected])
           req.translation @?= R.describeThinking model opts
-          req.translation.adjustments @?= [EffortClamped ThinkingMinimal "low" | level == ThinkingMinimal],
+          req.translation.adjustments @?= [EffortClamped level "low" | clamped],
       testCase "sampling restriction is visible even without thinking" $ do
         let opts = emptyOptions & #temperature .~ Just 0.5 & #topP .~ Just 0.8
         req <- mapped model emptyContext opts

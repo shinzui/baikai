@@ -7,6 +7,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `ThinkingNone` (`none`) explicitly requests reasoning off; `Nothing` still
+  leaves provider defaults untouched. Claude Messages uses catalog-gated
+  `thinking: {"type": "disabled"}` without effort, display, or a budget.
+  OpenAI-compatible Chat (including Ollama) and Responses carry `none` where
+  supported. Z.ai and Qwen emit `enable_thinking: false`.
+- Anthropic compatibility records declare `supportsThinkingDisabled`; legacy
+  records conservatively default to False. Unsupported off requests remain
+  visible adjustments and fail strict evidence before dispatch. A host with
+  no thinking controls is not assumed to be a non-reasoning model.
+- Evidence schema 2.7 records the new `none` preference; digest rules and the
+  separation of requested, translated, and observed reasoning are unchanged.
+- OpenAI catalog effort policies distinguish GPT-5/o-series models that cannot
+  disable reasoning, Sol/Luna that accept none, and Astra/GPT-6.1 Sol that do not.
+
+### Changed (breaking)
+
+- `ThinkingLevel` gains `ThinkingNone` as its least constructor. Update exhaustive
+  matches; this public sum expansion requires the next core PVP major release.
+
 ## [baikai 0.9.0.0] - 2026-10-25
 
 ### Added

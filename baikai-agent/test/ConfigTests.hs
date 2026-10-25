@@ -35,6 +35,7 @@ import Baikai.Agent.Config
     repositoryScopeViolations,
     resolveAgentJob,
   )
+import Baikai.ThinkingLevel (ThinkingLevel (ThinkingNone))
 import Control.Lens ((^.))
 import Data.Generics.Labels ()
 import Data.List (isPrefixOf, isSuffixOf)
@@ -70,6 +71,10 @@ configTests =
           commandLineBeatsBothTest,
           environmentLayerTest,
           defaultsTest,
+          testCase "none resolves as explicit off rather than an absent override" $
+            withConfigs Nothing (Just (jobDocWith "read-only" ["effort \"none\""])) $ \paths -> do
+              job <- resolveJob paths noEnvironment [] "demo"
+              job ^. #effort @?= Just ThinkingNone,
           singleArgumentListTest,
           outputFormatTest,
           missingFileTest
@@ -255,6 +260,7 @@ defaultsTest =
       job ^. #allowedTools @?= []
       job ^. #providerArgs @?= []
       job ^. #envRequires @?= []
+      job ^. #effort @?= Nothing
       job ^. #timeout @?= Nothing
       job ^. #executable @?= Nothing
       job ^. #outputFormat @?= TextFormat

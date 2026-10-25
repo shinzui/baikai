@@ -127,3 +127,18 @@ must be the provider's own declaration.
   now sends every level's effort word explicitly, and `effort_omitted` is no
   longer produced by a shipped adapter. The remaining sites and the decision
   are unchanged.
+
+## Explicit off is a translation, not an observation (2026-10-25)
+
+`ThinkingNone` requests no reasoning; `Nothing` leaves the provider default.
+Adapters produce the off wire setting and its description together, just as
+for positive effort. If a provider cannot honor off, its fallback is an
+adjustment and strict evidence refuses before dispatch. This includes raising
+none to a positive effort: “weakens” means weakening fidelity to the request,
+not merely reducing an ordered numeric level.
+
+A host with no thinking controls may run an always-thinking model. Dropping
+none on that host is therefore not success. Only a model explicitly catalogued
+as non-reasoning can satisfy off by omission. Neither an off wire request nor
+absent thinking blocks establish observed server behavior. Schema 2.7 adds the
+none vocabulary while retaining those observation and commitment boundaries.

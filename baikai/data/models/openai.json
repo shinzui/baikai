@@ -92,6 +92,10 @@
       },
       "contextWindow": 400000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["minimal", "low", "medium", "high"]
+      },
       "enabled": true
     },
     {
@@ -107,6 +111,10 @@
       },
       "contextWindow": 400000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["minimal", "low", "medium", "high"]
+      },
       "enabled": true
     },
     {
@@ -122,6 +130,10 @@
       },
       "contextWindow": 400000,
       "maxOutputTokens": 128000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["minimal", "low", "medium", "high"]
+      },
       "enabled": true
     },
     {
@@ -318,7 +330,7 @@
         "supportsSamplingParameters": false,
         "supportsLongCacheRetention": false,
         "supportsPromptCacheOptions": true,
-        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+        "supportedReasoningEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
       },
       "enabled": true
     },
@@ -342,7 +354,7 @@
         "supportsSamplingParameters": false,
         "supportsLongCacheRetention": false,
         "supportsPromptCacheOptions": true,
-        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+        "supportedReasoningEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
       },
       "enabled": true
     },
@@ -383,6 +395,10 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 100000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["low", "medium", "high"]
+      },
       "enabled": true
     },
     {
@@ -398,6 +414,10 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 100000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["low", "medium", "high"]
+      },
       "enabled": true
     },
     {
@@ -413,6 +433,10 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 100000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["low", "medium", "high"]
+      },
       "enabled": true
     },
     {
@@ -428,6 +452,10 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 100000,
+      "compat": {
+        "kind": "openai-completions",
+        "supportedReasoningEfforts": ["low", "medium", "high"]
+      },
       "enabled": true
     }
   ]

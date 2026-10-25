@@ -15,6 +15,7 @@ import Baikai.Compat
         supportsForcedToolChoice,
         supportsLongCacheRetention,
         supportsSamplingParameters,
+        supportsThinkingDisabled,
         thinkingStyle
       ),
     AnthropicThinkingStyle (..),
@@ -99,7 +100,8 @@ anthropic_claude_fable_5 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = False
             }
     }
 
@@ -135,7 +137,8 @@ anthropic_claude_fable_5_1 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = False,
-              supportsForcedToolChoice = False
+              supportsForcedToolChoice = False,
+              supportsThinkingDisabled = False
             }
     }
 
@@ -171,7 +174,8 @@ anthropic_claude_haiku_4_5 =
               thinkingStyle = AnthropicThinkingBudget,
               supportsSamplingParameters = True,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -207,7 +211,8 @@ anthropic_claude_haiku_5_5 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -243,7 +248,8 @@ anthropic_claude_opus_4_5 =
               thinkingStyle = AnthropicThinkingBudget,
               supportsSamplingParameters = True,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -279,7 +285,8 @@ anthropic_claude_opus_4_6 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = True,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -315,7 +322,8 @@ anthropic_claude_opus_4_7 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -359,7 +367,8 @@ anthropic_claude_opus_4_8 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = True,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -403,7 +412,8 @@ anthropic_claude_opus_5 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = True,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -447,7 +457,8 @@ anthropic_claude_opus_5_5 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = True,
-              supportsForcedToolChoice = False
+              supportsForcedToolChoice = False,
+              supportsThinkingDisabled = False
             }
     }
 
@@ -483,7 +494,8 @@ anthropic_claude_sonnet_4_5 =
               thinkingStyle = AnthropicThinkingBudget,
               supportsSamplingParameters = True,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -519,7 +531,8 @@ anthropic_claude_sonnet_4_6 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = True,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -555,7 +568,8 @@ anthropic_claude_sonnet_5 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = False,
-              supportsForcedToolChoice = True
+              supportsForcedToolChoice = True,
+              supportsThinkingDisabled = True
             }
     }
 
@@ -591,7 +605,8 @@ anthropic_claude_sonnet_5_5 =
               thinkingStyle = AnthropicThinkingAdaptive,
               supportsSamplingParameters = False,
               supportsFastMode = False,
-              supportsForcedToolChoice = False
+              supportsForcedToolChoice = False,
+              supportsThinkingDisabled = False
             }
     }
 
@@ -800,7 +815,20 @@ openai_gpt_5 =
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_gpt_5_1 :: Model
@@ -1086,7 +1114,20 @@ openai_gpt_5_mini =
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_gpt_5_nano :: Model
@@ -1112,7 +1153,20 @@ openai_gpt_5_nano =
       contextWindow = 400000,
       maxOutputTokens = 128000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_gpt_6_1_sol :: Model
@@ -1207,7 +1261,7 @@ openai_gpt_6_luna =
       compat =
         CompatOpenAIResponses
           defaultOpenAIResponsesCompat
-            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+            { supportedReasoningEfforts = Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
               supportsLongCacheRetention = False,
               supportsPromptCacheOptions = True
@@ -1240,7 +1294,7 @@ openai_gpt_6_sol =
       compat =
         CompatOpenAIResponses
           defaultOpenAIResponsesCompat
-            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+            { supportedReasoningEfforts = Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
               supportsLongCacheRetention = False,
               supportsPromptCacheOptions = True
@@ -1270,7 +1324,20 @@ openai_o1 =
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_o3 :: Model
@@ -1296,7 +1363,20 @@ openai_o3 =
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_o3_mini :: Model
@@ -1322,7 +1402,20 @@ openai_o3_mini =
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openai_o4_mini :: Model
@@ -1348,7 +1441,20 @@ openai_o4_mini =
       contextWindow = 200000,
       maxOutputTokens = 100000,
       headers = Map.empty,
-      compat = CompatNone
+      compat =
+        CompatOpenAICompletions
+          defaultOpenAICompletionsCompat
+            { maxTokensField = MaxCompletionTokensField,
+              supportsStrictMode = True,
+              requiresThinkingAsText = False,
+              thinkingFormat = ThinkingFormatOpenAI,
+              cacheControlFormat = Nothing,
+              supportsToolCalls = True,
+              supportsSamplingParameters = True,
+              supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh],
+              supportsUsageInStreaming = True,
+              supportsLongCacheRetention = True
+            }
     }
 
 openrouter_anthropic_claude_sonnet_4 :: Model

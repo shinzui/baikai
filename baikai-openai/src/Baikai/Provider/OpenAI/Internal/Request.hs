@@ -176,6 +176,7 @@ applyThinkingFormat compat (Just lvl) = case thinkingFormat compat of
 
 toReasoningEffort :: ThinkingLevel -> Chat.ReasoningEffort
 toReasoningEffort = \case
+  ThinkingNone -> Chat.ReasoningEffort_None
   ThinkingMinimal -> Chat.ReasoningEffort_Minimal
   ThinkingLow -> Chat.ReasoningEffort_Low
   ThinkingMedium -> Chat.ReasoningEffort_Medium

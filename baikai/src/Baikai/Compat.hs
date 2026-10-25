@@ -56,6 +56,7 @@ module Baikai.Compat
         thinkingStyle,
         supportsFastMode,
         supportsForcedToolChoice,
+        supportsThinkingDisabled,
         supportsSamplingParameters
       ),
     AnthropicThinkingStyle (..),
@@ -276,7 +277,15 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     supportsFastMode :: !Bool,
     -- | Whether this generation accepts required or named tool choice.
     -- Defaults to True; explicit catalog facts disable unsupported choices.
-    supportsForcedToolChoice :: !Bool
+    supportsForcedToolChoice :: !Bool,
+    -- | Whether this generation accepts @thinking: {"type": "disabled"}@,
+    -- which 'Baikai.ThinkingLevel.ThinkingNone' sends. Defaults to False:
+    -- unannotated and legacy records do not establish disable support.
+    -- Claude Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject it with a 400, and their catalog
+    -- records say so; there @none@ clamps to the lowest adaptive effort
+    -- and the clamp is recorded. Consumed by
+    -- @Baikai.Provider.Claude.Internal.Request.computeThinking@.
+    supportsThinkingDisabled :: !Bool
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -291,10 +300,12 @@ defaultAnthropicMessagesCompat =
       thinkingStyle = AnthropicThinkingBudget,
       supportsSamplingParameters = True,
       supportsFastMode = False,
-      supportsForcedToolChoice = True
+      supportsForcedToolChoice = True,
+      supportsThinkingDisabled = False
     }
 
--- | Older persisted models predate fast-mode and forced-choice capabilities.
+-- | Older persisted models predate the fast-mode, forced-choice and
+-- disabled-thinking capabilities.
 instance FromJSON AnthropicMessagesCompat where
   parseJSON = withObject "AnthropicMessagesCompat" $ \o ->
     AnthropicMessagesCompat
@@ -305,6 +316,7 @@ instance FromJSON AnthropicMessagesCompat where
       <*> o .: "supportsSamplingParameters"
       <*> o .:? "supportsFastMode" .!= False
       <*> o .:? "supportsForcedToolChoice" .!= True
+      <*> o .:? "supportsThinkingDisabled" .!= False
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
 -- host based on its @baseUrl@. Falls back to

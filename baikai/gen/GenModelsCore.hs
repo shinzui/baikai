@@ -30,6 +30,7 @@ import Baikai.Compat
         supportsForcedToolChoice,
         supportsLongCacheRetention,
         supportsSamplingParameters,
+        supportsThinkingDisabled,
         thinkingStyle
       ),
     AnthropicThinkingStyle (..),
@@ -167,6 +168,7 @@ parseAnthropicCompat o = do
   ssp <- o .:? "supportsSamplingParameters" .!= d.supportsSamplingParameters
   fast <- o .:? "supportsFastMode" .!= False
   forced <- o .:? "supportsForcedToolChoice" .!= d.supportsForcedToolChoice
+  disabled <- o .:? "supportsThinkingDisabled" .!= d.supportsThinkingDisabled
   pure
     d
       { supportsLongCacheRetention = slcr,
@@ -175,7 +177,8 @@ parseAnthropicCompat o = do
         thinkingStyle = ts,
         supportsSamplingParameters = ssp,
         supportsFastMode = fast,
-        supportsForcedToolChoice = forced
+        supportsForcedToolChoice = forced,
+        supportsThinkingDisabled = disabled
       }
 
 -- | The catalog dialect spells the extended-thinking wire shape as a
@@ -474,6 +477,7 @@ renderModule entries =
         "        supportsForcedToolChoice,",
         "        supportsLongCacheRetention,",
         "        supportsSamplingParameters,",
+        "        supportsThinkingDisabled,",
         "        thinkingStyle",
         "      ),",
         "    AnthropicThinkingStyle (..),",
@@ -671,7 +675,8 @@ renderCompat = \case
       "              thinkingStyle = " <> renderAnthropicThinkingStyle c.thinkingStyle <> ",",
       "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
       "              supportsFastMode = " <> renderBool c.supportsFastMode <> ",",
-      "              supportsForcedToolChoice = " <> renderBool c.supportsForcedToolChoice,
+      "              supportsForcedToolChoice = " <> renderBool c.supportsForcedToolChoice <> ",",
+      "              supportsThinkingDisabled = " <> renderBool c.supportsThinkingDisabled,
       "            }"
     ]
 

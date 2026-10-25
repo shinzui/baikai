@@ -50,7 +50,17 @@ tests =
     -- @--test-options='--pattern Evidence'@ actually selects it. A
     -- pattern that matches nothing reports "All 0 tests passed".
     "EvidenceSpec: Anthropic model-call evidence"
-    [ successEvidenceTest,
+    [ testCase "off remains requested and translated without inventing observed thinking" $ do
+        ev <- oneEvidence =<< replay 200 successHeaders successBody (baseOptions & #thinking .~ Just ThinkingNone)
+        field "observed_thinking" ev @?= Just (String "unobserved")
+        case field "thinking" ev of
+          Just (Object t) -> do
+            KeyMap.lookup "requested" t @?= Just (String "none")
+            KeyMap.lookup "mode" t @?= Just (String "toggle")
+            KeyMap.lookup "wire_field" t @?= Just (String "thinking")
+            KeyMap.lookup "adjustments" t @?= Just (Array Vector.empty)
+          other -> assertFailure ("missing thinking translation: " <> show other),
+      successEvidenceTest,
       rateLimitEvidenceTest,
       thinkingEvidenceTest,
       samplingEvidenceTest,

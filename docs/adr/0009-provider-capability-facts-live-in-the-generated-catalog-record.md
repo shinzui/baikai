@@ -183,3 +183,18 @@ reads that fact. Old JSON defaults to generative. The generator and fetch render
 preserve the field and the `InputData` modality. The TypeSafe aliases declare
 judgment output explicitly; no caller infers it from their names. See
 [0028](0028-judgments-are-a-provider-neutral-core-protocol.md) for protocol ownership.
+
+## Thinking off is an independent capability (2026-10-25)
+
+The shared `ThinkingNone` preference does not follow from reasoning support or
+adaptive thinking style. `supportsThinkingDisabled` explicitly records whether
+an Anthropic model accepts `thinking.type: disabled`; its false default keeps
+legacy persisted and caller-built records from inventing support. Curated
+catalog entries carry the checked fact through fetch and generation. Existing
+OpenAI accepted-effort lists include or exclude none per model; no adapter
+branches on a model identifier.
+
+Sonnet 5.5's `between_tools` suppresses up-front thinking but still permits
+thinking blocks between calls. Full disable does not silently mean that
+partial mode. It remains a recorded best-effort substitution, rejected by
+strict evidence, until a distinct partial-thinking preference is designed.

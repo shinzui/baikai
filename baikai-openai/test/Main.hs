@@ -405,7 +405,8 @@ agentEffortRenderingTests =
                 "--ephemeral"
               ]
     | (name, level, expected) <-
-        [ ("minimal", ThinkingMinimal, "minimal"),
+        [ ("none", ThinkingNone, "none"),
+          ("minimal", ThinkingMinimal, "minimal"),
           ("low", ThinkingLow, "low"),
           ("medium", ThinkingMedium, "medium"),
           ("high", ThinkingHigh, "high"),
@@ -796,7 +797,8 @@ effortRenderingTests =
               ["-c", "model_reasoning_effort=" <> expected, "--", "prompt"]
             )
     | (name, level, expected) <-
-        [ ("minimal", ThinkingMinimal, "minimal"),
+        [ ("none", ThinkingNone, "none"),
+          ("minimal", ThinkingMinimal, "minimal"),
           ("low", ThinkingLow, "low"),
           ("medium", ThinkingMedium, "medium"),
           ("high", ThinkingHigh, "high"),

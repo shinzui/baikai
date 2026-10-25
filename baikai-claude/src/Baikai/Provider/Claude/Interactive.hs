@@ -103,13 +103,15 @@ modelArgs req = case Text.strip <$> req ^. #modelId of
   Just mid -> ["--model", Text.unpack mid]
 
 -- | Claude's @--effort@ accepts @low|medium|high|xhigh|max@, but
--- not @minimal@, so the lowest Baikai level maps up to @low@.
+-- not @minimal@ or @none@, so the two lowest Baikai levels map up to
+-- @low@.
 effortArgs :: InteractiveLaunchRequest -> [String]
 effortArgs req = case req ^. #effort of
   Nothing -> []
   Just lvl -> ["--effort", Text.unpack (claudeEffortValue lvl)]
 
 claudeEffortValue :: ThinkingLevel -> Text
+claudeEffortValue ThinkingNone = "low"
 claudeEffortValue ThinkingMinimal = "low"
 claudeEffortValue lvl = renderThinkingLevel lvl
 

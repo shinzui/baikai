@@ -110,6 +110,9 @@ data Options = Options
     -- speed. Fast is catalog-gated by Anthropic and dropped with evidence on
     -- unsupported models. See "Baikai.Speed" for availability and pricing.
     speed :: !(Maybe Speed),
+    -- | Nothing leaves the provider default; Just ThinkingNone requests off.
+    -- Unsupported requests are recorded as adjustments; strict evidence refuses
+    -- a fallback before dispatch. Translation is not proof of server execution.
     thinking :: !(Maybe ThinkingLevel),
     responseFormat :: !(Maybe ResponseFormat),
     evidence :: !(Maybe EvidenceRequest),

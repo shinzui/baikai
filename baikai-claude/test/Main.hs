@@ -204,7 +204,8 @@ effortRenderingTests =
         claudeInteractiveCommand defaultClaudeInteractiveConfig req
           @?= Right ("claude", ["--effort", expected, "--", "prompt"])
     | (name, level, expected) <-
-        [ ("minimal as low", ThinkingMinimal, "low"),
+        [ ("none as low", ThinkingNone, "low"),
+          ("minimal as low", ThinkingMinimal, "low"),
           ("low", ThinkingLow, "low"),
           ("medium", ThinkingMedium, "medium"),
           ("high", ThinkingHigh, "high"),
@@ -374,7 +375,8 @@ agentEffortRenderingTests =
                 "plan"
               ]
     | (name, level, expected) <-
-        [ ("minimal as low", ThinkingMinimal, "low"),
+        [ ("none as low", ThinkingNone, "low"),
+          ("minimal as low", ThinkingMinimal, "low"),
           ("low", ThinkingLow, "low"),
           ("medium", ThinkingMedium, "medium"),
           ("high", ThinkingHigh, "high"),
@@ -473,6 +475,7 @@ agentThinkingTranslationTests =
               [ -- claude's --effort has no minimal, so the lowest level
                 -- collapses and a run at minimal is wire-identical to a
                 -- run at low.
+                (ThinkingNone, "low", [EffortClamped ThinkingNone "low"]),
                 (ThinkingMinimal, "low", [EffortClamped ThinkingMinimal "low"]),
                 (ThinkingLow, "low", []),
                 (ThinkingMedium, "medium", []),
@@ -680,7 +683,8 @@ batchEffortRenderingTests =
                 ]
               )
     | (name, level, expected) <-
-        [ ("minimal as low", ThinkingMinimal, "low"),
+        [ ("none as low", ThinkingNone, "low"),
+          ("minimal as low", ThinkingMinimal, "low"),
           ("max", ThinkingMax, "max")
         ]
     ]

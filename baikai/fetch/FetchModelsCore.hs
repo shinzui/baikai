@@ -65,7 +65,7 @@ module FetchModelsCore
   )
 where
 
-import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAIResponsesCompat)
+import Baikai.Compat (AnthropicThinkingStyle (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified as Model
 import Baikai.Prelude
@@ -204,6 +204,8 @@ data AnthropicGenerationFacts = AnthropicGenerationFacts
   { thinkingStyle :: !AnthropicThinkingStyle,
     supportsSamplingParameters :: !Bool,
     supportsForcedToolChoice :: !Bool,
+    -- | Whether the generation accepts @thinking: {"type": "disabled"}@.
+    supportsThinkingDisabled :: !Bool,
     fastModeCost :: !(Maybe CatalogCost)
   }
   deriving stock (Eq, Show, Generic)
@@ -267,7 +269,14 @@ openaiInclude :: Map Text (Maybe CatalogModelCompat)
 openaiInclude =
   Map.union
     ( Map.fromList
-        [ ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
+        [ ("gpt-5", Just (CatalogOpenAICompat gpt5Facts)),
+          ("gpt-5-mini", Just (CatalogOpenAICompat gpt5Facts)),
+          ("gpt-5-nano", Just (CatalogOpenAICompat gpt5Facts)),
+          ("o1", Just (CatalogOpenAICompat oSeriesFacts)),
+          ("o3", Just (CatalogOpenAICompat oSeriesFacts)),
+          ("o3-mini", Just (CatalogOpenAICompat oSeriesFacts)),
+          ("o4-mini", Just (CatalogOpenAICompat oSeriesFacts)),
+          ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
           ("gpt-6.1-sol", Just (CatalogResponsesCompat gpt61ResponsesFacts)),
           ("gpt-6-sol", Just (CatalogResponsesCompat gpt6ResponsesFacts)),
           ("gpt-6-luna", Just (CatalogResponsesCompat gpt6ResponsesFacts))
@@ -305,7 +314,13 @@ openaiInclude =
     -- their default reasoning effort; Chat permits it only at effort none.
     -- https://developers.openai.com/api/docs/models/gpt-6-sol
     -- https://developers.openai.com/api/docs/models/gpt-6-luna
-    gpt6ResponsesFacts = astraResponsesFacts
+    gpt6ResponsesFacts = astraResponsesFacts & #supportedReasoningEfforts .~ Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
+    -- 2026-10-25: GPT-5 accepts minimal through high, o-series low through
+    -- high. Neither accepts none; keep this fact through catalog refreshes.
+    -- https://developers.openai.com/api/docs/models/gpt-5
+    -- https://developers.openai.com/api/docs/guides/reasoning
+    gpt5Facts = defaultOpenAICompletionsCompat & #supportedReasoningEfforts .~ Just [ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh]
+    oSeriesFacts = defaultOpenAICompletionsCompat & #supportedReasoningEfforts .~ Just [ThinkingLow, ThinkingMedium, ThinkingHigh]
     -- 2026-09-29: as Astra, tool calling requires Responses; efforts low
     -- through max (no none or minimal); sampling removed; 30m cache TTL.
     -- https://developers.openai.com/api/docs/models/gpt-6.1-sol
@@ -372,11 +387,11 @@ anthropicInclude =
       -- and sent it budget_tokens — same source.
       ("claude-sonnet-5", adaptiveNoSampling),
       -- 2026-09-29: adaptive thinking on by default; forced tool choice and
-      -- nondefault sampling return 400; no fast mode. Baikai never sends
-      -- the rejected "disabled" thinking type.
+      -- nondefault sampling return 400; no fast mode. The "disabled" thinking
+      -- type returns 400 too; its lowest setting is "between_tools".
       -- https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5
       -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
-      ("claude-sonnet-5-5", adaptiveNoSampling & #supportsForcedToolChoice .~ False),
+      ("claude-sonnet-5-5", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False),
       -- 2026-08-27: as claude-opus-4-6 — budget deprecated but functional,
       -- sampling accepted; baikai prefers the non-deprecated shape — same
       -- source. Plan 40 left this membership to a live check that never
@@ -395,23 +410,27 @@ anthropicInclude =
       -- https://platform.claude.com/docs/en/build-with-claude/effort
       ("claude-haiku-5-5", adaptiveNoSampling),
       -- 2026-08-27: adaptive-only, sampling parameters rejected — same source.
-      ("claude-fable-5", adaptiveNoSampling),
+      ("claude-fable-5", adaptiveNoSampling & #supportsThinkingDisabled .~ False),
       -- 2026-09-07: always-on adaptive thinking; omit sampling parameters.
       -- https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1
-      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False)
+      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False)
     ]
   where
-    opus55Facts = adaptiveNoSampling & #supportsForcedToolChoice .~ False & #fastModeCost ?~ CatalogCost 8 40 0.4 10
+    opus55Facts = adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False & #fastModeCost ?~ CatalogCost 8 40 0.4 10
     -- 2026-09-23: Fable 5.1 and Opus 5.5 reject forced choice; older curated
     -- models accept it subject to their separate manual-thinking constraint.
     -- https://platform.claude.com/docs/en/api/errors
     -- https://platform.claude.com/docs/en/models/fable-5-1/migration-guide
+    -- 2026-10-19: Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject
+    -- thinking {"type": "disabled"} with a 400; every other curated model
+    -- accepts it (Haiku 5.5 and Opus 5 only at effort high or below).
+    -- https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
     -- 2026-09-07: Opus 5 and 4.8 only; cache multipliers stack on fast rates.
     -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
     fastAdaptive = adaptiveNoSampling & #fastModeCost ?~ CatalogCost 10 50 1 12.5
-    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True Nothing
-    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True Nothing
-    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True Nothing
+    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True True Nothing
+    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True True Nothing
+    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True True Nothing
 
 -- | OpenAI curation with a Chat default and explicit Responses overrides.
 openaiSpec :: ProviderSpec
@@ -725,7 +744,8 @@ renderModelCompat (Just (CatalogAnthropicCompat facts)) =
       <> jsonBool (facts ^. #supportsSamplingParameters)
       <> ",",
     "        \"supportsFastMode\": " <> jsonBool (maybe False (const True) (facts ^. #fastModeCost)) <> ",",
-    "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice),
+    "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice) <> ",",
+    "        \"supportsThinkingDisabled\": " <> jsonBool (facts ^. #supportsThinkingDisabled),
     "      },"
   ]
 renderModelCompat (Just (CatalogOpenAICompat facts)) =
