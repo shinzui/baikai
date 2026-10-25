@@ -23,6 +23,13 @@ An ExecPlan is active execution memory. It must contain enough context to restar
 During implementation, update or create ADRs whenever the work changes durable project context. Honor the repository's existing ADR convention; when `docs/adr/` is a profile-governed OKF bundle, preserve or allocate its stable handle and run strict profile enforcement as specified in `ADR.md`. At completion, distill the plan: review Decision Log, Surprises & Discoveries, and Outcomes & Retrospective, then promote project-level decisions, constraints, gotchas, and architectural lessons into `docs/adr/`. Leave task-local execution notes and transient details in the plan.
 
 
+## Relationship to the Friction Log
+
+Friction is the cost of doing the work: a document, interface, tool, environment, or house process that cost the implementer material effort. It is not a section of the plan. It is recorded as it occurs in the repository's friction-log bundle, one OKF concept per occurrence with a stable `FRIC-N` handle, following `FRICTION.md` beside this specification, so that it can be queried across plans and repositories and promoted to a bug report or an improvement request at triage.
+
+Surprises & Discoveries holds only findings that changed the plan or explain a non-obvious result. When one event is both, record both and cite the friction entry's handle from the plan. Defects in the thing the plan is building are ordinary implementation work, not friction. At completion, triage the entries recorded under the plan and cite each in Outcomes & Retrospective with its triage outcome.
+
+
 ## Provenance
 
 Every ExecPlan should record who wrote it and who has looked at it since. Plans are increasingly authored, revised, and reviewed by different models, and a reader deciding how much to trust a plan needs to know whether it was written by one model and never examined, or reviewed by three that disagreed.
@@ -79,6 +86,8 @@ Be idempotent and safe. Write the steps so they can be run multiple times withou
 
 Validation is not optional. Include tests and a useful behavioral check appropriate to the change, including how to start the system if applicable. State the commands and the observations that distinguish success from failure. Show how to prove the change works beyond compilation when that matters for acceptance. Broaden testing for material risk, rather than prescribing exhaustive checks for routine changes.
 
+When the design depends on an uncertain interaction between independently developed pieces, exercise a representative producer/consumer path before expanding variants. Choose proof appropriate to the project and authorized environment: a library consumer test, a public command, or a native roundtrip. Use that check's failures to guide implementation. Isolated changes need no extra integration fixture, and existing acceptance checks can supply this proof.
+
 Capture evidence that proves acceptance or explains a material discovery. Use short fenced snippets with an appropriate language tag (`text` for plain output, `diff` for patches, `log` or `console` for transcripts). Do not accumulate routine command transcripts. If a patch is necessary, prefer a small excerpt that a reader can recreate by following the instructions.
 
 
@@ -88,6 +97,8 @@ Milestones are narrative, not bureaucracy. If you break the work into milestones
 
 Each milestone must be independently verifiable and incrementally implement the overall goal of the execution plan.
 
+Keep acceptance tied to the authorized outcome. A discovered defect or missing integration needed to meet an existing criterion remains implementation work. A new capability or guarantee is a proposed scope change and needs a scope decision before becoming required acceptance. Splitting or reordering work preserves the existing acceptance obligations unless the user changes them.
+
 
 ## Living Plan Sections
 
@@ -95,13 +106,13 @@ ExecPlans must contain and maintain a Progress section, a Surprises & Discoverie
 
 Use Progress checkboxes only for milestones or substantial deliverables with an observable completion condition. A completed item states the result, completion date, and concise evidence; an unfinished item states the remaining outcome. Do not create checkboxes for reading files, running a command, editing an individual file, committing, writing an ADR, or other routine actions unless one is itself the requested deliverable. During unfinished work, add a short prose handoff note only when another contributor needs it. Do not split an item into "done" and "remaining" checkboxes merely because a session or tool call ended. Keep existing plans at their useful level of detail; consolidate noisy entries when updating a plan, preserving material evidence and unresolved work.
 
-Record only decisions that change scope, architecture, interfaces, acceptance, or the path a future contributor should follow. Routine implementation choices do not need Decision Log entries. Likewise, Surprises & Discoveries holds findings that change the plan or explain a non-obvious result, not a transcript of ordinary work.
+Record only decisions that change scope, architecture, interfaces, acceptance, or the path a future contributor should follow. Routine implementation choices do not need Decision Log entries. Likewise, Surprises & Discoveries holds findings that change the plan or explain a non-obvious result, not a transcript of ordinary work. Friction with the surfaces used to do the work belongs in the friction-log bundle, cited here only when it also changed the plan.
 
 When you discover optimizer behavior, performance tradeoffs, unexpected bugs, or inverse/unapply semantics that shaped your approach, capture those observations in the Surprises & Discoveries section with short evidence snippets (test output is ideal).
 
 If you change course mid-implementation, document why in the Decision Log and reflect the implications in Progress. Plans are guides for the next contributor as much as checklists for you.
 
-At completion of a major task or the full plan, write an Outcomes & Retrospective entry summarizing what was achieved, what remains, and lessons learned.
+At completion of a major task or the full plan, write an Outcomes & Retrospective entry summarizing what was achieved, what remains, lessons learned, and the friction entries recorded under the plan with their triage outcomes.
 
 Before marking the full plan complete, perform the ADR distillation pass: promote durable project context from the Decision Log, Surprises & Discoveries, and Outcomes & Retrospective into `docs/adr/`, updating existing ADRs when they already cover the topic and creating a new ADR when the topic is new.
 

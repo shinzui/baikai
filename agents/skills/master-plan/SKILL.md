@@ -14,6 +14,7 @@ You are managing master plans (MasterPlans) — coordination documents for initi
 - [MASTERPLAN.md](MASTERPLAN.md) — requirements for MasterPlan documents
 - [ExecPlan specification](../exec-plan/PLANS.md) — requirements for child ExecPlan documents
 - [ExecPlan skill](../exec-plan/SKILL.md) — the ExecPlan skeleton and implementation protocol
+- [Friction log workflow](../exec-plan/FRICTION.md) — recording and triaging friction met while implementing
 
 The user's requested scope takes precedence over this skill's workflow defaults. Keep the MasterPlan focused on coordination; child ExecPlans own implementation detail and milestone progress.
 
@@ -38,6 +39,13 @@ When creating a MasterPlan, use that guide to inspect the local corpus and any r
 When implementing or updating a MasterPlan, update or create ADRs in the same change whenever the initiative changes durable project context. MasterPlans should especially identify cross-plan decisions that deserve ADR records: architecture boundaries, decomposition rationale that will matter later, shared interface ownership, durable integration constraints, and deliberate exclusions.
 
 At completion, distill durable context from the MasterPlan and child ExecPlans: review Decision Logs, Surprises & Discoveries, and Outcomes & Retrospectives, then promote project-level decisions or lessons into `docs/adr/`. Leave task-local execution details in the plans.
+
+
+## Friction Log
+
+Friction met while implementing a child ExecPlan is recorded as it occurs in the repository's friction-log bundle with `agents/skills/exec-plan/record-friction.ts`, naming the child plan in `--plan`; friction met while doing coordination work on the MasterPlan itself names the MasterPlan. Follow `agents/skills/exec-plan/FRICTION.md`, the shared contract installed by the exec-plan dependency, for the threshold, the fields, bootstrap, triage, and citation.
+
+A MasterPlan sees friction across its children. When a child plan completes, triage the entries recorded under it. When the same surface has cost effort under more than one child, record that in the MasterPlan's Surprises & Discoveries with the handles; recurrence is the strongest case for promoting an entry to a bug report or an improvement request. Child plans cite their own entries in their Outcomes & Retrospective; the MasterPlan's retrospective cites only recurring or initiative-level friction.
 
 
 ## Git Trailers
@@ -160,17 +168,18 @@ When delegation is available and authorized, independent child plans may be draf
 
 Implement child ExecPlans under an existing MasterPlan. The first argument is the master plan file path. An optional second argument names a specific child ExecPlan to implement.
 
-1. Read the entire MasterPlan file. Parse the Exec-Plan Registry to understand the current state of all child plans.
+1. Read the entire MasterPlan file. Parse the Exec-Plan Registry and any explicit milestone sequence. Check the relevant child Progress and acceptance evidence against the working tree; reconcile stale status before selecting work.
 
-2. Determine which child plan to implement next:
+2. Select the next work within the user's authorized scope:
 
-   - If a specific child plan path was given as a second argument, use that plan. Verify its hard dependencies are all marked Complete first; if not, report the unmet dependencies and stop.
-   - Otherwise, find the first child plan in the registry whose hard dependencies are all Complete and whose own status is Not Started or In Progress.
-   - If no plan is implementable (all remaining plans have unsatisfied hard dependencies), report the blocking situation — which plans are blocked and what they are waiting on — and stop.
+   - If a specific child plan was requested, work within that child. Otherwise, follow the MasterPlan's explicit execution order; when none is specified, continue the first eligible unfinished child in registry order.
+   - Verify hard dependencies at their declared granularity per MASTERPLAN.md. A dependency naming a whole child requires that child to be Complete; a dependency naming a milestone requires its accepted artifact or behavior. Do not silently weaken a whole-child dependency to start work early.
+   - An explicit milestone sequence may switch between unfinished children to verify their integration before expanding implementation. Keep whole-child status In Progress until all its acceptance criteria pass.
+   - If the selected work is blocked, continue other ready work only within the authorized scope and dependency order. If none is available, report the concrete unmet prerequisite and stop.
 
 3. Update the child plan's status to In Progress in the MasterPlan's Exec-Plan Registry.
 
-4. Read the child ExecPlan file. Follow `agents/skills/exec-plan/SKILL.md` (Mode: implement): verify milestone outcomes, update the child plan on milestone completion, material change, or handoff, and commit at meaningful working boundaries. Every commit must include both `MasterPlan:` and `ExecPlan:` git trailers.
+4. Read the child ExecPlan file. Follow `agents/skills/exec-plan/SKILL.md` (Mode: implement) within the selected child or scheduled milestone, recording friction as it occurs with the child plan's path. Use the MasterPlan's integration points to check uncertain shared behavior with its consumer early. Update plans on milestone completion, material change, or handoff, and commit at meaningful working boundaries. Every commit must include both `MasterPlan:` and `ExecPlan:` git trailers.
 
 5. After completing the child plan:
 
@@ -178,12 +187,13 @@ Implement child ExecPlans under an existing MasterPlan. The first argument is th
    - Update the MasterPlan's Exec-Plan Registry: mark the child plan Complete.
    - Update the MasterPlan's brief Progress snapshot for the new registry state and any remaining integration gate. Do not duplicate child milestones as checkboxes.
    - Record any cross-plan discoveries in the MasterPlan's Surprises & Discoveries section — especially anything that affects other child plans' assumptions, interfaces, or feasibility.
+   - Triage the friction entries recorded under the child per `agents/skills/exec-plan/FRICTION.md`. When the same surface has cost effort under more than one child, record that in the MasterPlan's Surprises & Discoveries with the handles and promote it.
    - Update or create ADRs in `docs/adr/` for durable cross-plan decisions, architecture boundaries, shared interface ownership, integration constraints, or deliberate exclusions revealed by the child plan.
    - Record provenance revision entries with `--mode implement` (see Provenance): one on the child ExecPlan for the implementation work, and one on the MasterPlan for the coordination edits. Record each at most once per session, even when several child plans are implemented back to back.
 
-6. Continue to the next implementable child plan when it is within the user's authorized scope. Stop only for a real blocker, a requested boundary, or completion. When all child plans and integration gates are complete, fill in Outcomes & Retrospective.
+6. After the selected milestone or child is accepted, return to step 2 and continue within the user's authorized scope. A commit or passing test suite is a checkpoint, not a reason to end implementation. Stop only when no authorized work can proceed, at a requested boundary, or at completion. When all child plans and integration gates are complete, fill in Outcomes & Retrospective.
 
-7. When the MasterPlan is complete, perform the ADR distillation pass across the MasterPlan and all child ExecPlans. Review Decision Logs, Surprises & Discoveries, and Outcomes & Retrospectives, then promote durable project context into `docs/adr/`.
+7. When the MasterPlan is complete, perform the ADR distillation pass across the MasterPlan and all child ExecPlans. Review Decision Logs, Surprises & Discoveries, and Outcomes & Retrospectives, then promote durable project context into `docs/adr/`. Triage any friction entries still `logged` under the initiative, and cite recurring friction in the MasterPlan's Outcomes & Retrospective.
 
 
 ### Mode: status
@@ -196,7 +206,7 @@ If a master plan path is given:
 
 2. Read child Progress sections as needed to identify current milestones and blockers. Treat the registry as the source of truth for child-plan status.
 
-3. Present a summary: the initiative title, child plans completed / total, remaining integration gates, and a table showing each child plan's number, title, status, current milestone, and any blockers. Do not infer effort percentages from checkbox counts.
+3. Present a summary: the initiative title, child plans completed / total, remaining integration gates, and a table showing each child plan's number, title, status, current milestone, and any blockers. Do not infer effort percentages from checkbox counts. When the repository has a friction-log bundle, note the entries still `logged` under each child, by handle.
 
 4. Highlight dependency bottlenecks — child plans that are blocked and what they are waiting on. If multiple plans can proceed in parallel, note this.
 
@@ -259,7 +269,7 @@ Review an existing MasterPlan and its decomposition, then record the verdict. Th
 
 2. Read the `provenance` block of the MasterPlan and of each child plan first. Note which model authored each document and which models have already reviewed it, and say so in your report — including any child plan that no model has reviewed. An absent block means the provenance is unknown, not that the document is unreviewed.
 
-3. Audit the coordination layer, which is what a MasterPlan exists to get right. At minimum check that: the decomposition follows the principles in MASTERPLAN.md without artificial child-plan splits; every registry row names a child file that exists at the stated path; hard dependencies are genuinely blocking rather than a preference for ordering, and the graph has no cycles; every shared artifact touched by more than one child plan appears in Integration Points with a single owning plan; and no two child plans define the same type, table, or interface incompatibly.
+3. Audit the coordination layer, which is what a MasterPlan exists to get right. At minimum check that: the decomposition follows the principles in MASTERPLAN.md without artificial child-plan splits; every registry row names a child file that exists at the stated path; hard dependencies are genuinely blocking rather than a preference for ordering, and the graph has no cycles at the declared plan or milestone granularity; any interleaved sequence respects those prerequisites; every shared artifact touched by more than one child plan appears in Integration Points with a single owning plan; and no two child plans define the same type, table, or interface incompatibly.
 
 4. Audit each child plan for the properties the MasterPlan promises: self-containment, independent implementability once its hard dependencies are complete, observable acceptance per milestone, and ADR citations that resolve per `agents/skills/exec-plan/ADR.md`.
 

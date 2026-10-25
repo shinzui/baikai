@@ -125,6 +125,7 @@ const skeleton = `# ${title}
 This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
 Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
 If durable project context changes, update or create ADRs in docs/adr/ in the same change.
+Record friction met while implementing in the friction-log bundle as it occurs (see FRICTION.md).
 
 
 ## Purpose / Big Picture
@@ -146,7 +147,9 @@ handoff during a milestone, add a short prose note stating the remaining outcome
 ## Surprises & Discoveries
 
 Document unexpected behaviors, bugs, optimizations, or insights discovered during
-implementation. Provide concise evidence.
+implementation. Provide concise evidence. Friction with the tools, documents, and processes
+used to do the work belongs in the friction log (see FRICTION.md); cite an entry's FRIC-N
+handle here only when it also changed the plan.
 
 (None yet.)
 
@@ -164,7 +167,8 @@ future contributor should follow. Omit routine implementation choices.
 ## Outcomes & Retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
-Compare the result against the original purpose. Before marking the plan complete,
+Compare the result against the original purpose. Cite the friction entries recorded under
+this plan by handle with their triage outcome. Before marking the plan complete,
 distill durable project context from the Decision Log, Surprises & Discoveries, and
 this section into docs/adr/. Keep task-local execution details here.
 
@@ -204,6 +208,9 @@ should be revised when the implementation approach changes.
 Describe how to exercise the system and what to observe. Phrase acceptance as behavior with
 specific inputs and outputs. If tests are involved, name the exact test commands and expected
 results. Show that the change is effective beyond compilation.
+If an uncertain interface connects independently developed pieces, identify an early
+representative interaction check appropriate to the project and authorized environment.
+Distinguish required acceptance from proposals for additional scope.
 
 
 ## Idempotence and Recovery
@@ -216,6 +223,8 @@ rollback path.
 
 Name the libraries, modules, and services whose choice matters. Specify key types or
 interfaces that other work depends on, using full module paths.
+For a child plan, identify prerequisite artifacts or behavior and the parent-declared
+plan or milestone that must be accepted before this work begins.
 `;
 
 writeFileSync(path, fm.join("\n") + skeleton, "utf8");
