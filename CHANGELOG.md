@@ -7,50 +7,90 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### baikai 0.9.0.0
+## [baikai 0.9.0.0] - 2026-10-25
 
-- Add `baikai-typesafe 0.1.0.0` for TypeSafe System One judgments using the
-  released `typesafe-hs ^>=0.1.0.0` dependency. Register providers explicitly.
-  Clear generation defaults after routing on `isJudgmentOnly`; send one
-  `UserData` and read `AssistantData`. Named response codecs preserve answer
-  evidence without conflicting global Response instances.
+### Added
 
-- Core: add `Baikai.Judgment` for closed-set schema compilation, ordered questions,
-  generation-control refusals and strict neutral answer validation. Preserve
-  provider confidence and expected score without normalizing probabilities.
-- Add `TypeSafeSystemOne`, catalog-owned `OutputKind`/`isJudgmentOnly`, `InputData`,
+- `Baikai.Judgment` compiles closed-set schemas into ordered questions, refuses
+  generation controls and validates neutral answers without normalizing provider
+  probabilities or deriving confidence and expected scores.
+- `UserData`, `AssistantData`/`DataContent`, user-data message helpers, atomic
+  data events, and named full-response JSON codecs preserve structured answers.
+- `TypeSafeSystemOne`, catalog-owned `OutputKind`/`isJudgmentOnly`, `InputData`,
   and `typesafe_jev_latest`/`typesafe_jev_preview`. Legacy model JSON defaults to
-  generative output. Public API/model changes require a core PVP major increment.
+  generative output. Register the new `baikai-typesafe` provider explicitly.
 
-- Core: add `UserData`, `AssistantData`/`DataContent` (value, optional probabilities,
-  confidence and method), user-data message helpers, atomic data events, and named
-  full-response JSON codecs. Generative providers encode user data canonically and
-  refuse assistant data history with a typed request problem before dispatch.
-- Core and OpenTelemetry: preserve structured answer payloads in terminal traces,
-  both call-log paths and `baikai.response.structured_data`. Evidence schema 2.6
-  includes structured response commitments; existing digest rules are unchanged.
-- Public content/event sums and error/trace/log records have PVP major changes.
+### Changed (breaking)
 
-### baikai-typesafe 0.1.0.0
+- Public content/event sums and model, error, trace and log records gain fields
+  or constructors. Update exhaustive matches and record construction on upgrade.
+- Terminal traces and both call-log paths preserve structured answer payloads.
+  Evidence schema 2.6 includes structured response commitments and typed request
+  problems; existing digest rules are unchanged.
 
-- Initial explicitly registered TypeSafe System One provider with strict request
-  and response validation, atomic synthetic streaming, truthful call evidence,
-  bounded HTTP calls and an opt-in live test. No retry policy is embedded.
+## [baikai-typesafe 0.1.0.0] - 2026-10-25
 
-### baikai-openai 0.7.2.0 and baikai-claude 0.7.2.0
+### Added
+
+- Initial explicitly registered TypeSafe System One provider using the released
+  `typesafe-hs ^>=0.1.0.0` wire client. Strict request and response validation,
+  atomic synthetic streaming, truthful call evidence, bounded HTTP calls and an
+  opt-in live test. No retry policy is embedded.
+- Installation, schema, refusal and consumer migration guide, plus CAP-27.
+
+## [baikai-claude 0.7.2.0] - 2026-10-25
+
+### Changed
 
 - Require `baikai ^>=0.9.0`, encode user data as canonical JSON text, and refuse
   structured assistant history before dispatch with a typed field path.
 
-### baikai-trace-otel 0.4.1.0
+### Fixed
 
-- Require `baikai ^>=0.9.0` and export structured answer data as canonical JSON
-  under `baikai.response.structured_data`, on success and failure terminals.
+- The offline cancellation fixture waits until the response reader is active
+  before cancelling, eliminating a fixed-startup-delay race under build load.
 
-### Dependency-only updates
+## [baikai-openai 0.7.2.0] - 2026-10-25
 
-- baikai-effectful 0.4.0.4, baikai-kit 0.4.0.2 and baikai-agent 0.2.0.3 require
-  `baikai ^>=0.9.0`. Their independently defined public interfaces are unchanged.
+### Changed
+
+- Require `baikai ^>=0.9.0`, encode user data as canonical JSON text, and refuse
+  structured assistant history before dispatch with a typed field path across
+  Chat Completions, Responses and batch CLI calls.
+
+### Fixed
+
+- The offline cancellation fixture waits until the response reader is active
+  before cancelling, eliminating a fixed-startup-delay race under build load.
+
+## [baikai-trace-otel 0.4.1.0] - 2026-10-25
+
+### Added
+
+- Export structured answer data as canonical JSON under
+  `baikai.response.structured_data`, on success and failure terminals.
+
+### Changed
+
+- Require `baikai ^>=0.9.0` for the expanded trace protocol.
+
+## [baikai-effectful 0.4.0.4] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.9.0`. Dependency-only update; no package API change.
+
+## [baikai-kit 0.4.0.2] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.9.0`. Dependency-only update; no package API change.
+
+## [baikai-agent 0.2.0.3] - 2026-10-25
+
+### Changed
+
+- Require `baikai ^>=0.9.0`. Dependency-only update; no package API change.
 
 ## [baikai 0.8.0.0] - 2026-10-10
 

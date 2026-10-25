@@ -100,11 +100,14 @@ cancellationReleasesWithoutGcTest =
                 (claudeMessagesStreamWith (countingDriver reads' closedRef (Just gate)) testModel emptyContext testOptions)
             )
         putMVar outcome (r :: Either SomeException [AssistantMessageEvent])
-    threadDelay 100000
+    -- Wait for the driver to enter its bracket and reach the blocked read.
+    -- A startup delay can cancel before a response exists under build load.
+    ready <- pollFor 200 10000 ((>= 4) <$> readIORef reads')
     throwTo tid ThreadKilled
+    r <- takeMVar outcome
+    assertBool "consumer reached the blocked response read before cancellation" ready
     released <- pollFor 100 10000 (readIORef closedRef)
     assertBool "cancellation releases the connection without a GC" released
-    r <- takeMVar outcome
     case r of
       Left e | Just ThreadKilled <- fromException e -> pure ()
       other -> assertFailure ("expected the drained thread to die by ThreadKilled, got: " <> show (fmap length other))

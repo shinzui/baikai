@@ -2,6 +2,9 @@
 
 ## 2026-10-25
 
+* **Release**: TypeSafe Judgments now installs `baikai-typesafe 0.1.0.0` with
+  `baikai 0.9.0.0` from Hackage; Getting Started lists the new provider.
+
 * **Update**: Add [TypeSafe Judgments](typesafe-judgments.md), documenting the closed-set schema, refusal policy, evidence, transport and consumer migration.
 
 ## 2026-10-10

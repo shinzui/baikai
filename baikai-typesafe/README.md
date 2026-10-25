@@ -22,8 +22,8 @@ optional per-call evidence.
 
 # TypeSafe judgments
 
-Add `baikai-typesafe` and `baikai` to the Cabal dependencies. The prepared core
-release is 0.9.0.0 and the new provider is 0.1.0.0; publication is a separate step.
+Add `baikai-typesafe ^>=0.1.0.0` and `baikai ^>=0.9.0` to the Cabal
+dependencies. Both packages are available on Hackage.
 The provider uses the released `typesafe-hs ^>=0.1.0.0` wire client without a
 checkout override.
 

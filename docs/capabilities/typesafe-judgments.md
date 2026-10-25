@@ -9,7 +9,7 @@ capabilityId: CAP-27
 provider: mori://shinzui/baikai
 status: shipped
 stability: stable
-since: unreleased
+since: "0.1.0.0"
 timestamp: "2026-10-25T13:00:50Z"
 reviews:
   - kind: model
@@ -24,6 +24,9 @@ reviews:
     context: "Implementation self-check against the offline HTTP matrix and compiled public API shape; availability remains unreleased."
 packages: [baikai-typesafe, baikai]
 interface: [Baikai.Provider.TypeSafe.Api, Baikai.Judgment, Baikai.Response.JSON]
+requires:
+  - CAP-28
+  - CAP-29
 evidence:
   - kind: test
     resource: baikai-typesafe/test/Main.hs
@@ -44,6 +47,10 @@ boolean, string-choice or zero-based integer-score properties. For a loopback
 fixture, override the model's base URL and use an explicit literal API key in
 `opts`; the request and response contract is identical. Set `TYPESAFE_API_KEY`
 for the official host.
+
+Released in `baikai-typesafe 0.1.0.0` with `baikai 0.9.0.0`, building on
+[CAP-28 — structured answer content](structured-answer-content.md) and
+[CAP-29 — neutral judgments](neutral-judgments.md).
 
 ## Shape
 

@@ -128,6 +128,9 @@ test-suite doc-shapes
     Shape.Cap25
     Shape.Cap26
     Shape.Cap27
+    Shape.Cap28
+    Shape.Cap29
+    Shape.Cap30
     Shape.Cap4
     Shape.Cap5
     Shape.Cap6

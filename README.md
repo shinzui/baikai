@@ -112,13 +112,14 @@ dependents.
 
 | Package              | Hackage    | What's inside |
 |----------------------|------------|---------------|
-| **`baikai`**         | [0.8.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; opt-in subsystems with their own vocabularies — tracing (`Baikai.Trace`), embeddings (`Baikai.Embedding`), the JSONL call log (`Baikai.Cost.Log`), pricing lookup, and the catalog — are imported directly. `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
-| **`baikai-claude`**  | [0.7.1.1](https://hackage.haskell.org/package/baikai-claude) | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
-| **`baikai-openai`**  | [0.7.1.1](https://hackage.haskell.org/package/baikai-openai) | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host), the native **Responses API** provider (`Baikai.Provider.OpenAI.Responses`, registered explicitly), and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
-| **`baikai-trace-otel`** | [0.4.0.2](https://hackage.haskell.org/package/baikai-trace-otel) | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
-| **`baikai-effectful`** | [0.4.0.3](https://hackage.haskell.org/package/baikai-effectful) | A thin, policy-free [`effectful`](https://hackage.haskell.org/package/effectful) binding over baikai's transport: the dynamic `Baikai` effect (`Complete` / `StreamCollect` / `StreamEach`) and interpreters over a real or fake provider. |
-| **`baikai-kit`**     | [0.4.0.1](https://hackage.haskell.org/package/baikai-kit) | Shared kit installer for command-line tools that ship a git-hosted kit of local AI-agent skills and subagents: listing, install (by name or through a tool-supplied chooser) with per-item tool-only or shared visibility, update, uninstall, status with local-edit and visibility detection, versioned JSON output, and the discovery helpers an interactive session mounts. |
-| **`baikai-agent`**   | [0.2.0.2](https://hackage.haskell.org/package/baikai-agent) | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
+| **`baikai`**         | [0.9.0.0](https://hackage.haskell.org/package/baikai) | The core abstraction: `Model`, `Context`, `Options`, typed `Content`, `Tool`, the streaming event protocol, the provider registry, `Usage`/`Cost`, the error model, interactive-launch and agent-asset types, and the generated model catalog (`Baikai.Models.Generated`). The public surface is the top-level `Baikai` module; opt-in subsystems with their own vocabularies — tracing (`Baikai.Trace`), embeddings (`Baikai.Embedding`), the JSONL call log (`Baikai.Cost.Log`), pricing lookup, and the catalog — are imported directly. `Baikai.Prelude` re-exports `lens` + `generic-lens`. |
+| **`baikai-claude`**  | [0.7.2.0](https://hackage.haskell.org/package/baikai-claude) | Anthropic providers: the Messages **API** provider and the `claude -p` **CLI** provider, plus the Claude Code **interactive** launcher (`launchClaudeInteractive`). |
+| **`baikai-openai`**  | [0.7.2.0](https://hackage.haskell.org/package/baikai-openai) | OpenAI providers: the Chat Completions **API** provider (also serves every OpenAI-compatible host), the native **Responses API** provider (`Baikai.Provider.OpenAI.Responses`, registered explicitly), and the `codex exec` **CLI** provider, plus the Codex **interactive** launcher (`launchCodexInteractive`). |
+| **`baikai-typesafe`** | [0.1.0.0](https://hackage.haskell.org/package/baikai-typesafe) | Explicitly registered TypeSafe System One provider for closed-set judgments, with strict request/reply validation, atomic streaming, and preserved answer distributions and confidence. |
+| **`baikai-trace-otel`** | [0.4.1.0](https://hackage.haskell.org/package/baikai-trace-otel) | An opt-in OpenTelemetry `TraceSink` adapter (`otelSink`). Wiring it into `Baikai.Trace.withTrace` produces one OTel span per provider call with GenAI semantic-convention attributes plus baikai-specific cost and latency. |
+| **`baikai-effectful`** | [0.4.0.4](https://hackage.haskell.org/package/baikai-effectful) | A thin, policy-free [`effectful`](https://hackage.haskell.org/package/effectful) binding over baikai's transport: the dynamic `Baikai` effect (`Complete` / `StreamCollect` / `StreamEach`) and interpreters over a real or fake provider. |
+| **`baikai-kit`**     | [0.4.0.2](https://hackage.haskell.org/package/baikai-kit) | Shared kit installer for command-line tools that ship a git-hosted kit of local AI-agent skills and subagents: listing, install (by name or through a tool-supplied chooser) with per-item tool-only or shared visibility, update, uninstall, status with local-edit and visibility detection, versioned JSON output, and the discovery helpers an interactive session mounts. |
+| **`baikai-agent`**   | [0.2.0.3](https://hackage.haskell.org/package/baikai-agent) | **Unattended** coding-agent runs, plus the **`baikai` executable** (`agent run`, `agent show`, `agent list`). `runAgentCommand` spawns `claude` or `codex` with no terminal and no human, delivers the prompt on standard input, drains both output streams within a byte limit, and on timeout terminates the whole process group. `Baikai.Agent.Config` resolves a named job from layered KDL files with per-value provenance, and loads the operator policy ceiling from user scope only. |
 | `baikai-smoke`       | internal   | Live smoke tests across every shipped provider. API cases skip when their keys are absent; batch CLI cases run whenever `claude` or `codex` is on `PATH`. Not published — useful as worked examples. |
 
 Packages version independently, so the numbers above move at different
@@ -228,6 +229,7 @@ build-depends:
   , baikai
   , baikai-claude
   , baikai-openai
+  , baikai-typesafe     -- optional, for TypeSafe judgments
   , baikai-trace-otel   -- optional, for OpenTelemetry
   , baikai-effectful    -- optional, for the effectful binding
   , baikai-kit          -- optional, if your tool ships a kit command
@@ -340,7 +342,8 @@ single price by hand, change the JSON and run only `baikai-gen-models`.
 
 [BSD-3-Clause](./LICENSE) — (c) 2026 Nadeem Bitar.
 
-TypeSafe System One judgments are available on the default branch through
+TypeSafe System One judgments are available on Hackage through
 `baikai-typesafe`. See [the guide](docs/user/typesafe-judgments.md) for one-state
 closed-set requests, answer distributions and confidence, explicit registry setup,
-and the generation-default refusal policy. The prepared versions remain unreleased.
+and the generation-default refusal policy. Use `baikai-typesafe 0.1.0.0` with
+`baikai 0.9.0.0` or compatible versions.

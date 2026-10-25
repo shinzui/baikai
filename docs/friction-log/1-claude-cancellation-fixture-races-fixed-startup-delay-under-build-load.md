@@ -14,7 +14,7 @@ affects: "mori://shinzui/baikai"
 affectedVersion: "unreleased"
 plan: "docs/plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md"
 workaround: "Run the full Claude suite with --test-options=--num-threads=1 after compilation completed; all 433 tests passed."
-resolution: "Run the Claude suite serially after compilation for this initiative; the fixture startup race is independent of the structured-content implementation."
+resolution: "Release preparation replaces the fixed startup delay with a bounded wait for the blocked response read in both Claude and OpenAI lifecycle fixtures. The complete offline release gate passes, including all 433 Claude tests and 298 OpenAI tests."
 amended:
   - by: "codex-cli/gpt-6.1-sol"
     at: "2026-10-25T12:35:37Z"
@@ -37,3 +37,12 @@ test/LifecycleSpec.hs:106: cancellation releases the connection without a GC; tw
 ## Workaround
 
 Run the full Claude suite with --test-options=--num-threads=1 after compilation completed; all 433 tests passed.
+
+## Release preparation
+
+The full offline release gate failed in the Claude suite again. Both Claude and
+OpenAI lifecycle fixtures used the same 100ms startup assumption. They now wait
+for the fourth body read inside the response bracket before cancelling and join
+the consumer before asserting. This removes the startup race without filtering
+cases or weakening the connection-release assertion. The complete offline release gate passes with all suites enabled; Claude runs
+433 tests and OpenAI runs 298 tests.

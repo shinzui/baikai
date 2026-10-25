@@ -2,6 +2,11 @@
 
 ## 2026-10-25
 
+* **Release**: [CAP-27](typesafe-judgments.md) ships in `baikai-typesafe 0.1.0.0`.
+  Add [CAP-28](structured-answer-content.md) and [CAP-29](neutral-judgments.md)
+  for core 0.9.0.0, and [CAP-30](structured-answer-span-export.md) for
+  `baikai-trace-otel 0.4.1.0`. Earlier capability availability stays unchanged.
+
 * **Update**: Add [CAP-27](typesafe-judgments.md) for default-branch TypeSafe judgment support, with `since: unreleased` and a compiled shape.
 
 ## 2026-10-10
