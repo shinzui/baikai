@@ -97,7 +97,7 @@ tests =
           let cached = case encoded of A.Object o -> A.Object (KM.delete "evidence" o); v -> v
           fmap (flattenAssistantData . (^. #content) . (^. #message)) (parseEither responseFromJSON cached) @?= Right (V.singleton sample)
         let changed = sample {method = Just "another"}
-        assertBool "probability is committed" (commitmentDigest (A.toJSON sample) /= commitmentDigest (A.toJSON (sample {probabilities = Just Map.empty})))
+        assertBool "probability is committed" (commitmentDigest (A.toJSON sample) /= commitmentDigest (A.toJSON (sample & #probabilities .~ Just Map.empty)))
         assertBool "method is committed" (commitmentDigest (A.toJSON sample) /= commitmentDigest (A.toJSON changed)),
       testCase "file trace and both call-log entry points preserve data without evidence opt-in" $
         withSystemTempDirectory "baikai-data" $ \dir ->

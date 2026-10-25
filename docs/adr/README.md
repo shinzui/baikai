@@ -42,3 +42,4 @@ bundle.
 | [0026](0026-batch-cli-cancellation-owns-process-groups-and-reader-workers.md) | Batch CLI cancellation owns process groups and reader workers until cleanup finishes | accepted |
 
 | [0027](0027-structured-answer-evidence-is-content.md) | Structured answer evidence is content and survives independently of call evidence | accepted |
+| [0028](0028-judgments-are-a-provider-neutral-core-protocol.md) | Judgments are a provider-neutral core protocol with catalog-owned capability facts | accepted |

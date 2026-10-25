@@ -33,6 +33,7 @@ import GHC.Generics (C1, D1, Rep, S1, Selector (selName), (:*:))
 import GenModelsSpec qualified
 import HelpersSpec qualified
 import InteractiveSpec qualified
+import JudgmentSpec qualified
 import PricingPolicySpec qualified
 import PublicSurfaceSpec qualified
 import StreamSpec qualified
@@ -123,6 +124,7 @@ main = do
         GenModelsSpec.tests,
         HelpersSpec.tests,
         InteractiveSpec.tests,
+        JudgmentSpec.tests,
         PricingPolicySpec.tests,
         PublicSurfaceSpec.tests,
         StreamSpec.tests,

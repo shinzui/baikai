@@ -17,6 +17,11 @@ provenance:
       at: 2026-10-22T04:20:50Z
       mode: "update"
       note: "Fix question order: required-array order when complete, ascending key order otherwise"
+    - model: "gpt-6.1-sol"
+      harness: "codex-cli"
+      at: 2026-10-25T12:36:19Z
+      mode: "implement"
+      note: "Implement judgment catalog facts, schema compiler, refusal audit and neutral answer validation"
 ---
 
 # Add a provider-neutral judgment layer and judgment-only catalog facts to core
@@ -35,14 +40,14 @@ This plan is a child of `docs/masterplans/14-support-typesafe-system-one-judgmen
 
 ## Progress
 
-- [ ] Milestone 1: the `TypeSafeSystemOne` API tag, `OutputKind` with `isJudgmentOnly`, the `InputData` modality and the checked-in `typesafe.json` catalog are generated, round-trip through model JSON with a generative default, survive a fetch refresh, and every package in the workspace still builds with exhaustive matches.
-- [ ] Milestone 2: `Baikai.Judgment` compiles the fixture schema into three ordered judgments, refuses every unsupported schema shape and every explicit generation control by path, and `prepareJudgment` enforces the context shape; pure tests prove each rule.
-- [ ] Milestone 3: `validateAnswers` produces the fixture `DataContent` from neutral answers, rejects every malformed answer set by field, treats a refused answer as a provider refusal, and the changelog and the `JsonSchemaFormat` documentation describe the closed-set subset.
+- [x] Milestone 1: the `TypeSafeSystemOne` API tag, `OutputKind` with `isJudgmentOnly`, the `InputData` modality and the checked-in `typesafe.json` catalog are generated, round-trip through model JSON with a generative default, survive a fetch refresh, and every package in the workspace still builds with exhaustive matches.
+- [x] Milestone 2: `Baikai.Judgment` compiles the fixture schema into three ordered judgments, refuses every unsupported schema shape and every explicit generation control by path, and `prepareJudgment` enforces the context shape; pure tests prove each rule.
+- [x] Milestone 3: `validateAnswers` produces the fixture `DataContent` from neutral answers, rejects every malformed answer set by field, treats a refused answer as a provider refusal, and the changelog and the `JsonSchemaFormat` documentation describe the closed-set subset.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+The existing generator emits models as updates from `emptyModel`, so adding `outputKind` does not require editing generated records before regeneration. The fetcher only refreshes its configured provider files; the TypeSafe file remains curated, and its renderer now preserves judgment output/data modality when such a catalog is rendered.
 
 
 ## Decision Log
@@ -74,7 +79,7 @@ This plan is a child of `docs/masterplans/14-support-typesafe-system-one-judgmen
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+Completed 2026-10-25. The core suite passes all 826 tests, including nine judgment/catalog groups covering ordering, criteria, schema bounds and refusals, options/context checks, malformed and refused answers, provider-selected values and expected scores. A fetch-render → generator parse test preserves judgment/data facts. All workspace packages build with exhaustive matches; OpenAI 298, Claude 433, OpenTelemetry 11, effectful 4, kit 116, agent 116 and doc-shapes pass. Two successive `cabal run baikai-gen-models` executions produce identical bytes (`cmp`), and the generated-catalog gate passes after regeneration. ADR [0028](../adr/0028-judgments-are-a-provider-neutral-core-protocol.md) records ownership and validation policy; ADR 0009 records the catalog facts. No new friction was recorded under this child.
 
 
 ## Context and Orientation

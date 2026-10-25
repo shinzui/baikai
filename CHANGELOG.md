@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+- Core: add `Baikai.Judgment` for closed-set schema compilation, ordered questions,
+  generation-control refusals and strict neutral answer validation. Preserve
+  provider confidence and expected score without normalizing probabilities.
+- Add `TypeSafeSystemOne`, catalog-owned `OutputKind`/`isJudgmentOnly`, `InputData`,
+  and `typesafe_jev_latest`/`typesafe_jev_preview`. Legacy model JSON defaults to
+  generative output. Public API/model changes require a core PVP major increment.
+
 - Core: add `UserData`, `AssistantData`/`DataContent` (value, optional probabilities,
   confidence and method), user-data message helpers, atomic data events, and named
   full-response JSON codecs. Generative providers encode user data canonically and

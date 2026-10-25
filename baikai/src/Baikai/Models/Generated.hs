@@ -44,6 +44,7 @@ import Baikai.Model
     InputPriceTier (..),
     Model,
     ModelCost (..),
+    OutputKind (..),
     PricingPolicy (..),
     api,
     baseUrl,
@@ -57,6 +58,7 @@ import Baikai.Model
     maxOutputTokens,
     modelId,
     name,
+    outputKind,
     pricingPolicy,
     provider,
     reasoning,
@@ -75,6 +77,7 @@ anthropic_claude_fable_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 10 % 1,
@@ -110,6 +113,7 @@ anthropic_claude_fable_5_1 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 10 % 1,
@@ -145,6 +149,7 @@ anthropic_claude_haiku_4_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 1,
@@ -180,6 +185,7 @@ anthropic_claude_haiku_5_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 10,
@@ -215,6 +221,7 @@ anthropic_claude_opus_4_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 1,
@@ -250,6 +257,7 @@ anthropic_claude_opus_4_6 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 1,
@@ -285,6 +293,7 @@ anthropic_claude_opus_4_7 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 1,
@@ -320,6 +329,7 @@ anthropic_claude_opus_4_8 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 1,
@@ -363,6 +373,7 @@ anthropic_claude_opus_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 1,
@@ -406,6 +417,7 @@ anthropic_claude_opus_5_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 4 % 1,
@@ -449,6 +461,7 @@ anthropic_claude_sonnet_4_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 3 % 1,
@@ -484,6 +497,7 @@ anthropic_claude_sonnet_4_6 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 3 % 1,
@@ -519,6 +533,7 @@ anthropic_claude_sonnet_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -554,6 +569,7 @@ anthropic_claude_sonnet_5_5 =
       baseUrl = "https://api.anthropic.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -589,6 +605,7 @@ deepseek_deepseek_chat =
       baseUrl = "https://api.deepseek.com",
       reasoning = False,
       input = [InputText],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 27 % 100,
@@ -614,6 +631,7 @@ deepseek_deepseek_reasoner =
       baseUrl = "https://api.deepseek.com",
       reasoning = True,
       input = [InputText],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 11 % 20,
@@ -639,6 +657,7 @@ openai_gpt_4_1 =
       baseUrl = "https://api.openai.com",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -664,6 +683,7 @@ openai_gpt_4_1_mini =
       baseUrl = "https://api.openai.com",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 5,
@@ -689,6 +709,7 @@ openai_gpt_4_1_nano =
       baseUrl = "https://api.openai.com",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 10,
@@ -714,6 +735,7 @@ openai_gpt_4o =
       baseUrl = "https://api.openai.com",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 2,
@@ -739,6 +761,7 @@ openai_gpt_4o_mini =
       baseUrl = "https://api.openai.com",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 3 % 20,
@@ -764,6 +787,7 @@ openai_gpt_5 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 4,
@@ -789,6 +813,7 @@ openai_gpt_5_1 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 4,
@@ -814,6 +839,7 @@ openai_gpt_5_2 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 7 % 4,
@@ -839,6 +865,7 @@ openai_gpt_5_4 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 2,
@@ -864,6 +891,7 @@ openai_gpt_5_4_mini =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 3 % 4,
@@ -889,6 +917,7 @@ openai_gpt_5_4_nano =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 5,
@@ -914,6 +943,7 @@ openai_gpt_5_5 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 5 % 1,
@@ -939,6 +969,7 @@ openai_gpt_5_6 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 4 % 1,
@@ -964,6 +995,7 @@ openai_gpt_5_6_luna =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 5,
@@ -989,6 +1021,7 @@ openai_gpt_5_6_sol =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 4 % 1,
@@ -1014,6 +1047,7 @@ openai_gpt_5_6_terra =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -1039,6 +1073,7 @@ openai_gpt_5_mini =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 4,
@@ -1064,6 +1099,7 @@ openai_gpt_5_nano =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 20,
@@ -1089,6 +1125,7 @@ openai_gpt_6_1_sol =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -1121,6 +1158,7 @@ openai_gpt_6_astra =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 10 % 1,
@@ -1153,6 +1191,7 @@ openai_gpt_6_luna =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 1 % 10,
@@ -1185,6 +1224,7 @@ openai_gpt_6_sol =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -1217,6 +1257,7 @@ openai_o1 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 15 % 1,
@@ -1242,6 +1283,7 @@ openai_o3 =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 2 % 1,
@@ -1267,6 +1309,7 @@ openai_o3_mini =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 11 % 10,
@@ -1292,6 +1335,7 @@ openai_o4_mini =
       baseUrl = "https://api.openai.com",
       reasoning = True,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 11 % 10,
@@ -1317,6 +1361,7 @@ openrouter_anthropic_claude_sonnet_4 =
       baseUrl = "https://openrouter.ai/api",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 3 % 1,
@@ -1342,6 +1387,7 @@ openrouter_openai_gpt_4o_mini =
       baseUrl = "https://openrouter.ai/api",
       reasoning = False,
       input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
       cost =
         ModelCost
           { inputCost = 3 % 20,
@@ -1353,6 +1399,58 @@ openrouter_openai_gpt_4o_mini =
       pricingPolicy = Nothing,
       contextWindow = 128000,
       maxOutputTokens = 16384,
+      headers = Map.empty,
+      compat = CompatNone
+    }
+
+typesafe_jev_latest :: Model
+typesafe_jev_latest =
+  emptyModel
+    { modelId = "jev-latest",
+      name = "jev-latest",
+      api = TypeSafeSystemOne,
+      provider = "typesafe",
+      baseUrl = "https://api.typesafe.ai",
+      reasoning = False,
+      input = [InputText, InputData],
+      outputKind = JudgmentOutput,
+      cost =
+        ModelCost
+          { inputCost = 0 % 1,
+            outputCost = 0 % 1,
+            cacheReadCost = 0 % 1,
+            cacheWriteCost = 0 % 1
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Nothing,
+      contextWindow = 0,
+      maxOutputTokens = 0,
+      headers = Map.empty,
+      compat = CompatNone
+    }
+
+typesafe_jev_preview :: Model
+typesafe_jev_preview =
+  emptyModel
+    { modelId = "jev-preview",
+      name = "jev-preview",
+      api = TypeSafeSystemOne,
+      provider = "typesafe",
+      baseUrl = "https://api.typesafe.ai",
+      reasoning = False,
+      input = [InputText, InputData],
+      outputKind = JudgmentOutput,
+      cost =
+        ModelCost
+          { inputCost = 0 % 1,
+            outputCost = 0 % 1,
+            cacheReadCost = 0 % 1,
+            cacheWriteCost = 0 % 1
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Nothing,
+      contextWindow = 0,
+      maxOutputTokens = 0,
       headers = Map.empty,
       compat = CompatNone
     }
@@ -1403,5 +1501,7 @@ allModels =
     openai_o3_mini,
     openai_o4_mini,
     openrouter_anthropic_claude_sonnet_4,
-    openrouter_openai_gpt_4o_mini
+    openrouter_openai_gpt_4o_mini,
+    typesafe_jev_latest,
+    typesafe_jev_preview
   ]

@@ -175,3 +175,11 @@ agree with the built-in providers, which set their field from it. Keying
 on the transport tag is not the model-id branching this record forbids; if
 such a fact ever starts varying by model, it moves into the compatibility
 record like any other.
+
+## Judgment output (2026-10-25)
+
+`Model.outputKind` carries `GenerativeOutput` or `JudgmentOutput`; `isJudgmentOnly`
+reads that fact. Old JSON defaults to generative. The generator and fetch renderer
+preserve the field and the `InputData` modality. The TypeSafe aliases declare
+judgment output explicitly; no caller infers it from their names. See
+[0028](0028-judgments-are-a-provider-neutral-core-protocol.md) for protocol ownership.

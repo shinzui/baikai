@@ -39,6 +39,9 @@ module Baikai.Model
 
     -- * Capabilities
     InputModality (..),
+    OutputKind (..),
+    outputKind,
+    isJudgmentOnly,
 
     -- * Compatibility shim
     Compat (..),
@@ -71,6 +74,8 @@ import Data.Aeson
     (.:),
     (.:?),
   )
+import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.List (nub, sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -83,8 +88,26 @@ import Numeric.Natural (Natural)
 data InputModality
   = InputText
   | InputImage
+  | InputData
   deriving stock (Eq, Ord, Show, Generic)
   deriving anyclass (FromJSON, ToJSON)
+
+-- | Catalog-owned output semantics. Legacy model JSON is generative.
+data OutputKind = GenerativeOutput | JudgmentOutput
+  deriving stock (Eq, Show, Generic)
+
+instance ToJSON OutputKind where
+  toJSON GenerativeOutput = Aeson.String "generative"
+  toJSON JudgmentOutput = Aeson.String "judgment"
+
+instance FromJSON OutputKind where
+  parseJSON = Aeson.withText "OutputKind" $ \t -> case t of
+    "generative" -> pure GenerativeOutput
+    "judgment" -> pure JudgmentOutput
+    _ -> fail "unknown output kind"
+
+isJudgmentOnly :: Model -> Bool
+isJudgmentOnly m = outputKind m == JudgmentOutput
 
 -- | Per-million-token prices in USD as exact 'Rational' values.
 data ModelCost = ModelCost
@@ -196,6 +219,7 @@ data Model = Model
     baseUrl :: !Text,
     reasoning :: !Bool,
     input :: ![InputModality],
+    outputKind :: !OutputKind,
     cost :: !ModelCost,
     -- | Optional premium speed rates, in USD per million tokens.
     fastModeCost :: !(Maybe ModelCost),
@@ -215,7 +239,10 @@ data Model = Model
     compat :: !Compat
   }
   deriving stock (Eq, Generic)
-  deriving anyclass (FromJSON)
+
+instance FromJSON Model where
+  parseJSON = Aeson.withObject "Model" $ \o ->
+    Aeson.genericParseJSON Aeson.defaultOptions (Aeson.Object (if KM.member "outputKind" o then o else KM.insert "outputKind" (Aeson.String "generative") o))
 
 -- | Rendered field by field rather than derived, so that the value of a
 -- credential-carrying header prints as 'Auth.redactedMarker'. A 'Model'
@@ -247,6 +274,7 @@ instance Show Model where
         . next "baseUrl" (baseUrl m)
         . next "reasoning" (reasoning m)
         . next "input" (input m)
+        . next "outputKind" (outputKind m)
         . next "cost" (cost m)
         . next "fastModeCost" (fastModeCost m)
         . next "pricingPolicy" (pricingPolicy m)
@@ -298,6 +326,7 @@ emptyModel =
       baseUrl = "",
       reasoning = False,
       input = [InputText],
+      outputKind = GenerativeOutput,
       cost = zeroModelCost,
       fastModeCost = Nothing,
       pricingPolicy = Nothing,

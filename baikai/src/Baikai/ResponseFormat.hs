@@ -36,7 +36,8 @@ import GHC.Generics (Generic)
 -- | A named JSON Schema to enforce.
 --
 -- The 'schema' is a raw JSON Schema document (an aeson 'Value'), passed
--- through verbatim; baikai never inspects or validates it. 'strict'
+-- through verbatim by generative providers. Judgment providers accept only the
+-- closed-set subset compiled by 'Baikai.Judgment.compileJudgments'. 'strict'
 -- requests the provider's strict schema-enforcement mode where available
 -- (OpenAI honours it; Anthropic structured outputs are always
 -- schema-enforcing and ignore it).
@@ -136,4 +137,5 @@ declaredStructuredOutput = \case
   OpenAIResponses -> NativeJsonSchema
   AnthropicMessagesCli -> NativeJsonSchema
   OpenAICompletionsCli -> NativeJsonSchema
+  TypeSafeSystemOne -> NativeJsonSchema
   Custom _ -> NoStructuredOutput

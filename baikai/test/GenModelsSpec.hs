@@ -9,6 +9,7 @@ import Baikai.Compat
     thinkingStyle,
   )
 import Baikai.Model (InputModality (InputText))
+import Baikai.Model qualified
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.Text (Text)
@@ -127,6 +128,7 @@ model mid =
       entryName = mid,
       entryReasoning = False,
       entryInput = [InputText],
+      entryOutputKind = Baikai.Model.GenerativeOutput,
       entryCost =
         CostEntry
           { costInput = 0,

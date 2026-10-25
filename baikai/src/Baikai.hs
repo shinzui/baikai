@@ -49,6 +49,7 @@ module Baikai
     module Baikai.Stream,
     module Baikai.Stream.Event,
     module Baikai.Response.JSON,
+    module Baikai.Judgment,
   )
 where
 
@@ -65,6 +66,7 @@ import Baikai.Evidence
 import Baikai.Evidence.Build
 import Baikai.Header
 import Baikai.Interactive
+import Baikai.Judgment
 import Baikai.Message
 import Baikai.Model
 import Baikai.Options

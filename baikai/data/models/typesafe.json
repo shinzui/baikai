@@ -1,0 +1,46 @@
+{
+  "provider": "typesafe",
+  "baseUrl": "https://api.typesafe.ai",
+  "api": "typesafe-system-one",
+  "compat": "auto",
+  "models": [
+    {
+      "id": "jev-latest",
+      "name": "jev-latest",
+      "reasoning": false,
+      "input": [
+        "text",
+        "data"
+      ],
+      "outputKind": "judgment",
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
+      "contextWindow": 0,
+      "maxOutputTokens": 0,
+      "enabled": true
+    },
+    {
+      "id": "jev-preview",
+      "name": "jev-preview",
+      "reasoning": false,
+      "input": [
+        "text",
+        "data"
+      ],
+      "outputKind": "judgment",
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0
+      },
+      "contextWindow": 0,
+      "maxOutputTokens": 0,
+      "enabled": true
+    }
+  ]
+}

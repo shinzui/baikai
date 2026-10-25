@@ -242,6 +242,7 @@ data ModelEntry = ModelEntry
     entryName :: !Text,
     entryReasoning :: !Bool,
     entryInput :: ![InputModality],
+    entryOutputKind :: !Model.OutputKind,
     entryCost :: !CostEntry,
     entryFastModeCost :: !(Maybe CostEntry),
     entryPricingPolicy :: !(Maybe Model.PricingPolicy),
@@ -259,6 +260,7 @@ instance FromJSON ModelEntry where
       <*> o .: "name"
       <*> o .:? "reasoning" .!= False
       <*> (o .: "input" >>= traverse parseInputModality)
+      <*> o .:? "outputKind" .!= Model.GenerativeOutput
       <*> o .: "cost"
       <*> o .:? "fastModeCost"
       <*> (o .:? "pricingPolicy" >>= traverse parsePricingPolicy)
@@ -272,6 +274,7 @@ parseInputModality :: Text -> Parser InputModality
 parseInputModality = \case
   "text" -> pure InputText
   "image" -> pure InputImage
+  "data" -> pure InputData
   t -> fail $ "unknown input modality: " <> Text.unpack t
 
 -- | Per-million-token cost rates. Parsed as 'Scientific' so the
@@ -329,6 +332,7 @@ data GeneratedEntry = GeneratedEntry
     baseUrl :: !Text,
     reasoning :: !Bool,
     input :: ![InputModality],
+    outputKind :: !Model.OutputKind,
     cost :: !CostEntry,
     fastModeCost :: !(Maybe CostEntry),
     pricingPolicy :: !(Maybe Model.PricingPolicy),
@@ -353,6 +357,7 @@ flattenEntries c =
               baseUrl = c.baseUrl,
               reasoning = entryReasoning m,
               input = entryInput m,
+              outputKind = entryOutputKind m,
               cost = entryCost m,
               fastModeCost = entryFastModeCost m,
               pricingPolicy = entryPricingPolicy m,
@@ -498,6 +503,7 @@ renderModule entries =
         "    InputPriceTier (..),",
         "    Model,",
         "    ModelCost (..),",
+        "    OutputKind (..),",
         "    PricingPolicy (..),",
         "    api,",
         "    baseUrl,",
@@ -511,6 +517,7 @@ renderModule entries =
         "    maxOutputTokens,",
         "    modelId,",
         "    name,",
+        "    outputKind,",
         "    pricingPolicy,",
         "    provider,",
         "    reasoning,",
@@ -552,6 +559,7 @@ renderEntry g =
     "      baseUrl = " <> renderText g.baseUrl <> ",",
     "      reasoning = " <> renderBool g.reasoning <> ",",
     "      input = " <> renderInputList g.input <> ",",
+    "      outputKind = " <> (if g.outputKind == Model.JudgmentOutput then "JudgmentOutput" else "GenerativeOutput") <> ",",
     "      cost =",
     renderCost g.cost <> ",",
     renderFastCost g.fastModeCost,
@@ -581,6 +589,7 @@ renderInputList ms =
   where
     renderInput InputText = "InputText"
     renderInput InputImage = "InputImage"
+    renderInput InputData = "InputData"
 
 renderApiCtor :: Api -> Text
 renderApiCtor = \case
@@ -589,6 +598,7 @@ renderApiCtor = \case
   AnthropicMessages -> "AnthropicMessages"
   OpenAICompletionsCli -> "OpenAICompletionsCli"
   AnthropicMessagesCli -> "AnthropicMessagesCli"
+  TypeSafeSystemOne -> "TypeSafeSystemOne"
   Custom t -> "Custom " <> renderText t
 
 renderCost :: CostEntry -> Text

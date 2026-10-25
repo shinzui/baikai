@@ -32,6 +32,7 @@ data Api
   | AnthropicMessages
   | OpenAICompletionsCli
   | AnthropicMessagesCli
+  | TypeSafeSystemOne
   | Custom !Text
   deriving stock (Eq, Ord, Show, Generic)
 
@@ -43,6 +44,7 @@ renderApi = \case
   AnthropicMessages -> "anthropic-messages"
   OpenAICompletionsCli -> "openai-completions-cli"
   AnthropicMessagesCli -> "anthropic-messages-cli"
+  TypeSafeSystemOne -> "typesafe-system-one"
   Custom t -> t
 
 -- | Parse a wire string into an 'Api' tag. Unknown strings become
@@ -54,6 +56,7 @@ parseApi = \case
   "anthropic-messages" -> AnthropicMessages
   "openai-completions-cli" -> OpenAICompletionsCli
   "anthropic-messages-cli" -> AnthropicMessagesCli
+  "typesafe-system-one" -> TypeSafeSystemOne
   t -> Custom t
 
 -- | Collapse a 'Custom' tag that spells a built-in API onto that

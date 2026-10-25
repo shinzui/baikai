@@ -82,6 +82,7 @@ library
     Baikai.Header
     Baikai.Http
     Baikai.Interactive
+    Baikai.Judgment
     Baikai.Message
     Baikai.Model
     Baikai.Models.Generated
@@ -225,6 +226,7 @@ test-suite baikai-test
     GenModelsSpec
     HelpersSpec
     InteractiveSpec
+    JudgmentSpec
     PricingPolicySpec
     PublicSurfaceSpec
     StreamSpec

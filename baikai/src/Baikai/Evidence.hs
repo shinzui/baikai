@@ -788,6 +788,7 @@ declaredStrength = \case
   OpenAIResponses -> EvidenceModelObserved
   AnthropicMessagesCli -> EvidenceModelObserved
   OpenAICompletionsCli -> EvidenceCorrelated
+  TypeSafeSystemOne -> EvidenceModelObserved
   Custom _ -> EvidenceRequestedOnly
 
 -- ============================================================

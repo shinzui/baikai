@@ -6,6 +6,7 @@ module FetchModelsSpec (tests) where
 
 import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
+import Baikai.Model qualified
 import Baikai.Model qualified as Model
 import Baikai.Prelude
 import Control.Monad (forM_)
@@ -59,6 +60,7 @@ expectedOpenAI =
               name = "GPT-5 Nano",
               reasoning = True,
               input = [InputText, InputImage],
+              outputKind = Baikai.Model.GenerativeOutput,
               cost = CatalogCost 0.05 0.4 0 0,
               fastModeCost = Nothing,
               pricingPolicy = Nothing,
@@ -72,6 +74,7 @@ expectedOpenAI =
               name = "GPT-5.4",
               reasoning = True,
               input = [InputText, InputImage],
+              outputKind = Baikai.Model.GenerativeOutput,
               cost = CatalogCost 2.5 15 0.25 0,
               fastModeCost = Nothing,
               pricingPolicy = Nothing,
@@ -98,6 +101,7 @@ expectedAnthropic =
               name = "Claude Opus 4.5",
               reasoning = True,
               input = [InputText, InputImage],
+              outputKind = Baikai.Model.GenerativeOutput,
               cost = CatalogCost 5 25 1.5 6.25,
               fastModeCost = Nothing,
               pricingPolicy = Nothing,
@@ -238,6 +242,7 @@ tests =
                           name = nameWithControls,
                           reasoning = False,
                           input = [InputText],
+                          outputKind = Baikai.Model.GenerativeOutput,
                           cost = CatalogCost 0 0 0 0,
                           fastModeCost = Nothing,
                           pricingPolicy = Nothing,

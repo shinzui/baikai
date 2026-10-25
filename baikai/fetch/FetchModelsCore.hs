@@ -222,6 +222,7 @@ data CatalogModel = CatalogModel
     name :: !Text,
     reasoning :: !Bool,
     input :: ![InputModality],
+    outputKind :: !Model.OutputKind,
     cost :: !CatalogCost,
     fastModeCost :: !(Maybe CatalogCost),
     pricingPolicy :: !(Maybe Model.PricingPolicy),
@@ -463,6 +464,7 @@ normalizeProvider spec upstream =
         { modelId = m ^. #modelId,
           name = normalizeName (fromMaybe (m ^. #modelId) (m ^. #name)),
           reasoning = m ^. #reasoning,
+          outputKind = Model.GenerativeOutput,
           input =
             if "image" `elem` (m ^. #inputModalities)
               then [InputText, InputImage]
@@ -658,6 +660,7 @@ renderModel m =
     "      \"contextWindow\": " <> Text.pack (show (m ^. #contextWindow)) <> ",",
     "      \"maxOutputTokens\": " <> Text.pack (show (m ^. #maxOutputTokens)) <> ","
   ]
+    ++ ["      \"outputKind\": \"judgment\"," | m ^. #outputKind == Model.JudgmentOutput]
     ++ maybe [] (\a -> ["      \"api\": " <> jsonString a <> ","]) (m ^. #apiOverride)
     ++ maybe [] (\r -> ["      \"fastModeCost\": " <> renderFastCost r <> ","]) (m ^. #fastModeCost)
     ++ maybe [] (\p -> ["      \"pricingPolicy\": " <> renderPricingPolicy p <> ","]) (m ^. #pricingPolicy)
@@ -756,6 +759,7 @@ renderInput ms = "[" <> Text.intercalate ", " (map one ms) <> "]"
   where
     one InputText = "\"text\""
     one InputImage = "\"image\""
+    one InputData = "\"data\""
 
 jsonBool :: Bool -> Text
 jsonBool True = "true"

@@ -67,7 +67,7 @@ The relevant local decisions are [ADR 0002](../adr/0002-requested-translated-obs
 | # | Title | Path | Hard Deps | Soft Deps | Status |
 |---|-------|------|-----------|-----------|--------|
 | 83 | Preserve structured data and probability evidence across Baikai | [docs/plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md](../plans/83-preserve-structured-data-and-probability-evidence-across-baikai.md) | None | None | Complete |
-| 99 | Add a provider-neutral judgment layer and judgment-only catalog facts to core | [docs/plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md](../plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md) | EP-83 | None | Not Started |
+| 99 | Add a provider-neutral judgment layer and judgment-only catalog facts to core | [docs/plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md](../plans/99-add-a-provider-neutral-judgment-layer-and-judgment-only-catalog-facts-to-core.md) | EP-83 | None | Complete |
 | 84 | Deliver the TypeSafe System One provider and judgment catalog | [docs/plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md](../plans/84-deliver-the-typesafe-system-one-provider-and-judgment-catalog.md) | EP-83, EP-99 | None | Not Started |
 
 Status values are Not Started, In Progress, Complete, and Cancelled. EP-84's external client prerequisites are satisfied; see Dependency Graph.
@@ -114,7 +114,7 @@ During implementation, EP-83 records the durable content/serialization and typed
 
 ## Progress
 
-EP-83 is Complete (2026-10-25): the workspace builds and core, provider, sink, effectful and documentation offline gates pass. Structured content, typed errors, events, named response persistence and trace/log preservation are available. EP-99 is next, followed by EP-84. External client gates remain satisfied by typesafe-hs 0.1.0.0. Remaining gates are the neutral judgment/catalog tests, adapter HTTP matrix, final packaging and source-distribution verification; live verification remains explicitly selected and must be reported separately.
+EP-83 and EP-99 are Complete (2026-10-25). Core content/persistence and the provider-neutral judgment/catalog layer pass offline acceptance; the workspace builds with exhaustive matches. EP-84 is next. Its external client gates remain satisfied by typesafe-hs 0.1.0.0. Remaining gates are the adapter HTTP matrix, final packaging/documentation and isolated source-distribution verification; live verification remains explicitly selected and is reported separately.
 
 
 ## Surprises & Discoveries
