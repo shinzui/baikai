@@ -14,7 +14,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   legacy JSON and catalog refresh; unsupported native requests fail locally.
   Effective duration reaches terminal pricing, partial usage and evidence.
   Evidence schema 2.8 includes content-free native controls and input structure.
-  Modern Long remains gated; live OpenAI verification is pending account credits.
+  Funded live prefix checks pass for Luna Responses Short/Long and GPT-5.6 Chat
+  Short. Luna Long uses verified 12h base/tier rates; unsupported Chat Long and
+  unverified modern bindings remain locally refused.
   Exported compatibility-record changes require PVP major-release review.
 
 - `baikai-claude`: short and long `cacheRetention` now mark non-empty system

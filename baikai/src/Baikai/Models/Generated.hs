@@ -1303,7 +1303,7 @@ openai_gpt_6_luna =
             cacheWriteCost = 1 % 8
           },
       fastModeCost = Nothing,
-      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (1 % 5) (3 % 4) (1 % 50) (1 % 4)) Nothing] Nothing),
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (1 % 5) (3 % 4) (1 % 50) (1 % 4)) (Just (1 % 2))] (Just (1 % 4))),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1312,9 +1312,9 @@ openai_gpt_6_luna =
           defaultOpenAIResponsesCompat
             { supportedReasoningEfforts = Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
               supportsSamplingParameters = False,
-              supportsLongCacheRetention = False,
+              supportsLongCacheRetention = True,
               supportsPromptCacheOptions = True,
-              nativeCachePolicy = Just (NativeCacheModern False True)
+              nativeCachePolicy = Just (NativeCacheModern True True)
             }
     }
 

@@ -282,7 +282,7 @@ openaiInclude =
           ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
           ("gpt-6.1-sol", Just (CatalogResponsesCompat gpt61ResponsesFacts)),
           ("gpt-6-sol", Just (CatalogResponsesCompat gpt6ResponsesFacts)),
-          ("gpt-6-luna", Just (CatalogResponsesCompat gpt6ResponsesFacts))
+          ("gpt-6-luna", Just (CatalogResponsesCompat lunaResponsesFacts))
         ]
     )
     $ Map.fromList
@@ -315,8 +315,12 @@ openaiInclude =
   where
     -- 2026-10-25: Endpoint cache facts from the caching guide and Chat/Responses
     -- references: https://developers.openai.com/api/docs/guides/prompt-caching
-    -- Modern short and breakpoint support verified in the schemas; conflicting
-    -- 12h documentation remains gated (live probe returned quota exhaustion).
+    -- Short and breakpoint support passed live pairs on Luna Responses and
+    -- GPT-5.6 Chat. A funded Luna Responses 12h probe completed and reported
+    -- ttl_12h_tokens; GPT-5.6 Chat rejected 12h with HTTP 400 (30m only).
+    -- Enable Long only on the probed Luna endpoint, with its published rates.
+    -- https://developers.openai.com/api/docs/pricing
+    lunaResponsesFacts = gpt6ResponsesFacts & #nativeCachePolicy .~ Just (NativeCacheModern True True) & #supportsLongCacheRetention .~ True
     -- 2026-09-23: Sol and Luna require Responses for function calling at
     -- their default reasoning effort; Chat permits it only at effort none.
     -- https://developers.openai.com/api/docs/models/gpt-6-sol
@@ -722,7 +726,10 @@ pricingPolicies =
       (("anthropic", "claude-sonnet-5-5"), Model.PricingPolicy [] (Just 4)),
       (("openai", "gpt-6.1-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5) Nothing] Nothing),
       (("openai", "gpt-6-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5) Nothing] Nothing),
-      (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) Nothing] Nothing),
+      -- 2026-10-25: Luna Responses accepts 12h. The standard pricing table
+      -- publishes 0.25/M below/at 272K and 0.50/M above, matching the
+      -- guide's total 2.5x uncached-input rate (not an added surcharge).
+      (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) (Just 0.5)] (Just 0.25)),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20)),
       (("anthropic", "claude-haiku-5-5"), Model.PricingPolicy [Model.InputPriceTier 100000 (Model.ModelCost 0.5 2.5 0.05 0.625) (Just 1)] (Just 0.2))
     ]

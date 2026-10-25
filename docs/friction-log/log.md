@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-10-25
+* **Update**: FRIC-3 resolved: Credits restored; replace the accepted quota limitation with successful funded endpoint evidence.
 * **Update**: FRIC-3 accepted: Keep endpoint acceptance and live cache reuse unverified after the bounded quota failure; no retries added.
 * **Addition**: FRIC-3 records blocked environment friction with https://developers.openai.com/api/docs/guides/prompt-caching: OpenAI cache verification exhausted account quota
 * **Update**: FRIC-1 records a readiness-based repair of both lifecycle fixtures

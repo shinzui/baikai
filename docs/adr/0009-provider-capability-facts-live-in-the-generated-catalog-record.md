@@ -216,3 +216,7 @@ moves the original text into one developer input block because `instructions`
 cannot carry a breakpoint; Chat retains its instruction role. Unrequested controls
 preserve wire shape. API documentation disagreement does not establish capability:
 modern Long remains disabled until endpoint acceptance and prices are verified.
+A funded 2026-10-25 probe and shared-prefix pair establish Luna Responses `12h`;
+that binding enables Long with its base and tier rates. GPT-5.6 Chat returned
+HTTP 400 for `12h` and stays Short-only. Evidence for one binding never grants
+Long to another model or endpoint.

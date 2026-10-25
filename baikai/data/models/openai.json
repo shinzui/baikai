@@ -337,12 +337,12 @@
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
       "api": "openai-responses",
-      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 0.2, "output": 0.75, "cacheRead": 0.02, "cacheWrite": 0.25}}]},
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 0.2, "output": 0.75, "cacheRead": 0.02, "cacheWrite": 0.25}, "longCacheWriteCost": 0.5}], "longCacheWriteCost": 0.25},
       "compat": {
-        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [false, true]},
+        "nativeCachePolicy": {"tag": "NativeCacheModern", "contents": [true, true]},
         "kind": "openai-responses",
         "supportsSamplingParameters": false,
-        "supportsLongCacheRetention": false,
+        "supportsLongCacheRetention": true,
         "supportsPromptCacheOptions": true,
         "supportedReasoningEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
       },

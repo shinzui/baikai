@@ -25,7 +25,7 @@ requires:
 evidence:
   - kind: test
     resource: baikai-openai/test/NativeCacheSpec.hs
-    proves: "Native prefix shaping and public dispatch preserve replay, refuse unsupported controls before credentials, and use effective-duration pricing with explicit estimates; synthetic Long fixtures do not establish provider support."
+    proves: "Native prefix shaping and public dispatch preserve replay, refuse unsupported controls before credentials, and use effective-duration pricing with explicit estimates; Luna Long uses verified base/tier rates and synthetic fixtures cover other policies."
   - kind: test
     resource: baikai-openai/test/TransportSpec.hs
     proves: "The HTTP transport beneath the provider and its failure paths, including that the connection cache allocates once per normalised base URL and that an unusable base URL — a query string, credentials in the URL, no scheme, or a full endpoint path — is refused as an InvalidRequest before any key is read from the environment."
@@ -126,12 +126,15 @@ completeRequest m ctx opts
 Endpoint-specific catalog policy gates native retention and stable system-prefix
 breakpoints. Modern Short uses `30m`; absent/None controls preserve wire shape
 while the documented modern default supplies Short for pricing. Long requires
-verified endpoint support plus base and every tier's long-write rate. It remains
-disabled in curated modern bindings. Legacy `24h` uses base write pricing without
+verified endpoint support plus base and every tier's long-write rate. Luna
+Responses enables `12h` with published $0.25/M base and $0.50/M tier write rates;
+GPT-5.6 Chat rejected `12h`, and other unverified modern bindings keep it disabled. Legacy `24h` uses base write pricing without
 a modern premium. Unknown duration with reported writes and duration-sensitive
 rates is an explicit estimate; conflicting duration details mark usage inconsistent.
 
-`NativeCacheSpec` verifies request capture, public dispatch and exact synthetic
-prices offline. OpenAI live reuse remains pending: the 2026-10-25 Responses
-probe returned HTTP 429 quota exhaustion. See the [caching guide](../user/prompt-caching.md)
-for isolated endpoint checks and the supported policy matrix.
+`NativeCacheSpec` verifies request capture, public dispatch and exact duration
+prices offline. On 2026-10-25 funded live pairs passed for Luna Responses Short
+and Long and GPT-5.6 Chat Short: each wrote 4,864 tokens and read 4,852 with a
+different first question, with positive corresponding costs. The Luna Long
+write used twice its Short price. See the [caching guide](../user/prompt-caching.md)
+for endpoint-specific limits, isolated checks and the supported policy matrix.

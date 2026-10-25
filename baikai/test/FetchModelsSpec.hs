@@ -135,7 +135,7 @@ tests =
     [ testCase "curated native cache facts survive fetch rendering and generator parsing" $ do
         upstream <- loadUpstream
         let sample = head (Map.elems (Map.findWithDefault Map.empty "openai" upstream))
-        forM_ [("gpt-6-luna", C.NativeCacheModern False True), ("gpt-5.6", C.NativeCacheModern False True), ("gpt-4.1", C.NativeCacheLegacy True True), ("gpt-5.5", C.NativeCacheLegacy False True)] $ \(mid, expected) -> do
+        forM_ [("gpt-6-luna", C.NativeCacheModern True True), ("gpt-5.6", C.NativeCacheModern False True), ("gpt-4.1", C.NativeCacheLegacy True True), ("gpt-5.5", C.NativeCacheLegacy False True)] $ \(mid, expected) -> do
           let cat = normalizeProvider openaiSpec (Map.singleton mid (sample & #modelId .~ mid & #toolCall .~ True))
           parsed <- either assertFailure pure (Aeson.eitherDecode (BSL.fromStrict (renderCatalog cat)))
           let entries = Gen.flattenEntries parsed
@@ -210,7 +210,7 @@ tests =
         forM_
           [ (openaiSpec, "gpt-6-astra", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25) Nothing] Nothing),
             (openaiSpec, "gpt-6-sol", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5) Nothing] Nothing),
-            (openaiSpec, "gpt-6-luna", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) Nothing] Nothing),
+            (openaiSpec, "gpt-6-luna", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) (Just 0.5)] (Just 0.25)),
             (anthropicSpec, "claude-fable-5-1", Model.PricingPolicy [] (Just 20)),
             (anthropicSpec, "claude-opus-5-5", Model.PricingPolicy [] (Just 8))
           ]

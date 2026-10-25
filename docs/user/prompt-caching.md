@@ -45,7 +45,8 @@ identical system prefixes even when their first questions differ.
 
 | Binding | Short | Long |
 |---|---|---|
-| Modern native OpenAI | `30m`, stable-prefix breakpoint | Locally refused while `12h` remains unverified |
+| GPT-6 Luna Responses | `30m`, stable-prefix breakpoint | `12h`, stable-prefix breakpoint |
+| Other curated modern native bindings | `30m`, stable-prefix breakpoint | Locally refused |
 | GPT-4.1 legacy native | `in_memory`, no breakpoint | `24h`, no breakpoint |
 | GPT-5.5 legacy native | Locally refused | `24h`, no breakpoint |
 | Anthropic / compatible Anthropic markers | ephemeral | `1h`, or short downgrade |
@@ -63,11 +64,25 @@ grants new native capabilities. Baikai does not expose cache keys, prewarming,
 explicit-only mode, per-message placement or mixed TTLs.
 
 The [OpenAI caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
-and endpoint references disagree on `12h` availability. On 2026-10-25 a bounded
-GPT-6 Luna Responses probe returned HTTP 429 `credit_balance_exhausted`, with no
-usage or acceptance evidence. Short shaping is covered offline; native OpenAI
-live reuse and Long support remain unverified. Claude Sonnet 4.6 separately
-passed live Short and Long shared-prefix checks on that date.
+and endpoint references disagree on `12h` availability. Bounded live checks on
+2026-10-25 resolved the selected endpoints: GPT-6 Luna Responses accepted `12h`
+and reported its writes under `ttl_12h_tokens`; GPT-5.6 Chat rejected `12h` with
+HTTP 400, stating that only `30m` is accepted. Luna Responses therefore enables
+Long; other unverified modern bindings retain their local refusal.
+
+The [standard pricing table](https://developers.openai.com/api/docs/pricing)
+lists Luna Long writes at $0.25/M through 272,000 input tokens and $0.50/M above
+that threshold; Short writes cost $0.125/M and $0.25/M respectively. These are
+total write prices, not surcharges. The selected context tier prices the full
+request, and cache-read prices do not change with retention.
+
+Funded live shared-prefix checks passed for Luna Responses Short and Long and
+GPT-5.6 Chat Short. Each pair wrote 4,864 cache tokens initially and read 4,852
+with a different first question; corresponding cache costs were positive.
+Luna's Short write cost was $0.000608 and Long $0.001216; both read costs were
+$0.00004852. These observations prove reuse and duration-aware local pricing,
+not invoice reconciliation or the behavior of other model/endpoint bindings.
+Claude Sonnet 4.6 separately passed live Short and Long checks on that date.
 
 Anthropic tool-definition markers remain gated by `supportsCacheControlOnTools`.
 

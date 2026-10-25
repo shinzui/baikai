@@ -54,13 +54,13 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Models.Generated"
-    [ testCase "native cache facts are endpoint specific and Long remains gated" $ do
+    [ testCase "native cache facts enable verified Luna Long and keep Chat gated" $ do
         let findModel mid = case filter ((== mid) . modelId) allModels of [m] -> pure m; _ -> assertFailure "missing model"
         luna <- findModel "gpt-6-luna"
         chat <- findModel "gpt-5.6"
         both <- findModel "gpt-4.1"
         longOnly <- findModel "gpt-5.5"
-        (M.openaiResponsesCompatFor luna).nativeCachePolicy @?= Just (C.NativeCacheModern False True)
+        (M.openaiResponsesCompatFor luna).nativeCachePolicy @?= Just (C.NativeCacheModern True True)
         (M.openaiCompletionsCompatFor chat).nativeCachePolicy @?= Just (C.NativeCacheModern False True)
         (M.openaiCompletionsCompatFor both).nativeCachePolicy @?= Just (C.NativeCacheLegacy True True)
         (M.openaiCompletionsCompatFor longOnly).nativeCachePolicy @?= Just (C.NativeCacheLegacy False True),
@@ -80,7 +80,7 @@ tests =
               case [compat m | m <- allModels, modelId m == mid] of
                 [CompatOpenAIResponses c] -> do
                   c.supportsPromptCacheOptions @?= True
-                  c.supportsLongCacheRetention @?= False
+                  c.supportsLongCacheRetention @?= (mid == "gpt-6-luna")
                   c.supportsSamplingParameters @?= False
                   c.supportedReasoningEfforts @?= Just ([ThinkingNone | mid /= "gpt-6.1-sol"] <> [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax])
                 _ -> assertFailure "GPT-6 Sol/Luna need explicit OpenAI Responses facts"

@@ -131,3 +131,11 @@ Conflicting totals, invalid counters or another duration mark usage inconsistent
 Partial and repeated cumulative snapshots retain the same checks and pricing on
 both successful and error terminals. Synthetic Long fixtures establish arithmetic
 and plumbing without claiming provider support or invoice reconciliation.
+
+Funded Luna Responses checks on 2026-10-25 establish uniform `12h` writes and
+shared-prefix reuse. Its published Long write prices are $0.25/M through 272,000
+input tokens and $0.50/M above, twice its Short write rates. The catalog carries
+both values and preserves them through fetch/generation. The live Short and Long
+pairs used the corresponding positive local prices; this remains separate from
+provider invoice reconciliation. Other native Long bindings stay gated until
+verified independently.

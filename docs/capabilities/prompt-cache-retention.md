@@ -34,7 +34,7 @@ evidence:
     proves: "Fable write costs follow the shaped TTL, including a compatibility downgrade, and observed billing facts survive terminal snapshots."
   - kind: example
     resource: baikai-smoke/test/CacheSmoke.hs
-    proves: "A live sequence checks cache writes, an identical-request hit, and a shared-system-prefix hit with a different first question, including nonzero cache costs."
+    proves: "Live shared-prefix pairs passed on 2026-10-25 for Luna Responses Short/Long and GPT-5.6 Chat Short with positive cache tokens and costs; Claude also checks an identical-request hit."
   - kind: guide
     resource: docs/user/prompt-caching.md
     proves: "The CacheRetention preference, the host-aware long/short downgrade, and how to read the cache token and cost split back off Usage."
@@ -86,10 +86,13 @@ print (resp ^. #message . #usage . #cost . #basis)
   unsupported preferences fail before credentials; absent policy preserves legacy
   Responses behavior and disables native Chat controls. Compatible Anthropic
   markers retain their long-to-short downgrade.
-- Modern Long stays disabled while `12h` endpoint support is unverified. The
-  2026-10-25 Responses probe returned quota exhaustion, not acceptance or usage.
-  Offline native tests prove serialization, dispatch, pricing and redaction;
-  OpenAI live shared-prefix reuse remains pending.
+- Luna Responses enables Long after a successful `12h` probe with duration-specific
+  usage and verified base/tier prices. GPT-5.6 Chat rejects `12h` with HTTP 400;
+  it remains Short-only. Other unverified modern bindings retain local Long refusal.
+- On 2026-10-25 funded live Short/Long Luna Responses and Short GPT-5.6 Chat pairs
+  each wrote 4,864 tokens and read 4,852 across different first questions, with
+  positive costs. Luna Long writes used twice the Short price. This establishes
+  those model/endpoint combinations, not invoice reconciliation.
 - Whether a cache hit actually occurs depends on prefix stability, host policy,
   and timing. baikai reports what the host said it did; it cannot make a hit
   happen.

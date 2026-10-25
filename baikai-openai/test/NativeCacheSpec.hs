@@ -29,7 +29,16 @@ tests :: TestTree
 tests =
   testGroup
     "native cache contract"
-    [ testCase "Responses preserves exactly one identical prefix across fresh questions" $ do
+    [ testCase "verified Luna Long plan emits 12h with published duration rates" $ do
+        let m = Models.openai_gpt_6_luna
+        plan <- right (Cache.responsesCachePlan m (short & #cacheRetention .~ Just CacheRetentionLong))
+        Cache.cacheFields plan @?= [("prompt_cache_options", object ["ttl" .= ("12h" :: Text)])]
+        Cache.effectiveRetention plan @?= Just CacheRetentionLong
+        Cache.markPrefix plan @?= True
+        forM_ [(272000, 17 / 250), (272001, 272001 / 2000000)] $ \(count, expected) -> do
+          let u = observeBilling [BillingServiceTier "default"] (zeroUsage & #cacheWriteTokens .~ count & #totalTokens .~ count)
+          (Cache.cacheCost (Just CacheRetentionLong) m u).usd @?= expected,
+      testCase "Responses preserves exactly one identical prefix across fresh questions" $ do
         a <- mapped (systemUser "private prefix" "first") short
         b <- mapped (systemUser "private prefix" "second") short
         field "instructions" a.requestBody @?= Nothing
@@ -167,7 +176,10 @@ tests =
     ]
 
 model :: Model
-model = Models.openai_gpt_6_luna & #modelId .~ "renamed-responses"
+model =
+  Models.openai_gpt_6_luna
+    & #modelId .~ "renamed-responses"
+    & #compat .~ CompatOpenAIResponses (openaiResponsesCompatFor Models.openai_gpt_6_luna & #nativeCachePolicy .~ Just (NativeCacheModern False True))
 
 chatModel :: Model
 chatModel = Models.openai_gpt_5_6 & #modelId .~ "renamed-chat"

@@ -208,7 +208,7 @@ runOpenAICacheCase requireKey name = do
           policy = if name == "openai-cache-responses" then (openaiResponsesCompatFor model) ^. #nativeCachePolicy else (openaiCompletionsCompatFor model) ^. #nativeCachePolicy
           long = case policy of Just (NativeCacheModern True _) -> True; _ -> False
           durations = [CacheRetentionShort] <> [CacheRetentionLong | long]
-      unless long (hPutStrLn stderr "[baikai-smoke] Long disabled: endpoint support remains unverified.")
+      unless long (hPutStrLn stderr "[baikai-smoke] Long disabled by the selected endpoint's catalog policy.")
       mapM_ (runPair model envVar key) durations
       pure True
   where
