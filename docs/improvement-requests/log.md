@@ -1,5 +1,10 @@
 # Bundle Update Log
 
+## 2026-11-03
+* **Addition**: [IR-13](deliver-aborted-call-evidence-through-the-effectful-binding.md)
+  requests a traced stream collection in `baikai-effectful`, so an effectful retry owner can
+  receive the `CallAborted` record when a collection is cancelled.
+
 ## 2026-10-25
 * **Completion**: [IR-10](support-typesafe-system-one-judgment-models.md) is completed
   on the default branch by MasterPlan 14 and EP-83/99/84. Structured content and
