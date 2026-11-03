@@ -12,4 +12,5 @@ okf_version: "0.2"
 - [Capability strict validation encounters pre-existing missing review metadata](2-capability-strict-validation-encounters-pre-existing-missing-review-metadata.md) - Strict capability-bundle validation reports missing recommended reviews on older records unrelated to TypeSafe.
 - [OpenAI cache verification exhausted account quota](3-openai-cache-verification-exhausted-account-quota.md) - OpenAI rejected the bounded 12h endpoint probe before cache behavior could be observed.
 - [Isolated capability validation loses required concept context](4-isolated-capability-validation-loses-required-concept-context.md) - The plan-recommended isolated strict capability check cannot resolve CAP-32 requirements or body links without the rest of the bundle.
+- [Hackage index refresh lags the published core package](5-hackage-index-refresh-lags-the-published-core-package.md) - The default HTTP Cabal index refresh omits a core version already published on Hackage, preventing the dependent binding archive from resolving.
 

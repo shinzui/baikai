@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-03
+* **Update**: FRIC-5 resolved: Record both cohort versions reaching the signed index and retain the official HTTPS refresh workaround for downstream consumers.
+* **Update**: FRIC-5 resolved: Resolve publication-to-index lag through signed HTTPS refresh, preserving credentials, package bounds and published tags.
+* **Addition**: FRIC-5 records detour environment friction with https://hackage.haskell.org/: Hackage index refresh lags the published core package
 * **Update**: FRIC-4 resolved: Replace isolated validation advice with full-context strict diagnostic classification without changing historical review provenance.
 * **Addition**: FRIC-4 records detour documentation friction with mori://shinzui/baikai/plans/102-deliver-aborted-call-evidence-through-the-effectful-binding: Isolated capability validation loses required concept context
 

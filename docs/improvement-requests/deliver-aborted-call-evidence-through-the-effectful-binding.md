@@ -4,12 +4,12 @@ title: Deliver aborted-call evidence through the effectful binding
 description: >-
   Expose Baikai's traced stream path through baikai-effectful so an effectful retry owner can
   collect a stream and still receive the aborted evidence record when the collection is cancelled.
-timestamp: "2026-11-03T04:20:02Z"
+timestamp: "2026-11-03T14:51:52Z"
 generated:
   by: agent:anthropic/claude-opus-5-5
   at: "2026-11-03T04:20:02Z"
 requestId: IR-13
-status: proposed
+status: completed
 origin: mori://shinzui/shikumi
 ---
 
@@ -17,11 +17,33 @@ origin: mori://shinzui/shikumi
 
 ## Status
 
-Proposed. This is the Baikai-owned part of
-`mori://shinzui/shikumi/okf/improvement-requests/concepts/IR-3`. Everything else in that request
-is planned in `mori://shinzui/shikumi/plans/68-support-streamed-judgment-programs-with-typed-result-parity`,
-which depends on no change here. IR-3 stays open in Shikumi until this request is released and
-consumed.
+Delivered on 2026-11-03 by
+[plan 102](../plans/102-deliver-aborted-call-evidence-through-the-effectful-binding.md),
+published as [baikai 0.10.1.0](https://hackage.haskell.org/package/baikai-0.10.1.0)
+and [baikai-effectful 0.5.0.0](https://hackage.haskell.org/package/baikai-effectful-0.5.0.0).
+Both annotated package tags identify commit `cdb79e5805613ab60074bb2c9279d779af610c05`.
+
+The public `streamCollectTraced` operation delegates to core's fold-owning
+collector. Healthy cancellation delivers Baikai's abort evidence before the
+original exception reaches the caller, including between stream steps. A
+committed terminal keeps its evidence; blocked and throwing sinks preserve
+cancellation and bounded cleanup. [CAP-32](../capabilities/traced-effectful-collection.md)
+and [ADR-15](../adr/0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md)
+describe acknowledgement and unconfirmed delivery.
+
+The complete offline gate passed all 12 suites. Outside the workspace, the core
+archive passed 847 tests and the binding archive passed 16 against released core.
+Hackage downloads match those tested archives byte for byte, both packages have
+published Haddock, and a separate consumer compiled the public operation with
+both exact package versions resolved from Hackage.
+
+This completes only the Baikai-owned part of
+`mori://shinzui/shikumi/okf/improvement-requests/concepts/IR-3`. Downstream adoption
+remains separate under
+`mori://shinzui/shikumi/plans/68-support-streamed-judgment-programs-with-typed-result-parity`;
+this completion does not close or change Shikumi's request or dependency bounds.
+The remaining sections preserve the original request baseline.
+
 
 
 ## Context

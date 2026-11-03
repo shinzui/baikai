@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-03
+* **Completion**: [IR-13](deliver-aborted-call-evidence-through-the-effectful-binding.md) is completed by plan 102 and the tagged Hackage releases baikai 0.10.1.0 and baikai-effectful 0.5.0.0, including Haddock, isolated archive tests and a consumer resolving both from Hackage. Downstream adoption remains separate.
 * **Addition**: [IR-13](deliver-aborted-call-evidence-through-the-effectful-binding.md)
   requests a traced stream collection in `baikai-effectful`, so an effectful retry owner can
   receive the `CallAborted` record when a collection is cancelled.
