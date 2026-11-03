@@ -1,7 +1,7 @@
 ---
 title: "effectful binding for the transport"
 type: Capability
-description: "Call baikai from effectful code through a dynamic Baikai effect with three operations — Complete, StreamCollect, StreamEach — and swap a real provider for a fake one by changing which interpreter runs, without a class, a monad transformer, or a policy decision baked into the binding."
+description: "Call baikai from effectful code through a dynamic Baikai effect with blocking and streaming operations and swap a real provider for a fake one by changing which interpreter runs, without a class, a monad transformer, or a policy decision baked into the binding."
 generated:
   by: claude-code/opus-5
   at: "2026-08-27T00:00:00Z"
@@ -29,14 +29,15 @@ evidence:
     proves: "That the binding is testable against a fake provider registered into an explicit registry — the substitution the capability exists to enable."
   - kind: module
     resource: baikai-effectful/src/Baikai/Effectful.hs
-    proves: "The dynamic Baikai effect, its three operations, and the registry-backed interpreters."
+    proves: "The dynamic Baikai effect, its transport operations, and the registry-backed interpreters."
 ---
 
 # effectful binding for the transport
 
 `baikai-effectful` is one module: a dynamic
 [`effectful`](https://hackage.haskell.org/package/effectful) effect named
-`Baikai` with three operations — `Complete`, `StreamCollect`, `StreamEach` — and
+`Baikai` with `Complete`, `StreamCollect`, `StreamEach`, and (since 0.5.0.0)
+`StreamCollectTraced`, plus
 interpreters that run them against a `ProviderRegistry`. Application code written
 in `Eff es` gets `complete`, `streamCollect`, and `streamEach` without importing
 `streamly` or reaching for the process-global registry.
@@ -67,13 +68,12 @@ program = complete model ctx opts
 
 ## Limits
 
-- Three operations, and that is the whole surface. Anything else in baikai —
-  tracing, the cost log, evidence, embeddings, the agent surfaces — is used
-  directly in `IO`, not through this effect.
+- [CAP-32 — traced collection](traced-effectful-collection.md) adds
+  `StreamCollectTraced` with synchronous, bounded cancellation cleanup. The cost
+  log, embeddings, and agent surfaces are used directly in `IO`.
 - Policy-free means exactly that: no retry, no fallback, no budget. A consumer
   who wants those writes them above the effect.
-- The package's release history is almost entirely `baikai` bound widening; its
-  own API has not changed since 0.1.0.0. That stability is real but it also means
-  the binding has not grown to cover the surfaces baikai added since.
+- CAP-20 keeps its original `since`; CAP-32 records the later operation so an
+  older consumer can distinguish the available API.
 - `LiveSpec` needs credentials and is skipped in a default run; the offline
   evidence is the stub-provider path.

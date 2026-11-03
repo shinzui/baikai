@@ -90,7 +90,9 @@ Records reach a consumer through
 [CAP-9 — call tracing](call-tracing.md) as one `call_evidence` line per call,
 under every way a call can end — including a consumer who abandons the stream,
 which records `aborted` rather than `failed`, because an abort is the consumer's
-doing.
+doing. [CAP-32 — traced collection](traced-effectful-collection.md) documents
+when the caller can confirm abort delivery before handling cancellation, and the
+bounded, unconfirmed-delivery behavior of blocked or throwing sinks.
 
 This builds on [CAP-1 — provider-neutral model calls with registry
 dispatch](unified-provider-calls.md) and on

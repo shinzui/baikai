@@ -17,6 +17,7 @@ layer up, written *in terms of* this effect.
 data Baikai :: Effect where
   Complete      :: Model -> Context -> Options -> Baikai m Response
   StreamCollect :: Model -> Context -> Options -> Baikai m [AssistantMessageEvent]
+  StreamCollectTraced :: TraceSink -> Model -> Context -> Options -> Baikai m [AssistantMessageEvent]
   StreamEach    :: Model -> Context -> Options -> (AssistantMessageEvent -> m ()) -> Baikai m ()
 ```
 
@@ -26,10 +27,40 @@ data Baikai :: Effect where
 | --------------------------------- | ------------------------------------------------------------- |
 | `complete m c o`                  | Blocking completion → `Response`, including error-shaped responses. |
 | `streamCollect m c o`             | Drain the stream into the full `[AssistantMessageEvent]`.     |
+| `streamCollectTraced sink m c o` | Collect events with tracing and bounded cleanup on cancellation. |
 | `streamEach m c o k`              | Run callback `k` once per event, in order, inside `Eff`.      |
 
 `streamEach` preserves incrementality (the callback sees events as they arrive); a terminal
 `EventError` appears in-band rather than as a thrown exception, matching baikai.
+
+## Evidence on cancellation
+
+`streamCollectTraced` delegates to core's `withTraceListWith`, which owns the
+whole fold lifetime. Supply a `TraceSink` and opt in through `Options.evidence`.
+On success or provider failure the sink's single `CallEvidence` carries exactly
+the terminal's evidence record, including its `callId`. A strict pre-dispatch
+refusal retains core's failed evidence and never invokes the provider. Opt-out
+produces no evidence; providers that omit successful evidence retain core's
+strict missing-record failure.
+
+For cancellation before terminal commitment, use a short, nonblocking sink that stores the complete
+`ModelCallEvidence` in a caller-owned cell before acknowledging it. Read that
+cell immediately in the caller's exception handler. With a healthy sink the
+`CallAborted` record is already present and the original exception is unchanged.
+The sink fold's end action also completes before propagation. Cancellation after
+terminal commitment retains that terminal's evidence and adds no abort.
+
+The sink drain budget is one second in total. A blocked or throwing sink still
+allows cancellation to unwind and reports its failure on stderr; an empty cell
+means delivery was unconfirmed. A worker abandoned at the bound can deliver
+later. Exactly-once means Baikai submits one evidence event, not that a failing
+external destination durably stores it. Keep slow export behind a nonblocking
+queue.
+
+Core's `withTraceFold`, `withTraceList`, `withTrace`, and their `With` variants
+own the same lifetime. Arbitrary abandonment of `withTraceStream` between stream
+steps still relies on garbage collection. The existing `streamCollect` and
+`streamEach` operations keep their behavior.
 
 ## Interpreters
 

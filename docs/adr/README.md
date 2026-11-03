@@ -28,7 +28,7 @@ bundle.
 | [0012](0012-the-unattended-policy-ceiling-gates-every-repository-settable-field.md) | The unattended policy ceiling gates every field a repository can set, and `allowedTools` is a grant | accepted |
 | [0013](0013-library-code-never-calls-exitfailure.md) | Library code never calls `exitFailure`; process exit belongs to a command adapter | accepted |
 | [0014](0014-strict-evidence-means-a-record-exists.md) | Strict evidence means a record exists, not merely that the sink did not throw | accepted |
-| [0015](0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md) | Trace cleanup is bounded, and abort cleanup is garbage-collection-eventual | accepted |
+| [0015](0015-trace-cleanup-is-bounded-and-abort-cleanup-is-gc-eventual.md) | Trace cleanup is bounded; fold owners finalize synchronously and general streams may rely on GC | accepted |
 | [0016](0016-deprecated-names-are-removed-at-the-next-major.md) | A deprecated name is removed at the next major release after the one that deprecates it | accepted |
 | [0017](0017-a-documented-example-compiles-in-the-test-suite.md) | A documented example compiles in the test suite, and the record and its compiled twin are checked against each other | accepted |
 | [0018](0018-a-provider-stop-reason-with-no-baikai-equivalent-maps-to-the-nearest-truthful-one.md) | A provider stop reason with no baikai equivalent maps to the nearest truthful one, and the sum does not widen to hold it | accepted |

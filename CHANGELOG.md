@@ -7,6 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai 0.10.1.0] - 2026-11-03
+
+### Added
+
+- `Baikai.Trace.withTraceFold` and `withTraceFoldWith` own tracing across the
+  entire consumer fold; `withTraceList` and `withTraceListWith` collect events.
+  A healthy sink receives abort evidence before cancellation propagates,
+  including cancellation between stream steps.
+
+### Fixed
+
+- `withTrace`, `withTraceWith`, and the traced call in `runRequestWith` and
+  `runRequestWithRegistry` now finalize synchronously on cancellation. Cleanup
+  resumes an interrupted terminal drain within the same one-second budget,
+  preserves the original exception, and never duplicates terminal evidence.
+  General-stream abandonment keeps its garbage-collection-eventual contract.
+
+## [baikai-effectful 0.5.0.0] - 2026-11-03
+
+### Added
+
+- `streamCollectTraced` delegates traced event collection to core with bounded
+  cleanup on cancellation. Re-export `TraceSink` for operation signatures.
+
+### Changed (breaking)
+
+- `Baikai` gains `StreamCollectTraced`. Third-party interpreters must handle
+  this constructor. The binding requires `baikai ^>=0.10.1`.
+
 ## [baikai 0.10.0.0] - 2026-10-25
 
 ### Added

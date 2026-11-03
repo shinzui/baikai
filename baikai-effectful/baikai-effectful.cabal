@@ -1,10 +1,10 @@
 cabal-version: 3.4
 name: baikai-effectful
-version: 0.4.0.5
+version: 0.5.0.0
 synopsis: effectful binding for the baikai AI-provider transport
 description:
   A thin, policy-free effectful binding over baikai's transport. Provides the dynamic
-  `Baikai` effect (Complete / StreamCollect / StreamEach) and interpreters over a real or
+  `Baikai` effect (Complete / StreamCollect / StreamCollectTraced / StreamEach) and interpreters over a real or
   isolated provider registry. Adds no retries, caching, budgets, or error remapping.
 
 category: AI
@@ -60,7 +60,7 @@ library
   hs-source-dirs: src
   exposed-modules: Baikai.Effectful
   build-depends:
-    baikai ^>=0.10.0,
+    baikai ^>=0.10.1,
     base >=4.20 && <5,
     effectful-core ^>=2.7,
     streamly-core >=0.3 && <0.5,
@@ -81,6 +81,7 @@ test-suite baikai-effectful-test
     LiveSpec
     StreamSpec
     StubProvider
+    TracedStreamSpec
 
   build-depends:
     baikai,
@@ -92,4 +93,5 @@ test-suite baikai-effectful-test
     tasty,
     tasty-hunit,
     text,
+    time,
     vector,

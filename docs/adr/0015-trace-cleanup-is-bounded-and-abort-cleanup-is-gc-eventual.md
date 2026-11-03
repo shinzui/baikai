@@ -1,10 +1,10 @@
 ---
-title: Trace cleanup is bounded, and abort cleanup is garbage-collection-eventual
+title: Trace cleanup is bounded; fold owners finalize synchronously and general streams may rely on GC
 status: accepted
 date: 2026-08-27
 ---
 
-# Trace cleanup is bounded, and abort cleanup is garbage-collection-eventual
+# Trace cleanup is bounded; fold owners finalize synchronously and general streams may rely on GC
 
 ## Context
 
@@ -57,9 +57,11 @@ with `BlockedIndefinitelyOnMVar`, which its `try` catches and records. A
 line goes to stderr, and the `StablePtr` root is released as on the
 normal path.
 
-The claim-through-sentinel region runs under `mask`; only the wait is
-`restore`d, so a caller's cancellation reaches the wait and cannot land
-between the claim and the sentinel.
+Closure and completed draining are separate states. The sentinel is sent once;
+a monotonic deadline bounds the total drain wait, so an enclosing fold owner can
+resume an interrupted terminal wait without starting another one-second budget.
+The tiny sentinel and terminal commits are uninterruptibly masked; user sink code
+and waits are never uninterruptibly masked.
 
 **Strict evidence means delivery was confirmed, not merely attempted.** A
 `TraceSinkStalled` is an ordinary exception in `sinkError`, so
@@ -69,8 +71,7 @@ to it unchanged: a caller under `EvidenceRequired` gets a failed call.
 than "not written", which is the honest claim for an abandoned worker
 whose events are still queued.
 
-**Abort cleanup is garbage-collection-eventual, and that is documented
-rather than fixed.** The synthetic `CallFailed` and its `aborted`
+**General-stream abort cleanup remains garbage-collection-eventual.** The synthetic `CallFailed` and its `aborted`
 evidence record are delivered at the next major collection after the
 abandoned stream becomes unreachable, and are not guaranteed before
 process exit. Each active `TraceState` stays rooted by a `StablePtr`
@@ -78,10 +79,30 @@ until finalisation completes, so the worker blocked in `readChan` is not
 reaped before the hook fires.
 
 **No plan may rely on `finallyIO` for prompt cleanup on early stop.** A
-test that asserts an abort's effects forces collection and polls; a
-caller who needs the record before exiting drains the stream to its
-terminal, where the record is pushed synchronously before the terminal
-event reaches them.
+general-stream test that asserts an abort's effects forces collection and polls; a
+caller who needs the record uses a fold-owning wrapper or drains the general
+stream to its terminal. A terminal is pushed synchronously before it reaches them.
+
+**Fold owners finalize synchronously, including cancellation between steps.**
+`withTraceFold` and `withTraceFoldWith` acquire state and install an IO exception
+handler under masking before restoring cancellation across the complete fold.
+`withTraceList`, `withTrace`, and their `With` variants, plus the traced call in
+`runRequestWith` and `runRequestWithRegistry`, inherit this lifetime. Sink workers
+explicitly unmask user code. `Baikai.Effectful.streamCollectTraced` delegates to
+the list wrapper; the binding does not reconstruct evidence.
+
+On cancellation a healthy sink has consumed one `CallAborted` evidence record
+and completed its fold before the caller handles the original exception. A
+terminal already committed remains the sole terminal; cleanup adds no abort.
+Sink failure, stalled delivery, or cleanup failure must never replace that
+original exception, including under strict evidence. Normal strict-success
+rewriting and provider-error preservation remain in the terminal path.
+
+A short, nonblocking sink should store the complete record in a caller-owned
+cell before acknowledging it. The exception handler reads the cell immediately.
+Absence means unconfirmed delivery, not proof that delivery will never happen:
+a worker abandoned at the bound can deliver later. Exactly-once submission of
+an evidence event does not promise durable delivery through a failing sink.
 
 ## Consequences
 
@@ -125,3 +146,9 @@ and only the first is synchronous. The caveat stands as written; the way
 to re-check it after any future change to the abort path is to remove the
 forced collection again and see whether the tests still pass, not to
 reason about it.
+
+## Revisions
+
+- 2026-11-03, plan 102: distinguish fold-owned synchronous finalization from
+  general-stream abandonment, preserve one total drain budget across interrupted
+  waits, and define caller acknowledgement without promising external durability.

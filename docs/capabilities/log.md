@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-03
+* **Update**: Add CAP-32 for traced effectful collection and bounded abort acknowledgement; update CAP-20, CAP-9 and CAP-19 to distinguish fold ownership from general-stream abandonment.
+
 ## 2026-10-25
 
 * **Release**: Add [CAP-31](explicit-reasoning-off.md) for explicit reasoning

@@ -10,6 +10,8 @@
 -- agreement test depends on.
 module StubProvider
   ( stubRegistry,
+    evidenceRegistry,
+    blockingRegistry,
     stubModel,
     stubContext,
     stubOptions,
@@ -18,7 +20,14 @@ module StubProvider
 where
 
 import Baikai
+import Baikai.Evidence.Build qualified as Build
 import Baikai.Prelude
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar)
+import Control.Exception (finally)
+import Control.Monad (forever)
+import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.Time (getCurrentTime)
 import Data.Vector qualified as V
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
@@ -103,3 +112,53 @@ stubRegistry t = do
         (stubComplete t)
     )
   pure reg
+
+-- | An evidence-aware fixture. Counts actual dispatches, so refusal tests can
+-- distinguish a core refusal from an error emitted by the provider.
+evidenceRegistry :: Bool -> IO (ProviderRegistry, IO Int)
+evidenceRegistry failCall = do
+  counter <- newIORef 0
+  reg <- newProviderRegistry
+  let handler m _ opts = do
+        modifyIORef' counter (+ 1)
+        now <- getCurrentTime
+        let err = if failCall then Just (providerError "fixture failure") else Nothing
+        ev <-
+          Build.minimalEvidence
+            m
+            opts
+            (Build.transportForModel m)
+            (Build.requestedTranslation opts)
+            (Build.dispatchEnvelope m opts)
+            now
+            now
+            (if failCall then CallFailed else CallSucceeded)
+            err
+        pure
+          ( stubResponse "evidence"
+              & #evidence
+              .~ ev
+              & #errorInfo
+              .~ err
+              & #message
+              . #stopReason
+              .~ (if failCall then ErrorReason else Stop)
+              & #message
+              . #errorMessage
+              .~ fmap (^. #message) err
+          )
+  registerApiProviderWith reg (apiProviderWith stubApi (liftCompleteToStream handler) handler)
+  pure (reg, readIORef counter)
+
+-- | Block inside provider execution until cancelled; the cleanup barrier proves
+-- the provider was released before the caller handles its exception.
+blockingRegistry :: IO (ProviderRegistry, MVar (), MVar ())
+blockingRegistry = do
+  entered <- newEmptyMVar
+  released <- newEmptyMVar
+  reg <- newProviderRegistry
+  let handler _ _ _ = do
+        putMVar entered ()
+        (forever (threadDelay 1000000)) `finally` putMVar released ()
+  registerApiProviderWith reg (apiProviderWith stubApi (liftCompleteToStream handler) handler)
+  pure (reg, entered, released)

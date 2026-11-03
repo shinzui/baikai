@@ -13,7 +13,7 @@ import Baikai.Evidence
   )
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
-import Baikai.Message (AssistantPayload (..), user)
+import Baikai.Message (AssistantPayload (..), Message (..), user)
 import Baikai.Model (Model (..), emptyModel)
 import Baikai.Options (Options, emptyOptions)
 import Baikai.Prelude
@@ -21,17 +21,17 @@ import Baikai.Provider (apiProviderWith, registerApiProvider)
 import Baikai.Response (Response (..), responseError)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream (liftCompleteToStream)
-import Baikai.Stream.Event (AssistantMessageEvent (..))
+import Baikai.Stream.Event (AssistantMessageEvent (..), doneTerminal)
 import Baikai.ThinkingLevel (ThinkingLevel (..))
-import Baikai.Trace (withTrace, withTraceStream)
+import Baikai.Trace (withTrace, withTraceFold, withTraceList, withTraceStream)
 import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..), multiSink, silent)
 import Baikai.Usage (Usage, zeroUsage)
 import Control.Concurrent (forkIO, threadDelay, throwTo)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar, tryPutMVar, tryReadMVar)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
-import Control.Exception (AsyncException (ThreadKilled), SomeException, throwIO, try)
-import Control.Monad (forM_, replicateM)
+import Control.Exception (AsyncException (ThreadKilled), Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException, finally, fromException, throwIO, try)
+import Control.Monad (forM_, replicateM, unless, void)
 import Data.Aeson (Value (..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -39,12 +39,14 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Either (isLeft)
 import Data.List (findIndex)
+import Data.Maybe (isNothing)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as TextEncoding
 import Data.Text.IO qualified as Text.IO
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Vector qualified as V
+import GHC.Clock (getMonotonicTimeNSec)
 import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream qualified as Stream
 import System.Mem (performMajorGC)
@@ -56,7 +58,8 @@ tests :: TestTree
 tests =
   testGroup
     "Baikai.Trace"
-    [ silentTest,
+    [ ownedFoldTests,
+      silentTest,
       memoryFinishTest,
       memoryFailTest,
       throwingSinkTest,
@@ -1264,3 +1267,161 @@ sampleFailed =
       usd = Nothing,
       errorMessage = "boom"
     }
+
+-- These assertions run in the exception handler, before GC or any polling.
+newtype FoldCancelled = FoldCancelled Int
+  deriving stock (Show, Eq)
+
+instance Exception FoldCancelled where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
+
+ownedFoldTests :: TestTree
+ownedFoldTests =
+  testGroup
+    "fold-owned cleanup"
+    [ testCase "cancellation inside provider delivers abort before handler" $ ownedAbort False,
+      testCase "cancellation inside consumer fold delivers abort before handler" $ ownedAbort True,
+      testCase "list wrapper preserves the stream event sequence" $ do
+        let a = Custom "baikai-trace-owned-list"
+        let handler _ _ _ = pure (stubResponse a)
+            events = [EventDone (doneTerminal Nothing Nothing Stop (AssistantMessage (stubResponse a ^. #message)))]
+        registerApiProvider (apiProviderWith a (\_ _ _ -> Stream.fromList events) handler)
+        direct <- Stream.toList (withTraceStream silent (stubModel a) stubContext stubOptions)
+        collected <- withTraceList silent (stubModel a) stubContext stubOptions
+        collected @?= direct,
+      testCase "interrupted terminal cleanup resumes before propagation" $ do
+        let a = Custom "baikai-trace-owned-terminal-resume"
+        registerOkWithEvidence a
+        (ref, parked, release, TraceSink gated) <- gatedSink
+        ended <- newEmptyMVar
+        outcome <- newEmptyMVar
+        let sink = TraceSink (Fold.rmapM (\() -> putMVar ended ()) gated)
+        tid <- forkIO $ do
+          result <- try (withTraceList sink (stubModel a) stubContext evidenceOptions)
+          snapshot <- readTVarIO ref
+          completed <- tryReadMVar ended
+          putMVar outcome (result :: Either SomeException [AssistantMessageEvent], snapshot, completed)
+        let run = do
+              timeout 2000000 (readMVar parked) >>= (@?= Just ())
+              throwTo tid (FoldCancelled 103)
+              threadDelay 50000
+              premature <- tryReadMVar outcome
+              assertBool "the outer owner must finish the interrupted drain" (isNothing premature)
+              putMVar release ()
+              observed <- timeout 2000000 (takeMVar outcome)
+              case observed of
+                Nothing -> assertFailure "terminal cleanup did not resume"
+                Just (result, events, completed) -> do
+                  case result of
+                    Left ex -> fromException ex @?= Just (FoldCancelled 103)
+                    Right _ -> assertFailure "cancellation was swallowed"
+                  [ev ^. #status | CallEvidence {evidence = ev} <- events] @?= [Ev.CallSucceeded]
+                  completed @?= Just ()
+        run `finally` void (tryPutMVar release ()),
+      testCase "interrupted terminal drain keeps one total budget" $ do
+        let a = Custom "baikai-trace-owned-terminal-budget"
+        registerOkWithEvidence a
+        (ref, parked, release, sink) <- gatedSink
+        outcome <- newEmptyMVar
+        tid <- forkIO $ do
+          result <- try (withTraceList sink (stubModel a) stubContext strictOptions)
+          snapshot <- readTVarIO ref
+          putMVar outcome (result :: Either SomeException [AssistantMessageEvent], snapshot)
+        let run = do
+              timeout 2000000 (readMVar parked) >>= (@?= Just ())
+              start <- getMonotonicTimeNSec
+              threadDelay 600000
+              throwTo tid (FoldCancelled 104)
+              observed <- timeout 2000000 (takeMVar outcome)
+              stop <- getMonotonicTimeNSec
+              case observed of
+                Nothing -> assertFailure "terminal cleanup exceeded its budget"
+                Just (result, events) -> do
+                  case result of
+                    Left ex -> fromException ex @?= Just (FoldCancelled 104)
+                    Right _ -> assertFailure "cancellation was swallowed"
+                  [ev ^. #status | CallEvidence {evidence = ev} <- events] @?= [Ev.CallSucceeded]
+                  assertBool "interruption does not skip the remaining wait" (stop - start >= 850000000)
+                  assertBool "interruption does not restart the budget" (stop - start < 1450000000)
+        run `finally` void (tryPutMVar release ()),
+      testCase "cancellation during early-fold cleanup finishes before propagation" $ do
+        let a = Custom "baikai-trace-owned-early-cleanup"
+        registerOk a
+        (ref, TraceSink memory) <- memorySink
+        parked <- newEmptyMVar
+        release <- newEmptyMVar
+        ended <- newEmptyMVar
+        outcome <- newEmptyMVar
+        let sink = TraceSink (Fold.rmapM (\() -> putMVar parked () >> readMVar release >> putMVar ended ()) memory)
+        tid <- forkIO $ do
+          result <- try (withTraceFold sink (stubModel a) stubContext evidenceOptions Fold.one)
+          snapshot <- readTVarIO ref
+          completed <- tryReadMVar ended
+          putMVar outcome (result :: Either SomeException (Maybe AssistantMessageEvent), snapshot, completed)
+        let run = do
+              timeout 2000000 (readMVar parked) >>= (@?= Just ())
+              throwTo tid (FoldCancelled 105)
+              threadDelay 50000
+              premature <- tryReadMVar outcome
+              assertBool "early cleanup must resume its drain" (isNothing premature)
+              putMVar release ()
+              observed <- timeout 2000000 (takeMVar outcome)
+              case observed of
+                Nothing -> assertFailure "early-fold cleanup did not resume"
+                Just (result, events, completed) -> do
+                  case result of
+                    Left ex -> fromException ex @?= Just (FoldCancelled 105)
+                    Right _ -> assertFailure "cancellation was swallowed"
+                  [ev ^. #status | CallEvidence {evidence = ev} <- events] @?= [Ev.CallAborted]
+                  completed @?= Just ()
+        run `finally` void (tryPutMVar release ()),
+      testCase "early finishing fold delivers abort before returning" $ do
+        let a = Custom "baikai-trace-owned-early"
+        registerOk a
+        (ref, sink) <- memorySink
+        _ <- withTraceFold sink (stubModel a) stubContext evidenceOptions Fold.one
+        events <- readTVarIO ref
+        [ev ^. #status | CallEvidence {evidence = ev} <- events] @?= [Ev.CallAborted]
+    ]
+
+ownedAbort :: Bool -> IO ()
+ownedAbort inFold = do
+  let a = Custom (if inFold then "baikai-trace-owned-fold" else "baikai-trace-owned-provider")
+  entered <- newEmptyMVar
+  released <- newEmptyMVar
+  never <- newEmptyMVar
+  sinkEnded <- newEmptyMVar
+  let handler _ _ _ =
+        (putMVar entered () >> readMVar never >> pure (stubResponse a))
+          `finally` putMVar released ()
+  if inFold
+    then registerOk a
+    else registerApiProvider (apiProviderWith a (liftCompleteToStream handler) handler)
+  (ref, memory) <- memorySink
+  let TraceSink memoryFold = memory
+      sink = TraceSink (Fold.rmapM (\() -> putMVar sinkEnded ()) memoryFold)
+      foldStep ev = putMVar entered () >> readMVar never >> pure ev
+      consumer = if inFold then Fold.lmapM foldStep Fold.toList else Fold.toList
+  outcome <- newEmptyMVar
+  tid <- forkIO $ do
+    result <- try (withTraceFold sink (stubModel a) stubContext evidenceOptions consumer)
+    -- Snapshot immediately upon propagation, in the caller's handler.
+    events <- readTVarIO ref
+    ended <- tryReadMVar sinkEnded
+    putMVar outcome (result :: Either SomeException [AssistantMessageEvent], events, ended)
+  let run = do
+        ready <- timeout 2000000 (takeMVar entered)
+        ready @?= Just ()
+        throwTo tid (FoldCancelled 102)
+        observed <- timeout 3000000 (takeMVar outcome)
+        case observed of
+          Nothing -> assertFailure "owned fold failed to unwind"
+          Just (result, events, ended) -> do
+            case result of
+              Left ex -> fromException ex @?= Just (FoldCancelled 102)
+              Right _ -> assertFailure "cancellation was swallowed"
+            [ev ^. #status | CallEvidence {evidence = ev} <- events] @?= [Ev.CallAborted]
+            ended @?= Just ()
+            unless inFold $ readMVar released
+  run `finally` (putMVar never ())

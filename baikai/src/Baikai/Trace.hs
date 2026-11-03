@@ -1,42 +1,33 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | The 'withTrace' wrapper and supporting helpers.
+-- | Call tracing with bounded sink cleanup.
 --
--- The trace bridge is stream-shaped at the core:
--- 'withTraceStream' returns a 'Stream IO AssistantMessageEvent'
--- that side-effects 'CallStarted' / 'CallFinished' / 'CallFailed'
--- events to a user-supplied 'TraceSink' as the stream's lifecycle
--- unfolds. 'withTrace' is the synchronous draining wrapper:
--- @withTrace sink m ctx opts = Stream.fold (reassembleResponse m)
--- (withTraceStream sink m ctx opts)@.
+-- 'withTraceFold' owns the entire IO lifetime of a call and its consumer fold.
+-- 'withTraceList' collects its events, and 'withTrace' reassembles its response.
+-- Their explicit-registry @With@ variants have the same guarantee: cancellation
+-- anywhere in the fold finalizes tracing before the original exception reaches
+-- the caller. Before terminal commitment, a healthy sink has processed the abort
+-- evidence at that point; after commitment it retains the terminal evidence.
+-- 'runRequestWith' and 'runRequestWithRegistry' inherit this guarantee for the
+-- traced call, before appending the call log.
 --
--- Per-call plumbing: open a 'Chan' of @Maybe TraceEvent@, fork a
--- worker thread that drains the channel through the sink's fold,
--- push 'CallStarted' eagerly (before the first
--- 'AssistantMessageEvent' is emitted), then watch for the stream's
--- terminal event ('EventDone' or 'EventError') and push the
--- matching 'CallFinished' / 'CallFailed' before yielding the
--- terminal event to the consumer.
+-- 'withTraceStream' and 'withTraceStreamWith' instead decorate a general stream.
+-- Their step handlers clean up synchronously on a terminal or an exception inside
+-- a step. Abandonment between steps relies on Streamly's garbage-collection hook;
+-- its abort record is not guaranteed before process exit.
 --
--- Cleanup — the 'Nothing' sentinel on the channel, then a wait for
--- the worker — runs exactly once per call. On a normal terminal it
--- runs on the calling thread, so when 'withTrace' returns the sink
--- has processed this call's events. When the consumer abandons the
--- stream instead, it runs from streamly's garbage-collection hook:
--- the synthetic 'CallFailed' and its @aborted@ evidence record are
--- delivered at the next major collection after the stream becomes
--- unreachable, and are __not guaranteed before process exit__. A
--- caller who needs the record before exiting drains the stream to
--- its terminal ('withTrace', or a fold that keeps consuming) rather
--- than stopping early.
+-- Per call a worker drains a channel into the user 'TraceSink': 'CallStarted',
+-- optional 'CallEvidence', and one 'CallFinished' or 'CallFailed'. A terminal's
+-- evidence is forwarded unchanged; an abort uses Baikai's evidence builder and
+-- the adapter's own translation description. Opt-out emits no evidence.
 --
--- The wait for the worker is bounded by 'sinkDrainBoundMicros'. A
--- sink that blocks forever costs the call one second, after which
--- the worker is abandoned and the stall is reported. Sink
--- exceptions — and stalls — are recorded by the worker and reported
--- once on stderr during cleanup; they fail the call only under
--- 'Baikai.Evidence.EvidenceRequired', where a record whose delivery
--- was never confirmed is not one the caller can account for.
+-- Cleanup submits one terminal and sentinel and waits at most one second in
+-- total, even if an interrupted wait is resumed. A blocked worker is abandoned
+-- and may deliver later. Sink failures and stalls are reported on stderr; strict
+-- successful calls fail when delivery was not confirmed. Cancellation always
+-- preserves the original exception. Exactly-once submission is not a guarantee
+-- of durable external delivery. A short, nonblocking sink can store the complete
+-- evidence in a caller-owned cell; the caller reads it in its exception handler.
 module Baikai.Trace
   ( -- * Re-exports
     TraceEvent (..),
@@ -45,6 +36,10 @@ module Baikai.Trace
     -- * Wrappers
     withTrace,
     withTraceWith,
+    withTraceFold,
+    withTraceFoldWith,
+    withTraceList,
+    withTraceListWith,
     withTraceStream,
     withTraceStreamWith,
     runRequestWith,
@@ -82,7 +77,7 @@ import Baikai.Internal.Data (recoverDataBlocks)
 import Baikai.Message (AssistantPayload (..), Message (..))
 import Baikai.Model (Model)
 import Baikai.Options (Options)
-import Baikai.Prelude
+import Baikai.Prelude hiding (Fold)
 import Baikai.Provider.Registry (ProviderRegistry, globalProviderRegistry)
 import Baikai.Provider.Registry qualified as Registry
 import Baikai.Response (Response, flattenAssistantData)
@@ -93,18 +88,22 @@ import Baikai.Trace.Event (TraceEvent (..))
 import Baikai.Trace.Sink (TraceSink (..))
 import Baikai.Usage (Usage)
 import Baikai.Usage qualified as Usage
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIOWithUnmask)
 import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
-import Control.Exception (Exception (..), SomeException, mask, onException, try, uninterruptibleMask_)
+import Control.Exception (Exception (..), SomeException, catch, finally, mask, onException, throwIO, try, uninterruptibleMask_)
 import Control.Monad (forM_, unless, void)
-import Control.Monad.IO.Unlift (MonadUnliftIO, withRunInIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Maybe (fromMaybe, isJust)
 import Data.Time (UTCTime, diffUTCTime, getCurrentTime)
 import Data.Vector qualified as V
+import Data.Word (Word64)
 import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
+import GHC.Clock (getMonotonicTimeNSec)
+import Streamly.Data.Fold (Fold)
+import Streamly.Data.Fold qualified as Fold
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import System.IO (hPutStrLn, stderr)
@@ -141,49 +140,92 @@ withTraceStreamWith ::
   Context ->
   Options ->
   Stream IO AssistantMessageEvent
-withTraceStreamWith reg (TraceSink sinkFold) m ctx opts =
-  Stream.concatEffect $ do
-    state <- newTraceState
-    let c = state ^. #chan
-        d = state ^. #done
-    _ <-
-      forkIO $ do
-        let stepDrain () = do
-              msg <- readChan c
-              pure (fmap (\e -> (e, ())) msg)
-        result <-
-          try
-            ( Stream.unfoldrM stepDrain ()
-                & Stream.fold sinkFold
-            ) ::
-            IO (Either SomeException ())
-        case result of
-          Left e -> writeIORef (state ^. #sinkError) (Just e)
-          Right () -> pure ()
-        putMVar d ()
-    eid <- newCallId
-    start <- getCurrentTime
-    writeChan c $
-      Just
-        CallStarted
-          { eventId = eid,
-            timestamp = start,
-            provider = m ^. #provider,
-            model = m ^. #modelId,
-            maxTokens = resolvedMaxTokens m opts,
-            promptSummary = summarizeContext ctx
-          }
+withTraceStreamWith reg sink m ctx opts =
+  Stream.concatEffect $ mask $ \_ -> do
+    (state, eid, start) <- acquireTrace sink m ctx opts
     pure $
       Stream.finallyIO
-        -- The cleanup path cannot change a call's outcome — the stream
-        -- is already over — so a fatal sink failure discovered here has
-        -- nowhere to go but the stderr line 'reportSinkError' already
-        -- wrote. The terminal event below is where it can still matter.
         (void (finalizeTrace reg state eid start m opts))
-        (Stream.mapM (traceEvent reg state eid start m opts) (streamRequestWith reg m ctx opts))
+        (tracedStream reg state eid start m ctx opts)
 
--- | Synchronous trace wrapper. Drains 'withTraceStream' into a
--- 'Response' through 'reassembleResponse'.
+-- | Drain a traced call with a caller-supplied fold. Owns cleanup across the
+-- entire fold, including its steps and final action. On cancellation before
+-- terminal commitment, a healthy sink receives abort evidence before the original
+-- exception propagates. After commitment the terminal evidence is retained.
+-- Delivery is bounded by one second; a stalled worker may deliver later.
+withTraceFold ::
+  TraceSink -> Model -> Context -> Options -> Fold IO AssistantMessageEvent b -> IO b
+withTraceFold = withTraceFoldWith globalProviderRegistry
+
+-- | 'withTraceFold' with an explicit provider registry.
+withTraceFoldWith ::
+  ProviderRegistry -> TraceSink -> Model -> Context -> Options -> Fold IO AssistantMessageEvent b -> IO b
+withTraceFoldWith reg sink m ctx opts consumer = mask $ \restore -> do
+  (state, eid, start) <- acquireTrace sink m ctx opts
+  let cleanup = void (finalizeTrace reg state eid start m opts)
+  result <- try $ do
+    value <- restore (Stream.fold consumer (tracedStream reg state eid start m ctx opts))
+    -- An early-finishing fold reaches cleanup without a provider terminal.
+    -- Keep this first drain inside the handler too: cancellation can land at
+    -- its interruptible wait, and must resume the same budget before rethrow.
+    cleanup
+    pure value
+  case result of
+    Left (original :: SomeException) -> do
+      -- Cleanup diagnostics or evidence construction must never replace the
+      -- exception that stopped collection. Release the root even on failure.
+      cleanup `catch` \(_ :: SomeException) -> releaseStableRoot state
+      throwIO original
+    Right value -> pure value
+
+-- | Collect all events with the lifetime guarantee of 'withTraceFold'.
+withTraceList :: TraceSink -> Model -> Context -> Options -> IO [AssistantMessageEvent]
+withTraceList = withTraceListWith globalProviderRegistry
+
+-- | 'withTraceList' with an explicit provider registry.
+withTraceListWith ::
+  ProviderRegistry -> TraceSink -> Model -> Context -> Options -> IO [AssistantMessageEvent]
+withTraceListWith reg sink m ctx opts = withTraceFoldWith reg sink m ctx opts Fold.toList
+
+-- Acquisition is masked by both callers until their cleanup handler is installed.
+-- The worker explicitly unmasks user sink code, independently of its parent.
+acquireTrace :: TraceSink -> Model -> Context -> Options -> IO (TraceState, Text, UTCTime)
+acquireTrace (TraceSink sinkFold) m ctx opts = do
+  eid <- newCallId
+  start <- getCurrentTime
+  state <- newTraceState
+  let c = state ^. #chan
+      worker :: (forall a. IO a -> IO a) -> IO ()
+      worker unmask = do
+        let stepDrain () = fmap (fmap (\e -> (e, ()))) (readChan c)
+        result <- try (unmask (Stream.fold sinkFold (Stream.unfoldrM stepDrain ())))
+        case result of
+          Left (e :: SomeException) -> writeIORef (state ^. #sinkError) (Just e)
+          Right () -> pure ()
+        putMVar (state ^. #done) ()
+  ( do
+      writeChan c $
+        Just
+          CallStarted
+            { eventId = eid,
+              timestamp = start,
+              provider = m ^. #provider,
+              model = m ^. #modelId,
+              maxTokens = resolvedMaxTokens m opts,
+              promptSummary = summarizeContext ctx
+            }
+      _ <- forkIOWithUnmask worker
+      pure (state, eid, start)
+    )
+    `onException` releaseStableRoot state
+
+tracedStream ::
+  ProviderRegistry -> TraceState -> Text -> UTCTime -> Model -> Context -> Options -> Stream IO AssistantMessageEvent
+tracedStream reg state eid start m ctx opts =
+  Stream.mapM (traceEvent reg state eid start m opts) (streamRequestWith reg m ctx opts)
+
+-- | Synchronous trace wrapper. Applies 'withTraceFold' to
+-- 'reassembleResponse', owning cleanup across the entire fold.
 --
 -- This never throws for producer-side failures: errors flow through
 -- the stream as a terminal 'EventError' and the drained 'Response'
@@ -208,10 +250,7 @@ withTraceWith ::
   Options ->
   m Response
 withTraceWith reg sink model ctx opts =
-  withRunInIO $ \_ ->
-    Stream.fold
-      (reassembleResponse model)
-      (withTraceStreamWith reg sink model ctx opts)
+  liftIO (withTraceFoldWith reg sink model ctx opts (reassembleResponse model))
 
 -- ============================================================
 -- Per-call trace state
@@ -221,6 +260,8 @@ data TraceState = TraceState
   { chan :: !(Chan (Maybe TraceEvent)),
     done :: !(MVar ()),
     closed :: !(IORef Bool),
+    drainDeadline :: !(IORef Word64),
+    finalized :: !(IORef Bool),
     sinkError :: !(IORef (Maybe SomeException)),
     terminalSent :: !(IORef Bool),
     dataBlocks :: !(IORef (IntMap.IntMap AssistantContent)),
@@ -236,8 +277,10 @@ newTraceState = do
   e <- newIORef Nothing
   t <- newIORef False
   dat <- newIORef IntMap.empty
+  deadline <- newIORef 0
+  finished <- newIORef False
   root <- newIORef Nothing
-  let state = TraceState {chan = c, done = d, closed = r, sinkError = e, terminalSent = t, dataBlocks = dat, stableRoot = root}
+  let state = TraceState {chan = c, done = d, closed = r, sinkError = e, terminalSent = t, dataBlocks = dat, stableRoot = root, drainDeadline = deadline, finalized = finished}
   sp <- newStablePtr state
   writeIORef root (Just sp)
   pure state
@@ -250,95 +293,98 @@ newTraceState = do
 -- baikai's long-standing behaviour. 'Just' happens only for a caller who
 -- required evidence and did not get it.
 --
--- Runs at most once per call — the second caller sees 'closed' already
--- set and returns 'Nothing' — which is why the terminal event calls it
--- before the 'Stream.finallyIO' cleanup does. The terminal is where the
--- answer can still change the call's outcome; by cleanup time the
--- stream is over.
+-- Closure submits at most one terminal and sentinel. Drain completion is
+-- tracked separately: an interrupted wait may be resumed by the fold owner,
+-- using the original deadline. The terminal path can still fail strict
+-- success; cleanup while unwinding never changes the original exception.
 finalizeTrace ::
   ProviderRegistry -> TraceState -> Text -> UTCTime -> Model -> Options -> IO (Maybe BaikaiError)
-finalizeTrace reg s eid start m opts = mask $ \restore -> do
+finalizeTrace reg s eid start m opts = flip onException (releaseStableRoot s) $ mask $ \restore -> do
   alreadyClosed <-
     atomicModifyIORef' (s ^. #closed) (\b -> (True, b))
-  if alreadyClosed
+  unless alreadyClosed $
+    ( do
+        sent <- readIORef (s ^. #terminalSent)
+        unless sent $ do
+          now <- getCurrentTime
+          let abortText = "aborted: stream consumer stopped before the terminal event"
+              aborted =
+                CallFailed
+                  { eventId = eid,
+                    timestamp = now,
+                    provider = m ^. #provider,
+                    model = m ^. #modelId,
+                    latencyMs = millisBetween start now,
+                    inputTokens = Nothing,
+                    outputTokens = Nothing,
+                    cachedInputTokens = Nothing,
+                    cacheWriteTokens = Nothing,
+                    reasoningTokens = Nothing,
+                    totalTokens = Nothing,
+                    costBasis = Nothing,
+                    usageAvailability = Nothing,
+                    usd = Nothing,
+                    structuredData = Nothing,
+                    errorMessage = abortText
+                  }
+          -- The consumer stopped before the terminal event, so no adapter
+          -- ever handed evidence back and this layer has to build it. The
+          -- status is 'CallAborted' rather than 'CallFailed': an abort is
+          -- the consumer's doing, and reporting it as a provider failure
+          -- would misattribute it. The digests are over
+          -- 'Build.dispatchEnvelope' — see its documentation for what that
+          -- does and does not commit to.
+          --
+          -- The translation comes from the registered adapter's own
+          -- 'Registry.describeThinking': the adapter /did/ run on this
+          -- path, so its description is the truthful one and the only one
+          -- @docs\/adr\/0003-the-adapter-owns-the-translation-description.md@
+          -- permits. Where no provider is registered there is nothing to
+          -- ask, and 'Build.requestedTranslation' says the caller\'s level
+          -- was never translated. Either way the caller\'s own level is
+          -- recorded, which passing 'Evidence.noThinkingRequested' here
+          -- silently denied.
+          mProvider <- Registry.lookupApiProviderWith reg (m ^. #api)
+          let translation = case mProvider of
+                Just p -> Registry.describeThinking p m opts
+                Nothing -> Build.requestedTranslation opts
+          mev <-
+            Build.minimalEvidence
+              m
+              opts
+              (Build.transportForModel m)
+              translation
+              (Build.dispatchEnvelope m opts)
+              start
+              now
+              Evidence.CallAborted
+              -- 'errorInfo' is 'Just' whenever the status is not
+              -- 'CallSucceeded', so an abort needs one. Its category is
+              -- 'OtherError' rather than any provider-failure category,
+              -- because nothing about the provider went wrong: the consumer
+              -- stopped reading. The message says exactly that.
+              (Just (providerError abortText))
+          commitTerminal s eid now m mev aborted
+    )
+      `finally` do
+        -- The sentinel and deadline are published together. Neither operation
+        -- blocks: the unbounded channel has only this thread as its writer here.
+        uninterruptibleMask_ $ do
+          now <- getMonotonicTimeNSec
+          writeIORef (s ^. #drainDeadline) (now + fromIntegral sinkDrainBoundMicros * 1000)
+          writeChan (s ^. #chan) Nothing
+  finished <- readIORef (s ^. #finalized)
+  if finished
     then pure Nothing
     else do
-      sent <- readIORef (s ^. #terminalSent)
-      unless sent $ do
-        now <- getCurrentTime
-        let abortText = "aborted: stream consumer stopped before the terminal event"
-            aborted =
-              CallFailed
-                { eventId = eid,
-                  timestamp = now,
-                  provider = m ^. #provider,
-                  model = m ^. #modelId,
-                  latencyMs = millisBetween start now,
-                  inputTokens = Nothing,
-                  outputTokens = Nothing,
-                  cachedInputTokens = Nothing,
-                  cacheWriteTokens = Nothing,
-                  reasoningTokens = Nothing,
-                  totalTokens = Nothing,
-                  costBasis = Nothing,
-                  usageAvailability = Nothing,
-                  usd = Nothing,
-                  structuredData = Nothing,
-                  errorMessage = abortText
-                }
-        -- The consumer stopped before the terminal event, so no adapter
-        -- ever handed evidence back and this layer has to build it. The
-        -- status is 'CallAborted' rather than 'CallFailed': an abort is
-        -- the consumer's doing, and reporting it as a provider failure
-        -- would misattribute it. The digests are over
-        -- 'Build.dispatchEnvelope' — see its documentation for what that
-        -- does and does not commit to.
-        --
-        -- The translation comes from the registered adapter's own
-        -- 'Registry.describeThinking': the adapter /did/ run on this
-        -- path, so its description is the truthful one and the only one
-        -- @docs\/adr\/0003-the-adapter-owns-the-translation-description.md@
-        -- permits. Where no provider is registered there is nothing to
-        -- ask, and 'Build.requestedTranslation' says the caller\'s level
-        -- was never translated. Either way the caller\'s own level is
-        -- recorded, which passing 'Evidence.noThinkingRequested' here
-        -- silently denied.
-        mProvider <- Registry.lookupApiProviderWith reg (m ^. #api)
-        let translation = case mProvider of
-              Just p -> Registry.describeThinking p m opts
-              Nothing -> Build.requestedTranslation opts
-        mev <-
-          Build.minimalEvidence
-            m
-            opts
-            (Build.transportForModel m)
-            translation
-            (Build.dispatchEnvelope m opts)
-            start
-            now
-            Evidence.CallAborted
-            -- 'errorInfo' is 'Just' whenever the status is not
-            -- 'CallSucceeded', so an abort needs one. Its category is
-            -- 'OtherError' rather than any provider-failure category,
-            -- because nothing about the provider went wrong: the consumer
-            -- stopped reading. The message says exactly that.
-            (Just (providerError abortText))
-        commitTerminal s eid now m mev aborted
-      writeChan (s ^. #chan) Nothing
-      -- The claim-through-sentinel region above cannot be interrupted;
-      -- the wait below can, which is the whole point of the 'mask' /
-      -- 'restore' pair. The GC-hook path enters here already under
-      -- 'Control.Exception.mask_', and 'restore' puts back /that/ state,
-      -- in which a blocking 'readMVar' is still interruptible — so
-      -- 'timeout' can deliver its exception on either path. The
-      -- 'onException' releases the root if the wait is interrupted: the
-      -- sentinel is already queued, so the worker cannot block on the
-      -- channel again and no longer needs rooting.
+      -- An interrupted terminal finalizer has closed the channel but has not
+      -- completed the drain. An enclosing owner resumes the remaining budget.
       drained <- restore (awaitWorker s) `onException` releaseStableRoot s
       unless drained $
         atomicModifyIORef' (s ^. #sinkError) $ \old ->
           (Just (fromMaybe (toException (TraceSinkStalled sinkDrainBoundMicros)) old), ())
-      fatal <- reportSinkError s opts
+      fatal <- reportSinkError s opts `onException` releaseStableRoot s
+      writeIORef (s ^. #finalized) True
       releaseStableRoot s
       pure fatal
 
@@ -386,7 +432,11 @@ instance Exception TraceSinkStalled where
 -- 'readMVar', not 'takeMVar', so the worker's eventual 'putMVar' can
 -- never block on a slot this thread emptied.
 awaitWorker :: TraceState -> IO Bool
-awaitWorker s = isJust <$> timeout sinkDrainBoundMicros (readMVar (s ^. #done))
+awaitWorker s = do
+  deadline <- readIORef (s ^. #drainDeadline)
+  now <- getMonotonicTimeNSec
+  let remaining = if now < deadline then fromIntegral ((deadline - now + 999) `div` 1000) else 1
+  isJust <$> timeout remaining (readMVar (s ^. #done))
 
 -- | Push the 'CallEvidence' event for a call, when there is one.
 --

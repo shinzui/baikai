@@ -6,6 +6,7 @@ import CompleteSpec qualified
 import LiveSpec qualified
 import StreamSpec qualified
 import Test.Tasty (defaultMain, testGroup)
+import TracedStreamSpec qualified
 
 main :: IO ()
 main =
@@ -14,5 +15,6 @@ main =
       "baikai-effectful"
       [ CompleteSpec.tests,
         StreamSpec.tests,
+        TracedStreamSpec.tests,
         LiveSpec.tests
       ]

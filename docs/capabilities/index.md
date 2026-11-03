@@ -56,7 +56,7 @@ documented as outside the PVP contract, and the OpenAI Responses backend
 | [Unattended coding-agent runs](unattended-agent-runs.md) | CAP-17 | `baikai-agent` | 0.1.0.0 | No terminal, no human: capability profile, ceiling, process runner |
 | [The `baikai agent` command and layered KDL job configuration](baikai-agent-command.md) | CAP-18 | `baikai-agent` | 0.1.0.0 | One stable command; provider and policy live in KDL, not the script |
 | [Verifiable model-call evidence](model-call-evidence.md) | CAP-19 | `baikai` | 0.5.0.0 | What actually crossed the boundary, with two digests and honest strength |
-| [effectful binding for the transport](effectful-binding.md) | CAP-20 | `baikai-effectful` | 0.1.0.0 | A dynamic `Baikai` effect with three operations and swappable interpreters |
+| [effectful binding for the transport](effectful-binding.md) | CAP-20 | `baikai-effectful` | 0.1.0.0 | A dynamic `Baikai` effect for blocking and streaming calls with swappable interpreters |
 | [Kit installer for agent skills and subagents](kit-installer.md) | CAP-21 | `baikai-kit` | 0.1.0.1 | The shared `kit` command lifecycle for git-hosted agent assets |
 | [Provider-native agent-asset layouts](agent-asset-layouts.md) | CAP-22 | `baikai` | 0.1.0.0 | Pure path rules for where each tool discovers skills and agents |
 | [OpenAI Responses API backend](openai-responses-backend.md) | CAP-23 | `baikai-openai` | 0.7.0.0 | The native Responses protocol, registered explicitly, with stateless reasoning replay |
@@ -68,6 +68,7 @@ documented as outside the PVP contract, and the OpenAI Responses backend
 | [Provider-neutral closed-set judgments](neutral-judgments.md) | CAP-29 | `baikai` | 0.9.0.0 | Compile closed-set schemas, order questions, refuse unsupported generation controls and validate provider-neutral judgment answers. |
 | [Structured answer export through OpenTelemetry](structured-answer-span-export.md) | CAP-30 | `baikai-trace-otel`, `baikai` | 0.4.1.0 | Export structured answer values and probability evidence as canonical JSON on successful and failed provider spans. |
 | [Explicit reasoning off with truthful fallback evidence](explicit-reasoning-off.md) | CAP-31 | `baikai`, `baikai-claude`, `baikai-openai` | 0.10.0.0 | Request off distinctly from provider defaults, with catalog-gated translation and strict refusal of substitutions. |
+| [Traced effectful collection with abort acknowledgement](traced-effectful-collection.md) | CAP-32 | `baikai-effectful`, `baikai` | 0.5.0.0 | Collect with a sink and confirm bounded abort delivery before handling cancellation. |
 
 ## Deliberately excluded
 

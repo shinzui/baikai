@@ -27,7 +27,7 @@ evidence:
     proves: "The TraceSink newtype over a streamly Fold and the four built-in sinks — silent, stdoutSink, fileSink, multiSink — plus renderHuman."
   - kind: module
     resource: baikai/src/Baikai/Trace.hs
-    proves: "The per-call plumbing: eager CallStarted, terminal-matched CallFinished/CallFailed pushed before the terminal reaches the consumer, commitTerminal committing the flag and both pushes as one unit against asynchronous exceptions, and cleanup through Stream.finallyIO that runs once and waits at most sinkDrainBoundMicros for the sink."
+    proves: "The per-call plumbing: eager CallStarted, terminal-matched CallFinished/CallFailed pushed before the terminal reaches the consumer, commitTerminal committing the flag and both pushes as one unit against asynchronous exceptions, and fold-owned or general-stream cleanup with one total sinkDrainBoundMicros budget."
 ---
 
 # Call tracing through a pluggable TraceSink
@@ -56,12 +56,11 @@ threads, so a member that throws or blocks cannot stop delivery to the others or
 skip their end-of-stream action, and a failure names each failed member by
 zero-based index.
 
-A consumer who abandons a stream mid-flight still produces a synthetic
-`CallFailed` and an `aborted` evidence record, and never leaks the worker — but
-they are **delivered from a garbage-collection hook**, at the next major
-collection after the abandoned stream becomes unreachable, not at the moment of
-abandonment. A short-lived process that abandons a stream and exits may never
-record them.
+A consumer who abandons a general `withTraceStream` between steps still produces
+an abort record through a garbage-collection hook, which may not run before
+process exit. The fold-owning wrappers now finalize synchronously on cancellation:
+see [CAP-32 — traced collection](traced-effectful-collection.md) for the distinction
+and caller acknowledgement pattern.
 
 This builds on [CAP-1 — provider-neutral model calls with registry
 dispatch](unified-provider-calls.md).
@@ -94,12 +93,9 @@ withTrace sink model ctx opts
   the old width — a log parser, a fixture, a column type — must widen.
 - Adding a `TraceEvent` constructor is a breaking change for consumers whose
   pattern match is exhaustive. 0.5.0.0 added `CallEvidence`.
-- **To have the abort record before you exit, drain to the terminal.** Use
-  `withTrace`, or `Stream.fold` with a fold that keeps consuming after you have
-  what you need, rather than `Stream.take`: on that path the terminal trace event
-  and its evidence record are pushed synchronously, before the terminal
-  `AssistantMessageEvent` reaches you. Calling `System.Mem.performMajorGC` after
-  abandoning a stream is a last resort, not a guarantee.
+- Use the fold-owning wrappers for abort evidence before exception propagation,
+  subject to the bound and a healthy sink. General stream abandonment between
+  steps remains garbage-collection-eventual; see [CAP-32](traced-effectful-collection.md).
 - **The sink wait is one second and is not configurable.** It is a module
   constant, `sinkDrainBoundMicros`. A sink whose per-call latency approaches a
   second is mis-configured for per-call tracing: an OpenTelemetry exporter

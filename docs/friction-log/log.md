@@ -1,5 +1,9 @@
 # Bundle Update Log
 
+## 2026-11-03
+* **Update**: FRIC-4 resolved: Replace isolated validation advice with full-context strict diagnostic classification without changing historical review provenance.
+* **Addition**: FRIC-4 records detour documentation friction with mori://shinzui/baikai/plans/102-deliver-aborted-call-evidence-through-the-effectful-binding: Isolated capability validation loses required concept context
+
 ## 2026-10-25
 * **Update**: FRIC-3 resolved: Credits restored; replace the accepted quota limitation with successful funded endpoint evidence.
 * **Update**: FRIC-3 accepted: Keep endpoint acceptance and live cache reuse unverified after the bounded quota failure; no retries added.

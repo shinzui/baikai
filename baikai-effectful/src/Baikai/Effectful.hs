@@ -11,7 +11,7 @@
 -- failures propagate exactly as baikai produces them — the blocking path
 -- ('complete') returns an error-shaped 'Response' whose
 -- 'Baikai.responseError' is populated; the streaming paths
--- ('streamCollect', 'streamEach') surface baikai's terminal @EventError@ in-band.
+-- ('streamCollect', 'streamCollectTraced', 'streamEach') surface baikai's terminal @EventError@ in-band.
 -- Retries, caching, budgets, rate limiting, and error remapping belong one layer
 -- up, in terms of this effect.
 module Baikai.Effectful
@@ -21,6 +21,7 @@ module Baikai.Effectful
     -- * Operations
     complete,
     streamCollect,
+    streamCollectTraced,
     streamEach,
 
     -- * Interpreters
@@ -33,12 +34,14 @@ module Baikai.Effectful
     Options,
     Response,
     AssistantMessageEvent,
+    TraceSink,
   )
 where
 
 import Baikai (AssistantMessageEvent, Context, Model, Options, Response)
 import Baikai qualified
 import Baikai.Provider.Registry (ProviderRegistry)
+import Baikai.Trace (TraceSink, withTraceListWith)
 import Effectful (Dispatch (Dynamic), DispatchOf, Eff, Effect, IOE, liftIO, (:>))
 import Effectful.Dispatch.Dynamic (interpret, localSeqUnliftIO, send)
 import Streamly.Data.Fold qualified as Fold
@@ -54,6 +57,8 @@ data Baikai :: Effect where
   -- 'Baikai.streamRequest' drained to a list; a terminal @EventError@ appears
   -- as the last element on failure (baikai does not throw here).
   StreamCollect :: Model -> Context -> Options -> Baikai m [AssistantMessageEvent]
+  -- | Collect with fold-owned tracing and bounded cleanup on cancellation.
+  StreamCollectTraced :: TraceSink -> Model -> Context -> Options -> Baikai m [AssistantMessageEvent]
   -- | A streaming completion where each event is handed, in order, to a
   -- caller-supplied callback that runs inside the same effect context.
   StreamEach :: Model -> Context -> Options -> (AssistantMessageEvent -> m ()) -> Baikai m ()
@@ -70,6 +75,19 @@ complete m c o = send (Complete m c o)
 -- terminal 'AssistantMessageEvent' @EventError@ appears as the last element.
 streamCollect :: (Baikai :> es) => Model -> Context -> Options -> Eff es [AssistantMessageEvent]
 streamCollect m c o = send (StreamCollect m c o)
+
+-- | Collect streamed events while sending call traces to a sink. When evidence
+-- is requested and cancellation precedes terminal commitment, a healthy sink
+-- receives Baikai's abort record before the original exception propagates
+-- unchanged. After commitment the terminal evidence is retained. Sink cleanup waits at
+-- most one second; a blocked or throwing sink leaves delivery unconfirmed and
+-- reports on stderr. An abandoned worker may deliver later. Use a short sink
+-- that stores the complete evidence in a caller-owned cell before acknowledging
+-- it, then read that cell in the exception handler. Opt-out emits no evidence;
+-- successful evidence is the provider terminal's own record, never reconstructed.
+streamCollectTraced ::
+  (Baikai :> es) => TraceSink -> Model -> Context -> Options -> Eff es [AssistantMessageEvent]
+streamCollectTraced sink m c o = send (StreamCollectTraced sink m c o)
 
 -- | Stream a completion, invoking the callback on each event in order, inside
 -- 'Eff'. Preserves incrementality: the callback sees events as they arrive, in
@@ -92,6 +110,8 @@ runBaikaiWith reg = interpret $ \env -> \case
     liftIO (Baikai.completeRequestWith reg m c o)
   StreamCollect m c o ->
     liftIO (Stream.toList (Baikai.streamRequestWith reg m c o))
+  StreamCollectTraced sink m c o ->
+    liftIO (withTraceListWith reg sink m c o)
   StreamEach m c o k ->
     -- @k@ is the caller's @Eff@ action (a higher-order argument). @localSeqUnliftIO@
     -- gives a function @unlift :: forall r. Eff localEs r -> IO r@ valid for the
