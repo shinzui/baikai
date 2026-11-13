@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-13
+* **Confirmed**: [BUG-2](codex-concatenates-complete-agent-messages.md). Record the Codex multi-message extraction defect, live Kotei evidence, hermetic consumer reproduction, affected releases, and final-answer acceptance criteria.
+
 ## 2026-10-10
 * **Release**: [BUG-1](batch-cli-cancellation-leaves-child-alive.md). Name core
   0.8.0.0 and both adapters 0.7.1.1 as the fixed releases; consumer qualification
