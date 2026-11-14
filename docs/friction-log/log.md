@@ -2,6 +2,15 @@
 
 ## 2026-11-14
 
+* **Addition**: FRIC-9 records blocked process friction with mori://shinzui/haskell-nix: Published patch adoption crosses retained runtime metadata
+
+
+* **Update**: FRIC-8 accepted: Accept the measured scoped-refresh cost for this run without weakening validation.
+
+
+* **Addition**: FRIC-8 records slowdown tooling friction with mori://shinzui/haskell-nix: Scoped family refresh repeats whole-flake evaluation
+
+
 * **Update**: FRIC-7 resolved: Complete isolated adapter verification against signed Hackage sources after diagnosing primary-index lag and the HTTP mirror failure.
 
 
