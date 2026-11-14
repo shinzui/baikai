@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-14
+
+* **Release**: CAP-15: core 0.10.1.1 and adapter 0.7.3.1, with documentation, are now published. Isolated core and adapter archive tests pass; the adapter resolves the fixed core from signed Hackage sources.
+
 * **Update**: CAP-15: prepare correcting core 0.10.1.1 and adapter 0.7.3.1 release notes, preserving original since and requiring the fixed core. Publication awaits release confirmation.
 
 ## 2026-11-13

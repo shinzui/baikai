@@ -12,11 +12,14 @@ kind: environment
 origin: "mori://shinzui/baikai"
 affects: "mori://shinzui/mori"
 plan: "docs/plans/103-return-only-the-final-codex-agent-message.md"
-resolution: "Registry connectivity remains unavailable; this run uses authoritative Hackage and upstream tags plus scoped sibling-checkout identity checks and local manifest validation. Registry refresh remains pending."
+resolution: "The inherited MORI_PG_CONNECTION_STRING points to a stale sungkyung-client socket. Command-scoped MORI_PG_CONNECTION_STRING=host=/Users/shinzui/.local/state/postgresql dbname=mori reaches the existing native service and registry; preserve global settings."
 amended:
   - by: "codex-cli/gpt-6.1-sol"
     at: "2026-11-14T00:01:36Z"
     change: "Accept the registry discovery outage for this run with scoped fallback; do not claim registry registration succeeded."
+  - by: "codex-cli/gpt-6.1-sol"
+    at: "2026-11-14T00:41:11Z"
+    change: "Recover registry discovery and registration through the existing native PostgreSQL socket; the original inherited connection remains unchanged."
 ---
 # Mori registry unavailable during final-message correction
 

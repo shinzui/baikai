@@ -1,6 +1,18 @@
 # Bundle Update Log
 
 ## 2026-11-14
+
+* **Update**: FRIC-7 resolved: Complete isolated adapter verification against signed Hackage sources after diagnosing primary-index lag and the HTTP mirror failure.
+
+
+* **Update**: FRIC-7 resolved: Complete isolated adapter verification against signed Hackage sources after diagnosing primary-index lag and the HTTP mirror failure.
+
+
+* **Update**: FRIC-6 accepted: Recover registry discovery and registration through the existing native PostgreSQL socket; the original inherited connection remains unchanged.
+
+
+* **Addition**: FRIC-7 records detour environment friction with https://hackage.haskell.org: Hackage primary index lagged a successful upload
+
 * **Update**: FRIC-6 accepted: Accept the registry discovery outage for this run with scoped fallback; do not claim registry registration succeeded.
 
 ## 2026-11-13

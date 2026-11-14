@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-14
+
+* **Update**: BUG-2: record published correction versions, tag commit, and isolated archive evidence; keep confirmed pending Mina adoption and public command checks.
+
 * **Update**: BUG-2: clarify that the affected owning checkout is the report-time checkout; current local repair is verified, but publication and consumer acceptance remain pending.
 
 ## 2026-11-13

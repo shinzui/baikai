@@ -19,7 +19,7 @@ reproduction:
   - "Observe response text containing two adjacent JSON objects instead of the final object's text."
   - "Run either Mina explain judge through that provider; both bounded attempts fail with MissingField why."
   - "Run the two transportDiagnosis examples in mori://shinzui/mina at commit 03c14aa; their passing assertions document the current failure, not successful final-answer decoding."
-timestamp: "2026-11-14T00:07:29Z"
+timestamp: "2026-11-14T00:52:59Z"
 generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-11-13T23:01:23Z"
@@ -54,6 +54,16 @@ reviews:
     reviewed_at: "2026-11-14T00:07:29Z"
     document_timestamp: "2026-11-14T00:07:29Z"
     context: "Clarify that affected checkout observations refer to report time after local repair. Release preparation is gated; publication and consumer acceptance remain pending. This is an author self-check."
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-11-14T00:52:59Z"
+    document_timestamp: "2026-11-14T00:52:59Z"
+    context: "Author verification of published core and adapter archives, documentation, tags, and isolated tests. Mina adoption remains in progress, so the report stays confirmed."
 ---
 
 # Codex batch transport concatenates complete messages and corrupts structured output
@@ -181,3 +191,17 @@ regressions. The report remains confirmed until the correction is published and
 Mina's positive diagnostics and cold/repeated/preview checks pass. Local acceptance
 and correcting release versions are recorded in the plan; local success alone
 does not resolve this report.
+
+## Published correction
+
+`baikai 0.10.1.1` and `baikai-openai 0.7.3.1` are published on Hackage with
+documentation. Both annotated release tags peel to
+`7a1d45ee7437e5f572cec741bcf68e464a3e43c2`. The adapter requires
+`baikai ^>=0.10.1.1` in library and tests. Its archive passed all 339 tests
+outside the workspace while resolving core 0.10.1.1 from the signed Hackage
+repository. The core archive independently passed all 857 tests.
+
+Mina's existing cohort pins the affected core and Shikumi family. Its adoption
+and positive final-briefing diagnostics are in progress; cold/repeated/preview
+checks have not yet been rerun with the fix. The report therefore remains
+confirmed.
