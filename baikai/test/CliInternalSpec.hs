@@ -16,6 +16,7 @@ import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BS8
+import Data.ByteString.Lazy qualified as LBS
 import Data.Generics.Labels ()
 import Data.List (isInfixOf)
 import Data.Text qualified as Text
@@ -80,7 +81,53 @@ codexParserTests :: TestTree
 codexParserTests =
   testGroup
     "codex exec --json event stream"
-    [ testCase "a recorded run yields its text, thread id, and token counts" $ do
+    [ testCase "two complete JSON answers return only the final object" $ do
+        let answer why = Aeson.object ["why" Aeson..= (why :: Text.Text), "what" Aeson..= ("X" :: Text.Text), "blocking" Aeson..= ("B" :: Text.Text), "status" Aeson..= ("S" :: Text.Text)]
+            encoded = Text.decodeUtf8 . LBS.toStrict . Aeson.encode
+        report <- parseCodex [codexMessage "item.completed" (encoded (answer "Intermediate")), codexMessage "item.completed" (encoded (answer "Final"))]
+        Aeson.eitherDecodeStrict' (Text.encodeUtf8 (report ^. #message)) @?= Right (answer "Final"),
+      testCase "three complete messages replace rather than append" $ do
+        report <- parseCodex (map (codexMessage "item.completed") ["first", "second", "third"])
+        report ^. #message @?= "third",
+      testCase "prose commentary is excluded from a final JSON answer" $ do
+        report <- parseCodex (map (codexMessage "item.completed") ["Working on it.", "{\"why\":\"Final\"}"])
+        report ^. #message @?= "{\"why\":\"Final\"}",
+      testCase "an empty completed message replaces preceding text" $ do
+        report <- parseCodex (map (codexMessage "item.completed") ["commentary", ""])
+        report ^. #message @?= "",
+      testCase "malformed final answer text replaces earlier valid JSON" $ do
+        report <- parseCodex (map (codexMessage "item.completed") ["{\"why\":\"valid\"}", "{\"why\":"])
+        report ^. #message @?= "{\"why\":"
+        assertBool "the selected body is still invalid JSON" (case Aeson.eitherDecodeStrict' @Aeson.Value (Text.encodeUtf8 (report ^. #message)) of Left _ -> True; Right _ -> False),
+      testCase "started and updated items never replace a completed answer" $ do
+        report <-
+          parseCodex
+            [ codexMessage "item.started" "before",
+              codexMessage "item.completed" "first",
+              codexMessage "item.updated" "between",
+              codexMessage "item.completed" "final",
+              codexMessage "item.started" "after-start",
+              codexMessage "item.updated" "after-update",
+              "{\"type\":\"item.completed\",\"item\":{\"type\":\"reasoning\",\"text\":\"reasoning\"}}\n",
+              "{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\",\"text\":\"tool\"}}\n"
+            ]
+        report ^. #message @?= "final",
+      testCase "only incomplete items yield the existing no-answer result" $ do
+        report <- parseCodex [codexMessage "item.started" "pending", codexMessage "item.updated" "partial"]
+        report ^. #message @?= "",
+      testCase "legacy complete messages also replace their predecessors" $ do
+        nested <- parseCodex ["{\"msg\":{\"type\":\"agent_message\",\"message\":\"first\"}}\n{\"msg\":{\"type\":\"agent_message\",\"message\":\"nested-final\"}}\n"]
+        nested ^. #message @?= "nested-final"
+        flat <- parseCodex ["{\"type\":\"agent_message\",\"message\":\"first\"}\n{\"type\":\"agent_message\",\"text\":\"flat-final\"}\n"]
+        flat ^. #message @?= "flat-final",
+      testCase "message replacement survives byte chunks and a final missing newline" $ do
+        let bytes = codexMessage "item.completed" "earlier" <> BS.init (codexMessage "item.completed" "final λ")
+        report <- parseCodex (map BS.singleton (BS.unpack bytes))
+        report ^. #message @?= "final λ",
+      testCase "malformed outer lines cannot displace the last completed answer" $ do
+        report <- parseCodex [codexMessage "item.completed" "answer", "{broken\n", "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\"}}\n", "{\"type\":\"future-event\"}\n"]
+        report ^. #message @?= "answer",
+      testCase "a recorded run yields its text, thread id, and token counts" $ do
         recorded <- BS.readFile "test/fixtures/codex-events.jsonl"
         report <- parseCodex [recorded]
         report ^. #message @?= "ok"
@@ -189,6 +236,10 @@ codexParserTests =
               "assembling one two-megabyte event did not finish within ten seconds"
           Just report -> Text.length (report ^. #message) @?= 2000000
     ]
+
+codexMessage :: Text.Text -> Text.Text -> ByteString
+codexMessage eventType body =
+  LBS.toStrict (Aeson.encode (Aeson.object ["type" Aeson..= eventType, "item" Aeson..= Aeson.object ["type" Aeson..= ("agent_message" :: Text.Text), "text" Aeson..= body]])) <> "\n"
 
 -- ============================================================
 -- The claude result document

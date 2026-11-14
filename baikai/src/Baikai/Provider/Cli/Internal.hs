@@ -205,7 +205,7 @@ trySync action = do
 -- must be recorded as 'Baikai.Evidence.Unobserved' downstream and must
 -- never be filled in from the request.
 data CodexRunReport = CodexRunReport
-  { -- | The concatenated text of every @agent_message@ event.
+  { -- | The last completed @agent_message@ body, or empty text if none.
     message :: !Text,
     -- | Codex's own handle for the conversation, from the
     -- thread-start event.
@@ -221,10 +221,10 @@ data CodexRunReport = CodexRunReport
 
 -- | The accumulator 'parseCodexJsonlStream' folds events into.
 --
--- Separate from 'CodexRunReport' only because the message text arrives
--- in pieces and is kept reversed until the fold finishes.
+-- Complete message bodies replace the candidate, including an empty body.
+-- They are independent answers rather than fragments to concatenate.
 data CodexAccumulator = CodexAccumulator
-  { messages :: ![Text],
+  { lastMessage :: !(Maybe Text),
     threadId :: !(Maybe Text),
     reportedModel :: !(Maybe Text),
     usage :: !(Maybe Usage)
@@ -234,7 +234,7 @@ data CodexAccumulator = CodexAccumulator
 emptyCodexAccumulator :: CodexAccumulator
 emptyCodexAccumulator =
   CodexAccumulator
-    { messages = [],
+    { lastMessage = Nothing,
       threadId = Nothing,
       reportedModel = Nothing,
       usage = Nothing
@@ -243,6 +243,8 @@ emptyCodexAccumulator =
 -- | Consume a stream of stdout bytes from @codex exec --json@, split on
 -- newlines, decode each line as JSON, and fold the events into what the
 -- run reported about itself.
+-- Only the last completed agent message supplies the answer; observations
+-- are collected independently from the entire stream.
 --
 -- A line that is not valid JSON is skipped rather than failing the run:
 -- codex writes progress chatter to stderr, but a future version writing
@@ -269,7 +271,7 @@ parseCodexJsonlStream chunks = do
   let acc = absorbLine folded (joinPieces pending)
   pure
     CodexRunReport
-      { message = Text.concat (reverse (acc ^. #messages)),
+      { message = fromMaybe "" (acc ^. #lastMessage),
         threadId = acc ^. #threadId,
         reportedModel = acc ^. #reportedModel,
         usage = acc ^. #usage
@@ -296,7 +298,7 @@ absorbCodexEvent :: CodexAccumulator -> Value -> CodexAccumulator
 absorbCodexEvent acc v =
   withTurn
     ( acc
-        & #messages %~ maybe id (:) (extractAgentMessage v)
+        & #lastMessage %~ (extractAgentMessage v <|>)
         & #threadId %~ (<|> extractThreadId v)
     )
   where
@@ -308,8 +310,8 @@ absorbCodexEvent acc v =
           & #reportedModel .~ reported
 
 -- | Best-effort extractor for the assistant text inside a single
--- Codex @--json@ event. See the original implementation's
--- documentation for the schema variants accepted.
+-- Codex @--json@ event. Modern @item@ envelopes must be @item.completed@;
+-- older flat and @msg@-nested agent messages are also complete bodies.
 extractAgentMessage :: Value -> Maybe Text
 extractAgentMessage = parseMaybe parser
   where
@@ -317,10 +319,11 @@ extractAgentMessage = parseMaybe parser
       mItem <- o .:? "item"
       case (mItem :: Maybe Value) of
         Just (Aeson.Object io) -> do
+          eventType <- o .:? "type"
           ty <- io .:? "type"
-          case (ty :: Maybe Text) of
-            Just "agent_message" -> pickText io
-            _ -> tryMsg o
+          case (eventType :: Maybe Text, ty :: Maybe Text) of
+            (Just "item.completed", Just "agent_message") -> pickText io
+            _ -> fail "not a completed agent_message"
         _ -> tryMsg o
 
     tryMsg o = do

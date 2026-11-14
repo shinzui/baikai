@@ -3,6 +3,7 @@ type: Guide
 title: CLI Providers
 description: Configure and use Claude and Codex batch subprocess providers.
 docId: DOC-2
+timestamp: "2026-11-13T23:59:09Z"
 tags: [providers, cli, claude, codex, subprocess]
 generated:
   by: human:nadeem
@@ -246,8 +247,8 @@ TextEnd      { contentIndex = 0, content = "<entire response>" }
 EventDone    { reason = Stop, message = <full AssistantMessage> }
 ```
 
-There is no intra-response streaming on the wire — `claude -p` and
-`codex exec --json` both deliver their output as a single message
+Baikai waits for `claude -p` and `codex exec --json` to finish before
+replaying the selected response as a single text block
 after the model finishes. baikai wraps that batch output with
 `Baikai.Stream.liftCompleteToStream` so callers that iterate over
 events don't have to special-case the CLI path. If you want true
@@ -329,8 +330,15 @@ What each tool receives:
 - **`codex exec`** gets `--output-schema <file>`. baikai writes the
   schema as UTF-8 JSON to a fresh file in the system temporary
   directory and deletes it when the call ends, whether it succeeded,
-  failed or threw. The response text is the final agent message,
-  which the tool has constrained to the schema. Codex submits the
+  failed or threw. The response text is the last completed agent message,
+  which the tool has constrained to the schema. Earlier complete messages,
+  including commentary, are excluded. Started and updated items do not replace
+  the answer. Plain-text calls use the same selection rule, and synthetic streams
+  replay only that final answer. Baikai preserves the final body even if it is
+  empty or malformed JSON; it does not recover an earlier valid object or
+  validate the schema itself. Outer whitespace is trimmed as for other Codex
+  responses. Thread identity and usage still come from the entire event stream.
+  Codex submits the
   schema in strict mode, so it must satisfy OpenAI's strict rules —
   every object needs `"additionalProperties": false` and every
   property listed in `required`.

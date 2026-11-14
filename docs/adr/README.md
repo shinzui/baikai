@@ -43,3 +43,4 @@ bundle.
 | [0027](0027-structured-answer-evidence-is-content.md) | Structured answer evidence is content and survives independently of call evidence | accepted |
 | [0028](0028-judgments-are-a-provider-neutral-core-protocol.md) | Judgments are a provider-neutral core protocol with catalog-owned capability facts | accepted |
 | [0029](0029-typesafe-wire-validation-and-scoped-http-judgments.md) | TypeSafe owns wire checks and uses scoped HTTP with synthetic atomic streams | accepted |
+| [0030](0030-codex-completed-messages-replace-the-final-answer.md) | Codex completed messages replace the final answer | accepted |

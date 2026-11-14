@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-13
+
+* **Update**: BUG-2: link implementation plan 103 and local correction coverage; keep confirmed pending publication and positive consumer adoption checks.
+
 * **Confirmed**: [BUG-2](codex-concatenates-complete-agent-messages.md). Record the Codex multi-message extraction defect, live Kotei evidence, hermetic consumer reproduction, affected releases, and final-answer acceptance criteria.
 
 ## 2026-10-10

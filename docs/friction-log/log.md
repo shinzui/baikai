@@ -1,5 +1,11 @@
 # Bundle Update Log
 
+## 2026-11-14
+* **Update**: FRIC-6 accepted: Accept the registry discovery outage for this run with scoped fallback; do not claim registry registration succeeded.
+
+## 2026-11-13
+* **Addition**: FRIC-6 records blocked environment friction with mori://shinzui/mori: Mori registry unavailable during final-message correction
+
 ## 2026-11-03
 * **Update**: FRIC-5 resolved: Record both cohort versions reaching the signed index and retain the official HTTPS refresh workaround for downstream consumers.
 * **Update**: FRIC-5 resolved: Resolve publication-to-index lag through signed HTTPS refresh, preserving credentials, package bounds and published tags.

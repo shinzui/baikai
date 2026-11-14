@@ -13,4 +13,4 @@ okf_version: "0.2"
 - [OpenAI cache verification exhausted account quota](3-openai-cache-verification-exhausted-account-quota.md) - OpenAI rejected the bounded 12h endpoint probe before cache behavior could be observed.
 - [Isolated capability validation loses required concept context](4-isolated-capability-validation-loses-required-concept-context.md) - The plan-recommended isolated strict capability check cannot resolve CAP-32 requirements or body links without the rest of the bundle.
 - [Hackage index refresh lags the published core package](5-hackage-index-refresh-lags-the-published-core-package.md) - The default HTTP Cabal index refresh omits a core version already published on Hackage, preventing the dependent binding archive from resolving.
-
+- [Mori registry unavailable during final-message correction](6-mori-registry-unavailable-during-final-message-correction.md) - The Mori PostgreSQL socket refused connections, preventing dependency and consumer registry discovery.

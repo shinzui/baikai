@@ -19,7 +19,7 @@ reproduction:
   - "Observe response text containing two adjacent JSON objects instead of the final object's text."
   - "Run either Mina explain judge through that provider; both bounded attempts fail with MissingField why."
   - "Run the two transportDiagnosis examples in mori://shinzui/mina at commit 03c14aa; their passing assertions document the current failure, not successful final-answer decoding."
-timestamp: "2026-11-13T23:01:23Z"
+timestamp: "2026-11-13T23:59:09Z"
 generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-11-13T23:01:23Z"
@@ -34,6 +34,16 @@ reviews:
     reviewed_at: "2026-11-13T23:01:23Z"
     document_timestamp: "2026-11-13T23:01:23Z"
     context: "Author self-check against CAP-15, the final-message promise in the CLI provider guide, released and owning-checkout parser source, the captured live failure, and two hermetic consumer transport diagnostics. This is not an independent review or a claim that a fix is implemented."
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-11-13T23:59:09Z"
+    document_timestamp: "2026-11-13T23:59:09Z"
+    context: "Implementation self-check of local final-message correction and regression coverage; release and consumer acceptance remain pending; this is not an independent review or a claim of publication."
 ---
 
 # Codex batch transport concatenates complete messages and corrupts structured output
@@ -122,8 +132,8 @@ is sufficient to reproduce without a model or access to Kotei.
 
 ## Source and release observations
 
-`baikai/src/Baikai/Provider/Cli/Internal.hs` documents `CodexRunReport.message`
-as the concatenation of every agent message, and `parseCodexJsonlStream` builds it
+At report time, `baikai/src/Baikai/Provider/Cli/Internal.hs` documented `CodexRunReport.message`
+as the concatenation of every agent message, and `parseCodexJsonlStream` built it
 with `Text.concat (reverse (acc ^. #messages))`. The Codex adapter in
 `baikai-openai/src/Baikai/Provider/OpenAI/Cli.hs` returns that value as the
 assistant response text. Separate `item.completed` messages are therefore
@@ -133,8 +143,8 @@ Reproduction uses core 0.8.0.0 and adapter 0.7.1.1. On 2026-11-13, Hackage's
 package-version JSON and upstream tags were checked: latest published core
 0.10.1.0 still contains the same concatenating implementation. Its release tag
 `baikai-0.10.1.0` peels to `cdb79e5805613ab60074bb2c9279d779af610c05`.
-The current owning checkout also retains it. No fixed release or last-working
-version is established. This does not assert that every intermediate release was
+The owning checkout retained it when this report was filed. No fixed release or
+last-working version was established at report time. This does not assert that every intermediate release was
 executed against a real model.
 
 ## Fix acceptance
@@ -152,3 +162,12 @@ executed against a real model.
 - Publish the correction and rerun Mina's two transport diagnostics as positive
   final-answer checks, followed by cold/repeated/preview command checks under the
   original explain settings. Do not treat existing cache hits as proof of repair.
+
+## Correction progress
+
+[Plan 103](../plans/103-return-only-the-final-codex-agent-message.md) implements
+last-completed-message selection and hermetic parser and public-provider
+regressions. The report remains confirmed until the correction is published and
+Mina's positive diagnostics and cold/repeated/preview checks pass. Local acceptance
+and correcting release versions are recorded in the plan; local success alone
+does not resolve this report.

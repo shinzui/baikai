@@ -39,13 +39,19 @@ evidence:
   - kind: test
     resource: baikai-openai/test/CliCancellationSpec.hs
     proves: "Public Codex batch adapter in baikai-openai 0.7.1.1: descendant cleanup precedes acknowledged cancellation, including repeated cancellation, active streams, version probes, and schema lifetime through termination."
+  - kind: test
+    resource: baikai-openai/test/StructuredCliSpec.hs
+    proves: "Multiple complete Codex messages return only the final body through public completion and synthetic streaming; malformed final JSON is preserved, schema files are removed, and response commitments exclude commentary."
+  - kind: test
+    resource: baikai-openai/test/CliEvidenceSpec.hs
+    proves: "Thread identity and normalized usage survive multiple messages and a nonzero exit after an answer; absent observations and evidence opt-out stay absent."
   - kind: guide
     resource: docs/user/cli-providers.md
     proves: "When to reach for a CLI provider instead of an API provider, how to configure each, the response shape they produce, and their limitations."
   - kind: module
     resource: baikai/src/Baikai/Provider/Cli/Internal.hs
     proves: "The shared subprocess vocabulary: ClaudeCliReport, CodexRunReport, the structured-output parsers, and the cached ExecutableIdentity probe."
-timestamp: "2026-10-06T17:38:18Z"
+timestamp: "2026-11-13T23:59:09Z"
 reviews:
   - kind: model
     reviewer: codex-cli
@@ -57,6 +63,16 @@ reviews:
     reviewed_at: "2026-10-06T17:38:18Z"
     document_timestamp: "2026-10-06T17:38:18Z"
     context: "Implementation self-check of the unreleased batch cancellation scope and positive real-process regressions; this does not assert that released adapters contain the fix."
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-11-13T23:59:09Z"
+    document_timestamp: "2026-11-13T23:59:09Z"
+    context: "Implementation self-check of final-message selection and positive parser/provider fixtures; this is not an independent review or a claim of publication."
 ---
 
 # Subscription-backed batch CLI backends
@@ -141,3 +157,14 @@ Windows cleans up only the direct child. The POSIX implementation requires
 `/bin/ps` and the threaded runtime. See the user guide and
 [the ownership decision](../adr/0026-batch-cli-cancellation-owns-process-groups-and-reader-workers.md)
 for the contract and its limits.
+
+## Codex final-answer selection
+
+The unreleased correction for [BUG-2](../bug-reports/codex-concatenates-complete-agent-messages.md)
+returns only the last completed `agent_message`, for schema and plain-text calls
+alike. Earlier complete messages and modern started/updated items are excluded;
+even an empty or malformed final body replaces an earlier valid answer. Synthetic
+streams replay that same answer. Thread identity and usage still cover the whole
+run, and nonzero exits remain errors. See [the selection decision](../adr/0030-codex-completed-messages-replace-the-final-answer.md).
+The capability's original `since` is unchanged; correcting release versions will
+be recorded after publication.

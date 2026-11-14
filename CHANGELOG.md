@@ -7,6 +7,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `baikai`: the Codex batch parser returns the last completed agent message
+  instead of concatenating complete messages, preserving structured JSON after
+  intermediate commentary. Started and updated items cannot replace the final
+  answer; usage and thread observations still cover the whole run ([BUG-2](docs/bug-reports/codex-concatenates-complete-agent-messages.md)).
+
 ## [baikai 0.10.1.0] - 2026-11-03
 
 ### Added

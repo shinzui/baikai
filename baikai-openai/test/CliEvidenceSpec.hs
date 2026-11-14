@@ -172,7 +172,12 @@ partiallyObservedFailureTest =
     -- digest of an empty envelope would be a real-looking value
     -- standing for a response that never arrived.
     field "response_commitment" ev @?= Just (String "unobserved")
-    field "usage" ev @?= Just (String "unobserved")
+    case observedObject "usage" ev of
+      Just u -> do
+        KeyMap.lookup "input_tokens" u @?= Just (Number 8)
+        KeyMap.lookup "cache_read_tokens" u @?= Just (Number 2)
+        KeyMap.lookup "output_tokens" u @?= Just (Number 3)
+      Nothing -> assertFailure "the failed run lost its reported usage"
 
 optOutTest :: TestTree
 optOutTest =
@@ -268,12 +273,15 @@ testContext = emptyContext & #messages .~ Vector.singleton (user "PROMPT-BODY-MA
 baseOptions :: Options
 baseOptions = emptyOptions & #evidence .~ Just (evidenceRequest "run-55")
 
--- | The event stream @codex-cli 0.146.0@ emits, with the thread
--- identifier kept exactly as recorded.
+-- | A recorded @codex-cli 0.146.0@ run, augmented with commentary,
+-- earlier usage, and a later thread event to protect independent observations.
 recordedEvents :: ([Text], Int)
 recordedEvents =
   ( [ "{\"type\":\"thread.started\",\"thread_id\":\"019fd471-4a48-7c83-be67-6b7c49646e43\"}",
       "{\"type\":\"turn.started\"}",
+      "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"commentary\"}}",
+      "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}",
+      "{\"type\":\"thread.started\",\"thread_id\":\"later-thread-must-not-win\"}",
       "{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"ok\"}}",
       "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":16071,\"cached_input_tokens\":6912,\
       \\"cache_write_input_tokens\":0,\"output_tokens\":5,\"reasoning_output_tokens\":0}}"
@@ -288,10 +296,13 @@ silentEvents =
     0
   )
 
--- | A run that named its thread and then failed.
+-- | A run that named its thread, answered, and counted tokens, then failed.
 failingEvents :: ([Text], Int)
 failingEvents =
-  ( ["{\"type\":\"thread.started\",\"thread_id\":\"019fd471-dead-7c83-be67-6b7c49646e43\"}"],
+  ( [ "{\"type\":\"thread.started\",\"thread_id\":\"019fd471-dead-7c83-be67-6b7c49646e43\"}",
+      "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"apparently valid answer\"}}",
+      "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":2,\"output_tokens\":3}}"
+    ],
     4
   )
 

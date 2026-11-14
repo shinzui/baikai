@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-13
+* **Update**: CAP-15: document final completed Codex message selection and positive parser, public completion/stream, and evidence regressions; preserve original since and keep release verification pending.
+
 ## 2026-11-03
 * **Release**: Publish CAP-32 (traced effectful collection) in baikai-effectful 0.5.0.0 with baikai 0.10.1.0. Both archives pass isolated Hackage-only verification, and the published API consumer compiles. Existing capability since values remain unchanged.
 * **Update**: Add CAP-32 for traced effectful collection and bounded abort acknowledgement; update CAP-20, CAP-9 and CAP-19 to distinguish fold ownership from general-stream abandonment.

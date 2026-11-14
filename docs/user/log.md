@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-13
+* **Update**: CLI Providers: explain final completed-message selection, excluded commentary and incomplete items, faithful malformed/empty answers, and independent observations.
+
 ## 2026-10-25
 
 * **Release**: [Models & Providers](models-and-providers.md) names core
