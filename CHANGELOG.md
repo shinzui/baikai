@@ -7,6 +7,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [baikai-openai 0.7.3.1] - 2026-11-14
+
+### Fixed
+
+- Require `baikai ^>=0.10.1.1` in library and tests so new adapter consumers
+  receive the Codex final-message correction.
+
+## [baikai 0.10.1.1] - 2026-11-14
+
 ### Fixed
 
 - `baikai`: the Codex batch parser returns the last completed agent message

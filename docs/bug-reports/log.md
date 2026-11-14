@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-14
+* **Update**: BUG-2: clarify that the affected owning checkout is the report-time checkout; current local repair is verified, but publication and consumer acceptance remain pending.
+
 ## 2026-11-13
 
 * **Update**: BUG-2: link implementation plan 103 and local correction coverage; keep confirmed pending publication and positive consumer adoption checks.

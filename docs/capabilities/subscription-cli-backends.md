@@ -51,7 +51,7 @@ evidence:
   - kind: module
     resource: baikai/src/Baikai/Provider/Cli/Internal.hs
     proves: "The shared subprocess vocabulary: ClaudeCliReport, CodexRunReport, the structured-output parsers, and the cached ExecutableIdentity probe."
-timestamp: "2026-11-13T23:59:09Z"
+timestamp: "2026-11-14T00:03:06Z"
 reviews:
   - kind: model
     reviewer: codex-cli
@@ -73,6 +73,16 @@ reviews:
     reviewed_at: "2026-11-13T23:59:09Z"
     document_timestamp: "2026-11-13T23:59:09Z"
     context: "Implementation self-check of final-message selection and positive parser/provider fixtures; this is not an independent review or a claim of publication."
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-11-14T00:03:06Z"
+    document_timestamp: "2026-11-14T00:03:06Z"
+    context: "Release preparation self-check for core 0.10.1.1 and adapter 0.7.3.1 with a fixed-core lower bound. Publication is pending confirmation; this is not an independent review."
 ---
 
 # Subscription-backed batch CLI backends
@@ -160,11 +170,11 @@ for the contract and its limits.
 
 ## Codex final-answer selection
 
-The unreleased correction for [BUG-2](../bug-reports/codex-concatenates-complete-agent-messages.md)
-returns only the last completed `agent_message`, for schema and plain-text calls
+`baikai 0.10.1.1` and `baikai-openai 0.7.3.1` correct [BUG-2](../bug-reports/codex-concatenates-complete-agent-messages.md)
+by returning only the last completed `agent_message`, for schema and plain-text calls
 alike. Earlier complete messages and modern started/updated items are excluded;
 even an empty or malformed final body replaces an earlier valid answer. Synthetic
 streams replay that same answer. Thread identity and usage still cover the whole
 run, and nonzero exits remain errors. See [the selection decision](../adr/0030-codex-completed-messages-replace-the-final-answer.md).
-The capability's original `since` is unchanged; correcting release versions will
-be recorded after publication.
+The adapter requires the fixed core version. The capability's original `since`
+is unchanged.

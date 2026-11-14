@@ -3,7 +3,7 @@ type: Guide
 title: CLI Providers
 description: Configure and use Claude and Codex batch subprocess providers.
 docId: DOC-2
-timestamp: "2026-11-13T23:59:09Z"
+timestamp: "2026-11-14T00:03:06Z"
 tags: [providers, cli, claude, codex, subprocess]
 generated:
   by: human:nadeem
@@ -342,6 +342,10 @@ What each tool receives:
   schema in strict mode, so it must satisfy OpenAI's strict rules —
   every object needs `"additionalProperties": false` and every
   property listed in `required`.
+
+The multiple-message correction ships in `baikai 0.10.1.1` and
+`baikai-openai 0.7.3.1`; the adapter requires that fixed core or a later compatible
+version. Earlier releases can concatenate complete messages and corrupt JSON.
 
 With evidence requested, the Codex request commitment digests the
 argument vector with the schema's compact JSON where the temporary

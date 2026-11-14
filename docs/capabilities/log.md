@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-14
+* **Update**: CAP-15: prepare correcting core 0.10.1.1 and adapter 0.7.3.1 release notes, preserving original since and requiring the fixed core. Publication awaits release confirmation.
+
 ## 2026-11-13
 * **Update**: CAP-15: document final completed Codex message selection and positive parser, public completion/stream, and evidence regressions; preserve original since and keep release verification pending.
 

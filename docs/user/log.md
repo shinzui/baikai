@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-14
+* **Update**: CLI Providers: prepare correcting core 0.10.1.1 and adapter 0.7.3.1 version guidance; publication awaits release confirmation.
+
 ## 2026-11-13
 * **Update**: CLI Providers: explain final completed-message selection, excluded commentary and incomplete items, faithful malformed/empty answers, and independent observations.
 

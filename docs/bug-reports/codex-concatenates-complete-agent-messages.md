@@ -8,7 +8,7 @@ severity: degraded
 origin: mori://shinzui/mina/plans/260-fix-missingfield-why-failures-in-plan-explain-commands
 affects: mori://shinzui/baikai
 capability: mori://shinzui/baikai/okf/capabilities/concepts/CAP-15
-affectedVersion: "Reproduced: baikai 0.8.0.0 with baikai-openai 0.7.1.1; concatenating implementation also present in released baikai 0.10.1.0 and current checkout."
+affectedVersion: "Reproduced: baikai 0.8.0.0 with baikai-openai 0.7.1.1; concatenating implementation also present in released baikai 0.10.1.0 and the report-time checkout."
 environment: "aarch64-darwin, GHC 9.12.4, codex-cli 0.169.0; Mina 5d07d72, Shikumi 0.4.1.1; codex-cli / gpt-5.6-luna / high effort. Hermetic reproduction uses a fake executable without credentials."
 observed: "parseCodexJsonlStream concatenates every agent_message text. Two complete JSON objects become adjacent JSON; Shikumi rejects that body as JSON and its marker fallback raises MissingField why even though both original messages contain why."
 expected: "The Codex provider returns the final agent answer as its response text, preserving the provider-enforced JSON schema; intermediate commentary is not concatenated into that answer."
@@ -19,7 +19,7 @@ reproduction:
   - "Observe response text containing two adjacent JSON objects instead of the final object's text."
   - "Run either Mina explain judge through that provider; both bounded attempts fail with MissingField why."
   - "Run the two transportDiagnosis examples in mori://shinzui/mina at commit 03c14aa; their passing assertions document the current failure, not successful final-answer decoding."
-timestamp: "2026-11-13T23:59:09Z"
+timestamp: "2026-11-14T00:07:29Z"
 generated:
   by: codex-cli/gpt-6.1-sol
   at: "2026-11-13T23:01:23Z"
@@ -44,6 +44,16 @@ reviews:
     reviewed_at: "2026-11-13T23:59:09Z"
     document_timestamp: "2026-11-13T23:59:09Z"
     context: "Implementation self-check of local final-message correction and regression coverage; release and consumer acceptance remain pending; this is not an independent review or a claim of publication."
+  - kind: model
+    reviewer: codex-cli
+    provider: openai
+    model: gpt-6.1-sol
+    effort: unspecified
+    scope: content-and-metadata
+    outcome: commented
+    reviewed_at: "2026-11-14T00:07:29Z"
+    document_timestamp: "2026-11-14T00:07:29Z"
+    context: "Clarify that affected checkout observations refer to report time after local repair. Release preparation is gated; publication and consumer acceptance remain pending. This is an author self-check."
 ---
 
 # Codex batch transport concatenates complete messages and corrupts structured output
