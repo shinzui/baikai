@@ -65,15 +65,12 @@ Anthropic reports in `message_start`, are what let this transport reach
 `model_observed` in [CAP-19 — verifiable model-call
 evidence](model-call-evidence.md).
 
-From baikai-claude 0.6.0.0 the SDK bound is `claude ^>=1.5`, which makes two
-response facts readable that 1.4 did not expose. A thinking-token breakdown on
-`message_start` now fills `Usage.reasoningTokens`, which this provider used to
-hard-code to `Nothing` for want of anything to read; it is an informational
-subset of the output tokens, so no total and no cost moves. And the final
-`message_delta` carries the prompt-side counts, so a call whose prompt grew
-mid-stream under a server-side tool is accounted for from the counts that ended
-the call rather than the ones that started it. An absent field still keeps the
-`message_start` figure rather than zeroing it.
+The HTTP provider uses `mori://shinzui/claude-hs/packages/claude-hs` for
+Messages request encoding, scoped HTTP and typed stream observations.
+A thinking-token breakdown fills `Usage.reasoningTokens` as an informational
+subset of output tokens. Final cumulative prompt-side counts account for
+server-side tool activity. An absent field keeps the earlier observation and
+an explicit zero replaces it.
 
 This builds on [CAP-1 — provider-neutral model calls with registry
 dispatch](unified-provider-calls.md).

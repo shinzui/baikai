@@ -78,7 +78,7 @@ library
     base64-bytestring ^>=1.2,
     bytestring ^>=0.12,
     case-insensitive ^>=1.2,
-    claude ^>=1.5,
+    claude-hs ==0.1.0.0,
     containers ^>=0.7,
     cradle ^>=0.0,
     cryptohash-sha256 ^>=0.11,
@@ -131,7 +131,7 @@ test-suite baikai-claude-test
     base >=4.20 && <5,
     bytestring,
     case-insensitive,
-    claude,
+    claude-hs,
     containers,
     directory,
     filepath,
@@ -152,6 +152,8 @@ test-suite baikai-claude-test
     time,
     tls,
     vector,
+    wai,
+    warp,
 
   if !os(windows)
     build-depends: unix ^>=2.8

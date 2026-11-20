@@ -21,7 +21,7 @@ import Baikai.Compat (AnthropicMessagesCompat (supportsCacheControlOnTools, supp
 import Baikai.Context (Context, tools)
 import Baikai.Options (Options, cacheRetention, toolChoice)
 import Baikai.Tool qualified as Tool
-import Claude.V1.Messages qualified as Messages
+import Claude.Messages qualified as Messages
 import Data.Aeson (Value (..), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as AesonKey
@@ -46,10 +46,10 @@ streamRequestBody ::
   AnthropicMessagesCompat ->
   Context ->
   Options ->
-  Messages.CreateMessage ->
+  Messages.MessageRequest ->
   Aeson.Value
 streamRequestBody compat ctx opts req =
-  shapeRequestBody compat ctx opts (Aeson.toJSON req {Messages.stream = Just True})
+  mapObject (KeyMap.insert "stream" (Bool True)) (shapeRequestBody compat ctx opts (Aeson.toJSON req))
 
 replaceToolSchemas :: Context -> Aeson.Value -> Aeson.Value
 replaceToolSchemas ctx

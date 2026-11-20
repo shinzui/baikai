@@ -11,15 +11,17 @@ import Baikai.Provider.Claude.Internal.Request
     uncappedMaxTokensFloor,
   )
 import Baikai.Provider.Claude.Internal.Stream (Assembler, emptyAssembler, translate)
-import Claude.V1.Messages qualified as Messages
+import Claude.Messages qualified as Messages
+import Claude.Streaming qualified as Messages
 import Control.Lens ((&), (.~), (^.))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.ByteString.Lazy qualified as BSL
+import Data.Aeson.Types (Pair)
 import Data.Char qualified as Char
 import Data.Generics.Labels ()
 import Data.IntMap.Strict qualified as IntMap
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector qualified as Vector
@@ -103,7 +105,7 @@ neverExceedsCapTests :: [TestTree]
 neverExceedsCapTests =
   [ testCase (name <> " " <> levelName <> " stays within catalog cap") $ do
       req <- requestFor model (emptyOptions & #thinking .~ Just level)
-      req ^. #max_tokens <= model ^. #maxOutputTokens
+      requestMaxTokens req <= model ^. #maxOutputTokens
         @?= True
   | (name, model, _, _, _, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
@@ -117,14 +119,14 @@ styleTests =
         AnthropicThinkingBudget -> do
           let expectedBudget = thinkingTokenBudget level
           requestThinking req
-            @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = expectedBudget}
+            @?= Just (Messages.ManualBudget (expectedBudget) Nothing)
           assertBool
             "max_tokens leaves visible-output room beyond budget"
-            (req ^. #max_tokens > expectedBudget)
+            (requestMaxTokens req > expectedBudget)
         AnthropicThinkingAdaptive -> do
-          requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-          req ^. #max_tokens @?= model ^. #maxOutputTokens
-          (req ^. #output_config >>= Messages.effort)
+          requestThinking req @?= Just (Messages.Adaptive (Just Messages.Summarized))
+          requestMaxTokens req @?= model ^. #maxOutputTokens
+          (requestOutputConfig req >>= Messages.effort >>= encodedEffort)
             @?= adaptiveEffort level
   | (name, model, style, _, _, _) <- anthropicModels,
     (levelName, level) <- thinkingLevels
@@ -216,7 +218,7 @@ conditionalDowngradeTests =
             opts = emptyOptions & #thinking .~ Just ThinkingMinimal
         req <- requestFor model opts
         requestThinking req @?= Nothing
-        req ^. #max_tokens @?= 1000
+        requestMaxTokens req @?= 1000
         t <- translationFor model opts
         t ^. #requested @?= Just ThinkingMinimal
         t ^. #mode @?= ThinkingModeUnsupported
@@ -236,8 +238,8 @@ adaptiveHigherEffortTests =
           requestFor
             anthropic_claude_opus_4_7
             (emptyOptions & #thinking .~ Just level)
-        requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-        (req ^. #output_config >>= Messages.effort) @?= Just expected
+        requestThinking req @?= Just (Messages.Adaptive (Just Messages.Summarized))
+        (requestOutputConfig req >>= Messages.effort >>= encodedEffort) @?= Just expected
     | (name, level, expected) <-
         [ ("xhigh is preserved", ThinkingXHigh, "xhigh"),
           ("max is preserved", ThinkingMax, "max")
@@ -256,8 +258,8 @@ opus55HighTest =
         anthropic_claude_opus_5_5
         emptyContext
         (emptyOptions & #thinking .~ Just ThinkingHigh)
-    requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-    (req ^. #output_config >>= Messages.effort) @?= Just "high"
+    requestThinking req @?= Just (Messages.Adaptive (Just Messages.Summarized))
+    (requestOutputConfig req >>= Messages.effort >>= encodedEffort) @?= Just "high"
     t ^. #mode @?= ThinkingModeAdaptive
     t ^. #effortText @?= Just "high"
     t ^. #adjustments @?= []
@@ -275,10 +277,10 @@ maxBudgetTest =
         anthropic_claude_haiku_4_5
         (emptyOptions & #thinking .~ Just ThinkingMax)
     requestThinking req
-      @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = 32768}
+      @?= Just (Messages.ManualBudget (32768) Nothing)
     assertBool
       "max_tokens leaves visible-output room beyond the max thinking budget"
-      (req ^. #max_tokens > 32768)
+      (requestMaxTokens req > 32768)
 
 explicitMaxTokensTest :: TestTree
 explicitMaxTokensTest =
@@ -290,8 +292,8 @@ explicitMaxTokensTest =
         budget = thinkingTokenBudget ThinkingHigh
     req <- requestFor anthropic_claude_haiku_4_5 opts
     requestThinking req
-      @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = budget}
-    req ^. #max_tokens @?= anthropic_claude_haiku_4_5 ^. #maxOutputTokens
+      @?= Just (Messages.ManualBudget (budget) Nothing)
+    requestMaxTokens req @?= anthropic_claude_haiku_4_5 ^. #maxOutputTokens
 
 handRolledUnclampedTest :: TestTree
 handRolledUnclampedTest =
@@ -309,7 +311,7 @@ handRolledUnclampedTest =
             & #maxTokens .~ Just 100
         expected = 100 + thinkingTokenBudget ThinkingLow
     req <- requestFor model opts
-    req ^. #max_tokens @?= expected
+    requestMaxTokens req @?= expected
 
 tooSmallCapDropsThinkingTest :: TestTree
 tooSmallCapDropsThinkingTest =
@@ -320,7 +322,7 @@ tooSmallCapDropsThinkingTest =
         opts = emptyOptions & #thinking .~ Just ThinkingMinimal
     req <- requestFor model opts
     requestThinking req @?= Nothing
-    req ^. #max_tokens @?= 1000
+    requestMaxTokens req @?= 1000
 
 mergedOutputConfigTest :: TestTree
 mergedOutputConfigTest =
@@ -333,10 +335,10 @@ mergedOutputConfigTest =
                 & #thinking .~ Just level
                 & #responseFormat
                   .~ Just (JsonSchema (jsonSchemaFormat "answer" schema) {strict = True})
-            expected = (Messages.jsonSchemaConfig schema) {Messages.effort = Just word}
+            expected = Messages.OutputConfig (Just (Messages.VersionedEffort word)) (asObject schema)
         req <- requestFor model opts
-        requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-        req ^. #output_config @?= Just expected
+        requestThinking req @?= Just (Messages.Adaptive (Just Messages.Summarized))
+        requestOutputConfig req @?= Just expected
     | (model, level, word) <-
         [ (anthropic_claude_opus_4_6, ThinkingMedium, "medium"),
           (anthropic_claude_opus_5_5, ThinkingHigh, "high")
@@ -355,8 +357,8 @@ explicitCompatOverridesDefaultTest =
             & #compat .~ CompatAnthropicMessages compat
         opts = emptyOptions & #thinking .~ Just ThinkingLow
     req <- requestFor model opts
-    requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-    (req ^. #output_config >>= Messages.effort) @?= Just "low"
+    requestThinking req @?= Just (Messages.Adaptive (Just Messages.Summarized))
+    (requestOutputConfig req >>= Messages.effort >>= encodedEffort) @?= Just "low"
 
 -- | 'ThinkingNone' against every catalog model, and the wire bytes it
 -- and the settings it sits beside produce.
@@ -375,8 +377,8 @@ thinkingNoneTests =
           if anthropicMessagesCompatFor model ^. #supportsThinkingDisabled
             then do
               requestThinking req @?= Just Messages.ThinkingDisabled
-              (req ^. #output_config >>= Messages.effort) @?= Nothing
-              req ^. #max_tokens @?= model ^. #maxOutputTokens
+              (requestOutputConfig req >>= Messages.effort >>= encodedEffort) @?= Nothing
+              requestMaxTokens req @?= model ^. #maxOutputTokens
               t ^. #mode @?= ThinkingModeToggle
               t ^. #wireField @?= Just "thinking"
               t ^. #effortText @?= Nothing
@@ -385,8 +387,8 @@ thinkingNoneTests =
             else do
               -- Anthropic rejects "disabled" here, so the least thinking
               -- the model can be asked for is adaptive at low effort.
-              requestThinking req @?= Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized)
-              (req ^. #output_config >>= Messages.effort) @?= Just "low"
+              requestThinking req @?= Just (Messages.Adaptive (Just Messages.Summarized))
+              (requestOutputConfig req >>= Messages.effort >>= encodedEffort) @?= Just "low"
               t ^. #mode @?= ThinkingModeAdaptive
               t ^. #adjustments @?= [EffortClamped ThinkingNone "low"]
       | (name, model, _, _, _, _) <- anthropicModels
@@ -421,7 +423,7 @@ thinkingNoneTests =
                        & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "answer" schema))
                req <- requestFor anthropic_claude_haiku_5_5 opts
                requestThinking req @?= Just Messages.ThinkingDisabled
-               req ^. #output_config @?= Just (Messages.jsonSchemaConfig schema),
+               requestOutputConfig req @?= Just (Messages.OutputConfig Nothing (asObject schema)),
              testCase "a budget-style host that rejects disabled omits the field and says so" $ do
                let model =
                      anthropic_claude_haiku_4_5
@@ -429,7 +431,7 @@ thinkingNoneTests =
                    opts = emptyOptions & #thinking .~ Just ThinkingNone
                (req, t) <- mappedFor model emptyContext opts
                requestThinking req @?= Nothing
-               req ^. #max_tokens @?= model ^. #maxOutputTokens
+               requestMaxTokens req @?= model ^. #maxOutputTokens
                t ^. #mode @?= ThinkingModeUnsupported
                t ^. #wireField @?= Nothing
                t ^. #adjustments @?= [EffortOmitted ThinkingNone],
@@ -478,20 +480,35 @@ thinkingNoneTests =
         Aeson.Object o -> pure o
         other -> assertFailure ("request did not encode as an object: " <> show other)
 
-requestFor :: Model -> Options -> IO Messages.CreateMessage
+requestFor :: Model -> Options -> IO Messages.MessageRequest
 requestFor model opts = fst <$> mappedFor model emptyContext opts
 
 translationFor :: Model -> Options -> IO ThinkingTranslation
 translationFor model opts = snd <$> mappedFor model emptyContext opts
 
 mappedFor ::
-  Model -> Context -> Options -> IO (Messages.CreateMessage, ThinkingTranslation)
+  Model -> Context -> Options -> IO (Messages.MessageRequest, ThinkingTranslation)
 mappedFor model ctx opts = case mapRequest model ctx opts of
   Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
   Right mapped -> pure mapped
 
-requestThinking :: Messages.CreateMessage -> Maybe Messages.Thinking
-requestThinking Messages.CreateMessage {Messages.thinking = t} = t
+requestThinking :: Messages.MessageRequest -> Maybe Messages.Thinking
+requestThinking request = request ^. #conversation . #features . #thinking
+
+requestMaxTokens :: Messages.MessageRequest -> Natural
+requestMaxTokens request = Messages.maxTokensValue (request ^. #outputLimit)
+
+requestOutputConfig :: Messages.MessageRequest -> Maybe Messages.OutputConfig
+requestOutputConfig request = request ^. #conversation . #features . #outputConfig
+
+encodedEffort :: Messages.Effort -> Maybe Text.Text
+encodedEffort effort = case Aeson.toJSON effort of
+  Aeson.String value -> Just value
+  _ -> Nothing
+
+asObject :: Aeson.Value -> Maybe Aeson.Object
+asObject (Aeson.Object fields) = Just fields
+asObject _ = Nothing
 
 adaptiveEffort :: ThinkingLevel -> Maybe Text.Text
 adaptiveEffort = \case
@@ -529,12 +546,12 @@ samplingTests =
           t <- translationFor model opts
           if supported
             then do
-              Messages.temperature req @?= Just 0.2
-              Messages.top_p req @?= Just 0.9
+              Messages.temperature (Messages.messageRequestControls req) @?= Just 0.2
+              Messages.topP (Messages.messageRequestControls req) @?= Just 0.9
               filter isSamplingAdjustment (t ^. #adjustments) @?= []
             else do
-              Messages.temperature req @?= Nothing
-              Messages.top_p req @?= Nothing
+              Messages.temperature (Messages.messageRequestControls req) @?= Nothing
+              Messages.topP (Messages.messageRequestControls req) @?= Nothing
               filter isSamplingAdjustment (t ^. #adjustments)
                 @?= [SamplingDroppedUnsupportedModel ["temperature", "top_p"]]
       | (name, model, _, supported, _, _) <- anthropicModels,
@@ -547,7 +564,7 @@ samplingTests =
                let opts = emptyOptions & #temperature .~ Just 0.2
                req <- requestFor anthropic_claude_sonnet_5 opts
                t <- translationFor anthropic_claude_sonnet_5 opts
-               Messages.temperature req @?= Nothing
+               Messages.temperature (Messages.messageRequestControls req) @?= Nothing
                t ^. #mode @?= ThinkingModeAbsent
                t ^. #requested @?= Nothing
                t ^. #adjustments @?= [SamplingDroppedUnsupportedModel ["temperature"]],
@@ -595,20 +612,20 @@ zeroCapFloorTests =
     "a model with an unknown output cap sends the documented floor"
     [ testCase "hand-rolled model with unknown cap sends the 1024 floor" $ do
         req <- requestFor uncappedModel emptyOptions
-        req ^. #max_tokens @?= uncappedMaxTokensFloor,
+        requestMaxTokens req @?= uncappedMaxTokensFloor,
       testCase "the floor leaves room for a thinking budget" $ do
         let opts = emptyOptions & #thinking .~ Just ThinkingLow
         req <- requestFor uncappedModel opts
         t <- translationFor uncappedModel opts
-        req ^. #max_tokens @?= uncappedMaxTokensFloor + thinkingTokenBudget ThinkingLow
+        requestMaxTokens req @?= uncappedMaxTokensFloor + thinkingTokenBudget ThinkingLow
         requestThinking req
-          @?= Just Messages.ThinkingEnabled {Messages.budget_tokens = thinkingTokenBudget ThinkingLow}
+          @?= Just (Messages.ManualBudget (thinkingTokenBudget ThinkingLow) Nothing)
         t ^. #adjustments @?= [],
       testCase "an explicit maxTokens of zero is forwarded as written" $ do
         -- The floor stands in for an unknown cap, not for a caller's
         -- own choice. Someone who wrote Just 0 gets 0.
         req <- requestFor uncappedModel (emptyOptions & #maxTokens .~ Just 0)
-        req ^. #max_tokens @?= 0
+        requestMaxTokens req @?= 0
     ]
   where
     uncappedModel =
@@ -715,11 +732,12 @@ toolIdTests =
       assertBool ("no character outside the alphabet: " <> Text.unpack i) (Text.all ok i)
     ok c = (Char.isAscii c && Char.isAlphaNum c) || c == '_' || c == '-'
     toolUseIds msgs =
-      [i | m <- Vector.toList msgs, Messages.Content_Tool_Use {Messages.id = i} <- Vector.toList (messageContent m)]
+      [i | m <- Vector.toList msgs, Messages.InputToolUse i _ _ _ <- Vector.toList (messageContent m)]
     toolResultIds msgs =
       [ i
       | m <- Vector.toList msgs,
-        Messages.Content_Tool_Result {Messages.tool_use_id = i} <- Vector.toList (messageContent m)
+        Messages.InputToolResult result <- Vector.toList (messageContent m),
+        let i = Messages.toolUseId result
       ]
 
 -- | An assistant turn carrying exactly these blocks.
@@ -748,12 +766,12 @@ mappedMessages msgs =
   requestMessages <$> requestForContext anthropic_claude_haiku_4_5 (contextOf msgs) emptyOptions
 
 messageRole :: Messages.Message -> Messages.Role
-messageRole Messages.Message {Messages.role = r} = r
+messageRole msg = msg ^. #role
 
 -- | What @claude@ 1.5.0 added to the Messages response and what baikai
 -- now reads off it. Each of these was unreadable before the bump:
 -- 'Messages.Usage' had no thinking-token breakdown,
--- 'Messages.StreamUsage' carried only @output_tokens@, and
+-- 'Messages.UsageUpdate' carried only @output_tokens@, and
 -- 'Messages.StopReason' had no @pause_turn@.
 claude15UsageTests :: TestTree
 claude15UsageTests =
@@ -764,8 +782,7 @@ claude15UsageTests =
               runClaudeEvents
                 [ messageStartWith
                     (startUsage 10)
-                      { Messages.output_tokens_details =
-                          Just Messages.OutputTokensDetails {Messages.thinking_tokens = 7}
+                      { Messages.usageEvidence = noUsageEvidence {Messages.outputTokensDetails = Just (Messages.OutputTokenDetails (Just 7))}
                       }
                 ]
         ass ^. #usage . #reasoningTokens @?= Just 7,
@@ -779,13 +796,12 @@ claude15UsageTests =
               runClaudeEvents
                 [ messageStartWith (startUsage 10),
                   messageDelta
-                    (Just Messages.End_Turn)
+                    (Just Messages.EndTurn)
                     (outputOnlyStreamUsage 12)
-                      { Messages.stream_input_tokens = Just 40,
-                        Messages.stream_cache_read_input_tokens = Just 5,
-                        Messages.stream_cache_creation_input_tokens = Just 3,
-                        Messages.stream_output_tokens_details =
-                          Just Messages.OutputTokensDetails {Messages.thinking_tokens = 9}
+                      { Messages.inputTokens = Just 40,
+                        Messages.cacheReadInputTokens = Just 5,
+                        Messages.cacheCreationInputTokens = Just 3,
+                        Messages.usageEvidence = noUsageEvidence {Messages.outputTokensDetails = Just (Messages.OutputTokenDetails (Just 9))}
                       }
                 ]
             u = ass ^. #usage
@@ -801,10 +817,10 @@ claude15UsageTests =
               runClaudeEvents
                 [ messageStartWith
                     (startUsage 10)
-                      { Messages.cache_read_input_tokens = Just 5,
-                        Messages.cache_creation_input_tokens = Just 3
+                      { Messages.cacheReadInputTokens = Just 5,
+                        Messages.cacheCreationInputTokens = Just 3
                       },
-                  messageDelta (Just Messages.End_Turn) (outputOnlyStreamUsage 12)
+                  messageDelta (Just Messages.EndTurn) (outputOnlyStreamUsage 12)
                 ]
             u = ass ^. #usage
         u ^. #inputTokens @?= 10
@@ -819,8 +835,8 @@ claude15UsageTests =
         let (events, ass) =
               runClaudeEvents
                 [ messageStart,
-                  messageDelta (Just Messages.Pause_Turn) (outputOnlyStreamUsage 12),
-                  Messages.Message_Stop
+                  messageDelta (Just Messages.PauseTurn) (outputOnlyStreamUsage 12),
+                  Messages.MessageStop
                 ]
         ass ^. #stopReason @?= Stop
         case last events of
@@ -872,20 +888,11 @@ streamFidelityTests =
         req <- requestForContext anthropic_claude_haiku_4_5 ctx emptyOptions
         case Vector.toList (requestMessages req) of
           (assistantMsg : _) ->
-            BSL.toStrict (Aeson.encode (messageContent assistantMsg))
-              @?= BSL.toStrict
-                ( Aeson.encode
-                    ( Vector.fromList
-                        [ Messages.Content_Thinking
-                            { Messages.thinking = "because therefore",
-                              Messages.signature = "sig-final"
-                            },
-                          Messages.Content_Redacted_Thinking
-                            { Messages.data_ = "ENCRYPTED=="
-                            }
-                        ]
-                    )
-                )
+            Aeson.toJSON (messageContent assistantMsg)
+              @?= Aeson.toJSON
+                [ responseBlock "thinking" ["thinking" Aeson..= ("because therefore" :: Text.Text), "signature" Aeson..= ("sig-final" :: Text.Text)],
+                  responseBlock "redacted_thinking" ["data" Aeson..= ("ENCRYPTED==" :: Text.Text)]
+                ]
           _ -> assertFailure "mapped request contained no assistant message",
       testCase "signature-less non-redacted thinking is omitted on replay" $ do
         let msg =
@@ -911,165 +918,63 @@ streamFidelityTests =
         req <- requestForContext anthropic_claude_haiku_4_5 ctx emptyOptions
         case Vector.toList (requestMessages req) of
           [assistantMsg] ->
-            BSL.toStrict (Aeson.encode (messageContent assistantMsg))
-              @?= BSL.toStrict
-                ( Aeson.encode
-                    ( Vector.singleton
-                        Messages.Content_Text
-                          { Messages.text = "visible",
-                            Messages.cache_control = Nothing
-                          }
-                    )
-                )
+            Aeson.toJSON (messageContent assistantMsg)
+              @?= Aeson.toJSON [responseBlock "text" ["text" Aeson..= ("visible" :: Text.Text)]]
           _ -> assertFailure "expected exactly one mapped assistant message",
       testCase "unopened block deltas do not fabricate events or closed blocks" $ do
         let (events, ass) =
               runClaudeEvents
-                [ Messages.Content_Block_Delta
-                    { Messages.index = 7,
-                      Messages.delta = Messages.Delta_Thinking_Delta {Messages.thinking = "ghost"}
-                    },
-                  Messages.Content_Block_Delta
-                    { Messages.index = 8,
-                      Messages.delta = Messages.Delta_Input_Json_Delta {Messages.partial_json = "{\"x\""}
-                    },
-                  Messages.Content_Block_Stop {Messages.index = 8}
+                [ Messages.ContentBlockDelta 7 (Messages.ThinkingDelta "ghost"),
+                  Messages.ContentBlockDelta 8 (Messages.InputJsonDelta "{\"x\""),
+                  Messages.ContentBlockStop 8
                 ]
         events @?= []
         IntMap.null (ass ^. #closed) @?= True
         IntMap.null (ass ^. #toolArgsBuf) @?= True
     ]
 
-signedAndRedactedStream :: [Messages.MessageStreamEvent]
+signedAndRedactedStream :: [Messages.StreamPayload]
 signedAndRedactedStream =
   [ messageStart,
-    Messages.Content_Block_Start
-      { Messages.index = 0,
-        Messages.content_block = Messages.ContentBlock_Thinking {Messages.thinking = "", Messages.signature = ""}
-      },
-    Messages.Content_Block_Delta
-      { Messages.index = 0,
-        Messages.delta = Messages.Delta_Thinking_Delta {Messages.thinking = "because "}
-      },
-    Messages.Content_Block_Delta
-      { Messages.index = 0,
-        Messages.delta = Messages.Delta_Thinking_Delta {Messages.thinking = "therefore"}
-      },
-    Messages.Content_Block_Delta
-      { Messages.index = 0,
-        Messages.delta = Messages.Delta_Signature_Delta {Messages.signature = "sig-"}
-      },
-    Messages.Content_Block_Delta
-      { Messages.index = 0,
-        Messages.delta = Messages.Delta_Signature_Delta {Messages.signature = "final"}
-      },
-    Messages.Content_Block_Stop {Messages.index = 0},
-    Messages.Content_Block_Start
-      { Messages.index = 1,
-        Messages.content_block = Messages.ContentBlock_Redacted_Thinking {Messages.data_ = "ENCRYPTED=="}
-      },
-    Messages.Content_Block_Stop {Messages.index = 1},
-    Messages.Message_Delta
-      { Messages.message_delta =
-          Messages.MessageDelta
-            { Messages.stop_reason = Just Messages.End_Turn,
-              Messages.stop_sequence = Nothing,
-              Messages.stop_details = Nothing
-            },
-        Messages.usage = outputOnlyStreamUsage 12
-      },
-    Messages.Message_Stop
+    Messages.ContentBlockStart 0 (parseBlock (responseBlock "thinking" ["thinking" Aeson..= ("" :: Text.Text), "signature" Aeson..= ("" :: Text.Text)])),
+    Messages.ContentBlockDelta 0 (Messages.ThinkingDelta "because "),
+    Messages.ContentBlockDelta 0 (Messages.ThinkingDelta "therefore"),
+    Messages.ContentBlockDelta 0 (Messages.SignatureDelta "sig-"),
+    Messages.ContentBlockDelta 0 (Messages.SignatureDelta "final"),
+    Messages.ContentBlockStop 0,
+    Messages.ContentBlockStart 1 (parseBlock (responseBlock "redacted_thinking" ["data" Aeson..= ("ENCRYPTED==" :: Text.Text)])),
+    Messages.ContentBlockStop 1,
+    messageDelta (Just Messages.EndTurn) (outputOnlyStreamUsage 12),
+    Messages.MessageStop
   ]
+  where
+    parseBlock raw = case Aeson.fromJSON raw of
+      Aeson.Success value -> value
+      Aeson.Error err -> error err
 
-messageStart :: Messages.MessageStreamEvent
-messageStart =
-  Messages.Message_Start
-    { Messages.message =
-        Messages.MessageResponse
-          { Messages.id = "msg_test",
-            Messages.type_ = "message",
-            Messages.role = Messages.Assistant,
-            Messages.content = Vector.empty,
-            Messages.model = "claude-haiku-4-5",
-            Messages.stop_reason = Nothing,
-            Messages.stop_sequence = Nothing,
-            Messages.stop_details = Nothing,
-            Messages.usage = startUsage 10,
-            Messages.container = Nothing
-          }
-    }
+responseBlock :: Text.Text -> [Pair] -> Aeson.Value
+responseBlock tag fields = Aeson.object (("type" Aeson..= tag) : fields)
 
--- | A @message_start@ usage reporting the given prompt tokens and
--- nothing else. Refine it by record update rather than respelling ten
--- fields; the ones this provider never reads — @inference_geo@,
--- @service_tier@, @speed@, @iterations@ — stay 'Nothing' so a test says
--- only what it means to say. The prompt count is an argument rather
--- than an update because @input_tokens@ alone does not name one record
--- in @claude@ 1.5.0, and a single-field update on it is ambiguous.
+messageStart :: Messages.StreamPayload
+messageStart = messageStartWith (startUsage 10)
+
+noUsageEvidence :: Messages.UsageEvidence
+noUsageEvidence = Messages.UsageEvidence Nothing Nothing Nothing Nothing Nothing Nothing
+
 startUsage :: Natural -> Messages.Usage
-startUsage inputTokens =
-  Messages.Usage
-    { Messages.input_tokens = inputTokens,
-      Messages.output_tokens = 0,
-      Messages.cache_creation_input_tokens = Nothing,
-      Messages.cache_read_input_tokens = Nothing,
-      Messages.server_tool_use = Nothing,
-      Messages.inference_geo = Nothing,
-      Messages.output_tokens_details = Nothing,
-      Messages.service_tier = Nothing,
-      Messages.speed = Nothing,
-      Messages.iterations = Nothing
-    }
+startUsage input = Messages.Usage input 0 Nothing Nothing Nothing Nothing noUsageEvidence
 
--- | A @message_delta@ usage reporting output tokens and nothing else,
--- which is everything a pre-Claude-5 generation sends. Refine it by
--- record update to model a generation that also repeats the
--- prompt-side counts.
-outputOnlyStreamUsage :: Natural -> Messages.StreamUsage
-outputOnlyStreamUsage n =
-  Messages.StreamUsage
-    { Messages.stream_input_tokens = Nothing,
-      Messages.output_tokens = n,
-      Messages.stream_cache_creation_input_tokens = Nothing,
-      Messages.stream_cache_read_input_tokens = Nothing,
-      Messages.stream_server_tool_use = Nothing,
-      Messages.stream_output_tokens_details = Nothing,
-      Messages.stream_iterations = Nothing
-    }
+outputOnlyStreamUsage :: Natural -> Messages.UsageUpdate
+outputOnlyStreamUsage n = Messages.UsageUpdate Nothing (Just n) Nothing Nothing Nothing Nothing noUsageEvidence
 
--- | A @message_delta@ event carrying a stop reason and a usage.
-messageDelta :: Maybe Messages.StopReason -> Messages.StreamUsage -> Messages.MessageStreamEvent
-messageDelta reason su =
-  Messages.Message_Delta
-    { Messages.message_delta =
-        Messages.MessageDelta
-          { Messages.stop_reason = reason,
-            Messages.stop_sequence = Nothing,
-            Messages.stop_details = Nothing
-          },
-      Messages.usage = su
-    }
+messageDelta :: Maybe Messages.StopReason -> Messages.UsageUpdate -> Messages.StreamPayload
+messageDelta reason = Messages.MessageDelta (Messages.MessageUpdate reason Nothing Nothing Nothing)
 
--- | A @message_start@ event whose usage is the caller's.
-messageStartWith :: Messages.Usage -> Messages.MessageStreamEvent
+messageStartWith :: Messages.Usage -> Messages.StreamPayload
 messageStartWith u =
-  Messages.Message_Start
-    { Messages.message =
-        Messages.MessageResponse
-          { Messages.id = "msg_test",
-            Messages.type_ = "message",
-            Messages.role = Messages.Assistant,
-            Messages.content = Vector.empty,
-            Messages.model = "claude-haiku-4-5",
-            Messages.stop_reason = Nothing,
-            Messages.stop_sequence = Nothing,
-            Messages.stop_details = Nothing,
-            Messages.usage = u,
-            Messages.container = Nothing
-          }
-    }
+  Messages.MessageStart (Messages.MessageResponse "msg_test" "claude-haiku-4-5" Messages.Assistant [] Nothing Nothing u Nothing Nothing mempty)
 
-runClaudeEvents :: [Messages.MessageStreamEvent] -> ([AssistantMessageEvent], Assembler)
+runClaudeEvents :: [Messages.StreamPayload] -> ([AssistantMessageEvent], Assembler)
 runClaudeEvents =
   foldl'
     ( \(events, ass) ev ->
@@ -1095,14 +1000,14 @@ terminalMessage events =
     EventError TerminalPayload {message = msg} -> msg
     _ -> error "last event was not terminal"
 
-requestForContext :: Model -> Context -> Options -> IO Messages.CreateMessage
+requestForContext :: Model -> Context -> Options -> IO Messages.MessageRequest
 requestForContext model ctx opts = fst <$> mappedFor model ctx opts
 
-requestMessages :: Messages.CreateMessage -> Vector.Vector Messages.Message
-requestMessages Messages.CreateMessage {Messages.messages = msgs} = msgs
+requestMessages :: Messages.MessageRequest -> Vector.Vector Messages.Message
+requestMessages request = Vector.fromList (Messages.conversationHistory (request ^. #conversation))
 
-messageContent :: Messages.Message -> Vector.Vector Messages.Content
-messageContent Messages.Message {Messages.content = blocks} = blocks
+messageContent :: Messages.Message -> Vector.Vector Messages.InputBlock
+messageContent msg = Vector.fromList (NonEmpty.toList (msg ^. #content))
 
 testTime :: UTCTime
 testTime = read "2026-07-03 12:00:00 UTC"

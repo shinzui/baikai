@@ -26,7 +26,7 @@ import Baikai.Message qualified as Msg
 import Baikai.Model (Model (..))
 import Baikai.Options (Options (..))
 import Baikai.Provider.Claude.Internal.Request (planSpeed)
-import Claude.V1.Messages qualified as Messages
+import Claude.Messages qualified as Messages
 import Control.Exception (throwIO)
 import Control.Lens ((^.))
 import Crypto.Hash (Digest, SHA256)
@@ -65,7 +65,7 @@ requestHeaders apiKey anthropicVersion compat ctx m opts =
                ]
         )
     speedHeaders = case fst (planSpeed compat (opts ^. #speed)) of
-      Just Messages.SpeedFast -> [("anthropic-beta", "fast-mode-2026-02-01")]
+      Just Messages.Fast -> [("anthropic-beta", "fast-mode-2026-02-01")]
       _ -> []
     sessionHeaders =
       if sendSessionAffinityHeaders compat

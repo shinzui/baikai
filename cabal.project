@@ -13,7 +13,7 @@ packages:
 -- pinned to ghc9124 / GHC 9.12.4). Add a `with-compiler:` line here if you want
 -- cabal to fail loudly when the version drifts from the flake.
 --
--- All dependencies resolve from Hackage: claude, openai, cradle,
+-- All dependencies resolve from Hackage: claude-hs, openai, cradle,
 -- hs-opentelemetry-api, hs-opentelemetry-sdk, hs-opentelemetry-exporter-in-memory,
 -- and the streamly / streamly-core pair (latest released 0.11 / 0.3).
 test-show-details: direct

@@ -38,16 +38,18 @@ import Baikai.ResponseFormat (JsonSchemaFormat (..), ResponseFormat (..))
 import Baikai.Speed (Speed (..))
 import Baikai.ThinkingLevel (ThinkingLevel (..), renderThinkingLevel, thinkingTokenBudget)
 import Baikai.Tool qualified as Tool
-import Claude.V1.Messages qualified as Messages
-import Claude.V1.Tool qualified as ClaudeTool
+import Claude.Messages qualified as Messages
 import Control.Lens ((%~), (&), (.~), (^.))
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Base64 qualified as Base64
 import Data.Char (isAlphaNum, isAscii)
 import Data.Generics.Labels ()
+import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -61,14 +63,7 @@ import Numeric.Natural (Natural)
 -- Request mapping: Context and Options onto the SDK's request record.
 -- ============================================================
 
--- | The wire wants an absent field for "no stop sequences", and
--- 'Baikai.Options.stopSequences' says that with an empty list — the one
--- representation, where @Nothing@ and @Just []@ used to be two.
-nonEmptyStops :: [Text] -> Maybe (Vector.Vector Text)
-nonEmptyStops [] = Nothing
-nonEmptyStops xs = Just (Vector.fromList xs)
-
--- | Map a baikai request onto the SDK's 'Messages.CreateMessage', and
+-- | Map a baikai request onto the SDK's 'Messages.MessageRequest', and
 -- describe what the caller's reasoning-effort preference became on the
 -- way.
 --
@@ -79,7 +74,7 @@ nonEmptyStops xs = Just (Vector.fromList xs)
 -- feed into it. A trace sink asked to re-derive it would have to
 -- reimplement every one of them.
 mapRequest ::
-  Model -> Context -> Options -> Either Text (Messages.CreateMessage, ThinkingTranslation)
+  Model -> Context -> Options -> Either Text (Messages.MessageRequest, ThinkingTranslation)
 mapRequest m ctx opts = do
   either (Left . Error.message) pure (Context.refuseAssistantDataHistory ctx)
   case opts ^. #toolChoice of
@@ -101,6 +96,7 @@ mapRequest m ctx opts = do
     )
     (ctx ^. #messages)
   msgs <- catMaybes <$> traverse mapMessage (Vector.toList (ctx ^. #messages))
+  outputConfig <- traverse mkAnthropicOutputConfig (opts ^. #responseFormat)
   let compat = anthropicMessagesCompatFor m
       cap = m ^. #maxOutputTokens
       baseTokens = resolveBaseTokens m opts
@@ -110,32 +106,25 @@ mapRequest m ctx opts = do
         Just b -> clamp (baseTokens + b)
         Nothing -> clamp baseTokens
       cacheControlField = computeCacheControl compat (opts ^. #cacheRetention)
-      toolsVec = ctx ^. #tools
-      toolsField =
-        if Vector.null toolsVec
-          then Nothing
-          else Just (Vector.map (mkAnthropicTool compat) toolsVec)
-      toolChoiceField = case opts ^. #toolChoice of
-        Just Tool.ToolChoiceNone -> Nothing
-        Just tc -> Just (mkAnthropicToolChoice tc)
-        Nothing -> Nothing
-      outputConfigField = mergeEffort (effort plan) (fmap mkAnthropicOutputConfig (opts ^. #responseFormat))
+      features =
+        Messages.MessageFeatures
+          (mergeEffort (effort plan) outputConfig)
+          (field plan)
+          cacheControlField
+          (map mkAnthropicTool (Vector.toList (ctx ^. #tools)))
+          (mkAnthropicToolChoice <$> (opts ^. #toolChoice))
+          (fst (planSpeed compat (opts ^. #speed)))
+      conversation =
+        Messages.withConversationHistory msgs $
+          Messages.EmptyConversation (m ^. #modelId) (Messages.SystemText <$> (ctx ^. #systemPrompt)) features
+      controls =
+        Messages.defaultRequestControls
+          { Messages.temperature = sampling ^. #temperature,
+            Messages.topP = sampling ^. #topP
+          }
+  let limit = fromMaybe Messages.cacheOnly (Messages.maxTokens maxTokensField_)
   pure
-    ( Messages._CreateMessage
-        { Messages.model = m ^. #modelId,
-          Messages.messages = Vector.fromList msgs,
-          Messages.max_tokens = maxTokensField_,
-          Messages.system = fmap Messages.SystemPromptText (ctx ^. #systemPrompt),
-          Messages.temperature = sampling ^. #temperature,
-          Messages.top_p = sampling ^. #topP,
-          Messages.stop_sequences = nonEmptyStops (opts ^. #stopSequences),
-          Messages.tools = toolsField,
-          Messages.tool_choice = toolChoiceField,
-          Messages.cache_control = cacheControlField,
-          Messages.speed = fst (planSpeed compat (opts ^. #speed)),
-          Messages.thinking = field plan,
-          Messages.output_config = outputConfigField
-        },
+    ( Messages.withRequestControls controls (Messages.MessageRequest conversation limit (opts ^. #stopSequences)),
       translation
     )
 
@@ -144,7 +133,7 @@ unsupportedForcedChoice = Left "This model does not support forced tool choice; 
 
 -- | The sampling parameters that will reach the wire, after the compat
 -- record's gate. 'Nothing' means the field is omitted — the SDK encodes
--- 'Messages.CreateMessage' with @omitNothingFields = True@, so a
+-- 'Messages.MessageRequest' with @omitNothingFields = True@, so a
 -- 'Nothing' is genuinely absent from the request body rather than a
 -- JSON @null@ the provider would reject.
 data SamplingPlan = SamplingPlan
@@ -269,50 +258,27 @@ describeThinkingFor :: Model -> Options -> ThinkingTranslation
 describeThinkingFor m opts = snd (planThinking m opts)
 
 mergeEffort :: Maybe Text -> Maybe Messages.OutputConfig -> Maybe Messages.OutputConfig
-mergeEffort Nothing cfg = cfg
-mergeEffort (Just e) Nothing = Just (Messages.effortConfig e)
-mergeEffort (Just e) (Just cfg) = Just cfg {Messages.effort = Just e}
+mergeEffort Nothing config = config
+mergeEffort (Just value) config =
+  Just (Messages.OutputConfig (Just (Messages.VersionedEffort value)) (config >>= Messages.schema))
 
--- | Map a baikai 'ResponseFormat' onto the upstream Anthropic
--- 'Messages.OutputConfig'. 'JsonSchema' forwards the schema
--- verbatim via 'Messages.jsonSchemaConfig'. Anthropic's structured
--- outputs are always schema-enforcing, so the baikai 'strict' flag
--- has no wire analog and is dropped. 'JsonObject' (plain-JSON mode)
--- has no native Anthropic equivalent — 'output_config' requires a
--- schema — so it downgrades to a permissive @{"type":"object"}@
--- schema, which still forces the model to emit a JSON object.
-mkAnthropicOutputConfig :: ResponseFormat -> Messages.OutputConfig
+mkAnthropicOutputConfig :: ResponseFormat -> Either Text Messages.OutputConfig
 mkAnthropicOutputConfig = \case
-  JsonSchema f -> Messages.jsonSchemaConfig f.schema
-  JsonObject ->
-    Messages.jsonSchemaConfig
-      (Aeson.object ["type" .= ("object" :: Text)])
+  JsonSchema spec -> case spec.schema of
+    Aeson.Object schema -> Right (Messages.OutputConfig Nothing (Just schema))
+    _ -> Left "Anthropic Messages requires the output schema to be a JSON object"
+  JsonObject -> Right (Messages.OutputConfig Nothing (Just (KeyMap.singleton "type" (Aeson.String "object"))))
 
--- | Translate the call-time 'Baikai.CacheRetention' preference into
--- the Anthropic SDK's @cache_control@ shape.
---
--- 'CacheRetentionNone' (and 'Nothing') turn the field off entirely.
--- 'CacheRetentionShort' uses the ephemeral marker with no TTL (the
--- provider default). 'CacheRetentionLong' asks for the @"1h"@ TTL
--- when the host advertises 'supportsLongCacheRetention'; otherwise it
--- transparently downgrades to short retention.
 computeCacheControl ::
   AnthropicMessagesCompat ->
   Maybe CacheRetention ->
   Maybe Messages.CacheControl
 computeCacheControl _ Nothing = Nothing
 computeCacheControl _ (Just CacheRetentionNone) = Nothing
-computeCacheControl _ (Just CacheRetentionShort) =
-  Just Messages.CacheControl {Messages.type_ = "ephemeral", Messages.ttl = Nothing}
+computeCacheControl _ (Just CacheRetentionShort) = Just (Messages.Ephemeral Nothing)
 computeCacheControl compat (Just CacheRetentionLong)
-  | supportsLongCacheRetention compat =
-      Just
-        Messages.CacheControl
-          { Messages.type_ = "ephemeral",
-            Messages.ttl = Just (Messages.CacheTTLDuration "1h")
-          }
-  | otherwise =
-      Just Messages.CacheControl {Messages.type_ = "ephemeral", Messages.ttl = Nothing}
+  | compat ^. #supportsLongCacheRetention = Just (Messages.Ephemeral (Just Messages.OneHour))
+  | otherwise = Just (Messages.Ephemeral Nothing)
 
 -- | Translate the call-time 'Baikai.ThinkingLevel' preference into
 -- the Anthropic SDK's 'Messages.Thinking' shape.
@@ -413,7 +379,7 @@ computeThinking compat m (Just lvl)
   | thinkingStyle compat == AnthropicThinkingAdaptive =
       let e = adaptiveEffort lvl
        in ( ThinkingPlan
-              { field = Just (Messages.ThinkingAdaptiveWithDisplay Messages.ThinkingSummarized),
+              { field = Just (Messages.Adaptive (Just Messages.Summarized)),
                 effort = Just e,
                 budget = Nothing
               },
@@ -430,7 +396,7 @@ computeThinking compat m (Just lvl)
   | otherwise =
       let b = thinkingTokenBudget lvl
        in ( ThinkingPlan
-              { field = Just Messages.ThinkingEnabled {Messages.budget_tokens = b},
+              { field = Just (Messages.ManualBudget b Nothing),
                 effort = Nothing,
                 budget = Just b
               },
@@ -504,34 +470,26 @@ dropThinking adj t =
 -- The compat record is accepted at this layer for call-site
 -- consistency; per-tool @cache_control@ markers are applied by
 -- 'Baikai.Provider.Claude.Shape.injectToolCacheControl'.
-mkAnthropicTool :: AnthropicMessagesCompat -> Tool.Tool -> ClaudeTool.ToolDefinition
-mkAnthropicTool _compat t =
-  ClaudeTool.inlineTool
-    ( ClaudeTool.functionTool
-        (Tool.name t)
-        (Just (Tool.description t))
-        (Tool.parameters t)
-    )
+mkAnthropicTool :: Tool.Tool -> Messages.Tool
+mkAnthropicTool tool =
+  case Tool.parameters tool of
+    Aeson.Object schema -> Messages.CustomTool (Messages.ClientTool (Tool.name tool) (Just (Tool.description tool)) schema Nothing Nothing)
+    schema ->
+      Messages.VersionedTool (KeyMap.fromList ["name" .= Tool.name tool, "description" .= Tool.description tool, "input_schema" .= schema])
 
--- | Map a baikai 'Tool.ToolChoice' into the upstream Anthropic
--- 'ClaudeTool.ToolChoice'. 'Tool.ToolChoiceNone' is handled by the
--- raw request shaper because the SDK lacks a @none@ constructor.
--- 'Tool.ToolChoiceRequired' maps to Anthropic's
--- @any@ which is the closest equivalent ("must call some tool").
-mkAnthropicToolChoice :: Tool.ToolChoice -> ClaudeTool.ToolChoice
+mkAnthropicToolChoice :: Tool.ToolChoice -> Messages.ToolChoice
 mkAnthropicToolChoice = \case
-  Tool.ToolChoiceAuto -> ClaudeTool.ToolChoice_Auto
-  Tool.ToolChoiceRequired -> ClaudeTool.ToolChoice_Any
-  Tool.ToolChoiceSpecific n -> ClaudeTool.ToolChoice_Tool {ClaudeTool.name = n}
-  -- Unreachable in typed requests: ToolChoiceNone is injected by the shaper.
-  Tool.ToolChoiceNone -> ClaudeTool.ToolChoice_Auto
+  Tool.ToolChoiceAuto -> Messages.AutoTool False
+  Tool.ToolChoiceRequired -> Messages.AnyTool False
+  Tool.ToolChoiceSpecific name -> Messages.NamedTool name False
+  Tool.ToolChoiceNone -> Messages.NoTool
 
 -- | Anthropic enforces @[a-zA-Z0-9_-]@ on tool-call ids and caps their
 -- length at 64 characters. Callers may have used any naming convention,
 -- so the provider boundary normalizes here whenever an id is
 -- round-tripped back to Anthropic — both on assistant turn replay
--- ('Messages.Content_Tool_Use') and on tool-result messages
--- ('Messages.Content_Tool_Result').
+-- ('Messages.InputToolUse') and on tool-result messages
+-- ('Messages.InputToolResult').
 --
 -- An id that already satisfies the rule passes through byte for byte.
 -- That covers every id either provider actually mints — Anthropic's
@@ -592,125 +550,54 @@ normalizeToolCallId original
 mapMessage :: Msg.Message -> Either Text (Maybe Messages.Message)
 mapMessage = \case
   Msg.UserMessage Msg.UserPayload {Msg.content = uc} ->
-    let blocks = Vector.mapMaybe userContentToBlock uc
-     in if Vector.null blocks
-          then
-            Left
-              "Anthropic Messages rejects a user turn with no content blocks; \
-              \this one had none, or only empty text"
-          else
-            Right
-              ( Just
-                  Messages.Message
-                    { Messages.role = Messages.User,
-                      Messages.content = blocks,
-                      Messages.cache_control = Nothing
-                    }
-              )
+    case NonEmpty.nonEmpty (Vector.toList (Vector.mapMaybe userContentToBlock uc)) of
+      Nothing -> Left "Anthropic Messages rejects a user turn with no content blocks; this one had none, or only empty text"
+      Just blocks -> Right (Just (Messages.Message Messages.User blocks))
   Msg.AssistantMessage Msg.AssistantPayload {Msg.content = ac} ->
-    let blocks = Vector.mapMaybe assistantContentToBlock ac
+    let blocks = Vector.toList (Vector.mapMaybe assistantContentToBlock ac)
      in case duplicateToolUseId blocks of
-          Just dup ->
-            Left ("duplicate tool_use id after normalisation: " <> dup)
-          Nothing
-            | Vector.null blocks -> Right Nothing
-            | otherwise ->
-                Right
-                  ( Just
-                      Messages.Message
-                        { Messages.role = Messages.Assistant,
-                          Messages.content = blocks,
-                          Messages.cache_control = Nothing
-                        }
-                  )
-  Msg.ToolResultMessage
-    Msg.ToolResultPayload
-      { Msg.toolCallId = tid,
-        Msg.content = trc,
-        Msg.isError = err
-      } ->
-      case concatToolResultText trc of
-        Left unsupported -> Left unsupported
-        Right body ->
-          Right
-            ( Just
-                Messages.Message
-                  { Messages.role = Messages.User,
-                    Messages.content =
-                      Vector.singleton
-                        Messages.Content_Tool_Result
-                          { Messages.tool_use_id = normalizeToolCallId tid,
-                            Messages.content = nonEmpty body,
-                            Messages.is_error = Just err
-                          },
-                    Messages.cache_control = Nothing
-                  }
-            )
+          Just dup -> Left ("duplicate tool_use id after normalisation: " <> dup)
+          Nothing -> Right (Messages.Message Messages.Assistant <$> NonEmpty.nonEmpty blocks)
+  Msg.ToolResultMessage Msg.ToolResultPayload {Msg.toolCallId = tid, Msg.content = trc, Msg.isError = err} -> do
+    body <- concatToolResultText trc
+    let payload = if Text.null body then Messages.EmptyToolResult else Messages.ToolResultText body
+        block = Messages.InputToolResult (Messages.ToolResult (normalizeToolCallId tid) payload (Just err) Nothing)
+    Right (Just (Messages.Message Messages.User (block :| [])))
 
--- | The first @tool_use@ id that appears twice in one assistant turn,
--- if any. Ids are already normalised at this point, so this catches the
--- residual hash collision as well as a caller that reused an id.
-duplicateToolUseId :: Vector Messages.Content -> Maybe Text
-duplicateToolUseId = go [] . Vector.toList
+-- | IDs have already been normalised, so this also catches collisions.
+duplicateToolUseId :: [Messages.InputBlock] -> Maybe Text
+duplicateToolUseId = go []
   where
     go _ [] = Nothing
-    go seen (Messages.Content_Tool_Use {Messages.id = i} : rest)
+    go seen (Messages.InputToolUse i _ _ _ : rest)
       | i `elem` seen = Just i
       | otherwise = go (i : seen) rest
     go seen (_ : rest) = go seen rest
 
--- | An empty text block is dropped: Anthropic rejects
--- @{"type":"text","text":""}@ outright, and an empty block carries
--- nothing the model or the caller said.
-userContentToBlock :: Content.UserContent -> Maybe Messages.Content
+userContentToBlock :: Content.UserContent -> Maybe Messages.InputBlock
 userContentToBlock = \case
   Content.UserText (Content.TextContent t)
     | Text.null t -> Nothing
-    | otherwise ->
-        Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
+    | otherwise -> Just (Messages.InputText t)
   Content.UserData v -> userContentToBlock (Content.UserText (Content.TextContent (Content.canonicalDataText v)))
   Content.UserImage img ->
-    Just
-      Messages.Content_Image
-        { Messages.source =
-            Messages.ImageSource
-              { Messages.type_ = "base64",
-                Messages.media_type = Content.mimeType img,
-                Messages.data_ = Text.decodeUtf8 (Base64.encode (Content.imageData img))
-              },
-          Messages.cache_control = Nothing
-        }
+    Just (Messages.InputImage (Messages.Base64Image (Content.mimeType img) (Text.decodeUtf8 (Base64.encode (Content.imageData img)))))
 
--- | As 'userContentToBlock' for empty text. Unsigned thinking is also
--- dropped, because Anthropic rejects a thinking block whose signature
--- is missing; a turn left with no blocks at all is then dropped
--- entirely by 'mapMessage'.
-assistantContentToBlock :: Content.AssistantContent -> Maybe Messages.Content
+assistantContentToBlock :: Content.AssistantContent -> Maybe Messages.InputBlock
 assistantContentToBlock = \case
   Content.AssistantText (Content.TextContent t)
     | Text.null t -> Nothing
+    | otherwise -> Just (Messages.InputText t)
+  Content.AssistantThinking th
+    | Content.redacted th ->
+        Just (reasoning "redacted_thinking" ["data" .= Content.thinking th])
     | otherwise ->
-        Just Messages.Content_Text {Messages.text = t, Messages.cache_control = Nothing}
-  Content.AssistantThinking th ->
-    if Content.redacted th
-      then Just Messages.Content_Redacted_Thinking {Messages.data_ = Content.thinking th}
-      else case Content.signature th of
-        Just sig ->
-          Just
-            Messages.Content_Thinking
-              { Messages.thinking = Content.thinking th,
-                Messages.signature = sig
-              }
-        Nothing -> Nothing
+        (\sig -> reasoning "thinking" ["thinking" .= Content.thinking th, "signature" .= sig]) <$> Content.signature th
   Content.AssistantData _ -> Nothing
   Content.AssistantToolCall tc ->
-    Just
-      Messages.Content_Tool_Use
-        { Messages.id = normalizeToolCallId (Content.id_ tc),
-          Messages.name = Content.name tc,
-          Messages.input = Content.arguments tc,
-          Messages.caller = Nothing
-        }
+    Just (Messages.InputToolUse (normalizeToolCallId (Content.id_ tc)) (Content.name tc) (Content.arguments tc) Nothing)
+  where
+    reasoning tag fields = Messages.VersionedBlock (KeyMap.fromList (("type" .= (tag :: Text)) : fields))
 
 concatToolResultText :: Vector Content.ToolResultContent -> Either Text Text
 concatToolResultText =
@@ -721,16 +608,11 @@ concatToolResultText =
       Content.ToolResultImage _ ->
         Left "Anthropic Messages cannot encode ToolResultImage blocks in tool-result messages"
 
-nonEmpty :: Text -> Maybe Text
-nonEmpty t
-  | Text.null t = Nothing
-  | otherwise = Just t
-
 -- | One capability gate shared by wire mapping, headers and the describer.
 planSpeed :: AnthropicMessagesCompat -> Maybe Speed -> (Maybe Messages.Speed, [ThinkingAdjustment])
 planSpeed compat = \case
   Nothing -> (Nothing, [])
-  Just SpeedStandard -> (Just Messages.SpeedStandard, [])
+  Just SpeedStandard -> (Just Messages.Standard, [])
   Just SpeedFast
-    | compat ^. #supportsFastMode -> (Just Messages.SpeedFast, [])
+    | compat ^. #supportsFastMode -> (Just Messages.Fast, [])
     | otherwise -> (Nothing, [FastModeDroppedUnsupportedModel])

@@ -1,12 +1,14 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 
 module FableContractsSpec (tests) where
 
 import Baikai hiding (messages, model)
-import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_5_5)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_4_6, anthropic_claude_sonnet_5_5)
+import Baikai.Provider.Claude.Api (claudeMessagesProvider, claudeMessagesStream)
 import Baikai.Provider.Claude.Internal.Request qualified as R
 import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
-import Claude.V1.Messages qualified as C
+import Claude.Streaming qualified as C
 import Contract (assertErrorContract)
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
@@ -14,10 +16,15 @@ import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KM
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.ByteString (ByteString)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Network.HTTP.Types (status200)
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp (testWithApplication)
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -27,6 +34,8 @@ tests =
   testGroup
     "Fable contracts"
     [ summaryTests,
+      legacySamplingVersion,
+      candidateCompleteAndStream,
       testCase "Opus 5.5 and Sonnet 5.5 reject forced tools and replay signed empty thinking" $
         forM_ [anthropic_claude_opus_5_5, anthropic_claude_sonnet_5_5] $ \opus -> do
           opus.api @?= AnthropicMessages
@@ -103,15 +112,22 @@ tests =
         case Aeson.fromJSON raw of
           Aeson.Success c -> (c :: AnthropicMessagesCompat).supportsForcedToolChoice @?= True
           Aeson.Error err -> assertFailure err,
-      testCase "two consecutive tool rounds preserve signed empty, visible and redacted thinking" $ do
+      testCase "candidate HTTP two consecutive tool rounds preserve signed empty, visible and redacted thinking" $ do
         requests <- newIORef ([] :: [Value])
         executed <- newIORef ([] :: [Text])
-        let scripted call _ emit = do
-              previous <- readIORef requests
-              writeIORef requests (previous <> [call ^. #requestBody])
-              send (case length previous of 0 -> toolTurn "" "sig-one" "toolu_1" True; 1 -> toolTurn "visible summary" "sig-two" "toolu_2" False; _ -> finalTurn) emit
-        reg <- newProviderRegistryFrom [apiProvider AnthropicMessages (claudeMessagesStreamWith scripted)]
-        (history, response) <- runToolLoopWith reg 4 (\tc -> do xs <- readIORef executed; writeIORef executed (xs <> [tc.id_]); pure (toolResultText "found")) model context summaryOptions
+        let respond request reply = do
+              Wai.pathInfo request @?= ["v1", "messages"]
+              lookup "x-api-key" (Wai.requestHeaders request) @?= Just "fable-contract-key"
+              lookup "anthropic-version" (Wai.requestHeaders request) @?= Just "2023-06-01"
+              body <- Wai.strictRequestBody request >>= either fail pure . Aeson.eitherDecode
+              num <- atomicModifyIORef' requests (\previous -> (previous <> [body], length previous))
+              let frames = case num of 0 -> toolTurn "" "sig-one" "toolu_1" True; 1 -> toolTurn "visible summary" "sig-two" "toolu_2" False; _ -> finalTurn
+              reply (Wai.responseLBS status200 [("Content-Type", "text/event-stream"), ("request-id", "req_trial_tools")] (foldMap (\frame -> "data: " <> Aeson.encode frame <> "\n\n") frames))
+        (history, response) <- testWithApplication (pure respond) $ \port -> do
+          let liveModel = model & #baseUrl .~ ("http://127.0.0.1:" <> T.pack (show port))
+              liveOptions = summaryOptions & #apiKey .~ Just (ApiKeyLiteral "fable-contract-key")
+          reg <- newProviderRegistryFrom [claudeMessagesProvider]
+          runToolLoopWith reg 4 (\tc -> do xs <- readIORef executed; writeIORef executed (xs <> [tc.id_]); pure (toolResultText "found")) liveModel context liveOptions
         response.message.content @?= V.singleton (AssistantText (TextContent "done"))
         readIORef executed >>= (@?= ["toolu_1", "toolu_2"])
         bodies <- readIORef requests
@@ -144,6 +160,55 @@ tests =
           _ -> assertFailure "signed state was discarded on error"
     ]
 
+legacySamplingVersion :: TestTree
+legacySamplingVersion = testCase "the explicit current API version rejects sampling before dispatch" $ do
+  captured <- newIORef ([] :: [(Maybe ByteString, Value)])
+  let app request respond = do
+        body <- Wai.strictRequestBody request >>= either fail pure . Aeson.eitherDecode
+        let version = lookup "anthropic-version" (Wai.requestHeaders request)
+        atomicModifyIORef' captured (\prior -> (prior <> [(version, body)], ()))
+        respond (Wai.responseLBS status200 [("Content-Type", "text/event-stream")] (foldMap (\frame -> "data: " <> Aeson.encode frame <> "\n\n") finalTurn))
+  testWithApplication (pure app) $ \port -> do
+    let selected = anthropic_claude_sonnet_4_6 & #baseUrl .~ ("http://127.0.0.1:" <> T.pack (show port))
+        configured = options & #temperature .~ Just 0.2
+        current = configured & #headers .~ Map.singleton "anthropic-version" "2026-10-21"
+        regularContext = systemUser "Policy" "Hello"
+    registry <- newProviderRegistryFrom [claudeMessagesProvider]
+    legacy <- completeRequestWith registry selected regularContext configured
+    responseError legacy @?= Nothing
+    rejected <- completeRequestWith registry selected regularContext current
+    fmap (.category) (responseError rejected) @?= Just InvalidRequest
+    assertBool "migration error names sampling" (maybe False (T.isInfixOf "sampling" . (.message)) (responseError rejected))
+    readIORef captured >>= \case
+      [(Just "2023-06-01", body)] -> field "temperature" body @?= Just (Number 0.2)
+      _ -> assertFailure "only the legacy call should dispatch"
+
+candidateCompleteAndStream :: TestTree
+candidateCompleteAndStream = testCase "candidate HTTP complete and stream agree on the same transcript" $ do
+  requests <- newIORef ([] :: [Value])
+  let app req respond = do
+        body <- Wai.strictRequestBody req >>= either fail pure . Aeson.eitherDecode
+        atomicModifyIORef' requests (\previous -> (previous <> [body], ()))
+        respond
+          ( Wai.responseLBS
+              status200
+              [("Content-Type", "text/event-stream"), ("request-id", "req_compare")]
+              (foldMap (\frame -> "data: " <> Aeson.encode frame <> "\n\n") finalTurn)
+          )
+  testWithApplication (pure app) $ \port -> do
+    registry <- newProviderRegistryFrom [claudeMessagesProvider]
+    let selected = model & #baseUrl .~ ("http://127.0.0.1:" <> T.pack (show port))
+        configured = options & #apiKey .~ Just (ApiKeyLiteral "candidate-comparison-key")
+    complete <- completeRequestWith registry selected context configured
+    events <- Stream.toList (claudeMessagesStream selected context configured)
+    streamed <- streamingComplete (\_ _ _ -> Stream.fromList events) selected context configured
+    let expected = V.singleton (AssistantText (TextContent "done"))
+    map (\reply -> reply ^. #message . #content) [complete, streamed] @?= [expected, expected]
+    map responseError [complete, streamed] @?= [Nothing, Nothing]
+  readIORef requests >>= \case
+    [complete, streamed] -> complete @?= streamed
+    received -> assertFailure ("expected two dispatches, got " <> show (length received))
+
 model :: Model
 model = anthropic_claude_fable_5_1
 
@@ -175,10 +240,11 @@ options = emptyOptions & #apiKey .~ Just (ApiKeyLiteral "offline-key")
 context :: Context
 context = systemUser "unchanged system" "look twice" & #tools .~ V.singleton (mkTool "lookup" "lookup" (object ["type" .= ("object" :: Text)]))
 
-send :: [Value] -> (Either BaikaiError C.MessageStreamEvent -> IO ()) -> IO ()
-send frames emit = forM_ frames $ \raw -> case Aeson.fromJSON raw of
-  Aeson.Error err -> assertFailure err
-  Aeson.Success ev -> emit (Right ev)
+send :: [Value] -> (Either BaikaiError C.StreamPayload -> IO ()) -> IO ()
+send frames emit = forM_ frames $ \raw -> case C.decodeStreamEvent raw of
+  Left err -> assertFailure err
+  Right (Left _) -> assertFailure "expected a successful stream event"
+  Right (Right ev) -> emit (Right (C.eventPayload ev))
 
 start :: Value
 start = object ["type" .= ("message_start" :: Text), "message" .= object ["id" .= ("msg" :: Text), "type" .= ("message" :: Text), "role" .= ("assistant" :: Text), "model" .= ("claude-fable-5-1" :: Text), "content" .= ([] :: [Value]), "usage" .= object ["input_tokens" .= (5 :: Int), "output_tokens" .= (0 :: Int)]]]

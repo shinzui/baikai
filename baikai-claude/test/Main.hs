@@ -18,7 +18,7 @@ import Baikai.Provider.Claude.Api
 import Baikai.Provider.Claude.Cli qualified as ClaudeCli
 import Baikai.Provider.Claude.Interactive
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
-import Claude.V1.Messages qualified as Messages
+import Claude.Messages qualified as Messages
 import CliCancellationSpec qualified
 import CliEvidenceSpec qualified
 import Contract (assertErrorContract)
@@ -96,8 +96,8 @@ main =
 
 -- | A 'JsonSchema' on 'Options.responseFormat' maps onto Anthropic's
 -- native @output_config@, forwarding the schema 'Value' verbatim via
--- 'Messages.jsonSchemaConfig'. Pure: 'mapRequest' is
--- 'Either Text (Messages.CreateMessage, ThinkingTranslation)'.
+-- 'Messages.OutputConfig'. Pure: 'mapRequest' is
+-- 'Either Text (Messages.MessageRequest, ThinkingTranslation)'.
 responseFormatMappingTest :: TestTree
 responseFormatMappingTest =
   testCase "responseFormat JsonSchema maps onto Anthropic output_config" $ do
@@ -125,8 +125,8 @@ responseFormatMappingTest =
     case mapRequest model ctx opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right (req, _) ->
-        req ^. #output_config
-          @?= Just (Messages.jsonSchemaConfig personSchema)
+        req ^. #conversation . #features . #outputConfig
+          @?= Just (Messages.OutputConfig Nothing (case personSchema of Aeson.Object schema -> Just schema; _ -> Nothing))
 
 optionsMappingTest :: TestTree
 optionsMappingTest =
@@ -146,8 +146,8 @@ optionsMappingTest =
     case mapRequest model emptyContext opts of
       Left e -> assertFailure ("mapRequest failed: " <> Text.unpack e)
       Right (req, translation) -> do
-        Messages.top_p req @?= Just 0.9
-        Messages.stop_sequences req @?= Just (Vector.fromList ["END", "STOP"])
+        Messages.topP (Messages.messageRequestControls req) @?= Just 0.9
+        req ^. #stopSequences @?= ["END", "STOP"]
         -- seed, frequencyPenalty and presencePenalty have no Anthropic
         -- Messages field on any generation. They are dropped, but the
         -- drop is recorded rather than silent — the whole point of the

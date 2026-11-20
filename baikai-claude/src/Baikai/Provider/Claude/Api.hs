@@ -66,7 +66,7 @@ claudeMessagesProvider =
 --
 -- Forks one worker thread per call that drives the local Claude SSE
 -- transport, pushing classified errors and typed
--- 'Claude.V1.Messages.MessageStreamEvent' values onto a bounded
+-- 'Claude.Streaming.StreamPayload' values onto a bounded
 -- 'Baikai.Provider.Internal.StreamWorker.FrameQueue'. The returned
 -- 'Stream' is a translator: it pulls raw events off that queue and emits
 -- zero or more 'AssistantMessageEvent' values per upstream event,

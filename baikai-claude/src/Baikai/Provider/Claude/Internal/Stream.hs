@@ -9,11 +9,11 @@
 --
 -- The Anthropic Messages streaming machinery: the SSE driver seam, the
 -- event assembler and the translator that turns the SDK's typed
--- 'Claude.V1.Messages.MessageStreamEvent' values into baikai
+-- 'Claude.Streaming.StreamPayload' values into baikai
 -- 'AssistantMessageEvent' values. The public entry points built on it
 -- live in "Baikai.Provider.Claude.Api".
 --
--- Requests start as the SDK's typed 'Claude.V1.Messages.CreateMessage'
+-- Requests start as the SDK's typed 'Claude.Messages.MessageRequest'
 -- value, then 'Baikai.Provider.Claude.Shape.streamRequestBody' patches
 -- the raw JSON body for tool-schema, @tool_choice@, and tool-cache
 -- compat before
@@ -38,10 +38,11 @@ import Baikai.Cost.Pricing qualified as Pricing
 import Baikai.Error (BaikaiError, contentFiltered, invalidRequest, providerError)
 import Baikai.Evidence qualified as Ev
 import Baikai.Evidence.Build qualified as Build
+import Baikai.Http (canonicalBaseUrl)
 import Baikai.Message qualified as Msg
 import Baikai.Model (Model, anthropicMessagesCompatFor)
 import Baikai.Options (Options (..))
-import Baikai.Provider.Claude.Internal.ErrorClass (classifyErrorValue, classifyException)
+import Baikai.Provider.Claude.Internal.ErrorClass (classifyException)
 import Baikai.Provider.Claude.Internal.Request (describeThinkingFor, mapRequest)
 import Baikai.Provider.Claude.Shape (streamRequestBody)
 import Baikai.Provider.Claude.Sse (claudeSseStreamValueWithHeaders)
@@ -69,14 +70,14 @@ import Baikai.Stream.Event
 import Baikai.Url qualified as Url
 import Baikai.Usage qualified as Usage
 import Baikai.Usage.Normalize qualified as Normalize
-import Claude.V1.Messages qualified as Messages
+import Claude.Messages qualified as Messages
+import Claude.Streaming qualified as Messages
 import Control.Applicative ((<|>))
 import Control.Exception (SomeAsyncException (..), SomeException, fromException, throwIO, try)
 import Control.Lens ((%~), (&), (.~), (^.))
 import Data.Aeson (Value)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.ByteString.Lazy qualified as BSL
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -109,7 +110,7 @@ import Streamly.Data.Stream qualified as Stream
 type SseDriver =
   ClaudeCall ->
   (Sse.ResponseMetadata -> IO ()) ->
-  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  (Either BaikaiError Messages.StreamPayload -> IO ()) ->
   IO ()
 
 -- | The production driver: a real HTTPS request through the cached
@@ -117,7 +118,7 @@ type SseDriver =
 liveSseDriver :: SseDriver
 liveSseDriver call =
   claudeSseStreamValueWithHeaders
-    (call ^. #clientEnv)
+    (call ^. #transportBase)
     (call ^. #requestHeaders)
     (call ^. #requestBody)
 
@@ -132,7 +133,7 @@ claudeMessagesStreamWith driver m ctx opts =
     case setup of
       Left err -> Stream.fromList <$> immediateError m opts err
       Right call -> do
-        q <- newFrameQueue :: IO (FrameQueue (Either BaikaiError Messages.MessageStreamEvent))
+        q <- newFrameQueue :: IO (FrameQueue (Either BaikaiError Messages.StreamPayload))
         tref <- newIORef False
         mref <- newIORef Nothing
         startTime <- getCurrentTime
@@ -142,7 +143,7 @@ claudeMessagesStreamWith driver m ctx opts =
         -- separately by 'Transport.requestHeaders'.
         mkEvidence <-
           Build.prepareEvidenceAt
-            (Text.pack (Client.showBaseUrl (Client.baseUrl (call ^. #clientEnv))) <> "/v1/messages")
+            (Text.pack (Client.showBaseUrl (call ^. #transportBase)) <> "/v1/messages")
             m
             opts
             Ev.TransportHttpApi
@@ -181,7 +182,7 @@ claudeMessagesStreamWith driver m ctx opts =
 -- | Per-call prepared values, including the shaped JSON request body
 -- passed to the local streaming transport.
 data ClaudeCall = ClaudeCall
-  { clientEnv :: !Client.ClientEnv,
+  { transportBase :: !Client.BaseUrl,
     requestHeaders :: !RequestHeaders,
     timeoutMs :: !(Maybe Int),
     requestBody :: !Aeson.Value,
@@ -226,22 +227,23 @@ prepareCall m ctx opts
           case Url.baseUrlProblem url of
             Just problem ->
               pure (Left (invalidRequest ("Model.baseUrl is not usable: " <> problem)))
-            Nothing -> do
-              key <- Transport.resolveKey url opts
-              env <- Transport.getClientEnvCached url
-              let body = streamRequestBody compat ctx opts req
-                  headers = Transport.requestHeaders key version compat ctx m opts
-              pure
-                ( Right
-                    ClaudeCall
-                      { clientEnv = env,
-                        requestHeaders = headers,
-                        timeoutMs = opts ^. #timeoutMs,
-                        requestBody = body,
-                        baseUrl = url,
-                        thinking = translation
-                      }
-                )
+            Nothing -> case canonicalBaseUrl url of
+              Left problem -> pure (Left (invalidRequest problem))
+              Right transportUrl -> do
+                key <- Transport.resolveKey url opts
+                let body = streamRequestBody compat ctx opts req
+                    headers = Transport.requestHeaders key version compat ctx m opts
+                pure
+                  ( Right
+                      ClaudeCall
+                        { transportBase = transportUrl,
+                          requestHeaders = headers,
+                          timeoutMs = opts ^. #timeoutMs,
+                          requestBody = body,
+                          baseUrl = url,
+                          thinking = translation
+                        }
+                  )
 
 -- | Worker body: drive the SDK's typed callback, forwarding events onto
 -- the frame queue. Any synchronous exception is converted into a
@@ -257,7 +259,7 @@ worker ::
   SseDriver ->
   ClaudeCall ->
   IORef (Maybe Sse.ResponseMetadata) ->
-  FrameQueue (Either BaikaiError Messages.MessageStreamEvent) ->
+  FrameQueue (Either BaikaiError Messages.StreamPayload) ->
   IO ()
 worker driver call metaRef q = do
   r <-
@@ -274,7 +276,7 @@ worker driver call metaRef q = do
 
 -- | The streaming 'Stream' state.
 data ProducerState = ProducerState
-  { chan :: !(FrameQueue (Either BaikaiError Messages.MessageStreamEvent)),
+  { chan :: !(FrameQueue (Either BaikaiError Messages.StreamPayload)),
     pending :: ![AssistantMessageEvent],
     assembler :: !Assembler,
     finished :: !Bool,
@@ -630,7 +632,7 @@ emptyAssembler m s =
     }
 
 translate ::
-  Either BaikaiError Messages.MessageStreamEvent ->
+  Either BaikaiError Messages.StreamPayload ->
   Assembler ->
   UTCTime ->
   ([AssistantMessageEvent], Assembler)
@@ -645,7 +647,7 @@ translate raw ass now = case raw of
   Right ev -> translateEvent ev ass now
 
 translateEvent ::
-  Messages.MessageStreamEvent ->
+  Messages.StreamPayload ->
   Assembler ->
   UTCTime ->
   ([AssistantMessageEvent], Assembler)
@@ -656,7 +658,7 @@ translateEvent raw ass now = case raw of
   -- failure arriving before this frame — a 401, a rate limit, an
   -- in-band error event, an EOF — still begins the stream the way the
   -- protocol says every stream begins.
-  Messages.Message_Start {Messages.message = mr} ->
+  Messages.MessageStart mr ->
     let usage0 = anthroUsageToBaikai (mr ^. #usage)
         ass' =
           ass
@@ -669,46 +671,42 @@ translateEvent raw ass now = case raw of
             & #usage .~ usage0
             & #usageReported .~ True
      in ([], ass')
-  Messages.Content_Block_Start {Messages.index = idx, Messages.content_block = block} ->
+  Messages.ContentBlockStart idx block ->
     handleBlockStart (fromIntegral idx) block ass
-  Messages.Content_Block_Delta {Messages.index = idx, Messages.delta = d} ->
+  Messages.ContentBlockDelta idx d ->
     handleBlockDelta (fromIntegral idx) d ass
-  Messages.Content_Block_Stop {Messages.index = idx} ->
+  Messages.ContentBlockStop idx ->
     handleBlockStop (fromIntegral idx) ass
-  Messages.Message_Delta {Messages.message_delta = md, Messages.usage = su} ->
-    let stopR = mapStopReason (md ^. #stop_reason)
+  Messages.MessageDelta md su ->
+    let stopR = mapStopReason (md ^. #stopReason)
         u = ass ^. #usage
         -- @message_delta@ carries the call's final counts. Older models
         -- send only @output_tokens@; Claude 5 repeats the prompt-side
         -- classes too, which matters because a server-side tool run
         -- grows them after @message_start@. An absent field keeps what
         -- @message_start@ reported rather than zeroing it.
-        --
-        -- 'Messages.StreamUsage' has no 'GHC.Generics.Generic' instance,
-        -- so these are record dots rather than the generic-lens labels
-        -- used for 'Messages.Usage'.
         known category getter = case u ^. #availability of
           Just facts | category `Set.notMember` Usage.missingCategories facts -> Just (getter u)
           _ -> Nothing
         u' =
-          Usage.observeBilling (maybe [] (Set.toList . Usage.billingFacts) (u ^. #availability) <> toolBilling su.stream_server_tool_use) $
+          Usage.observeBilling (maybe [] (Set.toList . Usage.billingFacts) (u ^. #availability) <> usageBilling (su ^. #usageEvidence)) $
             Normalize.normalizeUsage
               Normalize.ExclusiveInput
               ( Normalize.ReportedUsage
-                  (su.stream_input_tokens <|> known Usage.InputUsage Usage.inputTokens)
-                  (Just su.output_tokens)
-                  (su.stream_cache_read_input_tokens <|> known Usage.CacheReadUsage Usage.cacheReadTokens)
-                  (su.stream_cache_creation_input_tokens <|> known Usage.CacheWriteUsage Usage.cacheWriteTokens)
-                  ((Messages.thinking_tokens <$> su.stream_output_tokens_details) <|> (u ^. #reasoningTokens))
+                  ((su ^. #inputTokens) <|> known Usage.InputUsage Usage.inputTokens)
+                  ((su ^. #outputTokens) <|> known Usage.OutputUsage Usage.outputTokens)
+                  ((su ^. #cacheReadInputTokens) <|> known Usage.CacheReadUsage Usage.cacheReadTokens)
+                  ((su ^. #cacheCreationInputTokens) <|> known Usage.CacheWriteUsage Usage.cacheWriteTokens)
+                  (((su ^. #usageEvidence . #outputTokensDetails) >>= Messages.thinkingTokens) <|> (u ^. #reasoningTokens))
               )
-     in ([], ass & #stopReason .~ stopR & #stopDetails .~ (md ^. #stop_details) & #usage .~ u' & #usageReported .~ True)
-  Messages.Message_Stop ->
+     in ([], ass & #stopReason .~ stopR & #stopDetails .~ (md ^. #stopDetails) & #usage .~ u' & #usageReported .~ True)
+  Messages.MessageStop ->
     let reason = ass ^. #stopReason
         -- A refusal is a filter: the content, not the transport, is
         -- the problem, and a caller can branch on the category.
         details = ass ^. #stopDetails
-        refusalCategory = details >>= (\d -> d.category)
-        explanation = details >>= (\d -> d.explanation)
+        refusalCategory = details >>= \case Messages.RefusalDetails category _ _ -> category; _ -> Nothing
+        explanation = details >>= \case Messages.RefusalDetails _ detail _ -> detail; _ -> Nothing
         refusal =
           contentFiltered
             ( "Anthropic refused to generate a response (stop_reason=refusal)"
@@ -725,66 +723,58 @@ translateEvent raw ass now = case raw of
             then EventError (errorTerminal Nothing (ass ^. #responseId) reason msg refusal)
             else EventDone (doneTerminal Nothing (ass ^. #responseId) reason msg)
      in ([terminalEvent], ass)
-  Messages.Error {Messages.error = errVal} ->
-    let (closeEvents, ass') = closeOpenBlocks ass
-        errText = renderAnthropicError errVal
-        mErr = classifyErrorValue errVal
-        msg = finalMessageOnError ass' now errText
-        errInfo = fromMaybe (providerError errText) mErr
-     in ( closeEvents
-            <> [EventError (errorTerminal Nothing (ass' ^. #responseId) Stop.ErrorReason msg errInfo)],
-          ass'
-        )
+  Messages.UnknownEvent _ -> ([], ass)
 
 handleBlockStart ::
   Int ->
-  Messages.ContentBlock ->
+  Messages.OutputBlock ->
   Assembler ->
   ([AssistantMessageEvent], Assembler)
-handleBlockStart i block ass = case block of
-  Messages.ContentBlock_Text {} ->
+handleBlockStart i block ass = case Messages.blockContent block of
+  Messages.OutputText {} ->
     ( [TextStart IndexPayload {contentIndex = i}],
       ass & #textBuf %~ IntMap.insert i Text.empty
     )
-  Messages.ContentBlock_Thinking {} ->
+  Messages.OutputThinking {} ->
     ( [ThinkingStart IndexPayload {contentIndex = i}],
       ass & #thinkBuf %~ IntMap.insert i Text.empty
     )
-  Messages.ContentBlock_Redacted_Thinking {Messages.data_ = payload} ->
+  Messages.RedactedThinking payload ->
     ( [ThinkingStart IndexPayload {contentIndex = i}],
       ass & #redactedBuf %~ IntMap.insert i payload
     )
-  Messages.ContentBlock_Tool_Use {Messages.id = tid, Messages.name = tn} ->
-    ( [ToolCallStart IndexPayload {contentIndex = i}],
-      ass
-        & #toolArgsBuf %~ IntMap.insert i Text.empty
-        & #toolMeta %~ IntMap.insert i (tid, tn)
-    )
-  _ ->
-    -- Server-tool, code-execution-tool, unknown — pass-through with no events.
-    ([], ass)
+  Messages.OutputToolUse tid tn _ -> startTool tid tn
+  Messages.OutputToolUseWithCaller tid tn _ _ -> startTool tid tn
+  _ -> ([], ass)
+  where
+    startTool tid tn =
+      ( [ToolCallStart IndexPayload {contentIndex = i}],
+        ass
+          & #toolArgsBuf %~ IntMap.insert i Text.empty
+          & #toolMeta %~ IntMap.insert i (tid, tn)
+      )
 
 handleBlockDelta ::
   Int ->
-  Messages.ContentBlockDelta ->
+  Messages.BlockDelta ->
   Assembler ->
   ([AssistantMessageEvent], Assembler)
 handleBlockDelta i d ass = case d of
-  Messages.Delta_Text_Delta {Messages.text = t} ->
+  Messages.TextDelta t ->
     if IntMap.member i (ass ^. #textBuf)
       then
         ( [TextDelta DeltaPayload {contentIndex = i, delta = t}],
           ass & #textBuf %~ IntMap.adjust (<> t) i
         )
       else ([], ass)
-  Messages.Delta_Thinking_Delta {Messages.thinking = t} ->
+  Messages.ThinkingDelta t ->
     if IntMap.member i (ass ^. #thinkBuf)
       then
         ( [ThinkingDelta DeltaPayload {contentIndex = i, delta = t}],
           ass & #thinkBuf %~ IntMap.adjust (<> t) i
         )
       else ([], ass)
-  Messages.Delta_Signature_Delta {Messages.signature = sig} ->
+  Messages.SignatureDelta sig ->
     -- Signatures are tail-end metadata on thinking blocks; they
     -- attach to the ThinkingEnd event's content build, not a public
     -- delta event.
@@ -794,13 +784,14 @@ handleBlockDelta i d ass = case d of
           ass & #thinkSig %~ IntMap.insertWith (\new old -> old <> new) i sig
         )
       else ([], ass)
-  Messages.Delta_Input_Json_Delta {Messages.partial_json = j} ->
+  Messages.InputJsonDelta j ->
     if IntMap.member i (ass ^. #toolArgsBuf)
       then
         ( [ToolCallDelta DeltaPayload {contentIndex = i, delta = j}],
           ass & #toolArgsBuf %~ IntMap.adjust (<> j) i
         )
       else ([], ass)
+  _ -> ([], ass)
 
 handleBlockStop ::
   Int -> Assembler -> ([AssistantMessageEvent], Assembler)
@@ -991,11 +982,6 @@ trySync action = do
 exceptionToError :: SomeException -> BaikaiError
 exceptionToError e = fromMaybe (classifyException e) (fromException e)
 
-renderAnthropicError :: Value -> Text
-renderAnthropicError v = case v of
-  Aeson.String t -> t
-  _ -> Text.decodeUtf8 (BSL.toStrict (Aeson.encode v))
-
 -- | Map the Anthropic streaming 'Message_Start.message.usage' value
 -- into baikai's 'Usage' shape. Cache-related counters are populated
 -- where present; cost is left at zero (the terminal event
@@ -1008,33 +994,44 @@ renderAnthropicError v = case v of
 -- calculation uses the duration selected by the actual shaped request body.
 anthroUsageToBaikai :: Messages.Usage -> Usage.Usage
 anthroUsageToBaikai u =
-  Usage.observeBilling ([Usage.BillingServiceTier tier | Just tier <- [u ^. #service_tier]] <> [Usage.BillingSpeed speed | Just value <- [u ^. #speed], Aeson.String speed <- [Aeson.toJSON value]] <> toolBilling (u ^. #server_tool_use)) $
+  Usage.observeBilling (usageBilling (u ^. #usageEvidence)) $
     Normalize.normalizeUsage
       Normalize.ExclusiveInput
       ( Normalize.ReportedUsage
-          (Just (u ^. #input_tokens))
-          (Just (u ^. #output_tokens))
-          (u ^. #cache_read_input_tokens)
-          (u ^. #cache_creation_input_tokens)
-          (fmap (^. #thinking_tokens) (u ^. #output_tokens_details))
+          (Just (u ^. #inputTokens))
+          (Just (u ^. #outputTokens))
+          (u ^. #cacheReadInputTokens)
+          (u ^. #cacheCreationInputTokens)
+          ((u ^. #usageEvidence . #outputTokensDetails) >>= Messages.thinkingTokens)
       )
 
--- Server-side tool products are outside the token-rate calculation.
-toolBilling :: Maybe Messages.ServerToolUseUsage -> [Usage.BillingFact]
-toolBilling Nothing = []
-toolBilling (Just usage) = [Usage.BillingServerToolUse | fromMaybe 0 (usage ^. #web_search_requests) + fromMaybe 0 (usage ^. #tool_search_requests) > 0]
+usageBilling :: Messages.UsageEvidence -> [Usage.BillingFact]
+usageBilling evidence =
+  [Usage.BillingServiceTier tier | Just tier <- [evidence ^. #serviceTier]]
+    <> [Usage.BillingSpeed speed | Just value <- [evidence ^. #observedSpeed], Aeson.String speed <- [Aeson.toJSON value]]
+    <> [Usage.BillingServerToolUse | Just counts <- [evidence ^. #serverToolCounts], hasServerTools counts]
+  where
+    hasServerTools counts =
+      any
+        (maybe False (> 0))
+        [ counts ^. #webSearchRequests,
+          counts ^. #toolSearchRequests,
+          counts ^. #webFetchRequests,
+          counts ^. #codeExecutionRequests
+        ]
 
 mapStopReason :: Maybe Messages.StopReason -> Stop.StopReason
 mapStopReason = \case
-  Just Messages.End_Turn -> Stop.Stop
-  Just Messages.Max_Tokens -> Stop.Length
-  Just Messages.Stop_Sequence -> Stop.Stop
-  Just Messages.Tool_Use -> Stop.ToolUse
+  Just Messages.EndTurn -> Stop.Stop
+  Just Messages.MaxTokensReached -> Stop.Length
+  Just Messages.StopSequence -> Stop.Stop
+  Just Messages.ToolUse -> Stop.ToolUse
   -- The turn was suspended mid-flight (a long-running server-side tool)
   -- and Anthropic expects the caller to send the message back to
   -- continue it. Nothing failed, so this is a stop, not an error;
   -- baikai's 'Stop.StopReason' has no constructor that says "resume me".
-  Just Messages.Pause_Turn -> Stop.Stop
+  Just Messages.PauseTurn -> Stop.Stop
   Just Messages.Refusal -> Stop.ErrorReason
-  Just Messages.Model_Context_Window_Exceeded -> Stop.Length
+  Just Messages.ModelContextWindowExceeded -> Stop.Length
+  Just (Messages.UnknownStopReason _) -> Stop.Stop
   Nothing -> Stop.Stop

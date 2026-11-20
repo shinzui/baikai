@@ -5,34 +5,31 @@
 -- sibling packages can reuse its pieces; it is not part of the public
 -- API and may change in /any/ release without a PVP major bump.
 --
--- Local SSE transport for Anthropic Messages streams.
---
--- The upstream @claude@ SDK exposes the right event decoder, but its
--- non-2xx path collapses status, headers, and body into plain text. This
--- wrapper keeps the SDK's request and SSE parsing shape while surfacing
--- classified 'BaikaiError' values.
+-- Adapt the Claude client stream and its response metadata to Baikai's
+-- provider error contract.
 module Baikai.Provider.Claude.Sse
   ( claudeSseStream,
     claudeSseStreamValue,
     claudeSseStreamValueWithHeaders,
     sseFromResponse,
     decodeFrame,
-    buildRequest,
     ResponseMetadata (..),
     capturedHeaderNames,
   )
 where
 
-import Baikai.Error (BaikaiError, decodeError, httpError, parseHttpDate, retryAfterSecondsAt)
-import Claude.V1.Messages qualified as Messages
-import Control.Monad (foldM, when)
+import Baikai.Error (BaikaiError, ErrorCategory (TransientError), decodeError, httpError, invalidRequest, parseHttpDate, providerError, retryAfterSecondsAt)
+import Baikai.Error qualified as Error
+import Baikai.Provider.Claude.Internal.ErrorClass (classifyErrorValue)
+import Claude.Client qualified as Candidate
+import Claude.Messages (MessageRequest)
+import Claude.Streaming qualified as Candidate
+import Control.Monad (when)
 import Data.Aeson qualified as Aeson
-import Data.Aeson.KeyMap qualified as Aeson.Key
 import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
 import Data.CaseInsensitive (CI)
 import Data.CaseInsensitive qualified as CI
-import Data.Char (isSpace)
 import Data.IORef qualified as IORef
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -45,6 +42,7 @@ import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types.Header (RequestHeaders)
 import Network.HTTP.Types.Status qualified as Status
 import Servant.Client qualified as Client
+import System.IO.Unsafe (unsafePerformIO)
 
 -- | Response-level metadata captured once, before the first event.
 --
@@ -95,23 +93,23 @@ responseMetadata response =
 -- once per SSE event — potentially thousands of times per call — and
 -- response-level data does not belong on that hot path.
 claudeSseStream ::
-  Client.ClientEnv ->
+  Client.BaseUrl ->
   Text ->
   Maybe Text ->
-  Messages.CreateMessage ->
+  MessageRequest ->
   (ResponseMetadata -> IO ()) ->
-  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  (Either BaikaiError Candidate.StreamPayload -> IO ()) ->
   IO ()
 claudeSseStream env apiKey anthropicVersion req =
-  claudeSseStreamValue env apiKey anthropicVersion (Aeson.toJSON req {Messages.stream = Just True})
+  claudeSseStreamValue env apiKey anthropicVersion (Aeson.toJSON req)
 
 claudeSseStreamValue ::
-  Client.ClientEnv ->
+  Client.BaseUrl ->
   Text ->
   Maybe Text ->
   Aeson.Value ->
   (ResponseMetadata -> IO ()) ->
-  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  (Either BaikaiError Candidate.StreamPayload -> IO ()) ->
   IO ()
 claudeSseStreamValue env apiKey anthropicVersion =
   claudeSseStreamValueWithHeaders env requestHeaders
@@ -127,51 +125,83 @@ claudeSseStreamValue env apiKey anthropicVersion =
         ]
 
 claudeSseStreamValueWithHeaders ::
-  Client.ClientEnv ->
+  Client.BaseUrl ->
   RequestHeaders ->
   Aeson.Value ->
   (ResponseMetadata -> IO ()) ->
-  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  (Either BaikaiError Candidate.StreamPayload -> IO ()) ->
   IO ()
 claudeSseStreamValueWithHeaders env requestHeaders requestBody onMetadata onEvent = do
-  HTTP.withResponse (buildRequest (Client.baseUrl env) requestHeaders requestBody) (Client.manager env) $ \response ->
-    sseFromResponse response onMetadata onEvent
+  let config =
+        (Candidate.defaultClientConfig (fromMaybe "" (lookup "x-api-key" requestHeaders)))
+          { Candidate.endpoint = Client.showBaseUrl env,
+            Candidate.apiVersion = lookup "anthropic-version" requestHeaders,
+            Candidate.timeoutMicros = Nothing
+          }
+      options =
+        Candidate.RequestOptions
+          (maybe [] (S8.split ',') (lookup "anthropic-beta" requestHeaders))
+          (filter ((`notElem` ["x-api-key", "anthropic-version", "anthropic-beta", "accept", "content-type"]) . fst) requestHeaders)
+  created <- Candidate.newClientWithPool candidatePool config
+  sentMetadata <- IORef.newIORef False
+  let publish meta = do
+        alreadySent <- IORef.atomicModifyIORef' sentMetadata (\sent -> (True, sent))
+        when (not alreadySent) (onMetadata (candidateMetadata meta))
+  case created of
+    Left err -> onEvent (Left (candidateError err))
+    Right client -> do
+      result <- Candidate.streamMessageValue client options requestBody $ \meta event -> do
+        publish meta
+        forwardPayload onEvent (Candidate.eventPayload event)
+        pure Candidate.Continue
+      case result of
+        Right response -> publish (Candidate.metadata response)
+        Left (Candidate.ApiStatusError meta _ detail) -> do
+          publish meta
+          now <- getCurrentTime
+          let reference = fromMaybe now (parseHttpDate . decodeLenient =<< Candidate.responseDate meta)
+              retryAfter = retryAfterSecondsAt reference . decodeLenient =<< Candidate.retryAfter meta
+          onEvent (Left (httpError (Candidate.status meta) retryAfter detail))
+        Left err -> do
+          mapM_ publish (failureMetadata err)
+          onEvent (Left (candidateError err))
 
--- | The exact request this transport sends.
---
--- Pure and exported so that what goes on the wire — the method, the
--- composed path, and the redirect policy — is assertable without opening
--- a connection.
---
--- The path is the base URL's path plus @/v1/messages@. The base URL
--- reaching here has already been through
--- 'Baikai.Http.canonicalBaseUrl', which strips a trailing @\/v1@
--- segment, so a caller who writes the base URL the way every OpenAI SDK
--- teaches it — @https:\/\/api.deepseek.com\/v1@ — gets one @\/v1@ here
--- rather than two.
-buildRequest :: Client.BaseUrl -> RequestHeaders -> Aeson.Value -> HTTP.Request
-buildRequest base requestHeaders requestBody =
-  HTTP.defaultRequest
-    { HTTP.secure = case Client.baseUrlScheme base of
-        Client.Http -> False
-        Client.Https -> True,
-      HTTP.host = S8.pack (Client.baseUrlHost base),
-      HTTP.port = Client.baseUrlPort base,
-      HTTP.method = "POST",
-      HTTP.path = S8.pack (normalizePath (Client.baseUrlPath base) <> "/v1/messages"),
-      HTTP.requestHeaders = requestHeaders,
-      HTTP.requestBody = HTTP.RequestBodyLBS (Aeson.encode requestBody),
-      -- This POST has no legitimate redirect, and http-client's default
-      -- is to follow up to ten of them with every header intact — which
-      -- would re-send the credential to whatever host a Location names.
-      -- At zero the 3xx comes back untouched and 'sseFromResponse'
-      -- delivers it as the one in-band terminal error, carrying its
-      -- status.
-      HTTP.redirectCount = 0,
-      -- No per-response bound here: Options.timeoutMs is enforced around
-      -- the whole call by Transport.runWithTimeout.
-      HTTP.responseTimeout = HTTP.responseTimeoutNone
-    }
+{-# NOINLINE candidatePool #-}
+candidatePool :: Candidate.ClientPool
+candidatePool = unsafePerformIO Candidate.newClientPool
+
+candidateMetadata :: Candidate.ResponseMetadata -> ResponseMetadata
+candidateMetadata meta =
+  ResponseMetadata (Candidate.status meta) $
+    [ (name, decodeLenient header)
+    | (name, Just header) <-
+        [ ("request-id", Candidate.requestId meta),
+          ("x-request-id", Candidate.gatewayRequestId meta),
+          ("cf-ray", Candidate.cloudflareRay meta)
+        ]
+    ]
+
+failureMetadata :: Candidate.ClientError -> Maybe Candidate.ResponseMetadata
+failureMetadata = \case
+  Candidate.TransportError meta _ -> meta
+  Candidate.DecodeError meta _ -> Just meta
+  Candidate.StreamApiError meta _ -> Just meta
+  _ -> Nothing
+
+candidateError :: Candidate.ClientError -> BaikaiError
+candidateError = \case
+  Candidate.InvalidRequest detail -> invalidRequest detail
+  Candidate.DecodeError _ "Stream ended before message_stop" -> providerError "claude stream ended without message_stop"
+  Candidate.DecodeError _ detail -> decodeError detail
+  Candidate.StreamApiError _ err -> classifyProviderError err
+  Candidate.TransportError _ kind -> (providerError (Text.pack (show kind))) {Error.category = TransientError}
+  err -> decodeError (Text.pack (show err))
+
+classifyProviderError :: Candidate.ApiError -> BaikaiError
+classifyProviderError err =
+  let detail = Candidate.message err
+      body = Aeson.object ["type" Aeson..= Candidate.errorType err, "message" Aeson..= detail]
+   in fromMaybe (providerError detail) (classifyErrorValue body)
 
 -- | Consume an @http-client@ response as an Anthropic SSE stream.
 --
@@ -182,7 +212,7 @@ buildRequest base requestHeaders requestBody =
 sseFromResponse ::
   HTTP.Response HTTP.BodyReader ->
   (ResponseMetadata -> IO ()) ->
-  (Either BaikaiError Messages.MessageStreamEvent -> IO ()) ->
+  (Either BaikaiError Candidate.StreamPayload -> IO ()) ->
   IO ()
 sseFromResponse response onMetadata onEvent = do
   let st = HTTP.responseStatus response
@@ -201,126 +231,40 @@ sseFromResponse response onMetadata onEvent = do
           retryAfter = retryAfterSecondsAt reference =<< headerText "Retry-After"
       onEvent (Left (httpError (Status.statusCode st) retryAfter bodyText))
     else do
-      lineBufRef <- IORef.newIORef SBS.empty
-      eventBufRef <- IORef.newIORef ([] :: [SBS.ByteString])
-      let flushEvent = do
-            es <- IORef.atomicModifyIORef' eventBufRef (\buf -> ([], reverse buf))
-            case es of
-              [] -> pure False
-              _ -> do
-                let payload = S8.dropWhileEnd isSpace (S8.concat es)
-                if SBS.null payload
-                  then -- An empty @data:@ line is a heartbeat, not a frame.
-                    pure False
-                  else case decodeFrame payload of
-                    Left e -> onEvent (Left e) >> pure False
-                    Right Nothing -> pure False
-                    Right (Just ev) -> onEvent (Right ev) >> pure False
+      let header name = lookup name (HTTP.responseHeaders response)
+          metadata =
+            Candidate.ResponseMetadata
+              { Candidate.requestId = header "request-id",
+                Candidate.gatewayRequestId = header "x-request-id",
+                Candidate.cloudflareRay = header "cf-ray",
+                Candidate.status = Status.statusCode st,
+                Candidate.retryAfter = header "retry-after",
+                Candidate.responseDate = header "date"
+              }
+      result <- Candidate.consumeEventStream metadata (HTTP.brRead (HTTP.responseBody response)) $ \event -> do
+        forwardPayload onEvent (Candidate.eventPayload event)
+        pure Candidate.Continue
+      case result of
+        Left err -> onEvent (Left (candidateError err))
+        Right _ -> pure ()
 
-          handleLine line =
-            let l = stripCR line
-             in if S8.null l
-                  then flushEvent
-                  else
-                    if "data:" `S8.isPrefixOf` l
-                      then do
-                        let d = S8.dropWhile (== ' ') (S8.drop 5 l)
-                        IORef.modifyIORef' eventBufRef (d :)
-                        pure False
-                      else pure False
+-- | Decode an individual recorded frame with the client codec.
+decodeFrame :: SBS.ByteString -> Either BaikaiError (Maybe Candidate.StreamPayload)
+decodeFrame payload = do
+  raw <- either (Left . decodeError . Text.pack) Right (Aeson.eitherDecodeStrict payload)
+  parsed <- either (Left . decodeError . Text.pack) Right (Candidate.decodeStreamEvent raw)
+  case parsed of
+    Left err -> Left (classifyProviderError err)
+    Right event -> pure (knownPayload (Candidate.eventPayload event))
 
-          loop = do
-            chunk <- HTTP.brRead (HTTP.responseBody response)
-            if SBS.null chunk
-              then do
-                pendingLine <- IORef.readIORef lineBufRef
-                when (not (SBS.null pendingLine)) $ do
-                  _ <- handleLine pendingLine
-                  IORef.writeIORef lineBufRef SBS.empty
-                _ <- flushEvent
-                pure ()
-              else do
-                prev <- IORef.readIORef lineBufRef
-                let combined = prev <> chunk
-                    ls = S8.split '\n' combined
-                case unsnoc ls of
-                  Nothing -> loop
-                  Just (completeLines, lastLine) -> do
-                    IORef.writeIORef lineBufRef lastLine
-                    stop <- foldM (\acc ln -> if acc then pure True else handleLine ln) False completeLines
-                    if stop then pure () else loop
-      loop
+forwardPayload :: (Either BaikaiError Candidate.StreamPayload -> IO ()) -> Candidate.StreamPayload -> IO ()
+forwardPayload send = mapM_ (send . Right) . knownPayload
 
--- | Decode one SSE frame.
---
--- @Right Nothing@ is a frame this transport deliberately skips: an event
--- @type@, or a @content_block_delta@ whose @delta.type@, that the SDK
--- has no constructor for. The SDK decodes both with aeson's tagged-object
--- encoding and no unknown-tag fallback, so an unrecognised tag is a
--- decode /failure/ there — and a new frame type from Anthropic must not
--- end an otherwise healthy stream. A frame of a __known__ type that
--- still fails to decode is a genuine fault and stays a 'decodeError'.
---
--- Both tag lists are copied from the SDK's @constructorTagModifier@
--- tables in @Claude.V1.Messages@. A frame carrying no @type@ field at
--- all is not "unknown" — it is malformed, and fails as before.
-decodeFrame :: SBS.ByteString -> Either BaikaiError (Maybe Messages.MessageStreamEvent)
-decodeFrame payload = case Aeson.eitherDecodeStrict payload of
-  Left err -> Left (decodeError (Text.pack err))
-  Right val
-    | frameIsUnknown val -> Right Nothing
-    | otherwise -> case Aeson.fromJSON val of
-        Aeson.Error err -> Left (decodeError (Text.pack err))
-        Aeson.Success ev -> Right (Just ev)
-
--- | Whether this frame names a type the SDK has no constructor for.
-frameIsUnknown :: Aeson.Value -> Bool
-frameIsUnknown val = case val of
-  Aeson.Object o -> case Aeson.Key.lookup "type" o of
-    Just (Aeson.String "content_block_delta") ->
-      case Aeson.Key.lookup "delta" o of
-        Just (Aeson.Object d) -> case Aeson.Key.lookup "type" d of
-          Just (Aeson.String dt) -> dt `notElem` knownDeltaTypes
-          _ -> False
-        _ -> False
-    Just (Aeson.String t) -> t `notElem` knownEventTypes
-    _ -> False
-  _ -> False
-
-knownEventTypes :: [Text]
-knownEventTypes =
-  [ "message_start",
-    "content_block_start",
-    "content_block_delta",
-    "content_block_stop",
-    "message_delta",
-    "message_stop",
-    "ping",
-    "error"
-  ]
-
-knownDeltaTypes :: [Text]
-knownDeltaTypes =
-  [ "text_delta",
-    "input_json_delta",
-    "thinking_delta",
-    "signature_delta"
-  ]
-
-normalizePath :: String -> String
-normalizePath = \case
-  "" -> ""
-  p@('/' : _) -> p
-  p -> '/' : p
-
-stripCR :: SBS.ByteString -> SBS.ByteString
-stripCR bs = case S8.unsnoc bs of
-  Just (initBs, '\r') -> initBs
-  _ -> bs
-
-unsnoc :: [a] -> Maybe ([a], a)
-unsnoc [] = Nothing
-unsnoc xs = Just (init xs, last xs)
+knownPayload :: Candidate.StreamPayload -> Maybe Candidate.StreamPayload
+knownPayload = \case
+  Candidate.UnknownEvent _ -> Nothing
+  Candidate.ContentBlockDelta _ (Candidate.UnknownDelta _ _) -> Nothing
+  payload -> Just payload
 
 decodeLenient :: SBS.ByteString -> Text
 decodeLenient = Text.decodeUtf8With Text.lenientDecode

@@ -31,7 +31,10 @@ in  Schema.Project::{
         , path = Some "baikai-claude"
         , description = Some
             "Anthropic Claude providers (API and claude -p CLI) for the Baikai abstraction"
-        , dependencies = [ Schema.Dependency.ByName "shinzui/baikai:baikai" ]
+        , dependencies =
+          [ Schema.Dependency.ByName "shinzui/baikai:baikai"
+          , Schema.Dependency.ByName "shinzui/claude-hs:claude-hs"
+          ]
         }
       , Schema.Package::{
         , name = "baikai-openai"

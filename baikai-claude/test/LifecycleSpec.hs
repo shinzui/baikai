@@ -14,6 +14,7 @@ module LifecycleSpec (tests) where
 
 import Baikai
 import Baikai.Models.Generated (anthropic_claude_haiku_4_5)
+import Baikai.Provider.Claude.Api (claudeMessagesStream)
 import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
 import Baikai.Provider.Claude.Sse (sseFromResponse)
 import Baikai.Provider.Internal.StreamWorker (frameQueueCapacity)
@@ -25,9 +26,13 @@ import Data.ByteString (ByteString)
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
+import Data.Text qualified as Text
+import GHC.Conc (BlockReason (BlockedOnSTM), ThreadStatus (ThreadBlocked), threadStatus)
 import Network.HTTP.Client.Internal qualified as HTTP
-import Network.HTTP.Types.Status (mkStatus)
+import Network.HTTP.Types.Status (mkStatus, status200)
 import Network.HTTP.Types.Version (http11)
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp (testWithApplication)
 import Streamly.Data.Stream qualified as Stream
 import System.Mem (performMajorGC)
 import System.Timeout (timeout)
@@ -41,8 +46,48 @@ tests =
     [ boundedReadTest,
       abandonedReleasesAfterGcTest,
       cancellationReleasesWithoutGcTest,
-      workerDeathCannotStrandTest
+      workerDeathCannotStrandTest,
+      candidateCancellation
     ]
+
+candidateCancellation :: TestTree
+candidateCancellation = testCase "candidate HTTP cancellation closes the actual socket" $ do
+  closed <- newEmptyMVar
+  ready <- newEmptyMVar
+  done <- newEmptyMVar
+  count <- newIORef (0 :: Int)
+  let app request respond = do
+        _ <- Wai.strictRequestBody request
+        atomicModifyIORef' count (\n -> (n + 1, ()))
+        respond $
+          Wai.responseRaw
+            ( \recv send -> do
+                send ("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n" <> frameAt 0 <> frameAt 1 <> frameAt 2)
+                recv >>= putMVar closed
+            )
+            (Wai.responseLBS status200 [] "")
+  testWithApplication (pure app) $ \port -> do
+    let fixtureModel = testModel & #baseUrl .~ ("http://127.0.0.1:" <> Text.pack (show port))
+        signal event = do
+          case event of
+            TextDelta _ -> putMVar ready ()
+            _ -> pure ()
+          pure event
+        run = Stream.toList (Stream.mapM signal (claudeMessagesStream fixtureModel (systemUser "System" "Prompt") testOptions))
+    bracket (forkIO (try run >>= putMVar done)) (\tid -> throwTo tid ThreadKilled) $ \tid -> do
+      timeout 5_000_000 (takeMVar ready) >>= (@?= Just ())
+      let awaitDrain =
+            threadStatus tid >>= \case
+              ThreadBlocked BlockedOnSTM -> pure ()
+              _ -> threadDelay 1000 >> awaitDrain
+      timeout 5_000_000 awaitDrain >>= (@?= Just ())
+      throwTo tid ThreadKilled
+      result <- timeout 2_000_000 (takeMVar done)
+      case result of
+        Just (Left err) | Just ThreadKilled <- fromException (err :: SomeException) -> pure ()
+        _ -> assertFailure "expected asynchronous cancellation"
+      timeout 5_000_000 (takeMVar closed) >>= (@?= Just "")
+      readIORef count >>= (@?= 1)
 
 -- | The bound alone stops the socket read: no garbage collection and no
 -- timer is involved. Before the frame queue the counter grew without

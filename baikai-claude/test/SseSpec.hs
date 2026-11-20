@@ -6,31 +6,31 @@ import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_hai
 import Baikai.Provider.Claude.Internal.Stream (Assembler, SseDriver, claudeMessagesStreamWith, emptyAssembler, translate)
 import Baikai.Provider.Claude.Sse
   ( ResponseMetadata,
-    buildRequest,
     claudeSseStreamValueWithHeaders,
     sseFromResponse,
   )
 import Baikai.Usage qualified as Usage
-import Claude.V1.Messages qualified as Messages
+import Claude.Streaming qualified as Messages
 import Contract (assertErrorContract)
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
 import Data.ByteString (ByteString)
-import Data.ByteString qualified as SBS
 import Data.ByteString.Char8 qualified as S8
 import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
 import Data.Generics.Labels ()
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Time.Clock (UTCTime)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Network.HTTP.Client.Internal qualified as HTTP
-import Network.HTTP.Types.Status (mkStatus)
+import Network.HTTP.Types.Status (mkStatus, status200, status302)
 import Network.HTTP.Types.Version (http11)
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp (testWithApplication)
 import Servant.Client qualified as Client
 import Streamly.Data.Stream qualified as Stream
 import Test.Tasty (TestTree, testGroup)
@@ -98,7 +98,7 @@ tests =
         sseFromResponse resp (\md -> modifyIORef' metaRef (<> [md])) (\ev -> modifyIORef' eventsRef (<> [ev]))
         events <- readIORef eventsRef
         case events of
-          [Right Messages.Message_Start {Messages.message = msg}, Right Messages.Message_Stop] ->
+          [Right (Messages.MessageStart msg), Right Messages.MessageStop] ->
             msg ^. #id @?= "msg_1"
           other -> assertFailure ("expected message_start then message_stop, got: " <> show other),
       observationTests,
@@ -224,27 +224,21 @@ blockClosingTests =
             isRetryable be @?= False
           other -> assertFailure ("expected a terminal EventError, got: " <> show (take 1 other)),
       refusalDetailTests,
-      testCase "a mid-stream transport error closes open blocks before the terminal" $ do
-        -- The failure is injected through 'translate' rather than the
-        -- transport, because what is under test is the assembler's
-        -- Left path: a classified error arriving with a text block open.
-        (openEvents, ass) <- replayTranslate openTextBody
-        let (failEvents, _) = translate (Left (providerUnavailable "connection reset mid-stream")) ass testTime
-        assertBool
-          ("expected a text block to be open, got: " <> show openEvents)
-          (not (null [() | TextStart {} <- openEvents]))
-        case failEvents of
-          [TextEnd BlockEndPayload {contentIndex = 0, content = body}, EventError TerminalPayload {message = msg}] -> do
+      testCase "early EOF closes open blocks before the terminal" $ do
+        (events, _) <- replayTranslate openTextBody
+        assertBool "the partial transcript opened a text block" (not (null [() | TextStart {} <- events]))
+        case reverse events of
+          EventError TerminalPayload {message = msg} : TextEnd BlockEndPayload {contentIndex = 0, content = body} : _ -> do
             body @?= "partial"
             [t | AssistantText (TextContent t) <- Vector.toList (messageBlocks msg)] @?= ["partial"]
-          other -> assertFailure ("expected TextEnd then EventError, got: " <> show other),
+          other -> assertFailure ("expected TextEnd then EventError, got: " <> show (take 2 other)),
       testCase "an unknown event type is skipped without ending the stream" $ do
         events <-
           transportEvents
             200
-            [ frameOf "{\"type\":\"message_stop\"}",
-              frameOf "{\"type\":\"message_checkpoint\",\"checkpoint\":\"abc\"}",
-              frameOf "{\"type\":\"ping\"}"
+            [ frameOf "{\"type\":\"message_checkpoint\",\"checkpoint\":\"abc\"}",
+              frameOf "{\"type\":\"ping\"}",
+              frameOf "{\"type\":\"message_stop\"}"
             ]
         assertAllRight events
         length events @?= 2,
@@ -252,9 +246,9 @@ blockClosingTests =
         events <-
           transportEvents
             200
-            [ frameOf "{\"type\":\"message_stop\"}",
-              frameOf "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"citations_delta\",\"citation\":{}}}",
-              frameOf "{\"type\":\"ping\"}"
+            [ frameOf "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"future_delta\"}}",
+              frameOf "{\"type\":\"ping\"}",
+              frameOf "{\"type\":\"message_stop\"}"
             ]
         assertAllRight events
         length events @?= 2,
@@ -304,14 +298,14 @@ frameOf body = "data: " <> body <> "\n\n"
 
 -- | The raw events the transport produced, with no assembler involved.
 transportEvents ::
-  Int -> [ByteString] -> IO [Either BaikaiError Messages.MessageStreamEvent]
+  Int -> [ByteString] -> IO [Either BaikaiError Messages.StreamPayload]
 transportEvents status chunks = do
   eventsRef <- newIORef []
   resp <- mkResponse status [] chunks
   sseFromResponse resp (const (pure ())) (\ev -> modifyIORef' eventsRef (<> [ev]))
   readIORef eventsRef
 
-assertAllRight :: [Either BaikaiError Messages.MessageStreamEvent] -> Assertion
+assertAllRight :: [Either BaikaiError Messages.StreamPayload] -> Assertion
 assertAllRight events =
   case [e | Left e <- events] of
     [] -> pure ()
@@ -489,100 +483,46 @@ mkResponse status headers chunks = do
 -- What goes on the wire
 -- --------------------------------------------------------------------
 
--- | The composed path and the redirect policy, asserted on the pure
--- request rather than by opening a connection.
---
--- The path cases are the base-URL convention: `Model.baseUrl` is the API
--- root, baikai appends `/v1/messages` itself, and a trailing
--- `/v1` is removed rather than doubled — which is why
--- `https://api.deepseek.com/v1`, the spelling every OpenAI SDK teaches,
--- does not request `/v1/v1/...`.
 requestShapeTests :: TestTree
 requestShapeTests =
-  testGroup
-    "the request this transport sends"
-    [ testCase "one version segment, whatever spelling the base URL used"
-        $ forM_
-          [ ("https://api.anthropic.com/v1", "/v1/messages"),
-            ("https://api.anthropic.com", "/v1/messages"),
-            ("https://gateway.test/anthropic", "/anthropic/v1/messages"),
-            ("https://gateway.test/anthropic/v1/", "/anthropic/v1/messages")
-          ]
-        $ \(url, expected) -> case Http.canonicalBaseUrl url of
-          Left problem -> assertFailure (Text.unpack (url <> " was refused: " <> problem))
-          Right base -> do
-            let request = buildRequest base [] (Aeson.object [])
-            (url, HTTP.path request) @?= (url, S8.pack expected),
-      testCase "the request never follows a redirect" $
-        case Http.canonicalBaseUrl "https://h.test" of
-          Left problem -> assertFailure (Text.unpack problem)
-          Right base -> do
-            let request = buildRequest base [] (Aeson.object [])
-            HTTP.redirectCount request @?= 0
-            HTTP.method request @?= "POST"
-    ]
+  testCase "the live POST uses one version segment across base URL spellings" $ do
+    attempts <- newIORef []
+    let app request respond = do
+          modifyIORef' attempts (<> [(Wai.requestMethod request, Wai.rawPathInfo request)])
+          respond (Wai.responseLBS status200 [("Content-Type", "text/event-stream")] "data: {\"type\":\"message_stop\"}\n\n")
+    testWithApplication (pure app) $ \port -> do
+      let local = "http://127.0.0.1:" <> Text.pack (show port)
+      forM_ ["", "/v1", "/gateway", "/gateway/v1/"] $ \suffix -> do
+        base <- either (fail . Text.unpack) pure (Http.canonicalBaseUrl (local <> suffix))
+        events <- captureLiveFrames base
+        assertAllRight events
+    readIORef attempts >>= (@?= [("POST", "/v1/messages"), ("POST", "/v1/messages"), ("POST", "/gateway/v1/messages"), ("POST", "/gateway/v1/messages")])
 
--- --------------------------------------------------------------------
--- A 3xx is an error, not a hop
--- --------------------------------------------------------------------
-
--- | A 302 is delivered as the terminal error and no second connection is
--- ever opened.
---
--- @http-client@'s default is to follow up to ten redirects with every
--- header intact, so before `redirectCount = 0` this test recorded a
--- second connection — to whatever host the `Location` header named —
--- carrying the caller's bearer token.
---
--- The "server" is an in-process fake built from `managerRawConnection`,
--- which is what lets the case observe /which hosts a connection was
--- opened to/ directly, with no socket and no port.
 redirectTests :: TestTree
 redirectTests =
-  testGroup
-    "redirects"
-    [ testCase "a 302 is the terminal error and no second host is contacted" $ do
-        attemptsRef <- newIORef []
-        manager <- fakeRedirectingManager attemptsRef
-        case Http.canonicalBaseUrl "http://proxy.test" of
-          Left problem -> assertFailure (Text.unpack problem)
-          Right base -> do
-            let env = Client.mkClientEnv manager base
-            eventsRef <- newIORef []
-            metaRef <- newIORef []
-            claudeSseStreamValueWithHeaders
-              env
-              [("Authorization", "Bearer sk-test")]
-              (Aeson.object [])
-              (\md -> modifyIORef' metaRef (<> [md]))
-              (\ev -> modifyIORef' eventsRef (<> [ev]))
-            attempts <- readIORef attemptsRef
-            attempts @?= [("proxy.test", 80)]
-            events <- readIORef eventsRef
-            case events of
-              [Left e] -> httpStatus e @?= Just 302
-              other -> assertFailure ("expected one 302 error, got: " <> show other)
-    ]
+  testCase "a 302 terminates without a second request" $ do
+    attempts <- newIORef []
+    let app request respond = do
+          modifyIORef' attempts (<> [Wai.rawPathInfo request])
+          respond (Wai.responseLBS status302 [("Location", "/redirect-target")] "")
+    testWithApplication (pure app) $ \port -> do
+      events <- captureLiveFrames (Client.BaseUrl Client.Http "127.0.0.1" port "")
+      case events of
+        [Left e] -> httpStatus e @?= Just 302
+        other -> assertFailure ("expected one 302 error, got: " <> show other)
+    readIORef attempts >>= (@?= ["/v1/messages"])
 
--- | A manager whose every connection answers one 302 pointing at another
--- host, and records the host and port it was opened to.
-fakeRedirectingManager :: IORef [(String, Int)] -> IO HTTP.Manager
-fakeRedirectingManager attemptsRef =
-  HTTP.newManager
-    HTTP.defaultManagerSettings
-      { HTTP.managerRawConnection = pure open
-      }
-  where
-    open _ host portNumber = do
-      modifyIORef' attemptsRef (<> [(host, portNumber)])
-      remaining <- newIORef [redirectResponse]
-      HTTP.makeConnection
-        (atomicModifyIORef' remaining (\chunks -> case chunks of [] -> ([], SBS.empty); (c : cs) -> (cs, c)))
-        (\_ -> pure ())
-        (pure ())
-    redirectResponse =
-      S8.pack
-        "HTTP/1.1 302 Found\r\nLocation: http://evil.test/steal\r\nContent-Length: 0\r\n\r\n"
+captureLiveFrames :: Client.BaseUrl -> IO [Either BaikaiError Messages.StreamPayload]
+captureLiveFrames base = do
+  events <- newIORef []
+  let body = Aeson.object ["model" Aeson..= ("fixture" :: Text.Text), "max_tokens" Aeson..= (1 :: Int), "messages" Aeson..= ([] :: [Aeson.Value])]
+  claudeSseStreamValueWithHeaders
+    base
+    [("x-api-key", "fixture-key"), ("anthropic-version", "2023-06-01")]
+    body
+    (const (pure ()))
+    (\event -> modifyIORef' events (<> [event]))
+  readIORef events
 
 refusalDetailTests :: TestTree
 refusalDetailTests =
