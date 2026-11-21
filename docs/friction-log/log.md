@@ -1,6 +1,9 @@
 # Bundle Update Log
 
 ## 2026-11-21
+
+* **Update**: FRIC-10 accepted: Document a credential-free, serialized offline invocation.
+
 * **Addition**: FRIC-10 records detour tooling friction with mori://shinzui/baikai: Inherited OPENAI_KEY causes an offline embedding test to print its value
 
 ## 2026-11-14

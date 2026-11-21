@@ -148,6 +148,52 @@ anthropic_claude_fable_5_1 =
             }
     }
 
+anthropic_claude_fable_5_2 :: Model
+anthropic_claude_fable_5_2 =
+  emptyModel
+    { modelId = "claude-fable-5-2",
+      name = "Claude Fable 5.2",
+      api = AnthropicMessages,
+      provider = "anthropic",
+      baseUrl = "https://api.anthropic.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
+      cost =
+        ModelCost
+          { inputCost = 8 % 1,
+            outputCost = 40 % 1,
+            cacheReadCost = 1 % 5,
+            cacheWriteCost = 10 % 1
+          },
+      fastModeCost =
+        Just
+          ( ModelCost
+              { inputCost = 16 % 1,
+                outputCost = 80 % 1,
+                cacheReadCost = 2 % 5,
+                cacheWriteCost = 20 % 1
+              }
+          ),
+      pricingPolicy = Just (PricingPolicy [] (Just (16 % 1))),
+      contextWindow = 1000000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatAnthropicMessages
+          defaultAnthropicMessagesCompat
+            { supportsLongCacheRetention = True,
+              supportsCacheControlOnTools = True,
+              sendSessionAffinityHeaders = False,
+              thinkingStyle = AnthropicThinkingAdaptive,
+              supportsSamplingParameters = False,
+              supportsFastMode = True,
+              supportsForcedToolChoice = False,
+              supportsThinkingDisabled = False,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
+            }
+    }
+
 anthropic_claude_haiku_4_5 :: Model
 anthropic_claude_haiku_4_5 =
   emptyModel
@@ -1741,6 +1787,7 @@ allModels :: [Model]
 allModels =
   [ anthropic_claude_fable_5,
     anthropic_claude_fable_5_1,
+    anthropic_claude_fable_5_2,
     anthropic_claude_haiku_4_5,
     anthropic_claude_haiku_5_5,
     anthropic_claude_opus_4_5,

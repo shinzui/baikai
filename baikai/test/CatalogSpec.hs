@@ -125,6 +125,7 @@ expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool, Bool, Bool, Boo
 expectedAnthropicFacts =
   [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True, False, False, Just AnthropicPrefillUnsupported)),
     ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False, False, False, Just AnthropicPrefillUnsupported)),
+    ("claude-fable-5-2", (AnthropicThinkingAdaptive, False, False, True, False, Just AnthropicPrefillUnsupported)),
     ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True, False, True, Just AnthropicPrefillRequiresThinkingOff)),
     ("claude-haiku-5-5", (AnthropicThinkingAdaptive, False, True, False, True, Just AnthropicPrefillUnsupported)),
     ("claude-opus-4-5", (AnthropicThinkingBudget, True, True, False, True, Just AnthropicPrefillRequiresThinkingOff)),

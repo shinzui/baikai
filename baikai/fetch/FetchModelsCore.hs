@@ -436,7 +436,12 @@ anthropicInclude =
       ("claude-fable-5", adaptiveNoSampling & #supportsThinkingDisabled .~ False),
       -- 2026-09-07: always-on adaptive thinking; omit sampling parameters.
       -- https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1
-      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False)
+      ("claude-fable-5-1", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False),
+      -- 2026-11-20: always-on adaptive thinking, no sampling or forced
+      -- tool choice, and double standard rates in fast mode.
+      -- https://platform.claude.com/docs/en/models/fable-5-2/migration-guide
+      -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
+      ("claude-fable-5-2", adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False & #fastModeCost ?~ CatalogCost 16 80 0.4 20)
     ]
   where
     opus55Facts = adaptiveNoSampling & #supportsForcedToolChoice .~ False & #supportsThinkingDisabled .~ False & #fastModeCost ?~ CatalogCost 8 40 0.4 10
@@ -750,6 +755,9 @@ pricingPolicies =
       -- guide's total 2.5x uncached-input rate (not an added surcharge).
       (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) (Just 0.5)] (Just 0.25)),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20)),
+      -- 2026-11-20: Fable 5.2 has flat rates and a distinct 1h cache-write rate.
+      -- https://platform.claude.com/docs/en/about-claude/pricing
+      (("anthropic", "claude-fable-5-2"), Model.PricingPolicy [] (Just 16)),
       -- 2026-11-20: Terra doubles input and cache rates and charges 1.5x
       -- output above 272K. The 12h write rate also doubles in that tier.
       -- https://developers.openai.com/api/docs/models/gpt-6.1-terra

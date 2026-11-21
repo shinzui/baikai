@@ -74,10 +74,12 @@ at the very end of the request for the model to complete.
   Supported prefills and ordinary history still mapped successfully. The
   refreshed catalog matched exactly. The core and Claude suites passed
   858 and 479 tests, respectively.
-- [ ] Curate Fable 5.2 with explicit thinking, forced-tool, fast mode and
-  pricing facts. Verify a caller receives the schema-conforming answer through
-  registered completion. Validate streamed terminal handling, signed tool replay,
-  billing and evidence using the registered adapter.
+- [x] On 2026-11-20, regenerated the Fable 5.2 binding from the reviewed catalog
+  row. Registered loopback completion decoded the full schema answer and
+  replayed two signed tool rounds for both Fable versions. The pricing and
+  terminal fixtures verified observed speed, cache duration, missing counters,
+  refusal category, and output limits. The 859 core tests, 501 Claude tests,
+  documentation shapes, and smoke-option checks passed.
 - [ ] Pass focused live Fable 5.2 text and tool cases, including a successful
   follow-up whose outbound assistant turn contains the same signed blocks in
   order as the tool response. Save redacted evidence.
@@ -105,6 +107,10 @@ input block. The adapter merges cumulative updates for fresh input, cache
 reads, cache writes and output, and prices the write duration selected by
 request shaping. The request and accounting work here can reuse those paths.
 
+The core embedding fixtures share environment variables. The offline gate
+clears both OpenAI credentials and runs Tasty serially to isolate those
+fixtures. [FRIC-10](../friction-log/10-inherited-openai-key-causes-an-offline-embedding-test-to-print-its-value.md)
+
 
 ## Decision Log
 
@@ -119,7 +125,10 @@ request shaping. The request and accounting work here can reuse those paths.
 
 ## Outcomes & Retrospective
 
-The prefill guard is complete. Fable 5.2 catalog and live acceptance remain open.
+The prefill guard and Fable 5.2 offline acceptance are complete. The focused
+live checks are pending.
+
+FRIC-10 was accepted with a credential-free, serialized offline invocation.
 
 
 ## Context and Orientation
@@ -262,10 +271,10 @@ on JSON output and the direction-dependent thinking replay on model changes.
 
 ### Milestone 3. Verify a live text turn and tool continuation
 
-Add `fable52-text` and `fable52-tools` to `baikai-smoke/test/SmokeOptions.hs`
-and the generated model to the corresponding position in
-`baikai-smoke/test/NewModelsSmoke.hs`. The runner zips names to model pairs
-by position. Check the single selected result and its requested model, and
+Add the `fable52` stem and generated model to the case table in
+`baikai-smoke/test/SmokeOptions.hs`. The table produces `fable52-text` and
+`fable52-tools` for `baikai-smoke/test/NewModelsSmoke.hs`. Check the single
+selected result and its requested model, and
 update the case count and Anthropic credential mapping in
 `baikai-smoke/test/SmokeOptionsSpec.hs`. Start both cases with the existing
 low effort, 4,096 output tokens and 120-second per-request timeout. Preserve
@@ -285,6 +294,8 @@ Forward that same call to the live driver. Record only the block count and
 equality result for the comparison. Fail the case on any omitted, reordered,
 extra or changed signed block. Exercise the comparison offline with a dropped
 block and a changed signature so an always-true result fails the test.
+The comparison is shared by the runner and its offline suite through
+`baikai-smoke/test/ClaudeReplayCheck.hs`.
 
 
 ## Concrete Steps

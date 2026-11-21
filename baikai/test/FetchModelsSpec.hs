@@ -199,6 +199,7 @@ tests =
           let refreshed = normalizeProvider anthropicSpec (Map.singleton mid (sample & #modelId .~ mid))
               expected
                 | mid == "claude-opus-5-5" = Just (CatalogCost 8 40 0.4 10)
+                | mid == "claude-fable-5-2" = Just (CatalogCost 16 80 0.4 20)
                 | mid `elem` ["claude-opus-5", "claude-opus-4-8"] = Just (CatalogCost 10 50 1 12.5)
                 | otherwise = Nothing
           map (^. #fastModeCost) (refreshed ^. #models) @?= [expected]
@@ -213,6 +214,7 @@ tests =
             (openaiSpec, "gpt-6-sol", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.4 5) Nothing] Nothing),
             (openaiSpec, "gpt-6-luna", Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) (Just 0.5)] (Just 0.25)),
             (anthropicSpec, "claude-fable-5-1", Model.PricingPolicy [] (Just 20)),
+            (anthropicSpec, "claude-fable-5-2", Model.PricingPolicy [] (Just 16)),
             (anthropicSpec, "claude-opus-5-5", Model.PricingPolicy [] (Just 8))
           ]
           $ \(spec, mid, policy) -> do

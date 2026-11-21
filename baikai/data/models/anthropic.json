@@ -55,6 +55,32 @@
       "enabled": true
     },
     {
+      "id": "claude-fable-5-2",
+      "name": "Claude Fable 5.2",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 8.0,
+        "output": 40.0,
+        "cacheRead": 0.2,
+        "cacheWrite": 10.0
+      },
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "fastModeCost": {"input": 16.0, "output": 80.0, "cacheRead": 0.4, "cacheWrite": 20.0},
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 16.0},
+      "compat": {
+        "kind": "anthropic-messages",
+        "thinkingStyle": "adaptive",
+        "supportsSamplingParameters": false,
+        "supportsFastMode": true,
+        "supportsForcedToolChoice": false,
+        "supportsThinkingDisabled": false,
+        "assistantPrefillPolicy": "unsupported"
+      },
+      "enabled": true
+    },
+    {
       "id": "claude-haiku-4-5",
       "name": "Claude Haiku 4.5",
       "reasoning": true,

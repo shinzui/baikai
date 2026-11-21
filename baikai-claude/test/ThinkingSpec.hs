@@ -77,6 +77,7 @@ anthropicModels :: [(String, Model, AnthropicThinkingStyle, Bool, Bool, Bool)]
 anthropicModels =
   [ ("claude-fable-5", anthropic_claude_fable_5, AnthropicThinkingAdaptive, False, True, False),
     ("claude-fable-5-1", anthropic_claude_fable_5_1, AnthropicThinkingAdaptive, False, False, False),
+    ("claude-fable-5-2", anthropic_claude_fable_5_2, AnthropicThinkingAdaptive, False, False, True),
     ("claude-haiku-4-5", anthropic_claude_haiku_4_5, AnthropicThinkingBudget, True, True, False),
     ("claude-haiku-5-5", anthropic_claude_haiku_5_5, AnthropicThinkingAdaptive, False, True, False),
     ("claude-opus-4-5", anthropic_claude_opus_4_5, AnthropicThinkingBudget, True, True, False),

@@ -33,6 +33,7 @@ modelCases =
   | (stem, model) <-
       [ ("astra", Models.openai_gpt_6_astra),
         ("fable", Models.anthropic_claude_fable_5_1),
+        ("fable52", Models.anthropic_claude_fable_5_2),
         ("sol", Models.openai_gpt_6_sol),
         ("luna", Models.openai_gpt_6_luna),
         ("opus55", Models.anthropic_claude_opus_5_5),

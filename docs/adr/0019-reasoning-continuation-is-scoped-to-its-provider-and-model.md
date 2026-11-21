@@ -89,3 +89,13 @@ the first developer item. An explicit cache marker can decorate that item.
 Keep earlier entries and request configuration stable across continuations
 so OpenAI can match the prefix.
 [OpenAI prefix rules](https://developers.openai.com/api/docs/guides/keep-prefix-unchanged)
+
+## Preserve the prefix for Claude Fable 5.2 (2026-11-20)
+
+For Fable 5.2, preserve the signed thinking blocks at their original
+positions and retain earlier messages, system prompt, and tools. An edit
+to that prefix can invalidate subsequent signatures. Replaying through the
+originating or a linked account retains the provider's account binding.
+On the direct Claude API, Fable 5.2 can read Fable 5.1 thinking. The reverse
+move can succeed after the API drops Fable 5.2 thinking.
+[Fable 5.2 migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)

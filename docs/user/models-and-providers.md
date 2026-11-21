@@ -30,6 +30,7 @@ Models.anthropic_claude_haiku_4_5
 Models.anthropic_claude_haiku_5_5
 Models.anthropic_claude_fable_5
 Models.anthropic_claude_fable_5_1
+Models.anthropic_claude_fable_5_2
 Models.anthropic_claude_sonnet_5_5
 Models.deepseek_deepseek_chat
 Models.deepseek_deepseek_reasoner
@@ -309,13 +310,42 @@ through 4.7, and Sonnet 4.5, 4.6 and 5. [GPT-5.6 Sol pricing](https://developers
 [GPT-5.6 Luna pricing](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
 [Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing)
 
-Claude Fable 5.2 uses Messages. [Plan 105](../plans/105-guard-unsupported-assistant-prefills-on-claude-messages-and-enable-fable-5-2.md)
-tracks catalog availability after the binding can reject a final assistant
-prefill locally. A prefill is a partial assistant answer placed at the end
-of the request for the model to complete. The shipped Fable 5.1 and Haiku 5.5
-bindings also let that request reach the API, which rejects it with HTTP 400.
-For ordinary tools, append the tool result and preserve the signed history.
-[Anthropic migration guidance](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)
+`anthropic_claude_fable_5_2` selects Claude Fable 5.2 through Messages. It
+supports streaming, `JsonSchema` output, and client function tools with
+`ToolChoiceAuto` or `ToolChoiceNone`. Thinking is always on and defaults to
+high effort when the caller leaves it unset. Baikai maps a request to disable
+thinking to low effort and records the adjustment. It drops sampling settings
+and rejects required or named tool choice locally. The binding has a 1M-token
+context and a 128K-token output cap. Anthropic requires a workspace with
+30-day data retention or explicit authorization. Organizations using
+customer-managed encryption keys cannot use JSON output or strict tools with
+this model. [Model overview](https://platform.claude.com/docs/en/models/fable-5-2/overview)
+[Migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)
+
+Fable 5.2 charges flat rates across the context window. In USD per million
+tokens, standard rates are $8 for fresh input, $40 for output, $0.20 for
+cache reads, $10 for five-minute cache writes, and $16 for one-hour cache
+writes. On eligible usage tiers, fast mode doubles those rates to $16, $80,
+$0.40, $20, and $32. Baikai uses fast rates when the response reports fast
+speed. [Pricing](https://platform.claude.com/docs/en/about-claude/pricing)
+[Fast mode](https://platform.claude.com/docs/en/build-with-claude/fast-mode)
+
+An assistant prefill is a partial answer at the end of a request. Baikai
+returns `InvalidRequest` before dispatch for a final assistant turn on
+curated Claude 4.6 and later models, including Fable 5.2, Fable 5.1, and
+Haiku 5.5. The Claude 4.5 bindings accept a prefill when the effective
+request has thinking off. Use a final user turn or put instructions in the
+system prompt. After a tool call, append the matching tool result.
+[Claude API errors](https://platform.claude.com/docs/en/api/errors#prefill-not-supported)
+[Thinking and prefills](https://platform.claude.com/docs/en/build-with-claude/thinking#response-prefill-and-forced-tool-use)
+
+For Fable 5.2 tool continuation, preserve all signed thinking blocks,
+including those with empty summaries. Keep prior messages, the system
+prompt, and tools unchanged, and use the originating or a linked Anthropic
+account. On the direct Claude API, a move from Fable 5.1 to 5.2 preserves
+5.1 thinking. Rolling back to Fable 5.1 can continue the conversation after
+the API drops the 5.2 thinking blocks.
+[Migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide#breaking-changes)
 
 OpenAI shut down `gpt-4.1-nano`, `o1`, `o3-mini` and `o4-mini` on 2026-10-23.
 Their bindings compile and still appear in the catalog. Requests to the
@@ -363,12 +393,12 @@ Standard-rate estimates with an explicit reason.
 Run the offline gate before making paid requests:
 
 ```bash
-cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
+env -u OPENAI_KEY -u OPENAI_API_KEY TASTY_NUM_THREADS=1 cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
 cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
 ```
 
 The focused command selects Astra, Sol, Luna, GPT-6.1 Sol and Terra, and GPT-6.2 Astra and Sol through
-Responses and Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 5.5 through Messages. Each model gets one text case and a
+Responses and Fable 5.1, Fable 5.2, Opus 5.5, Sonnet 5.5, and Haiku 5.5 through Messages. Each model gets one text case and a
 deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
 and at most four requests in the tool case. It prints readable results and a
@@ -378,7 +408,7 @@ print conversations or opaque thinking state. Missing required credentials fail
 before any request; without `--require-keys`, missing cases are explicit skips.
 
 To reproduce only a diagnosed failing case, append `--case` and one of
-`astra-text`, `astra-tools`, `fable-text`, `fable-tools`, `sol-text`,
+`astra-text`, `astra-tools`, `fable-text`, `fable-tools`, `fable52-text`, `fable52-tools`, `sol-text`,
 `sol-tools`, `luna-text`, `luna-tools`, `opus55-text`, `opus55-tools`,
 `sol61-text`, `sol61-tools`, `sonnet55-text`, `sonnet55-tools`, `haiku55-text`,
 `haiku55-tools`, `terra61-text`, or `terra61-tools` inside `--test-options`.

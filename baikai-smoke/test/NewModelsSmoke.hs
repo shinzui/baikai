@@ -5,9 +5,13 @@ module NewModelsSmoke (runNewModels, credentialGroups) where
 import Baikai
 import Baikai.Error qualified as Err
 import Baikai.Evidence qualified as Ev
+import Baikai.Provider.Claude.Api (claudeMessagesProvider)
+import Baikai.Provider.Claude.Internal.Request (normalizeToolCallId)
+import Baikai.Provider.Claude.Internal.Stream (claudeMessagesStreamWith, liveSseDriver)
+import ClaudeReplayCheck (matchesSignedReplay, signedBlocks)
 import Control.Exception qualified as Exception
 import Control.Lens ((&), (.~), (^.))
-import Control.Monad (forM, when)
+import Control.Monad (forM, forM_, when)
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBS
@@ -42,7 +46,7 @@ runNewModels required selected = do
       then do
         let status = if preflightFailed then "failed" else "skipped"
             reason = if preflightFailed then "required_credentials_missing" else "credentials_missing"
-        report model toolsCase status False reason 0 0 []
+        report model toolsCase status False reason 0 0 [] [] Nothing
       else runCase model keys workspace toolsCase
   LBS.putStrLn (Aeson.encode (Aeson.object ["schema" .= ("baikai.new-model-smoke/1" :: Text), "results" .= map snd results, "missing_environment_alternatives" .= missing]))
   pure (not (null selectedCases) && all fst results)
@@ -53,8 +57,27 @@ runCase model keys workspace toolsCase = do
   attempted <- newIORef (0 :: Int)
   observations <- newIORef ([] :: [Aeson.Value])
   historyValid <- newIORef True
+  pendingReplay <- newIORef Nothing
+  comparisons <- newIORef ([] :: [(Int, Bool)])
   let gpt62 = isGPT62 model
-      opts =
+      fable52 = model ^. #modelId == "claude-fable-5-2"
+      checkClaudeReplay = fable52 && toolsCase
+      checkDriver call meta emit = do
+        pending <- atomicModifyIORef' pendingReplay (Nothing,)
+        forM_ pending $ \(toolIds, blocks) -> do
+          let matched = matchesSignedReplay toolIds blocks (call ^. #requestBody)
+              count = length blocks
+          -- Evaluate the comparison now so the summary retains no request data.
+          count `seq` matched `seq` modifyIORef' comparisons (<> [(count, matched)])
+        liveSseDriver call meta emit
+      produce = claudeMessagesStreamWith checkDriver
+  complete <-
+    if checkClaudeReplay
+      then do
+        registry <- newProviderRegistryFrom [claudeMessagesProvider & #stream .~ produce & #complete .~ streamingComplete produce]
+        pure (completeRequestWith registry)
+      else pure completeRequest
+  let opts =
         emptyOptions
           & #maxTokens .~ Just 4096
           & #thinking .~ Just (smokeEffort model toolsCase)
@@ -85,22 +108,35 @@ runCase model keys workspace toolsCase = do
         | otherwise = pure (toolResultErrorText "unknown tool")
       loop remaining context = do
         modifyIORef' attempted (+ 1)
-        resp <- completeRequest model context opts
+        resp <- complete model context opts
         modifyIORef' observations (<> [responseSummary resp])
-        let valid = isJust (resp ^. #evidence) && all replayValid (Vector.toList (flattenAssistantBlocks resp))
+        let valid = maybe False validEvidence (resp ^. #evidence) && all replayValid (Vector.toList (flattenAssistantBlocks resp))
         modifyIORef' historyValid (&& valid)
         if valid && resp ^. #message ^. #stopReason == ToolUse && responseError resp == Nothing && remaining > (1 :: Int)
           then do
             let calls = [tc | AssistantToolCall tc <- Vector.toList (flattenAssistantBlocks resp)]
             if null calls || any isCutOffToolCall calls
               then pure resp
-              else appendToolResult context resp dispatcher >>= loop (remaining - 1)
+              else do
+                when checkClaudeReplay $
+                  writeIORef pendingReplay (Just (map (normalizeToolCallId . (^. #id_)) calls, signedBlocks resp))
+                appendToolResult context resp dispatcher >>= loop (remaining - 1)
           else pure resp
+      validEvidence evidence =
+        not fable52
+          || ( Ev.observedModel evidence == Ev.Observed "claude-fable-5-2"
+                 && evidence ^. #endpoint . #endpoint == Just "https://api.anthropic.com/v1/messages"
+             )
   result <- trySync (loop (if toolsCase then 4 else 1) ctx)
   count <- readIORef dispatched
   attempts <- readIORef attempted
   observed <- readIORef observations
   validHistory <- readIORef historyValid
+  replayChecks <- readIORef comparisons
+  let observedTimestamp = case result of
+        Right resp
+          | toolsCase && timestamp `Text.isInfixOf` flattenAssistantText (flattenAssistantBlocks resp) -> Just timestamp
+        _ -> Nothing
   let failure = case result of
         Left _ -> Just "exception"
         Right resp
@@ -110,11 +146,13 @@ runCase model keys workspace toolsCase = do
           | not (all replayValid (Vector.toList (flattenAssistantBlocks resp))) -> Just "invalid_reasoning_continuation"
           | toolsCase && count == 0 -> Just "dispatcher_not_called"
           | gpt62 && toolsCase && (count /= 1 || attempts < 2) -> Just "unexpected_tool_round_count"
-          | toolsCase && not (timestamp `Text.isInfixOf` flattenAssistantText (flattenAssistantBlocks resp)) -> Just "timestamp_missing"
+          | toolsCase && not (isJust observedTimestamp) -> Just "timestamp_missing"
+          | checkClaudeReplay && (length replayChecks /= attempts - 1 || any (not . snd) replayChecks) -> Just "signed_replay_mismatch"
+          | checkClaudeReplay && not (any ((> 0) . fst) replayChecks) -> Just "signed_replay_missing"
           | gpt62 && not toolsCase && not (pongAnswer (flattenAssistantText (flattenAssistantBlocks resp))) -> Just "structured_answer_invalid"
           | not toolsCase && Text.null (flattenAssistantText (flattenAssistantBlocks resp)) -> Just "text_missing"
           | otherwise -> Nothing
-  report model toolsCase (if isJust failure then "failed" else "passed") (attempts > 0) (maybe "ok" id failure) attempts count observed
+  report model toolsCase (if isJust failure then "failed" else "passed") (attempts > 0) (maybe "ok" id failure) attempts count observed replayChecks observedTimestamp
 
 isGPT62 :: Model -> Bool
 isGPT62 model = model ^. #modelId `elem` ["gpt-6.2-astra", "gpt-6.2-sol"]
@@ -162,11 +200,12 @@ responseSummary resp =
       "stop_reason" .= show (resp ^. #message ^. #stopReason),
       "cost" .= (resp ^. #message ^. #usage ^. #cost),
       "reasoning_blocks" .= length [() | AssistantThinking _ <- Vector.toList (flattenAssistantBlocks resp)],
-      "reasoning_continuation_valid" .= all replayValid (Vector.toList (flattenAssistantBlocks resp))
+      "reasoning_continuation_valid" .= all replayValid (Vector.toList (flattenAssistantBlocks resp)),
+      "signed_reasoning_blocks" .= length (signedBlocks resp)
     ]
 
-report :: Model -> Bool -> Text -> Bool -> Text -> Int -> Int -> [Aeson.Value] -> IO (Bool, Aeson.Value)
-report model toolsCase status ran detail attempts dispatches observations = do
+report :: Model -> Bool -> Text -> Bool -> Text -> Int -> Int -> [Aeson.Value] -> [(Int, Bool)] -> Maybe Text -> IO (Bool, Aeson.Value)
+report model toolsCase status ran detail attempts dispatches observations comparisons observedTimestamp = do
   let caseName = if toolsCase then "tools" else "text" :: Text
   hPutStrLn stderr ("[baikai-smoke] " <> Text.unpack (model ^. #modelId) <> " " <> Text.unpack caseName <> ": " <> Text.unpack status <> " (" <> Text.unpack detail <> ")")
   pure
@@ -181,7 +220,9 @@ report model toolsCase status ran detail attempts dispatches observations = do
           "call_count" .= attempts,
           "tool_dispatch_count" .= dispatches,
           "options" .= Aeson.object ["max_tokens" .= (4096 :: Int), "thinking" .= renderThinkingLevel (smokeEffort model toolsCase), "timeout_ms" .= (120000 :: Int), "max_turns" .= (if toolsCase then 4 else 1 :: Int)],
-          "responses" .= observations
+          "responses" .= observations,
+          "verified_test_timestamp" .= observedTimestamp,
+          "signed_replay_checks" .= [Aeson.object ["signed_block_count" .= count, "equal" .= equal] | (count, equal) <- comparisons]
         ]
     )
 

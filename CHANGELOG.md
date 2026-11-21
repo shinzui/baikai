@@ -9,6 +9,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: add `anthropic_claude_fable_5_2` on Claude Messages with
+  adaptive thinking, client function tools, and structured output for
+  eligible organizations. Standard rates per million tokens are $8 input,
+  $40 output, $0.20 cache read, $10 five-minute cache write, and $16 one-hour
+  cache write. Fast mode doubles those rates.
+
 - `baikai`: add `openai_gpt_6_2_astra` and `openai_gpt_6_2_sol` on OpenAI
   Responses with structured output, function tools, and Standard pricing
   for both cache durations and long-context requests.
@@ -18,6 +24,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   prices, and whole-request pricing above 272,000 input tokens.
 
 ### Fixed
+
+- `baikai-claude`: reject unsupported assistant prefills before dispatch.
+  Claude 4.5 accepts prefills with effective thinking off. Normal
+  tool-result continuations preserve prior assistant history.
 
 - `baikai-openai`: preserve completed Responses message and function-call
   items in stateless history. GPT-6.2 keeps reusable system prompts at the

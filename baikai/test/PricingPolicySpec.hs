@@ -109,6 +109,17 @@ tests =
         (computeCost fable (U.zeroUsage & #cacheReadTokens .~ 1000)).usd @?= 1 / 4000
         (computeCostWith (Just CacheRetentionShort) fable (U.zeroUsage & #cacheWriteTokens .~ 1000)).usd @?= 1 / 80
         (computeCostWith (Just CacheRetentionLong) fable (U.zeroUsage & #cacheWriteTokens .~ 1000)).usd @?= 1 / 50,
+      testCase "Fable 5.2 has flat rates with separate short, long, and observed fast cache prices" $ do
+        let m = Models.anthropic_claude_fable_5_2
+            writes = U.zeroUsage & #cacheWriteTokens .~ 1000
+            observed speed = U.observeBilling [U.BillingServiceTier "standard", U.BillingSpeed speed] writes
+        resolveRates (Just CacheRetentionShort) m (U.zeroUsage & #inputTokens .~ 999000) @?= Right (M.ModelCost 8 40 (1 / 5) 10)
+        m.fastModeCost @?= Just (M.ModelCost 16 80 (2 / 5) 20)
+        forM_ [(CacheRetentionShort, 1 / 100, 1 / 50), (CacheRetentionLong, 2 / 125, 4 / 125)] $ \(duration, standard, fast) -> do
+          let price speed = computeCostForService (Just duration) Nothing m (observed speed)
+          (price "standard").usd @?= standard
+          (price "fast").usd @?= fast
+          (price "fast").basis.estimateReasons @?= Set.empty,
       testCase "reasoning is a subset of output, not an extra charge" $ do
         let u = U.zeroUsage & #outputTokens .~ 100
         computeCost astra (u & #reasoningTokens .~ Just 75) @?= computeCost astra u,

@@ -6,13 +6,18 @@ generated:
   by: "codex-cli/gpt-6.2-sol"
   at: "2026-11-21T04:24:08Z"
 frictionId: FRIC-10
-status: logged
+status: "accepted"
 impact: detour
 kind: tooling
 origin: "mori://shinzui/baikai"
 affects: "mori://shinzui/baikai"
 plan: "docs/plans/105-guard-unsupported-assistant-prefills-on-claude-messages-and-enable-fable-5-2.md"
 workaround: "Run the offline Cabal gate with env -u OPENAI_KEY -u OPENAI_API_KEY and keep console output limited to suite status."
+resolution: "The offline gate now strips both OpenAI credential variables and runs Tasty serially because the embedding fixtures share process environment."
+amended:
+  - by: "codex-cli/gpt-6.2-sol"
+    at: "2026-11-21T04:32:57Z"
+    change: "Document a credential-free, serialized offline invocation."
 ---
 # Inherited OPENAI_KEY causes an offline embedding test to print its value
 

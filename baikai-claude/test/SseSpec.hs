@@ -2,7 +2,8 @@ module SseSpec (tests) where
 
 import Baikai
 import Baikai.Http qualified as Http
-import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_4_5, anthropic_claude_opus_5)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_fable_5_2, anthropic_claude_haiku_4_5, anthropic_claude_opus_5)
+import Baikai.Provider.Claude.Api (claudeMessagesProvider)
 import Baikai.Provider.Claude.Internal.Stream (Assembler, SseDriver, claudeMessagesStreamWith, emptyAssembler, translate)
 import Baikai.Provider.Claude.Sse
   ( ResponseMetadata,
@@ -191,6 +192,51 @@ blockClosingTests =
           response <- streamingComplete (claudeMessagesStreamWith (replayDriver 200 [] body)) anthropic_claude_opus_5 emptyContext (testOptions & #cacheRetention .~ Just CacheRetentionLong & #speed .~ Just SpeedFast)
           response ^. #message . #usage . #cost . #usd @?= expected
           response ^. #message . #usage . #cost . #basis . #estimateReasons @?= reasons,
+      testCase "Fable 5.2 prices shaped cache writes and requires observed fast speed" $
+        forM_ [(CacheRetentionShort, 1 / 100), (CacheRetentionLong, 2 / 125)] $ \(duration, standard) ->
+          forM_ [(Just "standard", standard, Set.empty), (Just "fast", standard * 2, Set.empty), (Nothing, standard, Set.singleton SpeedNotReported)] $ \(observed, expected, reasons) -> do
+            let usage = "{\"input_tokens\":0,\"output_tokens\":0,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":1000,\"service_tier\":\"standard\"" <> maybe "" (\v -> ",\"speed\":\"" <> v <> "\"") observed <> "}"
+                body = fable52UsageBody usage 0
+                opts = testOptions & #cacheRetention .~ Just duration & #speed .~ Just SpeedFast
+            registry <- fable52Registry body
+            response <- completeRequestWith registry anthropic_claude_fable_5_2 (contextOf [user "Reply briefly."]) opts
+            responseError response @?= Nothing
+            let billed = response ^. #message . #usage
+            billed ^. #cost . #usd @?= expected
+            billed ^. #cost . #basis . #estimateReasons @?= reasons
+            billed ^. #cacheReadTokens @?= 0
+            fmap Usage.missingCategories (billed ^. #availability) @?= Just Set.empty,
+      testCase "Fable 5.2 bills fresh input separately from reads and writes and preserves missing counters" $ do
+        let body cacheRead = fable52UsageBody ("{\"input_tokens\":10,\"output_tokens\":0,\"cache_creation_input_tokens\":30,\"service_tier\":\"standard\"" <> cacheRead <> "}") 100
+        forM_ [("", 0, Set.singleton Usage.CacheReadUsage, Set.singleton CacheReadUsageNotReported), (",\"cache_read_input_tokens\":0", 0, Set.empty, Set.empty), (",\"cache_read_input_tokens\":20", 20, Set.empty, Set.empty)] $ \(cacheRead, readTokens, missing, reasons) -> do
+          registry <- fable52Registry (body cacheRead)
+          response <- completeRequestWith registry anthropic_claude_fable_5_2 (contextOf [user "Reply briefly."]) (testOptions & #cacheRetention .~ Just CacheRetentionShort & #evidence .~ Just (evidenceRequest "fable52-usage"))
+          responseError response @?= Nothing
+          let billed = response ^. #message . #usage
+          billed ^. #inputTokens @?= 10
+          billed ^. #cacheReadTokens @?= readTokens
+          billed ^. #cacheWriteTokens @?= 30
+          billed ^. #outputTokens @?= 100
+          billed ^. #totalTokens @?= 140 + readTokens
+          fmap Usage.missingCategories (billed ^. #availability) @?= Just missing
+          billed ^. #cost . #basis . #estimateReasons @?= reasons
+          fmap (\e -> e ^. #usage) (response ^. #evidence) @?= Just (Observed billed),
+      testCase "Fable 5.2 thinking alone can exhaust max_tokens" $ do
+        registry <- fable52Registry fable52LengthBody
+        response <- completeRequestWith registry anthropic_claude_fable_5_2 (contextOf [user "Reply briefly."]) testOptions
+        responseError response @?= Nothing
+        response ^. #message . #stopReason @?= Length
+        case Vector.toList (flattenAssistantBlocks response) of
+          [AssistantThinking thinking] -> thinking ^. #signature @?= Just "sig-length"
+          _ -> assertFailure "expected only signed thinking",
+      testCase "Fable 5.2 never dispatches the tool call truncated by max_tokens" $ do
+        registry <- fable52Registry (fable52Start "{\"input_tokens\":4,\"output_tokens\":0}" : drop 1 cutOffToolBody)
+        let ctx = contextOf [user "Search."] & #tools .~ Vector.singleton (mkTool "search" "Search" (Aeson.object []))
+            dispatch _ = assertFailure "truncated arguments reached the dispatcher"
+        (history, response) <- runToolLoopWith registry 4 dispatch anthropic_claude_fable_5_2 ctx testOptions
+        responseError response @?= Nothing
+        response ^. #message . #stopReason @?= Length
+        history ^. #messages @?= ctx ^. #messages,
       testCase "Fable cache writes use the shaped duration including compatibility downgrades" $ do
         let fable = anthropic_claude_fable_5_1
             downgraded = fable & #compat .~ CompatAnthropicMessages (anthropicMessagesCompatFor fable & #supportsLongCacheRetention .~ False)
@@ -257,6 +303,32 @@ blockClosingTests =
         assertAllRight events
         length events @?= 1
     ]
+
+fable52Registry :: [ByteString] -> IO ProviderRegistry
+fable52Registry body =
+  let produce = claudeMessagesStreamWith (replayDriver 200 [] body)
+   in newProviderRegistryFrom [claudeMessagesProvider & #stream .~ produce & #complete .~ streamingComplete produce]
+
+fable52Start :: ByteString -> ByteString
+fable52Start usage =
+  frameOf ("{\"type\":\"message_start\",\"message\":{\"id\":\"msg_fable52\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-fable-5-2\",\"usage\":" <> usage <> "}}")
+
+fable52UsageBody :: ByteString -> Int -> [ByteString]
+fable52UsageBody usage outputTokens =
+  [ fable52Start usage,
+    frameOf ("{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":" <> S8.pack (show outputTokens) <> "}}"),
+    frameOf "{\"type\":\"message_stop\"}"
+  ]
+
+fable52LengthBody :: [ByteString]
+fable52LengthBody =
+  [ fable52Start "{\"input_tokens\":5,\"output_tokens\":0}",
+    frameOf "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}",
+    frameOf "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig-length\"}}",
+    frameOf "{\"type\":\"content_block_stop\",\"index\":0}",
+    frameOf "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"},\"usage\":{\"output_tokens\":9}}",
+    frameOf "{\"type\":\"message_stop\"}"
+  ]
 
 -- | A stream that opens a tool call, streams half its arguments, and is
 -- cut off by the output cap.
@@ -553,7 +625,9 @@ refusalDetailTests =
           EventDone TerminalPayload {errorInfo = Nothing} : _ -> pure ()
           other -> assertFailure (show other),
       testCase "blocking completion preserves the structured refusal" $ do
-        response <- streamingComplete (claudeMessagesStreamWith (replayDriver 200 [] (refusalWithDetails (detail (Just "bio") Nothing)))) testModel emptyContext testOptions
+        registry <- fable52Registry (fable52Start "{\"input_tokens\":3,\"output_tokens\":0}" : drop 1 (refusalWithDetails (detail (Just "bio") Nothing)))
+        response <- completeRequestWith registry anthropic_claude_fable_5_2 (contextOf [user "Reply briefly."]) testOptions
+        fmap category (responseError response) @?= Just ContentFiltered
         fmap (\be -> be ^. #refusalCategory) (response ^. #errorInfo) @?= Just (Just "bio")
     ]
   where

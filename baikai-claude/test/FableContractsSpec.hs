@@ -4,7 +4,7 @@
 module FableContractsSpec (tests) where
 
 import Baikai hiding (messages, model)
-import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_4_5, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_4_6, anthropic_claude_sonnet_5_5)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_fable_5_2, anthropic_claude_haiku_4_5, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_4_6, anthropic_claude_sonnet_5_5)
 import Baikai.Provider.Claude.Api (claudeMessagesProvider, claudeMessagesStream)
 import Baikai.Provider.Claude.Internal.Request qualified as R
 import Baikai.Provider.Claude.Internal.Stream (claudeMessagesStreamWith)
@@ -21,6 +21,7 @@ import Data.IORef (atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TextEncoding
 import Data.Vector qualified as V
 import Network.HTTP.Types (status200)
 import Network.Wai qualified as Wai
@@ -37,6 +38,8 @@ tests =
       prefillTests,
       legacySamplingVersion,
       candidateCompleteAndStream,
+      structuredCompletion,
+      testGroup "two consecutive tool rounds preserve signed and redacted thinking" (map signedReplayFixture fableModels),
       testCase "Opus 5.5 and Sonnet 5.5 reject forced tools and replay signed empty thinking" $
         forM_ [anthropic_claude_opus_5_5, anthropic_claude_sonnet_5_5] $ \opus -> do
           opus.api @?= AnthropicMessages
@@ -66,12 +69,13 @@ tests =
       testCase "Haiku 5.5 forwards a forced tool choice with adaptive thinking" $ do
         (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest anthropic_claude_haiku_5_5 haikuContext haikuForcedOptions)
         Aeson.toJSON req @?= haikuForcedBody,
-      testCase "Haiku 5.5 drops temperature and records why" $ do
-        (req, translation) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest anthropic_claude_haiku_5_5 context (options & #temperature .~ Just 0.2))
-        field "temperature" (Aeson.toJSON req) @?= Nothing
-        translation ^. #adjustments @?= [SamplingDroppedUnsupportedModel ["temperature"]],
+      testCase "Haiku 5.5 and Fable 5.2 drop temperature and record why" $
+        forM_ [anthropic_claude_haiku_5_5, anthropic_claude_fable_5_2] $ \selected -> do
+          (req, translation) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest selected context (options & #temperature .~ Just 0.2))
+          field "temperature" (Aeson.toJSON req) @?= Nothing
+          translation ^. #adjustments @?= [SamplingDroppedUnsupportedModel ["temperature"]],
       testCase "forced choices fail before the driver for complete and stream, including renamed models" $
-        forM_ [model, model & #modelId .~ "renamed-generation"] $ \m ->
+        forM_ (fableModels <> [model & #modelId .~ "renamed-generation"]) $ \m ->
           forM_ [ToolChoiceRequired, ToolChoiceSpecific "lookup"] $ \choice -> do
             sent <- newIORef False
             let never _ _ _ = writeIORef sent True
@@ -83,72 +87,39 @@ tests =
             assertBool "useful correction" (maybe False (T.isInfixOf "ToolChoiceAuto" . (.message)) (responseError response))
             readIORef sent >>= (@?= False),
       testCase "auto and none keep their exact wire meaning" $
-        forM_ [(ToolChoiceAuto, "auto"), (ToolChoiceNone, "none")] $ \(choice, expected) -> do
-          body <- newIORef Null
-          let capture call _ emit = writeIORef body (call ^. #requestBody) >> send finalTurn emit
-          _ <- streamingComplete (claudeMessagesStreamWith capture) model context (options & #toolChoice .~ Just choice)
-          raw <- readIORef body
-          (field "tool_choice" raw >>= field "type") @?= Just (String expected),
+        forM_ fableModels $ \selected ->
+          forM_ [(ToolChoiceAuto, "auto"), (ToolChoiceNone, "none")] $ \(choice, expected) -> do
+            body <- newIORef Null
+            let capture call _ emit = writeIORef body (call ^. #requestBody) >> send (textTurn selected ["done"]) emit
+            _ <- streamingComplete (claudeMessagesStreamWith capture) selected context (options & #toolChoice .~ Just choice)
+            raw <- readIORef body
+            (field "tool_choice" raw >>= field "type") @?= Just (String expected),
       testCase "supporting compatibility retains required and named choice" $
         forM_ [(ToolChoiceRequired, "any"), (ToolChoiceSpecific "lookup", "tool")] $ \(choice, expected) -> do
           let m = model & #modelId .~ "supporting-generation" & #compat .~ CompatAnthropicMessages (anthropicMessagesCompatFor model & #supportsForcedToolChoice .~ True)
           (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest m context (options & #toolChoice .~ Just choice))
           (field "tool_choice" (Aeson.toJSON req) >>= field "type") @?= Just (String expected),
       testCase "unset effort is no preference and small caps never create a manual budget" $
-        forM_ [Nothing, Just ThinkingMinimal, Just ThinkingLow, Just ThinkingMedium, Just ThinkingHigh, Just ThinkingXHigh, Just ThinkingMax] $ \level -> do
-          let opts = options & #thinking .~ level & #maxTokens .~ Just 1
-          (req, translation) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model context opts)
-          let raw = Aeson.toJSON req
-          field "max_tokens" raw @?= Just (Number 1)
-          translation @?= R.describeThinkingFor model opts
-          case level of
-            Nothing -> do
-              field "thinking" raw @?= Nothing
-              translation @?= noThinkingRequested
-            Just _ -> do
-              (field "thinking" raw >>= field "type") @?= Just (String "adaptive")
-              (field "thinking" raw >>= field "budget_tokens") @?= Nothing,
+        forM_ fableModels $ \selected ->
+          forM_ [Nothing, Just ThinkingMinimal, Just ThinkingLow, Just ThinkingMedium, Just ThinkingHigh, Just ThinkingXHigh, Just ThinkingMax] $ \level -> do
+            let opts = options & #thinking .~ level & #maxTokens .~ Just 1
+            (req, translation) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest selected context opts)
+            let raw = Aeson.toJSON req
+            field "max_tokens" raw @?= Just (Number 1)
+            translation @?= R.describeThinkingFor selected opts
+            case level of
+              Nothing -> do
+                field "thinking" raw @?= Nothing
+                (field "output_config" raw >>= field "effort") @?= Nothing
+                translation @?= noThinkingRequested
+              Just _ -> do
+                (field "thinking" raw >>= field "type") @?= Just (String "adaptive")
+                (field "thinking" raw >>= field "budget_tokens") @?= Nothing,
       testCase "legacy serialized compat defaults to supporting forced choice" $ do
         let raw = case Aeson.toJSON defaultAnthropicMessagesCompat of Object o -> Object (KM.delete "supportsForcedToolChoice" o); v -> v
         case Aeson.fromJSON raw of
           Aeson.Success c -> (c :: AnthropicMessagesCompat).supportsForcedToolChoice @?= True
           Aeson.Error err -> assertFailure err,
-      testCase "candidate HTTP two consecutive tool rounds preserve signed empty, visible and redacted thinking" $ do
-        requests <- newIORef ([] :: [Value])
-        executed <- newIORef ([] :: [Text])
-        let respond request reply = do
-              Wai.pathInfo request @?= ["v1", "messages"]
-              lookup "x-api-key" (Wai.requestHeaders request) @?= Just "fable-contract-key"
-              lookup "anthropic-version" (Wai.requestHeaders request) @?= Just "2023-06-01"
-              body <- Wai.strictRequestBody request >>= either fail pure . Aeson.eitherDecode
-              num <- atomicModifyIORef' requests (\previous -> (previous <> [body], length previous))
-              let frames = case num of 0 -> toolTurn "" "sig-one" "toolu_1" True; 1 -> toolTurn "visible summary" "sig-two" "toolu_2" False; _ -> finalTurn
-              reply (Wai.responseLBS status200 [("Content-Type", "text/event-stream"), ("request-id", "req_trial_tools")] (foldMap (\frame -> "data: " <> Aeson.encode frame <> "\n\n") frames))
-        (history, response) <- testWithApplication (pure respond) $ \port -> do
-          let liveModel = model & #baseUrl .~ ("http://127.0.0.1:" <> T.pack (show port))
-              liveOptions = summaryOptions & #apiKey .~ Just (ApiKeyLiteral "fable-contract-key")
-          reg <- newProviderRegistryFrom [claudeMessagesProvider]
-          runToolLoopWith reg 4 (\tc -> do xs <- readIORef executed; writeIORef executed (xs <> [tc.id_]); pure (toolResultText "found")) liveModel context liveOptions
-        response.message.content @?= V.singleton (AssistantText (TextContent "done"))
-        readIORef executed >>= (@?= ["toolu_1", "toolu_2"])
-        bodies <- readIORef requests
-        length bodies @?= 3
-        case bodies of
-          [first, second, third] -> do
-            let a = messages first; b = messages second; c = messages third
-            V.take (V.length a) b @?= a
-            V.take (V.length b) c @?= b
-            field "system" first @?= field "system" third
-            field "tools" first @?= field "tools" third
-            forM_ bodies $ \body -> (field "thinking" body >>= field "display") @?= Just (String "summarized")
-            contentAt 1 b @?= V.fromList [signed "" "sig-one", redactedItem, toolItem "toolu_1"]
-            contentAt 3 c @?= V.fromList [signed "visible summary" "sig-two", toolItem "toolu_2"]
-            field "tool_use_id" (contentAt 2 b V.! 0) @?= Just (String "toolu_1")
-            field "tool_use_id" (contentAt 4 c V.! 0) @?= Just (String "toolu_2")
-            persisted <- V.mapM persistThinking (history ^. #messages)
-            (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model (history & #messages .~ persisted) summaryOptions)
-            messages (Aeson.toJSON req) @?= c
-          _ -> assertFailure "expected three requests",
       testCase "error cleanup retains completed signed thinking for persistence" $ do
         let partial _ _ emit = send (take 4 (toolTurn "" "sig-one" "toolu_1" False)) emit >> emit (Left (providerError "interrupted"))
         response <- streamingComplete (claudeMessagesStreamWith partial) model context options
@@ -161,6 +132,88 @@ tests =
           _ -> assertFailure "signed state was discarded on error"
     ]
 
+structuredCompletion :: TestTree
+structuredCompletion = testCase "Fable 5.2 registered completion delivers the structured answer" $ do
+  requests <- newIORef ([] :: [Value])
+  let schema =
+        object
+          [ "type" .= String "object",
+            "properties" .= object ["answer" .= object ["type" .= String "string"]],
+            "required" .= [String "answer"],
+            "additionalProperties" .= False
+          ]
+      frames = textTurn anthropic_claude_fable_5_2 ["{\"answer\":", "\"pong\"}"]
+      app req respond = do
+        Wai.pathInfo req @?= ["v1", "messages"]
+        body <- Wai.strictRequestBody req >>= either fail pure . Aeson.eitherDecode
+        atomicModifyIORef' requests (\previous -> (previous <> [body], ()))
+        respond (Wai.responseLBS status200 [("Content-Type", "text/event-stream")] (foldMap (\frame -> "data: " <> Aeson.encode frame <> "\n\n") frames))
+  testWithApplication (pure app) $ \port -> do
+    registry <- newProviderRegistryFrom [claudeMessagesProvider]
+    let selected = anthropic_claude_fable_5_2 & #baseUrl .~ ("http://127.0.0.1:" <> T.pack (show port))
+        configured = summaryOptions & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "answer" schema))
+    response <- completeRequestWith registry selected (systemUser "Return JSON." "Give the answer pong.") configured
+    responseError response @?= Nothing
+    response.message.stopReason @?= Stop
+    fmap observedModel response.evidence @?= Just (Observed "claude-fable-5-2")
+    let decoded = Aeson.eitherDecodeStrict (TextEncoding.encodeUtf8 (flattenAssistantText (flattenAssistantBlocks response)))
+    decoded @?= Right (object ["answer" .= String "pong"])
+  readIORef requests >>= \case
+    [body] -> do
+      let output = field "output_config" body
+      (output >>= field "effort") @?= Just (String "low")
+      (output >>= field "format" >>= field "schema") @?= Just schema
+    _ -> assertFailure "expected exactly one structured completion request"
+
+signedReplayFixture :: Model -> TestTree
+signedReplayFixture selected = testCase (T.unpack selected.modelId) $ do
+  requests <- newIORef ([] :: [Value])
+  executed <- newIORef ([] :: [Text])
+  let respond request reply = do
+        Wai.pathInfo request @?= ["v1", "messages"]
+        lookup "x-api-key" (Wai.requestHeaders request) @?= Just "fable-contract-key"
+        lookup "anthropic-version" (Wai.requestHeaders request) @?= Just "2023-06-01"
+        body <- Wai.strictRequestBody request >>= either fail pure . Aeson.eitherDecode
+        num <- atomicModifyIORef' requests (\previous -> (previous <> [body], length previous))
+        let frames = case num of
+              0 -> toolTurnFor selected "" "sig-one" "toolu_1" True
+              1 -> toolTurnFor selected "visible summary" "sig-two" "toolu_2" False
+              _ -> textTurn selected ["done"]
+        reply (Wai.responseLBS status200 [("Content-Type", "text/event-stream"), ("request-id", "req_trial_tools")] (foldMap (\frame -> "data: " <> Aeson.encode frame <> "\n\n") frames))
+  (history, response) <- testWithApplication (pure respond) $ \port -> do
+    let liveModel = selected & #baseUrl .~ ("http://127.0.0.1:" <> T.pack (show port))
+        liveOptions = summaryOptions & #toolChoice .~ Just ToolChoiceAuto & #apiKey .~ Just (ApiKeyLiteral "fable-contract-key")
+    reg <- newProviderRegistryFrom [claudeMessagesProvider]
+    runToolLoopWith reg 4 (\tc -> do xs <- readIORef executed; writeIORef executed (xs <> [tc.id_]); pure (toolResultText "found")) liveModel context liveOptions
+  responseError response @?= Nothing
+  response.message.stopReason @?= Stop
+  fmap observedModel response.evidence @?= Just (Observed selected.modelId)
+  response.message.content @?= V.singleton (AssistantText (TextContent "done"))
+  readIORef executed >>= (@?= ["toolu_1", "toolu_2"])
+  bodies <- readIORef requests
+  length bodies @?= 3
+  case bodies of
+    [first, second, third] -> do
+      let a = messages first
+          b = messages second
+          c = messages third
+      V.take (V.length a) b @?= a
+      V.take (V.length b) c @?= b
+      forM_ bodies $ \body -> do
+        field "model" body @?= Just (String selected.modelId)
+        field "system" body @?= field "system" first
+        field "tools" body @?= field "tools" first
+        (field "thinking" body >>= field "display") @?= Just (String "summarized")
+        (field "tool_choice" body >>= field "type") @?= Just (String "auto")
+      contentAt 1 b @?= V.fromList [signed "" "sig-one", redactedItem, toolItem "toolu_1"]
+      contentAt 3 c @?= V.fromList [signed "visible summary" "sig-two", toolItem "toolu_2"]
+      field "tool_use_id" (contentAt 2 b V.! 0) @?= Just (String "toolu_1")
+      field "tool_use_id" (contentAt 4 c V.! 0) @?= Just (String "toolu_2")
+      persisted <- V.mapM persistThinking (history ^. #messages)
+      (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest selected (history & #messages .~ persisted) summaryOptions)
+      messages (Aeson.toJSON req) @?= c
+    _ -> assertFailure "expected three requests"
+
 prefillTests :: TestTree
 prefillTests =
   testGroup
@@ -172,7 +225,7 @@ prefillTests =
             opts = options & #apiKey .~ Just (ApiKeyEnvChain [])
             renamed = model & #modelId .~ "renamed-generation"
         registry <- newProviderRegistryFrom [claudeMessagesProvider & #stream .~ produce & #complete .~ streamingComplete produce]
-        let restricted = [(model, textTail), (renamed, textTail), (model, addMessage emptyAssistant textTail), (model, toolTail), (model, signedTail)]
+        let restricted = [(m, textTail) | m <- fableModels <> [renamed]] <> [(model, addMessage emptyAssistant textTail), (model, toolTail), (model, signedTail)]
             cases = [(m, ctx, opts) | (m, ctx) <- restricted] <> [(anthropic_claude_haiku_4_5, textTail, opts & #thinking .~ Just ThinkingLow)]
         forM_ cases $ \(selected, ctx, configured) -> do
           events <- Stream.toList (streamRequestWith registry selected ctx configured)
@@ -274,6 +327,9 @@ candidateCompleteAndStream = testCase "candidate HTTP complete and stream agree 
 model :: Model
 model = anthropic_claude_fable_5_1
 
+fableModels :: [Model]
+fableModels = [model, anthropic_claude_fable_5_2]
+
 -- | The one request plan 91 sends live to settle whether Haiku 5.5 accepts
 -- a forced tool choice alongside baikai's explicit adaptive thinking. The
 -- same JSON is saved as docs/validation/plan-91/forced-tool-choice-request.json.
@@ -309,7 +365,10 @@ send frames emit = forM_ frames $ \raw -> case C.decodeStreamEvent raw of
   Right (Right ev) -> emit (Right (C.eventPayload ev))
 
 start :: Value
-start = object ["type" .= ("message_start" :: Text), "message" .= object ["id" .= ("msg" :: Text), "type" .= ("message" :: Text), "role" .= ("assistant" :: Text), "model" .= ("claude-fable-5-1" :: Text), "content" .= ([] :: [Value]), "usage" .= object ["input_tokens" .= (5 :: Int), "output_tokens" .= (0 :: Int)]]]
+start = startFor model
+
+startFor :: Model -> Value
+startFor selected = object ["type" .= ("message_start" :: Text), "message" .= object ["id" .= ("msg" :: Text), "type" .= ("message" :: Text), "role" .= ("assistant" :: Text), "model" .= selected.modelId, "content" .= ([] :: [Value]), "usage" .= object ["input_tokens" .= (5 :: Int), "output_tokens" .= (0 :: Int)]]]
 
 block :: Int -> Value -> Value
 block n b = object ["type" .= ("content_block_start" :: Text), "index" .= n, "content_block" .= b]
@@ -330,8 +389,11 @@ toolItem :: Text -> Value
 toolItem ident = object ["type" .= ("tool_use" :: Text), "id" .= ident, "name" .= ("lookup" :: Text), "input" .= object []]
 
 toolTurn :: Text -> Text -> Text -> Bool -> [Value]
-toolTurn text sig ident redacted =
-  [start, block 0 (signed "" "")]
+toolTurn = toolTurnFor model
+
+toolTurnFor :: Model -> Text -> Text -> Text -> Bool -> [Value]
+toolTurnFor selected text sig ident redacted =
+  [startFor selected, block 0 (signed "" "")]
     <> (if T.null text then [] else [object ["type" .= ("content_block_delta" :: Text), "index" .= (0 :: Int), "delta" .= object ["type" .= ("thinking_delta" :: Text), "thinking" .= text]]])
     <> [object ["type" .= ("content_block_delta" :: Text), "index" .= (0 :: Int), "delta" .= object ["type" .= ("signature_delta" :: Text), "signature" .= sig]], stopBlock 0]
     <> (if redacted then [block 1 redactedItem, stopBlock 1] else [])
@@ -339,7 +401,14 @@ toolTurn text sig ident redacted =
     <> end "tool_use"
 
 finalTurn :: [Value]
-finalTurn = [start, block 0 (object ["type" .= ("text" :: Text), "text" .= ("" :: Text)]), object ["type" .= ("content_block_delta" :: Text), "index" .= (0 :: Int), "delta" .= object ["type" .= ("text_delta" :: Text), "text" .= ("done" :: Text)]], stopBlock 0] <> end "end_turn"
+finalTurn = textTurn model ["done"]
+
+textTurn :: Model -> [Text] -> [Value]
+textTurn selected deltas =
+  [startFor selected, block 0 (object ["type" .= String "text", "text" .= String ""])]
+    <> [object ["type" .= String "content_block_delta", "index" .= (0 :: Int), "delta" .= object ["type" .= String "text_delta", "text" .= delta]] | delta <- deltas]
+    <> [stopBlock 0]
+    <> end "end_turn"
 
 field :: Key -> Value -> Maybe Value
 field k (Object o) = KM.lookup k o

@@ -232,12 +232,12 @@ fastSpeedTests :: TestTree
 fastSpeedTests =
   testGroup
     "speed"
-    [ testCase "a fast-mode request on claude-opus-5 carries speed and the beta header" $ do
-        let m = Models.anthropic_claude_opus_5
-            opts = emptyOptions & #speed .~ Just SpeedFast
-        value <- shapedBody m emptyContext opts
-        lookupPath ["speed"] value @?= Just (String "fast")
-        lookup "anthropic-beta" (headers m opts) @?= Just "fast-mode-2026-02-01",
+    [ testCase "a fast-mode request on Opus 5 and Fable 5.2 carries speed and the beta header" $
+        forM_ [Models.anthropic_claude_opus_5, Models.anthropic_claude_fable_5_2] $ \m -> do
+          let opts = emptyOptions & #speed .~ Just SpeedFast
+          value <- shapedBody m emptyContext opts
+          lookupPath ["speed"] value @?= Just (String "fast")
+          lookup "anthropic-beta" (headers m opts) @?= Just "fast-mode-2026-02-01",
       testCase "a fast-mode request on claude-sonnet-5 omits speed and records the drop" $ do
         let m = Models.anthropic_claude_sonnet_5
             opts = emptyOptions & #speed .~ Just SpeedFast
