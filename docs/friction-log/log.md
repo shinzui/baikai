@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-21
+* **Addition**: FRIC-10 records detour tooling friction with mori://shinzui/baikai: Inherited OPENAI_KEY causes an offline embedding test to print its value
+
 ## 2026-11-14
 
 * **Addition**: FRIC-9 records blocked process friction with mori://shinzui/haskell-nix: Published patch adoption crosses retained runtime metadata

@@ -22,9 +22,11 @@ module CatalogSpec (tests) where
 
 import Baikai.Api (Api (AnthropicMessages, OpenAIResponses))
 import Baikai.Compat
-  ( AnthropicMessagesCompat,
+  ( AnthropicAssistantPrefillPolicy (..),
+    AnthropicMessagesCompat,
     AnthropicThinkingStyle (..),
     OpenAIResponsesCompat (supportedReasoningEfforts, supportsLongCacheRetention, supportsPromptCacheOptions, supportsSamplingParameters),
+    assistantPrefillPolicy,
     supportsFastMode,
     supportsForcedToolChoice,
     supportsSamplingParameters,
@@ -119,22 +121,22 @@ anthropicCatalogModels = [m | m <- allModels, api m == AnthropicMessages]
 -- | The shipped thinking style, sampling, forced-choice, fast-mode and
 -- disabled-thinking support of each Anthropic catalog id, written out by
 -- hand from @baikai\/data\/models\/anthropic.json@.
-expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool, Bool, Bool, Bool))]
+expectedAnthropicFacts :: [(Text, (AnthropicThinkingStyle, Bool, Bool, Bool, Bool, Maybe AnthropicAssistantPrefillPolicy))]
 expectedAnthropicFacts =
-  [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True, False, False)),
-    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False, False, False)),
-    ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True, False, True)),
-    ("claude-haiku-5-5", (AnthropicThinkingAdaptive, False, True, False, True)),
-    ("claude-opus-4-5", (AnthropicThinkingBudget, True, True, False, True)),
-    ("claude-opus-4-6", (AnthropicThinkingAdaptive, True, True, False, True)),
-    ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True, False, True)),
-    ("claude-opus-4-8", (AnthropicThinkingAdaptive, False, True, True, True)),
-    ("claude-opus-5", (AnthropicThinkingAdaptive, False, True, True, True)),
-    ("claude-opus-5-5", (AnthropicThinkingAdaptive, False, False, True, False)),
-    ("claude-sonnet-4-5", (AnthropicThinkingBudget, True, True, False, True)),
-    ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True, True, False, True)),
-    ("claude-sonnet-5", (AnthropicThinkingAdaptive, False, True, False, True)),
-    ("claude-sonnet-5-5", (AnthropicThinkingAdaptive, False, False, False, False))
+  [ ("claude-fable-5", (AnthropicThinkingAdaptive, False, True, False, False, Just AnthropicPrefillUnsupported)),
+    ("claude-fable-5-1", (AnthropicThinkingAdaptive, False, False, False, False, Just AnthropicPrefillUnsupported)),
+    ("claude-haiku-4-5", (AnthropicThinkingBudget, True, True, False, True, Just AnthropicPrefillRequiresThinkingOff)),
+    ("claude-haiku-5-5", (AnthropicThinkingAdaptive, False, True, False, True, Just AnthropicPrefillUnsupported)),
+    ("claude-opus-4-5", (AnthropicThinkingBudget, True, True, False, True, Just AnthropicPrefillRequiresThinkingOff)),
+    ("claude-opus-4-6", (AnthropicThinkingAdaptive, True, True, False, True, Just AnthropicPrefillUnsupported)),
+    ("claude-opus-4-7", (AnthropicThinkingAdaptive, False, True, False, True, Just AnthropicPrefillUnsupported)),
+    ("claude-opus-4-8", (AnthropicThinkingAdaptive, False, True, True, True, Just AnthropicPrefillUnsupported)),
+    ("claude-opus-5", (AnthropicThinkingAdaptive, False, True, True, True, Just AnthropicPrefillUnsupported)),
+    ("claude-opus-5-5", (AnthropicThinkingAdaptive, False, False, True, False, Just AnthropicPrefillUnsupported)),
+    ("claude-sonnet-4-5", (AnthropicThinkingBudget, True, True, False, True, Just AnthropicPrefillRequiresThinkingOff)),
+    ("claude-sonnet-4-6", (AnthropicThinkingAdaptive, True, True, False, True, Just AnthropicPrefillUnsupported)),
+    ("claude-sonnet-5", (AnthropicThinkingAdaptive, False, True, False, True, Just AnthropicPrefillUnsupported)),
+    ("claude-sonnet-5-5", (AnthropicThinkingAdaptive, False, False, False, False, Just AnthropicPrefillUnsupported))
   ]
 
 assertFacts :: Model -> IO ()
@@ -152,5 +154,5 @@ assertFacts m = case compat m of
           <> show other
       )
   where
-    facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool, Bool, Bool, Bool)
-    facts c = (thinkingStyle c, c.supportsSamplingParameters, c.supportsForcedToolChoice, c.supportsFastMode, c.supportsThinkingDisabled)
+    facts :: AnthropicMessagesCompat -> (AnthropicThinkingStyle, Bool, Bool, Bool, Bool, Maybe AnthropicAssistantPrefillPolicy)
+    facts c = (thinkingStyle c, c.supportsSamplingParameters, c.supportsForcedToolChoice, c.supportsFastMode, c.supportsThinkingDisabled, c.assistantPrefillPolicy)

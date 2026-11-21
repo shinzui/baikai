@@ -65,7 +65,7 @@ module FetchModelsCore
   )
 where
 
-import Baikai.Compat (AnthropicThinkingStyle (..), NativeCachePolicy (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
+import Baikai.Compat (AnthropicAssistantPrefillPolicy (..), AnthropicThinkingStyle (..), NativeCachePolicy (..), OpenAICompletionsCompat (..), OpenAIResponsesCompat (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified as Model
 import Baikai.Prelude
@@ -193,12 +193,8 @@ data CatalogCost = CatalogCost
   }
   deriving stock (Eq, Show, Generic)
 
--- | The two request-shaping facts every curated Anthropic model must
--- state before it can enter the catalog. Which extended-thinking wire
--- shape a generation accepts, and whether it accepts the sampling
--- parameters @temperature@, @top_p@ and @top_k@, are facts about the
--- generation that no amount of inspecting the model id or the base URL
--- can recover; they are curated here and travel through the catalog
+-- | Request-shaping facts every curated Anthropic model must state.
+-- They travel through the catalog
 -- JSON into the generated 'Baikai.Compat.AnthropicMessagesCompat'.
 data AnthropicGenerationFacts = AnthropicGenerationFacts
   { thinkingStyle :: !AnthropicThinkingStyle,
@@ -206,6 +202,7 @@ data AnthropicGenerationFacts = AnthropicGenerationFacts
     supportsForcedToolChoice :: !Bool,
     -- | Whether the generation accepts @thinking: {"type": "disabled"}@.
     supportsThinkingDisabled :: !Bool,
+    assistantPrefillPolicy :: !AnthropicAssistantPrefillPolicy,
     fastModeCost :: !(Maybe CatalogCost)
   }
   deriving stock (Eq, Show, Generic)
@@ -454,9 +451,11 @@ anthropicInclude =
     -- 2026-09-07: Opus 5 and 4.8 only; cache multipliers stack on fast rates.
     -- https://platform.claude.com/docs/en/build-with-claude/fast-mode
     fastAdaptive = adaptiveNoSampling & #fastModeCost ?~ CatalogCost 10 50 1 12.5
-    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True True Nothing
-    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True True Nothing
-    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True True Nothing
+    adaptiveNoSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive False True True AnthropicPrefillUnsupported Nothing
+    adaptiveWithSampling = AnthropicGenerationFacts AnthropicThinkingAdaptive True True True AnthropicPrefillUnsupported Nothing
+    -- https://platform.claude.com/docs/en/api/errors#prefill-not-supported
+    -- https://platform.claude.com/docs/en/build-with-claude/thinking#response-prefill-and-forced-tool-use
+    budgetWithSampling = AnthropicGenerationFacts AnthropicThinkingBudget True True True AnthropicPrefillRequiresThinkingOff Nothing
 
 -- | OpenAI curation with a Chat default and explicit Responses overrides.
 openaiSpec :: ProviderSpec
@@ -806,7 +805,8 @@ renderModelCompat (Just (CatalogAnthropicCompat facts)) =
       <> ",",
     "        \"supportsFastMode\": " <> jsonBool (maybe False (const True) (facts ^. #fastModeCost)) <> ",",
     "        \"supportsForcedToolChoice\": " <> jsonBool (facts ^. #supportsForcedToolChoice) <> ",",
-    "        \"supportsThinkingDisabled\": " <> jsonBool (facts ^. #supportsThinkingDisabled),
+    "        \"supportsThinkingDisabled\": " <> jsonBool (facts ^. #supportsThinkingDisabled) <> ",",
+    "        \"assistantPrefillPolicy\": " <> jsonString (renderPrefillPolicy (facts ^. #assistantPrefillPolicy)),
     "      },"
   ]
 renderModelCompat (Just (CatalogOpenAICompat facts)) =
@@ -835,6 +835,11 @@ renderModelCompat (Just (CatalogResponsesCompat facts)) =
 -- other catalog enum does. The derived JSON instance on
 -- 'Baikai.Compat.AnthropicThinkingStyle' is part of 'Baikai.Model.Model'\'s
 -- pinned round trip and is deliberately not reused here.
+renderPrefillPolicy :: AnthropicAssistantPrefillPolicy -> Text
+renderPrefillPolicy = \case
+  AnthropicPrefillUnsupported -> "unsupported"
+  AnthropicPrefillRequiresThinkingOff -> "requires-thinking-off"
+
 renderThinkingStyle :: AnthropicThinkingStyle -> Text
 renderThinkingStyle AnthropicThinkingBudget = "budget"
 renderThinkingStyle AnthropicThinkingAdaptive = "adaptive"

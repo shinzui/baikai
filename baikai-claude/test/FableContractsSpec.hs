@@ -4,10 +4,10 @@
 module FableContractsSpec (tests) where
 
 import Baikai hiding (messages, model)
-import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_4_6, anthropic_claude_sonnet_5_5)
+import Baikai.Models.Generated (anthropic_claude_fable_5_1, anthropic_claude_haiku_4_5, anthropic_claude_haiku_5_5, anthropic_claude_opus_5_5, anthropic_claude_sonnet_4_6, anthropic_claude_sonnet_5_5)
 import Baikai.Provider.Claude.Api (claudeMessagesProvider, claudeMessagesStream)
 import Baikai.Provider.Claude.Internal.Request qualified as R
-import Baikai.Provider.Claude.Internal.Stream (SseDriver, claudeMessagesStreamWith)
+import Baikai.Provider.Claude.Internal.Stream (claudeMessagesStreamWith)
 import Claude.Streaming qualified as C
 import Contract (assertErrorContract)
 import Control.Lens ((&), (.~), (^.))
@@ -34,6 +34,7 @@ tests =
   testGroup
     "Fable contracts"
     [ summaryTests,
+      prefillTests,
       legacySamplingVersion,
       candidateCompleteAndStream,
       testCase "Opus 5.5 and Sonnet 5.5 reject forced tools and replay signed empty thinking" $
@@ -159,6 +160,67 @@ tests =
             t.replayState @?= Nothing
           _ -> assertFailure "signed state was discarded on error"
     ]
+
+prefillTests :: TestTree
+prefillTests =
+  testGroup
+    "assistant prefills"
+    [ testCase "restricted tails fail before credentials or the driver via registered stream and completion" $ do
+        sent <- newIORef (0 :: Int)
+        let never _ _ _ = atomicModifyIORef' sent (\n -> (n + 1, ()))
+            produce = claudeMessagesStreamWith never
+            opts = options & #apiKey .~ Just (ApiKeyEnvChain [])
+            renamed = model & #modelId .~ "renamed-generation"
+        registry <- newProviderRegistryFrom [claudeMessagesProvider & #stream .~ produce & #complete .~ streamingComplete produce]
+        let restricted = [(model, textTail), (renamed, textTail), (model, addMessage emptyAssistant textTail), (model, toolTail), (model, signedTail)]
+            cases = [(m, ctx, opts) | (m, ctx) <- restricted] <> [(anthropic_claude_haiku_4_5, textTail, opts & #thinking .~ Just ThinkingLow)]
+        forM_ cases $ \(selected, ctx, configured) -> do
+          events <- Stream.toList (streamRequestWith registry selected ctx configured)
+          assertErrorContract events
+          streamed <- streamingComplete (\_ _ _ -> Stream.fromList events) selected ctx configured
+          completed <- completeRequestWith registry selected ctx configured
+          forM_ [streamed, completed] $ \response -> do
+            fmap (.category) (responseError response) @?= Just InvalidRequest
+            assertBool "names the prefill and corrections" $
+              maybe False (\err -> all (\hint -> hint `T.isInfixOf` err.message) ["assistant prefill", "user turn", "system prompt", "matching tool result"]) (responseError response)
+        readIORef sent >>= (@?= 0),
+      testCase "only the final mapped role matters" $ do
+        afterTool <- appendToolResult context toolResponse (\_ -> pure (toolResultText "found"))
+        forM_ [(addMessage emptyAssistant context, ["user"]), (addUser "Continue" textTail, ["user", "assistant", "user"]), (afterTool, ["user", "assistant", "user"])] $ \(ctx, expected) -> do
+          raw <- mapped model ctx options
+          V.toList (V.map (field "role") (messages raw)) @?= map (Just . String) expected,
+      testCase "4.5 prefills are allowed with omitted, disabled or dropped thinking" $ do
+        let haiku = anthropic_claude_haiku_4_5
+            check selected opts thinking = do
+              raw <- mapped selected textTail opts
+              (field "thinking" raw >>= field "type") @?= thinking
+              (messages raw V.!? 1 >>= field "role") @?= Just (String "assistant")
+        check haiku options Nothing
+        check haiku (options & #thinking .~ Just ThinkingNone) (Just (String "disabled"))
+        check (haiku & #maxOutputTokens .~ 1024) (options & #maxTokens .~ Just 1024 & #thinking .~ Just ThinkingLow) Nothing,
+      testCase "legacy serialized compat and auto detection preserve prefill pass-through" $ do
+        let raw = case Aeson.toJSON defaultAnthropicMessagesCompat of
+              Object o -> Object (KM.delete "assistantPrefillPolicy" o)
+              value -> value
+        case Aeson.fromJSON raw of
+          Aeson.Error err -> assertFailure err
+          Aeson.Success compat -> do
+            compat.assistantPrefillPolicy @?= Nothing
+            forM_ [CompatAnthropicMessages compat, CompatNone] $ \compatSetting -> do
+              body <- mapped (model & #compat .~ compatSetting) textTail options
+              (messages body V.!? 1 >>= field "role") @?= Just (String "assistant")
+    ]
+  where
+    emptyAssistant = assistant ""
+    textTail = addMessage (assistant "The answer is") context
+    signedTail = addMessage (AssistantMessage (emptyResponse.message & #content .~ V.singleton signedBlock)) context
+    signedBlock = AssistantThinking (emptyThinkingContent & #signature .~ Just "sig-one")
+    toolResponse =
+      emptyResponse
+        & #message . #content .~ V.singleton (AssistantToolCall (ToolCall "toolu_1" "lookup" (object [])))
+        & #message . #stopReason .~ ToolUse
+    toolTail = addMessage (AssistantMessage toolResponse.message) context
+    mapped selected ctx opts = either (\err -> assertFailure (T.unpack err) >> fail "mapRequest") (pure . Aeson.toJSON . fst) (R.mapRequest selected ctx opts)
 
 legacySamplingVersion :: TestTree
 legacySamplingVersion = testCase "the explicit current API version rejects sampling before dispatch" $ do
@@ -329,7 +391,8 @@ summaryTests =
           let actual = [t | AssistantThinking t <- V.toList (response ^. #message . #content)]
           length actual @?= length blocks
           -- Encrypted payloads and signed empty blocks remain usable history.
-          (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model (emptyContext & #messages .~ V.singleton (AssistantMessage (response ^. #message))) summaryOptions)
+          let history = addUser "Continue" (contextOf [AssistantMessage (response ^. #message)])
+          (req, _) <- either (\e -> assertFailure (T.unpack e) >> fail "map") pure (R.mapRequest model history summaryOptions)
           contentAt 0 (messages (Aeson.toJSON req)) @?= V.fromList blocks,
       testCase "one visible block among empty and redacted blocks is a readable summary" $ do
         response <- completeFrames (blocksTurn [signed "" "empty", redactedItem, signed "visible" "visible-signature"]) summaryOptions

@@ -6,7 +6,7 @@
 -- models.dev-shaped fixture. No network is involved.
 module FetchModelsSpec (tests) where
 
-import Baikai.Compat (AnthropicThinkingStyle (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
+import Baikai.Compat (AnthropicAssistantPrefillPolicy (..), AnthropicThinkingStyle (..), defaultOpenAICompletionsCompat, defaultOpenAIResponsesCompat)
 import Baikai.Compat qualified as C
 import Baikai.Model (InputModality (..))
 import Baikai.Model qualified
@@ -120,6 +120,7 @@ expectedAnthropic =
                             supportsSamplingParameters = True,
                             supportsForcedToolChoice = True,
                             supportsThinkingDisabled = True,
+                            assistantPrefillPolicy = AnthropicPrefillRequiresThinkingOff,
                             fastModeCost = Nothing
                           }
                       )
@@ -312,7 +313,8 @@ tests =
                 "        \"supportsSamplingParameters\": true,",
                 "        \"supportsFastMode\": false,",
                 "        \"supportsForcedToolChoice\": true,",
-                "        \"supportsThinkingDisabled\": true",
+                "        \"supportsThinkingDisabled\": true,",
+                "        \"assistantPrefillPolicy\": \"requires-thinking-off\"",
                 "      },"
               ]
               `Text.isInfixOf` rendered

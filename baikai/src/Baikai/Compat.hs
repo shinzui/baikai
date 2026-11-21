@@ -60,8 +60,10 @@ module Baikai.Compat
         supportsFastMode,
         supportsForcedToolChoice,
         supportsThinkingDisabled,
-        supportsSamplingParameters
+        supportsSamplingParameters,
+        assistantPrefillPolicy
       ),
+    AnthropicAssistantPrefillPolicy (..),
     AnthropicThinkingStyle (..),
     defaultAnthropicMessagesCompat,
 
@@ -292,7 +294,14 @@ instance FromJSON OpenAIResponsesCompat where
       <*> o .:? "systemPromptInInput" .!= False
       <*> o .:? "nativeCachePolicy"
 
--- | Feature flags for one Anthropic Messages-compatible host.
+-- | When Messages rejects a request ending with an assistant turn.
+data AnthropicAssistantPrefillPolicy
+  = AnthropicPrefillUnsupported
+  | AnthropicPrefillRequiresThinkingOff
+  deriving stock (Eq, Show, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- | Feature flags for one Anthropic Messages-compatible model or host.
 data AnthropicMessagesCompat = AnthropicMessagesCompat
   { -- | Whether the host honours Anthropic's
     --   @cache_control.ttl: "1h"@ long-retention marker. When 'False',
@@ -341,7 +350,9 @@ data AnthropicMessagesCompat = AnthropicMessagesCompat
     -- records say so; there @none@ clamps to the lowest adaptive effort
     -- and the clamp is recorded. Consumed by
     -- @Baikai.Provider.Claude.Internal.Request.computeThinking@.
-    supportsThinkingDisabled :: !Bool
+    supportsThinkingDisabled :: !Bool,
+    -- | A missing policy preserves pass-through for unannotated models.
+    assistantPrefillPolicy :: !(Maybe AnthropicAssistantPrefillPolicy)
   }
   deriving stock (Eq, Show, Generic)
   deriving anyclass (ToJSON)
@@ -357,7 +368,8 @@ defaultAnthropicMessagesCompat =
       supportsSamplingParameters = True,
       supportsFastMode = False,
       supportsForcedToolChoice = True,
-      supportsThinkingDisabled = False
+      supportsThinkingDisabled = False,
+      assistantPrefillPolicy = Nothing
     }
 
 -- | Older persisted models predate the fast-mode, forced-choice and
@@ -373,6 +385,7 @@ instance FromJSON AnthropicMessagesCompat where
       <*> o .:? "supportsFastMode" .!= False
       <*> o .:? "supportsForcedToolChoice" .!= True
       <*> o .:? "supportsThinkingDisabled" .!= False
+      <*> o .:? "assistantPrefillPolicy"
 
 -- | Pick a sensible compat record for an unknown OpenAI-compatible
 -- host based on its @baseUrl@. Falls back to

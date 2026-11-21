@@ -9,6 +9,7 @@ okf_version: "0.2"
 # Friction Entry
 
 - [Claude cancellation fixture races fixed startup delay under build load](1-claude-cancellation-fixture-races-fixed-startup-delay-under-build-load.md) - The existing Claude lifecycle cancellation fixture failed twice during parallel suite builds and passed when its suite ran serially.
+- [Inherited OPENAI_KEY causes an offline embedding test to print its value](10-inherited-openai-key-causes-an-offline-embedding-test-to-print-its-value.md) - The core offline gate needs a clean OpenAI environment because the embedding assertion can render the inherited credential on failure.
 - [Capability strict validation encounters pre-existing missing review metadata](2-capability-strict-validation-encounters-pre-existing-missing-review-metadata.md) - Strict capability-bundle validation reports missing recommended reviews on older records unrelated to TypeSafe.
 - [OpenAI cache verification exhausted account quota](3-openai-cache-verification-exhausted-account-quota.md) - OpenAI rejected the bounded 12h endpoint probe before cache behavior could be observed.
 - [Isolated capability validation loses required concept context](4-isolated-capability-validation-loses-required-concept-context.md) - The plan-recommended isolated strict capability check cannot resolve CAP-32 requirements or body links without the rest of the bundle.

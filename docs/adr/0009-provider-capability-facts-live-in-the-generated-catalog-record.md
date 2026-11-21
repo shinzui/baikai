@@ -220,3 +220,14 @@ A funded 2026-10-25 probe and shared-prefix pair establish Luna Responses `12h`;
 that binding enables Long with its base and tier rates. GPT-5.6 Chat returned
 HTTP 400 for `12h` and stays Short-only. Evidence for one binding never grants
 Long to another model or endpoint.
+
+## Anthropic assistant prefills (2026-11-20)
+
+`assistantPrefillPolicy` records whether a Messages binding rejects a final
+assistant turn unconditionally or only when thinking is enabled. An omitted
+policy preserves pass-through for persisted and caller-built records.
+Apply the policy to the last mapped role after dropping empty assistant
+artifacts. Use the effective thinking field after applying output caps.
+Earlier assistant history can still be replayed. Appending a matching tool
+result produces the user turn needed to continue after a tool call.
+[Claude API errors](https://platform.claude.com/docs/en/api/errors#prefill-not-supported)

@@ -42,6 +42,11 @@ provenance:
       at: 2026-11-21T04:16:30Z
       mode: "update"
       note: "Require real follow-up body equality for signed tool turns, decode a public structured completion, and document model rollback."
+    - model: "gpt-6.2-sol"
+      harness: "codex-cli"
+      at: 2026-11-21T04:21:34Z
+      mode: "implement"
+      note: "Implement and verify catalog prefill policy, Fable 5.2 support and signed tool replay."
 ---
 
 # Guard unsupported assistant prefills on Claude Messages and enable Fable 5.2
@@ -64,9 +69,11 @@ at the very end of the request for the model to complete.
 
 ## Progress
 
-- [ ] Carry a catalog-owned prefill capability to the Messages request gate
-  and prove affected requests fail locally. Preserve prefill on models with
-  documented support and preserve ordinary assistant turns in history.
+- [x] On 2026-11-20, carried the catalog prefill policy through all 14 existing
+  bindings and proved restricted requests fail before credentials and transport.
+  Supported prefills and ordinary history still mapped successfully. The
+  refreshed catalog matched exactly. The core and Claude suites passed
+  858 and 479 tests, respectively.
 - [ ] Curate Fable 5.2 with explicit thinking, forced-tool, fast mode and
   pricing facts. Verify a caller receives the schema-conforming answer through
   registered completion. Validate streamed terminal handling, signed tool replay,
@@ -112,7 +119,7 @@ request shaping. The request and accounting work here can reuse those paths.
 
 ## Outcomes & Retrospective
 
-The model audit is complete. The request guard and catalog entry remain open.
+The prefill guard is complete. Fable 5.2 catalog and live acceptance remain open.
 
 
 ## Context and Orientation
@@ -297,7 +304,7 @@ first two test suites exercise milestone 1. Run all four before live calls.
 
 ```bash
 cabal run baikai-gen-models
-cabal test baikai:baikai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
+env -u OPENAI_KEY -u OPENAI_API_KEY TASTY_NUM_THREADS=1 cabal test baikai:baikai-test baikai-claude:baikai-claude-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
 git diff --check
 direnv exec . cabal test baikai-smoke:baikai-smoke --test-show-details=direct --test-options='--new-models --require-keys --case fable52-text'
 direnv exec . cabal test baikai-smoke:baikai-smoke --test-show-details=direct --test-options='--new-models --require-keys --case fable52-tools'

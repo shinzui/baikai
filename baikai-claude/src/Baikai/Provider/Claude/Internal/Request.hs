@@ -20,7 +20,7 @@ module Baikai.Provider.Claude.Internal.Request
 where
 
 import Baikai.CacheRetention (CacheRetention (..))
-import Baikai.Compat (AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
+import Baikai.Compat (AnthropicAssistantPrefillPolicy (..), AnthropicMessagesCompat (..), AnthropicThinkingStyle (..))
 import Baikai.Content qualified as Content
 import Baikai.Context (Context (..))
 import Baikai.Context qualified as Context
@@ -48,6 +48,7 @@ import Data.ByteString.Base16 qualified as Base16
 import Data.ByteString.Base64 qualified as Base64
 import Data.Char (isAlphaNum, isAscii)
 import Data.Generics.Labels ()
+import Data.List (unsnoc)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (catMaybes, fromMaybe)
@@ -122,6 +123,11 @@ mapRequest m ctx opts = do
           { Messages.temperature = sampling ^. #temperature,
             Messages.topP = sampling ^. #topP
           }
+  case unsnoc msgs of
+    Just (_, Messages.Message Messages.Assistant _)
+      | rejectsAssistantPrefill compat.assistantPrefillPolicy (field plan) ->
+          Left "This model with the effective thinking settings cannot end a request with an assistant prefill. End with a user turn or move the instruction to the system prompt. After a tool call, append the matching tool result."
+    _ -> pure ()
   let limit = fromMaybe Messages.cacheOnly (Messages.maxTokens maxTokensField_)
   pure
     ( Messages.withRequestControls controls (Messages.MessageRequest conversation limit (opts ^. #stopSequences)),
@@ -130,6 +136,15 @@ mapRequest m ctx opts = do
 
 unsupportedForcedChoice :: Either Text ()
 unsupportedForcedChoice = Left "This model does not support forced tool choice; use ToolChoiceAuto or ToolChoiceNone"
+
+rejectsAssistantPrefill :: Maybe AnthropicAssistantPrefillPolicy -> Maybe Messages.Thinking -> Bool
+rejectsAssistantPrefill Nothing _ = False
+rejectsAssistantPrefill (Just AnthropicPrefillUnsupported) _ = True
+rejectsAssistantPrefill (Just AnthropicPrefillRequiresThinkingOff) thinking =
+  case thinking of
+    Nothing -> False
+    Just Messages.ThinkingDisabled -> False
+    Just _ -> True
 
 -- | The sampling parameters that will reach the wire, after the compat
 -- record's gate. 'Nothing' means the field is omitted — the SDK encodes

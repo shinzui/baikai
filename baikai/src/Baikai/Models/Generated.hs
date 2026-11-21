@@ -8,8 +8,10 @@ module Baikai.Models.Generated where
 
 import Baikai.Api (Api (..))
 import Baikai.Compat
-  ( AnthropicMessagesCompat
-      ( sendSessionAffinityHeaders,
+  ( AnthropicAssistantPrefillPolicy (..),
+    AnthropicMessagesCompat
+      ( assistantPrefillPolicy,
+        sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
         supportsFastMode,
         supportsForcedToolChoice,
@@ -103,7 +105,8 @@ anthropic_claude_fable_5 =
               supportsSamplingParameters = False,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = False
+              supportsThinkingDisabled = False,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -140,7 +143,8 @@ anthropic_claude_fable_5_1 =
               supportsSamplingParameters = False,
               supportsFastMode = False,
               supportsForcedToolChoice = False,
-              supportsThinkingDisabled = False
+              supportsThinkingDisabled = False,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -177,7 +181,8 @@ anthropic_claude_haiku_4_5 =
               supportsSamplingParameters = True,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillRequiresThinkingOff
             }
     }
 
@@ -214,7 +219,8 @@ anthropic_claude_haiku_5_5 =
               supportsSamplingParameters = False,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -251,7 +257,8 @@ anthropic_claude_opus_4_5 =
               supportsSamplingParameters = True,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillRequiresThinkingOff
             }
     }
 
@@ -288,7 +295,8 @@ anthropic_claude_opus_4_6 =
               supportsSamplingParameters = True,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -325,7 +333,8 @@ anthropic_claude_opus_4_7 =
               supportsSamplingParameters = False,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -370,7 +379,8 @@ anthropic_claude_opus_4_8 =
               supportsSamplingParameters = False,
               supportsFastMode = True,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -415,7 +425,8 @@ anthropic_claude_opus_5 =
               supportsSamplingParameters = False,
               supportsFastMode = True,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -460,7 +471,8 @@ anthropic_claude_opus_5_5 =
               supportsSamplingParameters = False,
               supportsFastMode = True,
               supportsForcedToolChoice = False,
-              supportsThinkingDisabled = False
+              supportsThinkingDisabled = False,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -497,7 +509,8 @@ anthropic_claude_sonnet_4_5 =
               supportsSamplingParameters = True,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillRequiresThinkingOff
             }
     }
 
@@ -534,7 +547,8 @@ anthropic_claude_sonnet_4_6 =
               supportsSamplingParameters = True,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -571,7 +585,8 @@ anthropic_claude_sonnet_5 =
               supportsSamplingParameters = False,
               supportsFastMode = False,
               supportsForcedToolChoice = True,
-              supportsThinkingDisabled = True
+              supportsThinkingDisabled = True,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 
@@ -608,7 +623,8 @@ anthropic_claude_sonnet_5_5 =
               supportsSamplingParameters = False,
               supportsFastMode = False,
               supportsForcedToolChoice = False,
-              supportsThinkingDisabled = False
+              supportsThinkingDisabled = False,
+              assistantPrefillPolicy = Just AnthropicPrefillUnsupported
             }
     }
 

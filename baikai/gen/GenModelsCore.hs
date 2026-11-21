@@ -24,8 +24,10 @@ where
 
 import Baikai.Api (Api (..), parseApi)
 import Baikai.Compat
-  ( AnthropicMessagesCompat
-      ( sendSessionAffinityHeaders,
+  ( AnthropicAssistantPrefillPolicy (..),
+    AnthropicMessagesCompat
+      ( assistantPrefillPolicy,
+        sendSessionAffinityHeaders,
         supportsCacheControlOnTools,
         supportsFastMode,
         supportsForcedToolChoice,
@@ -177,6 +179,7 @@ parseAnthropicCompat o = do
   fast <- o .:? "supportsFastMode" .!= False
   forced <- o .:? "supportsForcedToolChoice" .!= d.supportsForcedToolChoice
   disabled <- o .:? "supportsThinkingDisabled" .!= d.supportsThinkingDisabled
+  prefill <- traverse parsePrefillPolicy =<< o .:? "assistantPrefillPolicy"
   pure
     d
       { supportsLongCacheRetention = slcr,
@@ -186,8 +189,15 @@ parseAnthropicCompat o = do
         supportsSamplingParameters = ssp,
         supportsFastMode = fast,
         supportsForcedToolChoice = forced,
-        supportsThinkingDisabled = disabled
+        supportsThinkingDisabled = disabled,
+        assistantPrefillPolicy = prefill
       }
+
+parsePrefillPolicy :: Text -> Parser AnthropicAssistantPrefillPolicy
+parsePrefillPolicy = \case
+  "unsupported" -> pure AnthropicPrefillUnsupported
+  "requires-thinking-off" -> pure AnthropicPrefillRequiresThinkingOff
+  other -> fail ("unknown assistantPrefillPolicy: " <> Text.unpack other)
 
 -- | The catalog dialect spells the extended-thinking wire shape as a
 -- word, as every other catalog enum does, rather than through the
@@ -498,8 +508,10 @@ renderModule entries =
         "",
         "import Baikai.Api (Api (..))",
         "import Baikai.Compat",
-        "  ( AnthropicMessagesCompat",
-        "      ( sendSessionAffinityHeaders,",
+        "  ( AnthropicAssistantPrefillPolicy (..),",
+        "    AnthropicMessagesCompat",
+        "      ( assistantPrefillPolicy,",
+        "        sendSessionAffinityHeaders,",
         "        supportsCacheControlOnTools,",
         "        supportsFastMode,",
         "        supportsForcedToolChoice,",
@@ -709,9 +721,10 @@ renderCompat = \case
       "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
       "              supportsFastMode = " <> renderBool c.supportsFastMode <> ",",
       "              supportsForcedToolChoice = " <> renderBool c.supportsForcedToolChoice <> ",",
-      "              supportsThinkingDisabled = " <> renderBool c.supportsThinkingDisabled,
-      "            }"
+      "              supportsThinkingDisabled = " <> renderBool c.supportsThinkingDisabled <> maybe "" (const ",") c.assistantPrefillPolicy
     ]
+      <> maybe [] (\policy -> ["              assistantPrefillPolicy = Just " <> Text.pack (show policy)]) c.assistantPrefillPolicy
+      <> ["            }"]
 
 renderMaxTokensField :: MaxTokensField -> Text
 renderMaxTokensField = \case
