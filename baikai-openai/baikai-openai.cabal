@@ -123,6 +123,7 @@ test-suite baikai-openai-test
     ReasoningSpec
     ResponsesAssemblerSpec
     ResponsesEvidenceSpec
+    ResponsesReplayProbe
     ResponsesSpec
     ResponsesStreamSpec
     ResponsesTransportSpec

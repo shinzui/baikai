@@ -16,6 +16,11 @@ provenance:
       at: 2026-11-21T03:45:23Z
       mode: "update"
       note: "Specify the replay experiment, persisted wire checks, structured output and exact smoke selection."
+    - model: "gpt-6.2-sol"
+      harness: "codex-cli"
+      at: 2026-11-21T03:53:57Z
+      mode: "implement"
+      note: "Measure live reasoning removal, preserve Responses output items and enable verified catalog bindings."
   reviews:
     - model: "gpt-6.2-astra"
       harness: "codex-cli"
@@ -43,9 +48,10 @@ needs to continue reasoning and reuse the prefix.
 
 ## Progress
 
-- [ ] Confirm stateless replay against both GPT-6.2 models with a bounded
-  function-tool conversation. Compare Baikai's replay with original output items and record the provider's
-  reasoning-removal report for each model.
+- [x] On 2026-11-20, confirmed the replay defect for both GPT-6.2 models.
+  Each projected third request lost one reasoning item with `prefix_mismatch`.
+  Both original-item branches retained all submitted reasoning.
+  See [baseline results](../validation/plan-104/baseline.md).
 - [ ] Preserve the system prefix and required output item identities through
   the registered Responses adapter. Pass offline request, replay, terminal,
   evidence, storage and legacy catalog checks.
@@ -71,6 +77,14 @@ under the prefix checks needs a live check. The migration guide does not specify
 an HTTP failure for this projection.
 
 
+The live probe needed a reasoning-intensive synthetic prompt. Both models
+first emitted only a message and a call at medium effort. At high effort
+they emitted reasoning in each tool round. On the third request both models
+reported `prefix_mismatch` for the Baikai projection and zero removals for the
+original items. The earlier message and call precede the second reasoning
+item. The visible answer could succeed even when a reasoning item was removed.
+
+
 ## Decision Log
 
 - On 2026-11-20, defer the generated GPT-6.2 bindings until stable system-prefix
@@ -81,7 +95,8 @@ an HTTP failure for this projection.
 
 ## Outcomes & Retrospective
 
-The binding audit is complete. Implementation and live acceptance are pending.
+The baseline comparison reproduced reasoning removal on both models. Adapter
+correction and catalog acceptance are in progress.
 
 
 ## Context and Orientation

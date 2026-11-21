@@ -53,6 +53,7 @@ import PublicSurfaceSpec qualified
 import ReasoningSpec qualified
 import ResponsesAssemblerSpec qualified
 import ResponsesEvidenceSpec qualified
+import ResponsesReplayProbe qualified
 import ResponsesSpec qualified
 import ResponsesStreamSpec qualified
 import ResponsesTransportSpec qualified
@@ -115,6 +116,7 @@ main =
         ReasoningSpec.tests,
         ResponsesAssemblerSpec.tests,
         ResponsesEvidenceSpec.tests,
+        ResponsesReplayProbe.tests,
         ResponsesSpec.tests,
         ResponsesStreamSpec.tests,
         ResponsesTransportSpec.tests,
