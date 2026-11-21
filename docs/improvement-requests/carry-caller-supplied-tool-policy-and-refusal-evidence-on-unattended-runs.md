@@ -6,7 +6,7 @@ description: >-
   settings file, Codex hooks and rules) through a typed field, and report the tool calls the
   provider refused, so consumers stop rendering vendor policy flags and parsing vendor
   refusal output themselves.
-timestamp: 2026-11-21T15:20:00Z
+timestamp: 2026-11-21T15:49:46Z
 requestId: IR-14
 status: proposed
 origin: mori://shinzui/seihou
@@ -19,8 +19,7 @@ origin: mori://shinzui/seihou
 Proposed. Not a blocker.
 `mori://shinzui/seihou/plans/127-let-callers-supply-tool-policy-for-batch-blueprint-runs-and-migrations`
 ships without it by rendering the provider arguments and reading the provider output in Seihou.
-That plan opens with two provider probes. Their results answer the questions marked unobserved
-below and should be attached here before this request is designed.
+The two provider probes are recorded below.
 
 ## Context
 
@@ -64,6 +63,28 @@ Three points are unobserved and decide the design:
 - whether a Codex hooks or rules file can be loaded for one `codex exec` run without writing
   into the project or `$CODEX_HOME`, and whether hooks run under `codex exec` at all;
 - whether Codex's `--json` event stream tells a blocked command from one that ran and failed.
+
+## Native provider observations (2026-11-21)
+
+Claude Code 2.1.330 ran a local marker command when a supplied settings
+file's PreToolUse hook allowed it. When the hook denied the same command despite
+a matching static grant, the marker stayed unchanged. The final result event
+reported success and included the command in `permission_denials`. Passing
+each static rule as a separate argument also admitted an exact Bash pattern
+containing a comma.
+
+Codex CLI 0.171.0 loaded a per-run hook from a configuration override in an
+isolated, ephemeral workspace-write session. The hook denied the marker
+command. Codex exited 0 and emitted no command or refusal event for it in
+JSONL. The denial appeared in stderr. With the same trust switch, a control
+command that actually exited 1 emitted a failed command item. Both streams
+contained the same trust warnings as error items. The trust switch applies to
+every enabled hook in the invocation. The rules checker evaluated a caller file,
+but the exec subcommand rejected its rules-file flag.
+
+These observations come from
+`mori://shinzui/seihou/plans/127-let-callers-supply-tool-policy-for-batch-blueprint-runs-and-migrations`
+and `mori://shinzui/seihou/okf/friction-log/concepts/FRIC-21`.
 
 ## Requested contract
 

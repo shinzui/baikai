@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-21
+* **Update**: IR-14 records live Claude 2.1.330 and Codex 0.171.0 probe results, including the missing Codex JSON denial evidence.
 * **Addition**: [IR-14](carry-caller-supplied-tool-policy-and-refusal-evidence-on-unattended-runs.md)
   requests typed caller policy inputs (a Claude settings file, Codex hooks and rules) and
   refusal evidence on unattended runs, so Seihou and Shikigami stop rendering vendor policy
