@@ -10,6 +10,18 @@ provenance:
     model: "gpt-6.2-sol"
     harness: "codex-cli"
     at: 2026-11-21T02:55:14Z
+  revisions:
+    - model: "gpt-6.2-astra"
+      harness: "codex-cli"
+      at: 2026-11-21T03:45:23Z
+      mode: "update"
+      note: "Specify the replay experiment, persisted wire checks, structured output and exact smoke selection."
+  reviews:
+    - model: "gpt-6.2-astra"
+      harness: "codex-cli"
+      at: 2026-11-21T03:45:52Z
+      verdict: "approved"
+      note: "Revised plan checked against Responses diagnostics, adapter replay, generated catalog routing and smoke selection."
 ---
 
 # Preserve Responses conversation prefixes and replay for GPT-6.2 Astra and Sol
@@ -32,8 +44,8 @@ needs to continue reasoning and reuse the prefix.
 ## Progress
 
 - [ ] Confirm stateless replay against both GPT-6.2 models with a bounded
-  function-tool conversation. Record whether Baikai's existing projections
-  preserve reasoning and a reusable prefix, and capture the decisive wire facts.
+  function-tool conversation. Compare Baikai's replay with original output items and record the provider's
+  reasoning-removal report for each model.
 - [ ] Preserve the system prefix and required output item identities through
   the registered Responses adapter. Pass offline request, replay, terminal,
   evidence, storage and legacy catalog checks.
@@ -118,15 +130,41 @@ and uses the cache and usage contracts from
 
 ## Plan of Work
 
+### Milestone 1. Measure stateless continuation
+
 First, drive the public Responses worker with a test-only model record through
 a fixed two-turn function conversation. Use synthetic text, a stable system
-prompt and unchanged tools. Compare the replay Baikai builds with an ordered
-pass-through of the original output. Capture content-free evidence about
-terminal status, item kinds, item and call identity matches, encrypted reasoning
-presence, and reported cache counters. Probe a sufficiently long stable prefix
-to cross OpenAI's cache minimum when testing reads. Reuse the documented
-stateless request shape and record an unresolved result if credentials, access
-or response shape prevent a decisive observation.
+prompt and unchanged tools. Implement the probe as an opt-in test in the
+`baikai-openai:baikai-openai-test` suite, following the injectable driver in
+`baikai-openai/test/ResponsesStreamSpec.hs`. Wrap the live driver to inspect
+the outgoing JSON and completed response in memory. Keep the first request
+identical for both follow-ups, including the leading developer item (use the
+existing marked-prefix path for this comparison), tool definitions, format,
+effort, model and credentials. Use the same first response and synthetic tool
+result for both branches. Send one follow-up using Baikai's projected history
+and one with the original ordered output items substituted into that history.
+Keep `store=false` and omit `previous_response_id` throughout.
+
+For each branch compare the shared input prefix, item order, message content
+parts and phase if present, IDs, exact argument strings and encrypted item
+equality. Match each submitted reasoning ID to any removal reported in the
+follow-up terminal response's `input_transformations`. Record only counts,
+equality flags, removal reasons and whether the field was present. A
+`prefix_mismatch` on the projected branch with a clean original branch
+demonstrates a replay defect. A clean result only covers items preceding the
+submitted reasoning item. If a projected message or tool call follows the last
+reasoning item, extend the probe by one tool round and submit a later reasoning
+item whose prefix includes that projection. If both branches fail, diagnose the common request
+before choosing a representation. A successful answer alone cannot establish
+reasoning retention. For an omitted diagnostic, calibrate with an edited
+synthetic prefix using the same reasoning item and verify that the provider
+reports its removal. Leave the conclusion open if no reasoning item or
+interpretable diagnostic is available. Report cache counters independently
+using a stable prefix of at least 1,024 visible input tokens when measuring
+reads. [Prefix audit](https://developers.openai.com/api/docs/guides/keep-prefix-unchanged)
+[Response fields](https://developers.openai.com/api/reference/resources/responses/methods/create)
+
+### Milestone 2. Preserve and verify the registered adapter's history
 
 Next, give `OpenAIResponsesCompat` in `baikai/src/Baikai/Compat.hs` an explicit
 catalog flag or policy for putting a stable system prompt in the first developer
@@ -146,8 +184,26 @@ before dispatch, with at least one text-and-tool response and two consecutive
 tool rounds. A terminal refusal, incomplete call or provider error should keep
 its existing classification and leave any partial function call undispatched.
 
-Finally, add the two IDs to `openaiInclude` with explicit Responses compat and
-the corresponding per-model API override. For Astra the base rates per million
+In `baikai-openai/test/ResponsesStreamSpec.hs`, exercise two successive tool
+rounds through stream folding and `appendToolResult`. Compare the third
+request's input with the entire earlier input followed by the second output
+and its tool result. Include a message with multiple parts, distinct item and
+call IDs, noncanonical JSON whitespace in the function arguments and reasoning
+after an earlier projected item. Round-trip the assistant history through its
+JSON instances before the next request. Reject inconsistent replay metadata
+before transport so a caller's edited public arguments cannot silently differ
+from the replayed call. Cover absent replay fields in legacy saved histories.
+Verify request commitment against the actual body in
+`baikai-openai/test/ResponsesEvidenceSpec.hs`. Rerun the live comparison on
+each corrected adapter path before enabling either binding.
+
+### Milestone 3. Generate and exercise both catalog bindings
+
+Finally, add the two IDs to `openaiInclude` with explicit Responses compat in
+`baikai/fetch/FetchModelsCore.hs`. Its `apiFor` already derives the per-model
+Responses override from `CatalogResponsesCompat`. Set modern cache support
+for 30m, 12h and explicit breakpoints along with the prefix placement policy.
+For Astra the base rates per million
 input, output, cache-read and 30-minute cache-write tokens are
 $8, $40, $0.40 and $10. For Sol they are $2, $10, $0.10 and $2.50. The standard
 12-hour writes are $20 and $5 respectively. Above 272,000 total input tokens,
@@ -164,18 +220,37 @@ unsupported locally. [Astra rates](https://developers.openai.com/api/docs/models
 
 Update `baikai-smoke/test/NewModelsSmoke.hs`, `SmokeOptions.hs` and
 `SmokeOptionsSpec.hs` under the same test directory with the case names below.
+The runner zips model records with names and filters by `caseProvider`.
+Verify each new selector resolves to exactly one expected model, case kind and
+OpenAI credential group. Fail a named run that selects zero cases. Give both
+new tool cases a stable nonempty system prompt. Use each new text case to
+request a strict JSON schema requiring an `answer` string with value `pong`,
+and parse and check the final streamed text. Check the corresponding generated
+model's `text.format` request in `baikai-openai/test/ResponsesSpec.hs`.
 Update `docs/user/models-and-providers.md` and `CHANGELOG.md` after the
 catalog, adapter and tests agree.
 
 
 ## Concrete Steps
 
-Run from the repository root. Once the model cases and compatibility tests
-exist, build and verify the catalog and the adapter with these commands.
+Run from the repository root. For milestone 1, add gated Tasty cases named
+`plan104-probe-astra` and `plan104-probe-sol`. Enable network access in those
+cases only when the probe environment switch is set, require an OpenAI
+credential in that mode and bound each request to 120 seconds and 4,096 output
+tokens. After adding the cases, select one model per invocation, for example
+
+```bash
+direnv exec . env BAIKAI_PLAN104_PROBE=1 cabal test baikai-openai:baikai-openai-test \
+  --test-show-details=direct --test-options='-p plan104-probe-astra'
+```
+
+Expect one executed probe with separate results for each branch. Repeat with
+`plan104-probe-sol` and save the content-free summaries. Once the model cases and
+compatibility tests exist, build and verify the catalog and the adapter with these commands.
 
 ```bash
 candidate_dir=$(mktemp -d "${TMPDIR:-/tmp}/baikai-models.XXXXXX")
-cabal run baikai-fetch-models -- --out-dir "$candidate_dir"
+cabal run baikai-fetch-models -- --provider openai --out-dir "$candidate_dir"
 diff -u baikai/data/models/openai.json "$candidate_dir/openai.json"
 ```
 
@@ -193,26 +268,32 @@ Run each needed paid case with the configured OpenAI credentials. Rerun only
 the selected failing case after diagnosis.
 
 ```bash
+set -e
 for case_name in astra62-text astra62-tools sol62-text sol62-tools; do
   direnv exec . cabal test baikai-smoke:baikai-smoke \
-    --test-options="--new-models --require-keys --case $case_name"
+    --test-show-details=direct --test-options="--new-models --require-keys --case $case_name"
 done
 ```
 
 
 ## Validation and Acceptance
 
-A no-cache request with a nonempty system prompt serializes the developer item
+A request with default cache options with a nonempty system prompt serializes the developer item
 first and omits top-level `instructions`; a cache-marked request keeps its
-marker on that same first item. The recorded wire shows the same prefix on
-both calls. Sampling is omitted with adjustment evidence. None and minimal
-become low with adjustment evidence and are refused under strict evidence.
+marker on that same first item. Apply those assertions to both new models.
+Verify a legacy record without the new flag still emits top-level instructions under default options,
+and an absent prompt creates no developer item. The recorded wire shows the
+same prefix on both calls. Sampling is omitted with adjustment evidence.
+None and minimal become low with adjustment evidence and are refused under strict evidence.
 A streamed function call uses a matching call ID for its result, losslessly
 replays necessary output items in the original order and receives the expected
 synthetic answer on the next call. Usage tests show $10/$20 and $2.50/$5
 short-context short/long writes, the exclusive tier boundary and explicit
 missing usage. Live summaries identify the exact model, endpoint and cost
-basis. The tool cases show at least two calls and one dispatch. If no reasoning
+basis. Each named summary must contain exactly one result with the expected model
+and case, `ran=true` and `status=passed`. Text cases must return the
+schema-conforming answer. Tool cases must show at least two calls, one
+dispatch and the synthetic result. If no reasoning
 block arrives, run a reasoning-bearing selected case before closing replay
 acceptance. Save redacted readable output and `baikai.new-model-smoke/1` JSON
 under `docs/validation/plan-104/`. A skipped or uncredentialed case leaves
@@ -221,8 +302,8 @@ the corresponding acceptance outstanding.
 
 ## Idempotence and Recovery
 
-Keep probe models out of the committed catalog until the acceptance criteria
-are met. Regeneration uses the checked-in JSON and can be repeated. Save each
+Use test-only model records for the first two milestones. Generate the real
+bindings locally for milestone 3 and commit them after its checks pass. Regeneration uses the checked-in JSON and can be repeated. Save each
 live result separately, so retrying a failed account or protocol case keeps the
 evidence from successful paid calls.
 
@@ -240,3 +321,7 @@ decodes raw SSE frames, so no SDK version change is required for the known
 prefix change. Check the released source and upstream tags again if the
 probe exposes a new dependency requirement.
 [Hackage openai](https://hackage.haskell.org/package/openai)
+
+Revision (2026-11-20). The review added a controlled comparison with provider
+removal diagnostics, a persisted multi-round wire check and model-specific
+smoke assertions so successful requests can demonstrate each promised behavior.
