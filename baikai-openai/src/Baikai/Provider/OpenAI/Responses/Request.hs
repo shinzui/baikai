@@ -12,6 +12,7 @@ module Baikai.Provider.OpenAI.Responses.Request
     describeThinking,
     validateReplay,
     validateReplayItems,
+    replayableOutputItem,
   )
 where
 
@@ -74,15 +75,23 @@ mapRequest m ctx opts = do
   unless (length ids == length (nub ids)) (Left "Responses history contains duplicate item IDs")
   choice <- toolChoiceFields ctx opts
   cache <- Cache.responsesCachePlan m opts
-  let marked = cache.markPrefix && maybe False (not . Text.null) ctx.systemPrompt
-      prefix = [object ["role" .= ("developer" :: Text), "content" .= [object ["type" .= ("input_text" :: Text), "text" .= text, "prompt_cache_breakpoint" .= object ["mode" .= ("explicit" :: Text)]]]] | marked, Just text <- [ctx.systemPrompt]]
+  let prefix =
+        [ object ["role" .= String "developer", "content" .= [part]]
+        | cache.markPrefix || compat.systemPromptInInput,
+          Just text <- [ctx.systemPrompt],
+          not (Text.null text),
+          let part =
+                object $
+                  ["type" .= String "input_text", "text" .= text]
+                    <> ["prompt_cache_breakpoint" .= object ["mode" .= String "explicit"] | cache.markPrefix]
+        ]
   let (reasoning, translation) = thinkingFields m opts
       cap = fromMaybe m.maxOutputTokens opts.maxTokens
       base =
         Aeson.toJSON
           R._CreateResponse
             { R.model = SDK.Model m.modelId,
-              R.instructions = if marked then Nothing else ctx.systemPrompt,
+              R.instructions = if null prefix then ctx.systemPrompt else Nothing,
               R.store = Just False,
               R.stream = Just True,
               R.include = Just (V.singleton "reasoning.encrypted_content"),
@@ -167,7 +176,13 @@ messageItems m = \case
     let output = (if p.isError then "[error] " else "") <> Text.concat (V.toList parts)
     pure [Aeson.toJSON R.Item_Input_Function_Call_Output {R.id = Nothing, R.call_id = p.toolCallId, R.output = output, R.status = Nothing}]
   where
-    assistantItem = \case
+    assistantItem block
+      | Just state <- C.outputItemReplay block = do
+          unless (normaliseApi state.outputReplayApi == OpenAIResponses && state.outputReplayModel == m.modelId) (Left "Responses output replay belongs to another API or model")
+          unless (replayableOutputItem block state.outputReplayItem) (Left "Responses output replay does not match its text or function call")
+          pure [state.outputReplayItem]
+      | otherwise = projectedItem block
+    projectedItem = \case
       C.AssistantData _ -> Left "Cannot replay AssistantData evidence"
       C.AssistantText t -> pure [object ["role" .= ("assistant" :: Text), "content" .= t.text]]
       C.AssistantToolCall tc -> do
@@ -222,3 +237,38 @@ validateReplayItems items = do
     item _ = Left "Malformed Responses reasoning replay: expected reasoning type, id, encrypted_content and summary"
     summaryPart (Object o) = KM.lookup "type" o == Just (String "summary_text") && case KM.lookup "text" o of Just (String _) -> True; _ -> False
     summaryPart _ = False
+
+-- | Validate the original item against the visible text or dispatched tool
+-- call without re-encoding the provider's fields. A message can contain
+-- multiple parts, and the call ID is independent of the output item ID.
+replayableOutputItem :: C.AssistantContent -> Value -> Bool
+replayableOutputItem block (Object item) =
+  case KM.lookup "id" item of
+    Just (String ident) | not (Text.null ident), complete -> matches block
+    _ -> False
+  where
+    complete = case KM.lookup "status" item of
+      Nothing -> True
+      Just (String "completed") -> True
+      _ -> False
+    matches (C.AssistantText t)
+      | KM.lookup "type" item == Just (String "message"),
+        KM.lookup "role" item == Just (String "assistant"),
+        Just (Array parts) <- KM.lookup "content" item =
+          fmap (Text.concat . V.toList) (traverse visiblePart parts) == Just t.text
+    matches (C.AssistantToolCall tc)
+      | KM.lookup "type" item == Just (String "function_call"),
+        not (Text.null tc.id_ || Text.null tc.name || C.isCutOffToolCall tc),
+        KM.lookup "call_id" item == Just (String tc.id_),
+        KM.lookup "name" item == Just (String tc.name),
+        Just (String raw) <- KM.lookup "arguments" item =
+          C.toolArgumentsFromText raw == tc.arguments
+    matches _ = False
+    visiblePart (Object part) = case KM.lookup "type" part of
+      Just (String "output_text") -> textValue (KM.lookup "text" part)
+      Just (String "refusal") -> textValue (KM.lookup "refusal" part)
+      _ -> Nothing
+    visiblePart _ = Nothing
+    textValue (Just (String t)) = Just t
+    textValue _ = Nothing
+replayableOutputItem _ _ = False

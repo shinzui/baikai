@@ -14,8 +14,10 @@ import Baikai.Trace.Sink (TraceSink (..))
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket, finally)
 import Control.Lens ((&), (.~))
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
@@ -43,6 +45,15 @@ tests =
         ev.providerRequestId @?= Observed "req-wire"
         ev.responseId @?= Observed "response-wire"
         ev.requestCommitment @?= commitmentDigest body
+        ev.requestConfiguration @?= configurationDigest body
+        case configurationProjection body of
+          Object config -> do
+            KM.lookup "instructions" config @?= Nothing
+            case KM.lookup "input" config of
+              Just (Array parts) ->
+                (parts V.!? 0) @?= Just (object ["role" .= String "developer", "type" .= Null, "chars" .= (30 :: Int)])
+              _ -> assertFailure "missing shaped input"
+          _ -> assertFailure "missing shaped configuration"
         ev.strength @?= EvidenceModelObserved
         ev.usage @?= Unobserved
         case V.toList response.message.content of
@@ -55,13 +66,14 @@ tests =
         b <- proof split
         a.responseCommitment @?= b.responseCommitment
         split.message.content @?= whole.message.content,
-      testCase "minimal effort is refused before transport with strict evidence" $ do
-        (response, body) <- replay 200 [wire success] (strictOptions & #thinking .~ Just ThinkingMinimal)
-        assertBool "strict adjustment refused" (responseError response /= Nothing)
-        body @?= Null
-        ev <- proof response
-        ev.status @?= CallFailed
-        ev.observedModel @?= Unobserved,
+      testCase "none and minimal are refused before transport with strict evidence" $
+        forM_ [ThinkingNone, ThinkingMinimal] $ \effort -> do
+          (response, body) <- replay 200 [wire success] (strictOptions & #thinking .~ Just effort)
+          assertBool "strict adjustment refused" (responseError response /= Nothing)
+          body @?= Null
+          ev <- proof response
+          ev.status @?= CallFailed
+          ev.observedModel @?= Unobserved,
       testCase "local request validation still produces a strict evidence record" $ do
         (response, body) <- replay 200 [wire success] (strictOptions & #seed .~ Just 7)
         assertBool "unsupported option refused" (responseError response /= Nothing)
@@ -136,7 +148,8 @@ replay :: Int -> [ByteString] -> Options -> IO (Response, Value)
 replay status chunks opts = do
   sent <- newIORef Null
   reg <- registryFor (byteDriver sent status chunks)
-  response <- completeRequestWith reg openai_gpt_6_astra emptyContext opts
+  let m = openai_gpt_6_astra & #compat .~ CompatOpenAIResponses (openaiResponsesCompatFor openai_gpt_6_astra & #systemPromptInInput .~ True)
+  response <- completeRequestWith reg m (systemUser "safe prefix" "question") opts
   body <- readIORef sent
   pure (response, body)
 

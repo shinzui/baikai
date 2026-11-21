@@ -2,6 +2,7 @@
 
 module ResponsesAssemblerSpec (tests) where
 
+import Baikai.Api (Api (OpenAIResponses))
 import Baikai.Content qualified as C
 import Baikai.Provider.OpenAI.Responses.Assembler qualified as A
 import Baikai.StopReason (StopReason (..))
@@ -41,7 +42,9 @@ tests =
         A.terminalReason s @?= Just ToolUse
         A.assembledContent s
           @?= V.fromList
-            [C.AssistantToolCall (C.ToolCall "call_a" "lookup" (object ["a" .= (1 :: Int)])), C.AssistantToolCall (C.ToolCall "call_b" "lookup" (object ["b" .= (2 :: Int)]))]
+            [ replayedCall "item_a" "call_a" "a" 1 "{\"a\":1}",
+              replayedCall "item_b" "call_b" "b" 2 "{\"b\":2}"
+            ]
         [n | E.ToolCallStart (E.IndexPayload n) <- events] @?= [0, 1]
         [n | E.ToolCallEnd (E.ToolCallEndPayload n _) <- events] @?= [0, 1]
         assertBool "second block waits for first end" (case drop 2 events of E.ToolCallEnd _ : E.ToolCallStart _ : _ -> True; _ -> False),
@@ -151,3 +154,9 @@ reasoningAdded = object ["type" .= ("reasoning" :: Text), "id" .= ("rs" :: Text)
 
 reasoning :: Value
 reasoning = object ["type" .= ("reasoning" :: Text), "id" .= ("rs" :: Text), "summary" .= ([] :: [Value]), "encrypted_content" .= ("opaque" :: Text), "future_field" .= object ["keep" .= True]]
+
+replayedCall :: Text -> Text -> Key -> Int -> Text -> C.AssistantContent
+replayedCall ident cid key n raw =
+  C.withOutputItemReplay
+    (C.OutputItemReplay OpenAIResponses "configured-model" (call ident cid raw "completed"))
+    (C.AssistantToolCall (C.ToolCall cid "lookup" (object [key .= n])))

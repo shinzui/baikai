@@ -48,7 +48,7 @@ module Baikai.Compat
     validateNativeCachePolicy,
 
     -- * OpenAI Responses compat
-    OpenAIResponsesCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsLongCacheRetention, supportsPromptCacheOptions, nativeCachePolicy),
+    OpenAIResponsesCompat (supportedReasoningEfforts, supportsSamplingParameters, supportsLongCacheRetention, supportsPromptCacheOptions, systemPromptInInput, nativeCachePolicy),
     defaultOpenAIResponsesCompat,
 
     -- * Anthropic Messages compat
@@ -248,6 +248,8 @@ data OpenAIResponsesCompat = OpenAIResponsesCompat
     supportsLongCacheRetention :: !Bool,
     -- | Use prompt_cache_options rather than legacy prompt_cache_retention.
     supportsPromptCacheOptions :: !Bool,
+    -- | Put the reusable system prompt at the head of Responses input.
+    systemPromptInInput :: !Bool,
     nativeCachePolicy :: !(Maybe NativeCachePolicy)
   }
   deriving stock (Eq, Show, Generic)
@@ -260,6 +262,7 @@ defaultOpenAIResponsesCompat =
       supportsSamplingParameters = True,
       supportsLongCacheRetention = True,
       supportsPromptCacheOptions = False,
+      systemPromptInInput = False,
       nativeCachePolicy = Nothing
     }
 
@@ -286,6 +289,7 @@ instance FromJSON OpenAIResponsesCompat where
       <*> o .: "supportsSamplingParameters"
       <*> o .: "supportsLongCacheRetention"
       <*> o .: "supportsPromptCacheOptions"
+      <*> o .:? "systemPromptInInput" .!= False
       <*> o .:? "nativeCachePolicy"
 
 -- | Feature flags for one Anthropic Messages-compatible host.

@@ -3,7 +3,7 @@
 module ResponsesSpec (tests) where
 
 import Baikai hiding (model, schema)
-import Baikai.Models.Generated (openai_gpt_6_1_sol, openai_gpt_6_astra, openai_gpt_6_luna, openai_gpt_6_sol)
+import Baikai.Models.Generated (openai_gpt_6_1_sol, openai_gpt_6_2_astra, openai_gpt_6_2_sol, openai_gpt_6_astra, openai_gpt_6_luna, openai_gpt_6_sol)
 import Baikai.Provider.OpenAI.Responses.Request qualified as R
 import Control.Lens ((&), (.~))
 import Control.Monad (forM_)
@@ -44,6 +44,47 @@ tests =
           items !! 1 @?= reasoningItem
           field "call_id" (items !! 2) @?= Just (String "call_7")
           field "call_id" (items !! 3) @?= Just (String "call_7"),
+      testCase "both GPT-6.2 bindings put reusable instructions first with default or marked caching" $
+        forM_ [openai_gpt_6_2_astra, openai_gpt_6_2_sol] $ \m -> do
+          m.api @?= OpenAIResponses
+          let ctx = systemUser "stable" "question"
+              developer fields = object ["role" .= String "developer", "content" .= [object (["type" .= String "input_text", "text" .= String "stable"] <> fields)]]
+              sample = emptyOptions & #temperature .~ Just 0.5 & #topP .~ Just 0.8
+          forM_ [ThinkingNone, ThinkingMinimal] $ \effort -> do
+            ordinary <- mapped m ctx (sample & #thinking .~ Just effort)
+            field "instructions" ordinary.requestBody @?= Nothing
+            field "temperature" ordinary.requestBody @?= Nothing
+            field "top_p" ordinary.requestBody @?= Nothing
+            field "reasoning" ordinary.requestBody @?= Just (object ["effort" .= String "low"])
+            ordinary.translation.adjustments @?= [EffortClamped effort "low", SamplingDroppedUnsupportedModel ["temperature", "top_p"]]
+            take 1 (inputItems ordinary) @?= [developer []]
+          forM_ [(CacheRetentionShort, "30m"), (CacheRetentionLong, "12h")] $ \(duration, ttl) -> do
+            marked <- mapped m ctx (emptyOptions & #cacheRetention .~ Just duration)
+            field "instructions" marked.requestBody @?= Nothing
+            field "prompt_cache_options" marked.requestBody @?= Just (object ["ttl" .= String ttl])
+            take 1 (inputItems marked) @?= [developer ["prompt_cache_breakpoint" .= object ["mode" .= String "explicit"]]]
+          absent <- mapped m (contextOf [user "question"]) emptyOptions
+          field "instructions" absent.requestBody @?= Nothing
+          map (field "role") (inputItems absent) @?= [Just (String "user")],
+      testCase "legacy compatibility JSON retains top-level default instructions" $ do
+        let old = object ["supportsSamplingParameters" .= True, "supportsLongCacheRetention" .= True, "supportsPromptCacheOptions" .= False]
+        compat <- either assertFailure pure (Aeson.eitherDecode (Aeson.encode old))
+        compat @?= defaultOpenAIResponsesCompat
+        req <- mapped (model & #compat .~ CompatOpenAIResponses compat) (systemUser "legacy" "question") emptyOptions
+        field "instructions" req.requestBody @?= Just (String "legacy")
+        map (field "role") (inputItems req) @?= [Just (String "user")],
+      testCase "generated GPT-6.2 routes strict answer schemas through text.format" $
+        forM_ [openai_gpt_6_2_astra, openai_gpt_6_2_sol] $ \m -> do
+          let pong =
+                object
+                  [ "type" .= String "object",
+                    "properties" .= object ["answer" .= object ["type" .= String "string", "enum" .= [String "pong"]]],
+                    "required" .= [String "answer"],
+                    "additionalProperties" .= False
+                  ]
+              opts = emptyOptions & #responseFormat .~ Just (JsonSchema (jsonSchemaFormat "pong_answer" pong & #strict .~ True))
+          req <- mapped m (contextOf [user "answer"]) opts
+          field "text" req.requestBody @?= Just (object ["format" .= object ["type" .= String "json_schema", "name" .= String "pong_answer", "schema" .= pong, "strict" .= True]]),
       testCase "stateless request carries text, image, system, cap and metadata" $ do
         let ctx =
               (systemUser "system instruction" "hello")

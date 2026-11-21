@@ -12,8 +12,11 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (finally)
 import Control.Lens ((&), (.~), (^.))
+import Control.Monad (forM_)
 import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KM
+import Data.Aeson.Types (parseEither)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -135,6 +138,71 @@ tests =
                 _ -> assertFailure "missing function output"
             _ -> assertFailure "missing input"
           _ -> assertFailure "expected two requests",
+      testCase "persisted history retains the entire input prefix over two tool rounds" $ do
+        sent <- newIORef []
+        let m = model & #compat .~ CompatOpenAIResponses (defaultOpenAIResponsesCompat & #systemPromptInInput .~ True)
+            firstCall = toolItem "fc_1" "call_1" "{ \"key\" : 1 }"
+            secondCall = toolItem "fc_2" "call_2" "{ \"key\" : 2 }"
+            progress = object ["type" .= String "message", "id" .= String "msg_progress", "role" .= String "assistant", "status" .= String "completed", "phase" .= String "commentary", "content" .= [part "working", part " on it"]]
+            reasoning = object ["type" .= String "reasoning", "id" .= String "rs_2", "summary" .= ([] :: [Value]), "encrypted_content" .= String "opaque"]
+            initial = systemUser "stable" "find it" & #tools .~ V.singleton (mkTool "lookup" "lookup" (object ["type" .= String "object"]))
+            step output context = do
+              let stream = openaiResponsesStreamWith $ \_ _ body _ emit -> do
+                    previous <- readIORef sent
+                    writeIORef sent (previous <> [body])
+                    emit (Right (terminalOutput output))
+              response <- streamingComplete stream m context options
+              either assertFailure pure (parseEither responseFromJSON (responseToJSON response))
+            append expected ctx response =
+              appendToolResult ctx response $ \tc -> do
+                tc.id_ @?= expected
+                pure (toolResultText ("result-" <> expected))
+        first <- step [progress, firstCall] initial
+        progressBlock <- case V.toList first.message.content of
+          [block@(AssistantText (TextContent "working on it")), AssistantToolCall _] -> pure block
+          _ -> assertFailure "missing text and function call"
+        fmap (.outputReplayItem) (outputItemReplay progressBlock) @?= Just progress
+        ctx2 <- append "call_1" initial first
+        second <- step [reasoning, secondCall] ctx2
+        ctx3 <- append "call_2" ctx2 second
+        final <- step [item "hello"] ctx3
+        final.message.stopReason @?= Stop
+        requests <- readIORef sent
+        case map requestInput requests of
+          [a, b, c] -> do
+            b @?= a <> [progress, firstCall, toolOutput "call_1"]
+            c @?= b <> [reasoning, secondCall, toolOutput "call_2"]
+          _ -> assertFailure "expected three requests",
+      testCase "inconsistent or foreign output replay is refused before transport" $ do
+        let raw = toolItem "item" "call" "{ \"key\": 1 }"
+            scope = OutputItemReplay OpenAIResponses model.modelId raw
+            tool = AssistantToolCall (ToolCall "call" "lookup" (object ["key" .= Number 1]))
+            edited = AssistantToolCall (ToolCall "call" "lookup" (object ["key" .= Number 2]))
+            forbidden _ _ _ _ _ = assertFailure "driver must not run"
+        forM_ [(scope, edited), (scope {outputReplayApi = AnthropicMessages}, tool), (scope {outputReplayModel = "foreign"}, tool), (scope {outputReplayItem = Null}, tool)] $ \(state, block) -> do
+          let ctx = addResponse (emptyResponse & #message . #content .~ V.singleton (withOutputItemReplay state block)) emptyContext
+          assertBool "Show must omit the provider item" (show (withOutputItemReplay state block) == show block)
+          failed <- streamingComplete (openaiResponsesStreamWith forbidden) model ctx options
+          fmap (^. #category) (responseError failed) @?= Just InvalidRequest,
+      testCase "legacy assistant blocks decode without output replay and keep their wire shapes" $ do
+        let text = object ["type" .= String "assistant_text", "data" .= object ["text" .= String "legacy"]]
+            call = object ["type" .= String "assistant_tool_call", "data" .= object ["id" .= String "old_call", "name" .= String "lookup", "arguments" .= object []]]
+        blocks <- either assertFailure pure (Aeson.eitherDecode (Aeson.encode [text, call]))
+        map outputItemReplay blocks @?= [Nothing, Nothing]
+        Aeson.toJSON blocks @?= Aeson.toJSON [text, call],
+      testCase "refusal, incomplete response and provider failure keep their terminal classifications" $ do
+        let partial = object ["type" .= String "function_call", "id" .= String "fc_partial", "call_id" .= String "call_partial", "name" .= String "lookup", "arguments" .= String "{}", "status" .= String "incomplete"]
+            started = object ["type" .= String "response.output_item.added", "output_index" .= Number 0, "item" .= partial]
+            incomplete = object ["type" .= String "response.incomplete", "response" .= object ["output" .= [partial], "incomplete_details" .= object ["reason" .= String "max_output_tokens"]]]
+            failed = object ["type" .= String "response.failed", "response" .= object ["error" .= object ["code" .= String "rate_limit_exceeded", "message" .= String "busy"]]]
+            refusal = terminalOutput [object ["type" .= String "message", "id" .= String "msg_refusal", "role" .= String "assistant", "status" .= String "completed", "content" .= [object ["type" .= String "refusal", "refusal" .= String "declined"]]]]
+        forM_ [([refusal], Stop, Nothing), ([started, incomplete], Length, Nothing), ([started, failed], ErrorReason, Just RateLimited)] $ \(frames, reason, category) -> do
+          dispatched <- newIORef False
+          reg <- newProviderRegistryFrom [apiProvider OpenAIResponses (openaiResponsesStreamWith (driver frames))]
+          (_, response) <- runToolLoopWith reg 3 (const (writeIORef dispatched True >> pure (toolResultText "unexpected"))) model emptyContext options
+          readIORef dispatched >>= (@?= False)
+          response.message.stopReason @?= reason
+          fmap (^. #category) (responseError response) @?= category,
       testCase "evidence commits to the exact outgoing request and observed header" $ do
         sent <- newIORef Null
         let capturing _ _ body meta emit = do
@@ -191,3 +259,22 @@ completed = object ["type" .= ("response.completed" :: Text), "response" .= obje
 
 usageStarted :: Value
 usageStarted = object ["type" .= ("response.created" :: Text), "response" .= object ["id" .= ("resp_usage" :: Text), "usage" .= object ["input_tokens" .= (15000 :: Int), "input_tokens_details" .= object ["cached_tokens" .= (12000 :: Int)]]]]
+
+part :: Text -> Value
+part t = object ["type" .= String "output_text", "text" .= t, "annotations" .= ([] :: [Value])]
+
+toolItem :: Text -> Text -> Text -> Value
+toolItem ident call args =
+  object ["type" .= String "function_call", "id" .= ident, "call_id" .= call, "name" .= String "lookup", "arguments" .= args, "status" .= String "completed"]
+
+toolOutput :: Text -> Value
+toolOutput call = object ["type" .= String "function_call_output", "call_id" .= call, "output" .= ("result-" <> call)]
+
+terminalOutput :: [Value] -> Value
+terminalOutput items = object ["type" .= String "response.completed", "response" .= object ["output" .= items]]
+
+requestInput :: Value -> [Value]
+requestInput (Object obj) = case KM.lookup "input" obj of
+  Just (Array xs) -> V.toList xs
+  _ -> []
+requestInput _ = []

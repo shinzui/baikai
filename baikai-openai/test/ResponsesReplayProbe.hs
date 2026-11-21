@@ -28,6 +28,7 @@ probe :: Text -> IO ()
 probe ident = do
   enabled <- lookupEnv "BAIKAI_PLAN104_PROBE"
   when (enabled == Just "1") $ do
+    marked <- (== Just "marked") <$> lookupEnv "BAIKAI_PLAN104_PROBE_CACHE"
     key <- lookupEnv "OPENAI_API_KEY"
     assertBool "OPENAI_API_KEY is required" (maybe False (not . null) key)
     putStrLn ("Model " <> T.unpack ident <> ", streamed /v1/responses")
@@ -37,10 +38,10 @@ probe ident = do
             & #api .~ OpenAIResponses
             & #reasoning .~ True
             & #provider .~ "openai"
-            & #compat .~ CompatOpenAIResponses defaultOpenAIResponsesCompat {nativeCachePolicy = Just (NativeCacheModern False True)}
+            & #compat .~ CompatOpenAIResponses (defaultOpenAIResponsesCompat & #systemPromptInInput .~ True & #nativeCachePolicy .~ Just (NativeCacheModern False True))
         opts =
           emptyOptions
-            & #cacheRetention .~ Just CacheRetentionShort
+            & #cacheRetention .~ (if marked then Just CacheRetentionShort else Nothing)
             & #thinking .~ Just ThinkingHigh
             & #maxTokens .~ Just 4096
             & #timeoutMs .~ Just 120000
@@ -58,27 +59,35 @@ probe ident = do
               "additionalProperties" .= False
             ]
         run = runBranch model opts
-    (initial, first, firstResponse) <- run "initial" id ctx
+    (initial, first, firstResponse, _) <- run "initial" id ctx
+    assertBool "expected a leading developer item" ((initial V.!? 0 >>= field "role") == Just (String "developer"))
+    assertBool "unexpected cache breakpoint placement" (((initial V.!? 0 >>= (V.!? 0) . arrayField "content" >>= field "prompt_cache_breakpoint") /= Nothing) == marked)
     ctx2 <- answerTool "alpha" "amber" ctx firstResponse
     (exact2, second, secondResponse) <- compareRound run "round 2" ctx2 initial first
     ctx3 <- answerTool "beta" "violet" ctx2 secondResponse
     (_, _, finalResponse) <- compareRound run "round 3" ctx3 exact2 second
     assertBool "final response did not use the synthetic result" (assistantText finalResponse == "violet")
 
-type RunBranch = String -> (Value -> Value) -> Context -> IO (V.Vector Value, V.Vector Value, Response)
+type RunBranch = String -> (Value -> Value) -> Context -> IO (V.Vector Value, V.Vector Value, Response, Maybe [Text])
 
 -- Both branches go through the real worker. The control replaces only prior
 -- assistant output; function results still come from appendToolResult.
 compareRound :: RunBranch -> String -> Context -> V.Vector Value -> V.Vector Value -> IO (V.Vector Value, V.Vector Value, Response)
 compareRound run label ctx prefix output = do
   let reasoning = V.filter ((== Just (String "reasoning")) . field "type") output
-  when (V.null reasoning) (putStrLn (label <> " has no new reasoning to compare"))
-  (projected, _, _) <- run (label <> " adapter") id ctx
+  assertBool "expected a new reasoning item in the preceding round" (not (V.null reasoning))
+  (projected, _, _, adapterRemovals) <- run (label <> " adapter") id ctx
   assertBool "history changed the preceding caller prefix" (V.take 2 projected == V.take 2 prefix)
   let exact = prefix <> output <> V.drop (V.length projected - 1) projected
   putStrLn (label <> " replay comparison " <> show (comparison exact projected))
-  result <- run (label <> " original") (setInput exact) ctx
-  pure result
+  (original, originalOutput, originalResponse, originalRemovals) <- run (label <> " original") (setInput exact) ctx
+  assertBool "registered adapter changed a prior output item" (projected == original)
+  assertBool "provider removed submitted reasoning" (all (maybe True null) [adapterRemovals, originalRemovals])
+  when (any (== Nothing) [adapterRemovals, originalRemovals]) $ do
+    let edited = exact V.// [(1, object ["role" .= String "user", "content" .= String "Edited synthetic prefix. Continue the lookup protocol."])]
+    (_, _, _, calibration) <- run (label <> " edited prefix") (setInput edited) ctx
+    assertBool "reasoning-removal diagnostic could not be calibrated" (maybe False (elem "prefix_mismatch") calibration)
+  pure (original, originalOutput, originalResponse)
 
 -- Intentionally report only counts and equality flags.
 comparison :: V.Vector Value -> V.Vector Value -> [(String, Bool)]
@@ -118,35 +127,45 @@ runBranch model opts label patch ctx = do
   terminal <- readIORef terminalRef
   assertBool "probe must use stateless history" (field "store" request == Just (Bool False) && field "previous_response_id" request == Nothing)
   let input = arrayField "input" request
-  summarize label input terminal
+  removals <- summarize (T.unpack model.modelId <> " " <> label) input terminal
   case responseError response of
     Just err -> assertFailure (label <> ": " <> show (err ^. #category) <> " " <> show (err ^. #httpStatus))
     Nothing -> assertBool (label <> " did not complete") (terminal /= Null)
-  pure (input, arrayField "output" terminal, response)
+  pure (input, arrayField "output" terminal, response, removals)
 
-summarize :: String -> V.Vector Value -> Value -> IO ()
+summarize :: String -> V.Vector Value -> Value -> IO (Maybe [Text])
 summarize label input terminal = do
   let reasoningIds = [ident | item <- V.toList input, field "type" item == Just (String "reasoning"), Just ident <- [field "id" item]]
-      removed = arrayField "input_transformations" terminal
-      reasons =
-        [ if reason `elem` ["organization_mismatch", "end_user_mismatch", "model_mismatch", "prefix_mismatch", "turn_boundary"] then reason else "unknown"
-        | item <- V.toList removed,
-          Just (String reason) <- [field "reason" item]
-        ]
+      diagnostics = field "input_transformations" terminal
+      removals = case diagnostics of
+        Just (Array entries) ->
+          Just
+            [ if reason `elem` knownReasons then reason else "unknown"
+            | item <- V.toList entries,
+              field "id" item `elem` map Just reasoningIds,
+              let reason = case field "reason" item of Just (String t) -> t; _ -> "unknown"
+            ]
+        _ -> Nothing
+      knownReasons = ["organization_mismatch", "end_user_mismatch", "model_mismatch", "prefix_mismatch", "turn_boundary"]
       counts = [V.length (V.filter ((== Just (String kind)) . field "type") (arrayField "output" terminal)) | kind <- ["reasoning", "message", "function_call"]]
-  putStrLn
-    ( label
-        <> ": submitted reasoning "
-        <> show (length reasoningIds)
-        <> ", diagnostics present "
-        <> show (field "input_transformations" terminal /= Nothing)
-        <> ", matched removals "
-        <> show (length [rid | rid <- reasoningIds, any ((== Just rid) . field "id") removed])
-        <> ", removal reasons "
-        <> show reasons
-        <> ", output counts (reasoning, message, call) "
-        <> show counts
-    )
+      usage = field "usage" terminal
+      inputTokens = usage >>= field "input_tokens"
+      cachedTokens = usage >>= field "input_tokens_details" >>= field "cached_tokens"
+  putStrLn $
+    label
+      <> ": submitted reasoning "
+      <> show (length reasoningIds)
+      <> ", diagnostics present "
+      <> show (diagnostics /= Nothing)
+      <> ", matched removal reasons "
+      <> show removals
+      <> ", output counts (reasoning, message, call) "
+      <> show counts
+      <> ", input tokens "
+      <> show inputTokens
+      <> ", cached tokens "
+      <> show cachedTokens
+  pure removals
 
 answerTool :: Text -> Text -> Context -> Response -> IO Context
 answerTool key result ctx response = do

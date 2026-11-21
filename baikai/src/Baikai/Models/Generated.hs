@@ -1284,6 +1284,76 @@ openai_gpt_6_1_terra =
             }
     }
 
+openai_gpt_6_2_astra :: Model
+openai_gpt_6_2_astra =
+  emptyModel
+    { modelId = "gpt-6.2-astra",
+      name = "GPT-6.2 Astra",
+      api = OpenAIResponses,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
+      cost =
+        ModelCost
+          { inputCost = 8 % 1,
+            outputCost = 40 % 1,
+            cacheReadCost = 2 % 5,
+            cacheWriteCost = 10 % 1
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (16 % 1) (60 % 1) (4 % 5) (20 % 1)) (Just (40 % 1))] (Just (20 % 1))),
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsSamplingParameters = False,
+              supportsLongCacheRetention = True,
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern True True),
+              systemPromptInInput = True
+            }
+    }
+
+openai_gpt_6_2_sol :: Model
+openai_gpt_6_2_sol =
+  emptyModel
+    { modelId = "gpt-6.2-sol",
+      name = "GPT-6.2 Sol",
+      api = OpenAIResponses,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
+      cost =
+        ModelCost
+          { inputCost = 2 % 1,
+            outputCost = 10 % 1,
+            cacheReadCost = 1 % 10,
+            cacheWriteCost = 5 % 2
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (15 % 1) (1 % 5) (5 % 1)) (Just (10 % 1))] (Just (5 % 1))),
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsSamplingParameters = False,
+              supportsLongCacheRetention = True,
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern True True),
+              systemPromptInInput = True
+            }
+    }
+
 openai_gpt_6_astra :: Model
 openai_gpt_6_astra =
   emptyModel
@@ -1689,6 +1759,8 @@ allModels =
     openai_gpt_5_nano,
     openai_gpt_6_1_sol,
     openai_gpt_6_1_terra,
+    openai_gpt_6_2_astra,
+    openai_gpt_6_2_sol,
     openai_gpt_6_astra,
     openai_gpt_6_luna,
     openai_gpt_6_sol,

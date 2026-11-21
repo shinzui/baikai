@@ -9,11 +9,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `baikai`: add `openai_gpt_6_2_astra` and `openai_gpt_6_2_sol` on OpenAI
+  Responses with structured output, function tools, and Standard pricing
+  for both cache durations and long-context requests.
+
 - `baikai`: add `openai_gpt_6_1_terra` on OpenAI Responses with explicit
   reasoning and cache compatibility, 30-minute and 12-hour cache-write
   prices, and whole-request pricing above 272,000 input tokens.
 
 ### Fixed
+
+- `baikai-openai`: preserve completed Responses message and function-call
+  items in stateless history. GPT-6.2 keeps reusable system prompts at the
+  head of the input across tool turns.
 
 - `baikai`: apply the published long-context tier for GPT-5.6 Sol, its
   `gpt-5.6` alias, GPT-5.6 Terra, and GPT-5.6 Luna. Use the published one-hour

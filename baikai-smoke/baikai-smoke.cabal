@@ -99,7 +99,10 @@ test-suite smoke-options
   hs-source-dirs: test
   main-is: SmokeOptionsSpec.hs
   other-modules: SmokeOptions
-  build-depends: base >=4.20 && <5
+  build-depends:
+    baikai,
+    base >=4.20 && <5,
+    text ^>=2.1,
 
 -- Compiles every fenced `haskell` block under docs/capabilities/ and, when run,
 -- checks each block still matches the marked region of its Shape.CapN module.

@@ -5,10 +5,9 @@ module NewModelsSmoke (runNewModels, credentialGroups) where
 import Baikai
 import Baikai.Error qualified as Err
 import Baikai.Evidence qualified as Ev
-import Baikai.Models.Generated qualified as Models
 import Control.Exception qualified as Exception
 import Control.Lens ((&), (.~), (^.))
-import Control.Monad (forM)
+import Control.Monad (forM, when)
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as LBS
@@ -18,48 +17,27 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Vector qualified as Vector
-import SmokeOptions (caseProvider, missingKeys, selectCaseNames)
+import SmokeOptions (keysFor, missingKeys, selectModelCases)
 import System.Environment (lookupEnv)
 import System.IO (hPutStrLn, stderr)
 
 credentialGroups :: [[String]]
-credentialGroups = [["OPENAI_KEY", "OPENAI_API_KEY"], ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]]
-
-cases :: [Model]
-cases =
-  [ Models.openai_gpt_6_astra,
-    Models.anthropic_claude_fable_5_1,
-    Models.openai_gpt_6_sol,
-    Models.openai_gpt_6_luna,
-    Models.anthropic_claude_opus_5_5,
-    Models.openai_gpt_6_1_sol,
-    Models.anthropic_claude_sonnet_5_5,
-    Models.anthropic_claude_haiku_5_5,
-    Models.openai_gpt_6_1_terra
-  ]
-
-keysFor :: String -> [String]
-keysFor "openai" = ["OPENAI_KEY", "OPENAI_API_KEY"]
-keysFor "anthropic" = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
-keysFor _ = []
+credentialGroups = map keysFor ["openai", "anthropic"]
 
 runNewModels :: Bool -> Maybe String -> IO Bool
 runNewModels required selected = do
   env <- traverse (\name -> (name,) <$> lookupEnv name) (concat credentialGroups)
   workspace <- lookupEnv "ANTHROPIC_WORKSPACE_ID"
-  let selectedCases =
-        [ (name, (model, keysFor provider, tool))
-        | (name, (model, tool)) <- zip (selectCaseNames Nothing) [(model, tool) | model <- cases, tool <- [False, True]],
-          name `elem` selectCaseNames selected,
-          Just provider <- [caseProvider name]
-        ]
-      missing = missingKeys env [keys | keys <- credentialGroups, any (\(_, (_, group, _)) -> group == keys) selectedCases]
+  let selectedCases = selectModelCases selected
+      missing = missingKeys env [keys | keys <- credentialGroups, any (\(_, _, group, _) -> group == keys) selectedCases]
       preflightFailed = required && not (null missing)
   if preflightFailed
     then hPutStrLn stderr ("[baikai-smoke] missing required environment alternatives: " <> show missing)
     else pure ()
-  results <- forM selectedCases $ \(_, (model, keys, toolsCase)) ->
+  when (null selectedCases) (hPutStrLn stderr "[baikai-smoke] no new-model cases selected")
+  results <- forM selectedCases $ \(_, model, keys, toolsCase) ->
     if preflightFailed || keys `elem` missing
       then do
         let status = if preflightFailed then "failed" else "skipped"
@@ -67,7 +45,7 @@ runNewModels required selected = do
         report model toolsCase status False reason 0 0 []
       else runCase model keys workspace toolsCase
   LBS.putStrLn (Aeson.encode (Aeson.object ["schema" .= ("baikai.new-model-smoke/1" :: Text), "results" .= map snd results, "missing_environment_alternatives" .= missing]))
-  pure (all fst results)
+  pure (not (null selectedCases) && all fst results)
 
 runCase :: Model -> [String] -> Maybe String -> Bool -> IO (Bool, Aeson.Value)
 runCase model keys workspace toolsCase = do
@@ -75,10 +53,12 @@ runCase model keys workspace toolsCase = do
   attempted <- newIORef (0 :: Int)
   observations <- newIORef ([] :: [Aeson.Value])
   historyValid <- newIORef True
-  let opts =
+  let gpt62 = isGPT62 model
+      opts =
         emptyOptions
           & #maxTokens .~ Just 4096
-          & #thinking .~ Just ThinkingLow
+          & #thinking .~ Just (smokeEffort model toolsCase)
+          & #responseFormat .~ (if gpt62 && not toolsCase then Just pongFormat else Nothing)
           & #timeoutMs .~ Just 120000
           & #apiKey .~ Just (ApiKeyEnvChain keys)
           & #headers .~ case (model ^. #api, workspace) of
@@ -92,10 +72,14 @@ runCase model keys workspace toolsCase = do
             description = "Return the test clock's exact UTC timestamp.",
             parameters = Aeson.object ["type" .= ("object" :: Text), "properties" .= Aeson.object [], "required" .= ([] :: [Text])]
           }
-      ctx =
-        if toolsCase
-          then contextOf [user "Call get_time to read the test clock. Reply with its exact timestamp, unchanged. Do not guess the time."] & #tools .~ Vector.singleton timeTool
-          else contextOf [user "Reply with the single word pong."]
+      ctx
+        | toolsCase =
+            let prompt = "Call get_time to read the test clock. Reply with its exact timestamp, unchanged. Do not guess the time."
+                puzzle = "Before calling the clock, solve this synthetic check and give the count in a short progress message. Count the length-12 strings of digits 0, 1, and 2 with exactly five 1s, no equal neighbors, and a digit sum divisible by 7. "
+                base = if gpt62 then systemUser "Use the synthetic test clock as the source of truth." (puzzle <> prompt) else contextOf [user prompt]
+             in base & #tools .~ Vector.singleton timeTool
+        | gpt62 = contextOf [user "Return a JSON object with answer set to pong."]
+        | otherwise = contextOf [user "Reply with the single word pong."]
       dispatcher tc
         | tc ^. #name == "get_time" = modifyIORef' dispatched (+ 1) >> pure (toolResultText timestamp)
         | otherwise = pure (toolResultErrorText "unknown tool")
@@ -125,10 +109,37 @@ runCase model keys workspace toolsCase = do
           | resp ^. #message ^. #stopReason /= Stop -> Just "unfinished_response"
           | not (all replayValid (Vector.toList (flattenAssistantBlocks resp))) -> Just "invalid_reasoning_continuation"
           | toolsCase && count == 0 -> Just "dispatcher_not_called"
+          | gpt62 && toolsCase && (count /= 1 || attempts < 2) -> Just "unexpected_tool_round_count"
           | toolsCase && not (timestamp `Text.isInfixOf` flattenAssistantText (flattenAssistantBlocks resp)) -> Just "timestamp_missing"
+          | gpt62 && not toolsCase && not (pongAnswer (flattenAssistantText (flattenAssistantBlocks resp))) -> Just "structured_answer_invalid"
           | not toolsCase && Text.null (flattenAssistantText (flattenAssistantBlocks resp)) -> Just "text_missing"
           | otherwise -> Nothing
   report model toolsCase (if isJust failure then "failed" else "passed") (attempts > 0) (maybe "ok" id failure) attempts count observed
+
+isGPT62 :: Model -> Bool
+isGPT62 model = model ^. #modelId `elem` ["gpt-6.2-astra", "gpt-6.2-sol"]
+
+smokeEffort :: Model -> Bool -> ThinkingLevel
+smokeEffort model toolsCase
+  | isGPT62 model && toolsCase = ThinkingHigh
+  | otherwise = ThinkingLow
+
+pongFormat :: ResponseFormat
+pongFormat =
+  JsonSchema $
+    jsonSchemaFormat "pong_answer" schema & #strict .~ True
+  where
+    schema =
+      Aeson.object
+        [ "type" .= Aeson.String "object",
+          "properties" .= Aeson.object ["answer" .= Aeson.object ["type" .= Aeson.String "string", "enum" .= [Aeson.String "pong"]]],
+          "required" .= [Aeson.String "answer"],
+          "additionalProperties" .= False
+        ]
+
+pongAnswer :: Text -> Bool
+pongAnswer text =
+  Aeson.decodeStrict (Text.encodeUtf8 text) == Just (Aeson.object ["answer" .= Aeson.String "pong"])
 
 -- Keep opaque state opaque. A summary may be empty; its continuation must still
 -- be suitable for the provider that emitted it.
@@ -169,7 +180,7 @@ report model toolsCase status ran detail attempts dispatches observations = do
           "detail" .= detail,
           "call_count" .= attempts,
           "tool_dispatch_count" .= dispatches,
-          "options" .= Aeson.object ["max_tokens" .= (4096 :: Int), "thinking" .= ("low" :: Text), "timeout_ms" .= (120000 :: Int), "max_turns" .= (if toolsCase then 4 else 1 :: Int)],
+          "options" .= Aeson.object ["max_tokens" .= (4096 :: Int), "thinking" .= renderThinkingLevel (smokeEffort model toolsCase), "timeout_ms" .= (120000 :: Int), "max_turns" .= (if toolsCase then 4 else 1 :: Int)],
           "responses" .= observations
         ]
     )

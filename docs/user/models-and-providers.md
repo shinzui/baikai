@@ -309,11 +309,6 @@ through 4.7, and Sonnet 4.5, 4.6 and 5. [GPT-5.6 Sol pricing](https://developers
 [GPT-5.6 Luna pricing](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
 [Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing)
 
-GPT-6.2 Astra and Sol require Responses for tools. [Plan 104](../plans/104-preserve-responses-conversation-prefixes-and-replay-for-gpt-6-2-astra-and-sol.md)
-tracks catalog availability after the adapter preserves stable system prompts
-as leading developer messages and verifies stateless tool replay.
-[OpenAI migration guidance](https://developers.openai.com/api/docs/guides/latest-model)
-
 Claude Fable 5.2 uses Messages. [Plan 105](../plans/105-guard-unsupported-assistant-prefills-on-claude-messages-and-enable-fable-5-2.md)
 tracks catalog availability after the binding can reject a final assistant
 prefill locally. A prefill is a partial assistant answer placed at the end
@@ -330,6 +325,39 @@ and `o3` for shutdown on 2026-12-11.
 tracks compile-time warnings and compatibility through removal.
 [OpenAI deprecations](https://developers.openai.com/api/docs/deprecations)
 
+### GPT-6.2 Astra and Sol
+
+`openai_gpt_6_2_astra` and `openai_gpt_6_2_sol` select OpenAI Responses
+for streaming text, JSON schema output and function tools. Both accept text
+and images, with a combined 1,050,000-token context and a 128,000-token
+output cap. Reasoning efforts run from low through max. Baikai translates
+none and minimal to low and records sampling options it drops.
+[GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra)
+[GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+
+Baikai sends a reusable `Context.systemPrompt` as the first developer item
+and preserves completed output items when you continue with `appendToolResult`
+or restore a saved response. Keep earlier messages, system prompt, tool
+definitions, response format and effort stable across a tool loop. OpenAI can
+drop later reasoning if you edit the history that precedes it.
+[OpenAI prefix rules](https://developers.openai.com/api/docs/guides/keep-prefix-unchanged)
+[Live replay checks](../validation/plan-104/replay.md)
+[Generated binding smoke tests](../validation/plan-104/smoke.md)
+
+#### Standard rates per million tokens
+
+| Model | Input | Output | Cache read | 30-minute write | 12-hour write |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GPT-6.2 Astra | $8 | $40 | $0.40 | $10 | $20 |
+| GPT-6.2 Sol | $2 | $10 | $0.10 | $2.50 | $5 |
+
+Above 272,000 total input tokens, including cache reads and writes, the
+whole request uses double input and cache prices and 1.5 times the output
+price. Reported service products such as Batch, Fast and Ultrafast use
+Standard-rate estimates with an explicit reason.
+[GPT-6.2 Astra rates](https://developers.openai.com/api/docs/models/gpt-6.2-astra)
+[GPT-6.2 Sol rates](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+
 ### Focused compatibility checks
 
 Run the offline gate before making paid requests:
@@ -339,7 +367,7 @@ cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:bai
 cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
 ```
 
-The focused command selects Astra, Sol, Luna, GPT-6.1 Sol and GPT-6.1 Terra through
+The focused command selects Astra, Sol, Luna, GPT-6.1 Sol and Terra, and GPT-6.2 Astra and Sol through
 Responses and Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 5.5 through Messages. Each model gets one text case and a
 deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
@@ -632,7 +660,7 @@ shape selected by the model's compatibility record:
 
 | Destination | Mapping |
 |-------------|---------|
-| Native OpenAI | Uses `reasoning_effort` (Chat) or `reasoning.effort` (Responses). The catalog's accepted-effort policy controls the final value: GPT-5/o-series, Astra, and GPT-6.1 Sol cannot disable reasoning; GPT-6 Sol/Luna accept `none`. Every replacement is recorded. |
+| Native OpenAI | Uses `reasoning_effort` (Chat) or `reasoning.effort` (Responses). The catalog's accepted-effort policy controls the final value: GPT-5/o-series, Astra, GPT-6.1 Sol and GPT-6.2 Sol cannot disable reasoning; GPT-6 Sol/Luna accept `none`. Every replacement is recorded. |
 | Anthropic, `none` | Sends `thinking: {"type": "disabled"}` with no effort and no display where the catalog's `supportsThinkingDisabled` says the model accepts it. Opus 5.5, Sonnet 5.5, Fable 5 and Fable 5.1 reject it, so there `none` is sent as adaptive thinking at `low` effort and recorded as `effort_clamped`. |
 | Anthropic adaptive thinking | Maps `minimal` to `low` and sends `low`, `medium`, `high`, `xhigh`, and `max` explicitly. The provider default differs by model (Opus 5.5 and Haiku 5.5 default to `medium`, the others to `high`), so no level relies on it. |
 | Anthropic budget thinking | Uses token budgets of 1024, 2048, 8192, 16384, 24576, and 32768 respectively. |

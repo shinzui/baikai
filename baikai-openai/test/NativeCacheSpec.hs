@@ -38,6 +38,22 @@ tests =
         forM_ [(272000, 17 / 250), (272001, 272001 / 2000000)] $ \(count, expected) -> do
           let u = observeBilling [BillingServiceTier "default"] (zeroUsage & #cacheWriteTokens .~ count & #totalTokens .~ count)
           (Cache.cacheCost (Just CacheRetentionLong) m u).usd @?= expected,
+      testCase "GPT-6.2 Standard cache duration rates use the full input tier" $
+        forM_ [(Models.openai_gpt_6_2_astra, 8, 40, 0.4, 10, 20), (Models.openai_gpt_6_2_sol, 2, 10, 0.1, 2.5, 5)] $ \(m, input, output, readRate, shortRate, longRate) ->
+          forM_ [(CacheRetentionShort, shortRate), (CacheRetentionLong, longRate)] $ \(duration, writeRate) ->
+            forM_ [(272000, 1, 1), (272001, 2, 1.5)] $ \(totalInput, inputFactor, outputFactor) -> do
+              let payload = object ["input_tokens" .= (totalInput :: Int), "output_tokens" .= (100 :: Int), "input_tokens_details" .= object ["cached_tokens" .= (1000 :: Int), "cache_write_tokens" .= (2000 :: Int)]]
+              normalized <- maybe (assertFailure "missing usage") pure (Billing.readUsage Billing.ResponsesUsage payload)
+              let u = observeBilling [BillingServiceTier "default"] normalized
+                  bill = Cache.cacheCost (Just duration) m u
+              (u.inputTokens, u.cacheReadTokens, u.cacheWriteTokens, u.totalTokens) @?= (fromIntegral totalInput - 3000, 1000, 2000, fromIntegral totalInput + 100)
+              bill.breakdown
+                @?= CostBreakdown
+                  (fromIntegral (totalInput - 3000) * input * inputFactor / 1000000)
+                  (100 * output * outputFactor / 1000000)
+                  (1000 * readRate * inputFactor / 1000000)
+                  (2000 * writeRate * inputFactor / 1000000)
+              bill.basis.estimateReasons @?= Set.empty,
       testCase "Responses preserves exactly one identical prefix across fresh questions" $ do
         a <- mapped (systemUser "private prefix" "first") short
         b <- mapped (systemUser "private prefix" "second") short

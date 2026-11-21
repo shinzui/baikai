@@ -428,6 +428,58 @@
       "enabled": true
     },
     {
+      "id": "gpt-6.2-astra",
+      "name": "GPT-6.2 Astra",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 8.0,
+        "output": 40.0,
+        "cacheRead": 0.4,
+        "cacheWrite": 10.0
+      },
+      "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
+      "api": "openai-responses",
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 16.0, "output": 60.0, "cacheRead": 0.8, "cacheWrite": 20.0}, "longCacheWriteCost": 40.0}], "longCacheWriteCost": 20.0},
+      "compat": {
+        "kind": "openai-responses",
+        "supportsSamplingParameters": false,
+        "supportsLongCacheRetention": true,
+        "supportsPromptCacheOptions": true,
+        "systemPromptInInput": true,
+        "nativeCachePolicy": {"contents":[true,true],"tag":"NativeCacheModern"},
+        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+      },
+      "enabled": true
+    },
+    {
+      "id": "gpt-6.2-sol",
+      "name": "GPT-6.2 Sol",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 2.0,
+        "output": 10.0,
+        "cacheRead": 0.1,
+        "cacheWrite": 2.5
+      },
+      "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
+      "api": "openai-responses",
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 4.0, "output": 15.0, "cacheRead": 0.2, "cacheWrite": 5.0}, "longCacheWriteCost": 10.0}], "longCacheWriteCost": 5.0},
+      "compat": {
+        "kind": "openai-responses",
+        "supportsSamplingParameters": false,
+        "supportsLongCacheRetention": true,
+        "supportsPromptCacheOptions": true,
+        "systemPromptInInput": true,
+        "nativeCachePolicy": {"contents":[true,true],"tag":"NativeCacheModern"},
+        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+      },
+      "enabled": true
+    },
+    {
       "id": "o1",
       "name": "o1",
       "reasoning": true,

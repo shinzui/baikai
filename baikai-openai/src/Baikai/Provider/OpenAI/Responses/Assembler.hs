@@ -18,7 +18,7 @@ where
 
 import Baikai.Api (Api (OpenAIResponses))
 import Baikai.Content qualified as C
-import Baikai.Provider.OpenAI.Responses.Request (validateReplayItems)
+import Baikai.Provider.OpenAI.Responses.Request (replayableOutputItem, validateReplayItems)
 import Baikai.StopReason (StopReason (..))
 import Baikai.Stream.Event qualified as E
 import Control.Monad (foldM, unless)
@@ -266,8 +266,15 @@ itemContent m final item =
   let txt = T.concat (IM.elems item.parts)
    in case item.kind of
         "reasoning" -> C.AssistantThinking (C.ThinkingContent txt Nothing False (fmap (C.ThinkingReplay OpenAIResponses m . V.singleton) item.snapshot))
-        "function_call" -> C.AssistantToolCall (C.ToolCall item.callId item.functionName (if final && completedStatus item.snapshot then C.toolArgumentsFromText txt else String txt))
-        _ -> C.AssistantText (C.TextContent txt)
+        "function_call" -> withReplay (C.AssistantToolCall (C.ToolCall item.callId item.functionName (if final && completedStatus item.snapshot then C.toolArgumentsFromText txt else String txt)))
+        _ -> withReplay (C.AssistantText (C.TextContent txt))
+  where
+    withReplay block
+      | final,
+        Just raw <- item.snapshot,
+        replayableOutputItem block raw =
+          C.withOutputItemReplay (C.OutputItemReplay OpenAIResponses m raw) block
+      | otherwise = block
 
 completedStatus :: Maybe Value -> Bool
 completedStatus (Just (Object o)) = case KM.lookup "status" o of

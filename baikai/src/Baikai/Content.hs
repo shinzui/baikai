@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Typed content blocks for user, assistant, and tool-result messages.
 --
@@ -21,12 +22,15 @@ module Baikai.Content
     canonicalDataText,
     ThinkingContent (..),
     ThinkingReplay (..),
+    OutputItemReplay (..),
     ToolCall (..),
     ImageContent (..),
 
     -- * Per-role block sums
     UserContent (..),
-    AssistantContent (..),
+    AssistantContent (AssistantText, AssistantThinking, AssistantToolCall, AssistantData),
+    outputItemReplay,
+    withOutputItemReplay,
     ToolResultContent (..),
 
     -- * Tool-call arguments
@@ -144,6 +148,25 @@ instance FromJSON ThinkingReplay where
 instance ToJSON ThinkingReplay where
   toJSON = genericToJSON snakeOptions
 
+-- | A complete provider text or function-call item paired with its public
+-- projection. The consuming adapter validates the scope and the projection
+-- before replay. Persist the original item without exposing it through Show.
+data OutputItemReplay = OutputItemReplay
+  { outputReplayApi :: !Api,
+    outputReplayModel :: !Text,
+    outputReplayItem :: !Value
+  }
+  deriving stock (Eq, Generic)
+
+instance Show OutputItemReplay where
+  show _ = "OutputItemReplay <opaque>"
+
+instance FromJSON OutputItemReplay where
+  parseJSON = genericParseJSON snakeOptions
+
+instance ToJSON OutputItemReplay where
+  toJSON = genericToJSON snakeOptions
+
 -- | A model-issued tool invocation. @id_@ has a trailing underscore in
 -- Haskell to dodge a clash with @Prelude.id@; the JSON encoding strips
 -- it back to @id@.
@@ -208,11 +231,47 @@ data UserContent
 
 -- | What a provider can put into a 'Baikai.Message.AssistantMessage'.
 data AssistantContent
-  = AssistantText !TextContent
+  = AssistantTextBlock !TextContent !(Maybe OutputItemReplay)
   | AssistantThinking !ThinkingContent
-  | AssistantToolCall !ToolCall
+  | AssistantToolCallBlock !ToolCall !(Maybe OutputItemReplay)
   | AssistantData !DataContent
-  deriving stock (Eq, Show, Generic)
+  deriving stock (Eq, Generic)
+
+pattern AssistantText :: TextContent -> AssistantContent
+pattern AssistantText t <- AssistantTextBlock t _
+  where
+    AssistantText t = AssistantTextBlock t Nothing
+
+pattern AssistantToolCall :: ToolCall -> AssistantContent
+pattern AssistantToolCall call <- AssistantToolCallBlock call _
+  where
+    AssistantToolCall call = AssistantToolCallBlock call Nothing
+
+{-# COMPLETE AssistantText, AssistantThinking, AssistantToolCall, AssistantData #-}
+
+instance Show AssistantContent where
+  showsPrec p = \case
+    AssistantText t -> field "AssistantText" t
+    AssistantThinking t -> field "AssistantThinking" t
+    AssistantToolCall call -> field "AssistantToolCall" call
+    AssistantData d -> field "AssistantData" d
+    where
+      field :: (Show a) => String -> a -> ShowS
+      field label x = showParen (p > 10) (showString label . showChar ' ' . showsPrec 11 x)
+
+outputItemReplay :: AssistantContent -> Maybe OutputItemReplay
+outputItemReplay = \case
+  AssistantTextBlock _ state -> state
+  AssistantToolCallBlock _ state -> state
+  _ -> Nothing
+
+-- | Attach an original output item to its text or tool projection. Thinking
+-- uses its own continuation state, and structured data has no output item.
+withOutputItemReplay :: OutputItemReplay -> AssistantContent -> AssistantContent
+withOutputItemReplay state = \case
+  AssistantText t -> AssistantTextBlock t (Just state)
+  AssistantToolCall call -> AssistantToolCallBlock call (Just state)
+  block -> block
 
 -- | What a caller can put into a 'Baikai.Message.ToolResultMessage'.
 data ToolResultContent
@@ -309,10 +368,26 @@ instance ToJSON UserContent where
   toJSON = genericToJSON contentSumOptions
 
 instance FromJSON AssistantContent where
-  parseJSON = genericParseJSON contentSumOptions
+  parseJSON = withObject "AssistantContent" $ \o -> do
+    kind <- o .: "type"
+    case (kind :: Text) of
+      "assistant_text" -> AssistantTextBlock <$> o .: "data" <*> o .:? "replay_state"
+      "assistant_thinking" -> AssistantThinking <$> o .: "data"
+      "assistant_tool_call" -> AssistantToolCallBlock <$> o .: "data" <*> o .:? "replay_state"
+      "assistant_data" -> AssistantData <$> o .: "data"
+      _ -> fail "Unknown assistant content type"
 
 instance ToJSON AssistantContent where
-  toJSON = genericToJSON contentSumOptions
+  toJSON block =
+    object $
+      fields block <> maybe [] (\state -> ["replay_state" .= state]) (outputItemReplay block)
+    where
+      fields = \case
+        AssistantText t -> tagged "assistant_text" t
+        AssistantThinking t -> tagged "assistant_thinking" t
+        AssistantToolCall call -> tagged "assistant_tool_call" call
+        AssistantData d -> tagged "assistant_data" d
+      tagged kind payload = ["type" .= (kind :: Text), "data" .= payload]
 
 instance FromJSON ToolResultContent where
   parseJSON = genericParseJSON contentSumOptions

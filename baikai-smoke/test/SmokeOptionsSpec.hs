@@ -1,5 +1,7 @@
 module Main (main) where
 
+import Baikai.Api (Api (OpenAIResponses))
+import Baikai.Model (api, modelId)
 import Control.Monad (forM_, unless)
 import Data.List (nub)
 import SmokeOptions
@@ -12,13 +14,19 @@ main = do
   check "required ordinary mode" (parseSmokeOptions ["--require-keys"] == Right (SmokeOptions False True Nothing))
   check "reject unknown option" (case parseSmokeOptions ["--new-model"] of Left _ -> True; _ -> False)
   check "named case" (parseSmokeOptions ["--new-models", "--case", "astra-tools"] == Right (SmokeOptions True False (Just "astra-tools")))
-  check "eighteen unique cases" (length caseNames == 18 && nub caseNames == caseNames)
+  check "twenty-two unique cases" (length caseNames == 22 && nub caseNames == caseNames)
   check "Terra cases are available" (all (`elem` caseNames) ["terra61-text", "terra61-tools"])
   forM_ caseNames $ \name -> do
     check (name <> " selected alone") (parseSmokeOptions ["--new-models", "--require-keys", "--case", name] == Right (SmokeOptions True True (Just name)))
     check (name <> " excludes other cases") (selectCaseNames (Just name) == [name])
     let expected = if name `elem` ["fable-text", "fable-tools", "opus55-text", "opus55-tools", "sonnet55-text", "sonnet55-tools", "haiku55-text", "haiku55-tools"] then Just "anthropic" else Just "openai"
     check (name <> " credential group") (caseProvider name == expected)
+  forM_ [("astra62-text", "gpt-6.2-astra", False), ("astra62-tools", "gpt-6.2-astra", True), ("sol62-text", "gpt-6.2-sol", False), ("sol62-tools", "gpt-6.2-sol", True)] $ \(label, ident, tools) ->
+    case selectModelCases (Just label) of
+      [(selected, m, keys, toolsCase)] ->
+        check (label <> " routes to its exact generated Responses model and credential group") $
+          (selected, modelId m, api m, keys, toolsCase) == (label, ident, OpenAIResponses, ["OPENAI_KEY", "OPENAI_API_KEY"], tools)
+      _ -> fail (label <> " did not select exactly one case")
   check "case needs focused mode" (case parseSmokeOptions ["--case", "astra-tools"] of Left _ -> True; _ -> False)
   check "unknown case rejected" (case parseSmokeOptions ["--new-models", "--case", "typo"] of Left _ -> True; _ -> False)
   let openaiKeys = ["OPENAI_KEY", "OPENAI_API_KEY"]

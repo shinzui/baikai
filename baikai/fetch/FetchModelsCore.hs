@@ -282,6 +282,8 @@ openaiInclude =
           ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
           ("gpt-6.1-sol", Just (CatalogResponsesCompat gpt61ResponsesFacts)),
           ("gpt-6.1-terra", Just (CatalogResponsesCompat terraResponsesFacts)),
+          ("gpt-6.2-astra", Just (CatalogResponsesCompat gpt62ResponsesFacts)),
+          ("gpt-6.2-sol", Just (CatalogResponsesCompat gpt62ResponsesFacts)),
           ("gpt-6-sol", Just (CatalogResponsesCompat gpt6ResponsesFacts)),
           ("gpt-6-luna", Just (CatalogResponsesCompat lunaResponsesFacts))
         ]
@@ -344,6 +346,11 @@ openaiInclude =
     -- https://developers.openai.com/api/docs/models/gpt-6.1-terra
     -- https://developers.openai.com/api/docs/guides/prompt-caching
     terraResponsesFacts = gpt6ResponsesFacts & #nativeCachePolicy .~ Just (NativeCacheModern True True) & #supportsLongCacheRetention .~ True
+    -- 2026-11-20: GPT-6.2 puts reusable developer instructions in input
+    -- and supports both modern cache durations.
+    -- https://developers.openai.com/api/docs/guides/keep-prefix-unchanged
+    -- https://developers.openai.com/api/docs/guides/prompt-caching
+    gpt62ResponsesFacts = astraResponsesFacts & #nativeCachePolicy .~ Just (NativeCacheModern True True) & #supportsLongCacheRetention .~ True & #systemPromptInInput .~ True
     -- 2026-09-07: native tools require Responses; only modern 30m cache TTL.
     -- https://developers.openai.com/api/docs/guides/latest-model
     astraResponsesFacts =
@@ -729,6 +736,12 @@ pricingPolicies =
     [ (("anthropic", "claude-opus-5-5"), Model.PricingPolicy [] (Just 8)),
       (("anthropic", "claude-opus-5"), Model.PricingPolicy [] (Just 10)),
       (("anthropic", "claude-opus-4-8"), Model.PricingPolicy [] (Just 10)),
+      -- 2026-11-20: Standard rates double for input and cache and increase
+      -- 1.5x for output when input exceeds 272K.
+      -- https://developers.openai.com/api/docs/models/gpt-6.2-astra
+      -- https://developers.openai.com/api/docs/models/gpt-6.2-sol
+      (("openai", "gpt-6.2-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 16 60 0.8 20) (Just 40)] (Just 20)),
+      (("openai", "gpt-6.2-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5) (Just 10)] (Just 5)),
       (("openai", "gpt-6-astra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 20 75 2 25) Nothing] Nothing),
       (("anthropic", "claude-sonnet-5-5"), Model.PricingPolicy [] (Just 4)),
       (("openai", "gpt-6.1-sol"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 15 0.2 5) Nothing] Nothing),
@@ -810,11 +823,13 @@ renderModelCompat (Just (CatalogResponsesCompat facts)) =
     "        \"kind\": \"openai-responses\",",
     "        \"supportsSamplingParameters\": " <> jsonBool (facts ^. #supportsSamplingParameters) <> ",",
     "        \"supportsLongCacheRetention\": " <> jsonBool (facts ^. #supportsLongCacheRetention) <> ",",
-    "        \"supportsPromptCacheOptions\": " <> jsonBool (facts ^. #supportsPromptCacheOptions) <> ",",
-    "        \"nativeCachePolicy\": " <> maybe "null" (decodeUtf8 . LBS.toStrict . encode) (facts ^. #nativeCachePolicy) <> ",",
-    "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
-    "      },"
+    "        \"supportsPromptCacheOptions\": " <> jsonBool (facts ^. #supportsPromptCacheOptions) <> ","
   ]
+    <> ["        \"systemPromptInInput\": true," | facts ^. #systemPromptInInput]
+    <> [ "        \"nativeCachePolicy\": " <> maybe "null" (decodeUtf8 . LBS.toStrict . encode) (facts ^. #nativeCachePolicy) <> ",",
+         "        \"supportedReasoningEfforts\": " <> maybe "null" (\xs -> "[" <> Text.intercalate ", " (map (jsonString . renderThinkingLevel) xs) <> "]") (facts ^. #supportedReasoningEfforts),
+         "      },"
+       ]
 
 -- | The catalog dialect spells the thinking style as a word, as every
 -- other catalog enum does. The derived JSON instance on

@@ -52,30 +52,29 @@ needs to continue reasoning and reuse the prefix.
   Each projected third request lost one reasoning item with `prefix_mismatch`.
   Both original-item branches retained all submitted reasoning.
   See [baseline results](../validation/plan-104/baseline.md).
-- [ ] Preserve the system prefix and required output item identities through
-  the registered Responses adapter. Pass offline request, replay, terminal,
-  evidence, storage and legacy catalog checks.
-- [ ] Curate both bindings with their standard prices and prove the generated
-  Responses route through named text and function-tool smoke cases.
+- [x] On 2026-11-20, preserved the system prefix and complete output items
+  through Responses. Offline persistence and wire checks passed. Both models
+  matched the original-item branches with zero removals using both default
+  cache options and marked 30-minute retention.
+  [Corrected replay results](../validation/plan-104/replay.md)
+- [x] On 2026-11-20, generated both Responses bindings with Standard rates.
+  All four named cases passed with the expected models and endpoint. Each
+  tool case used two requests, dispatched once and included replayable reasoning.
+  [Smoke results](../validation/plan-104/smoke.md)
 
 
 ## Surprises & Discoveries
 
-On 2026-11-20 the audit found that an ordinary request with
-`Context.systemPrompt = Just prompt` and default cache options serializes the
-prompt as top-level `instructions`. GPT-6.2 places that field after input and
-outside cache breakpoints. The existing move to a leading developer message
-only runs when a cache breakpoint is requested.
+The 2026-11-20 audit found that the original adapter used top-level
+`instructions` for a default-cache request with a system prompt. GPT-6.2
+places this field after input, outside cache breakpoints. Only a request
+for an explicit cache breakpoint originally moved the prompt into input.
 
-The adapter already replays whole encrypted reasoning items in item order.
-It projects a completed function call to its `call_id`, name and parsed
-arguments, then reconstructs the outbound item without its original item ID.
-It also projects assistant message output to text. OpenAI's migration guide
-calls for passing prior output items back in order when using stateless history.
-Whether GPT-6.2 accepts the existing reconstruction and retains its reasoning
-under the prefix checks needs a live check. The migration guide does not specify
-an HTTP failure for this projection.
-
+The original adapter retained encrypted reasoning in item order and projected
+completed messages and function calls to their visible Baikai content. This
+discarded the message phase, content part boundaries and original item IDs.
+OpenAI's migration guide calls for passing prior output items back in order
+when using stateless history.
 
 The live probe needed a reasoning-intensive synthetic prompt. Both models
 first emitted only a message and a call at medium effort. At high effort
@@ -91,12 +90,29 @@ item. The visible answer could succeed even when a reasoning item was removed.
   placement and stateless tool replay are verified. Both models require
   Responses for tool calling, and the same adapter and catalog policy will
   cover both.
+- On 2026-11-20, attach original output items to their text and tool-call
+  blocks. The existing constructors and visible projections still work.
+  The optional persisted field lets Responses verify the block's scope and
+  content before forwarding the original item. The decision also keeps the
+  item available after a response JSON round trip.
 
 
 ## Outcomes & Retrospective
 
-The baseline comparison reproduced reasoning removal on both models. Adapter
-correction and catalog acceptance are in progress.
+GPT-6.2 Astra and Sol use the Responses adapter for streamed text, strict JSON
+schema output and ordinary function tools. Generated catalog checks pinned both
+cache durations and the exclusive 272,000-token tier. The core suite passed
+858 tests, the OpenAI suite passed 349, and the Claude suite passed 475.
+The doc-shapes and smoke-options suites passed. The fetch candidate contained upstream catalog formatting
+changes. The checked-in update copied only the two verified entries, and
+regeneration added just those two bindings.
+
+The live comparison established that a successful tool loop can still lose
+reasoning when a prior message or function call changes on the wire. The
+third-request comparison exercised reasoning produced after that prefix.
+[Baseline results](../validation/plan-104/baseline.md)
+[Corrected replay results](../validation/plan-104/replay.md)
+[Smoke results](../validation/plan-104/smoke.md)
 
 
 ## Context and Orientation
@@ -235,7 +251,8 @@ unsupported locally. [Astra rates](https://developers.openai.com/api/docs/models
 
 Update `baikai-smoke/test/NewModelsSmoke.hs`, `SmokeOptions.hs` and
 `SmokeOptionsSpec.hs` under the same test directory with the case names below.
-The runner zips model records with names and filters by `caseProvider`.
+Associate each selector with its generated model and tool-or-text case in
+`SmokeOptions.hs` so the runner and offline tests use the same definitions.
 Verify each new selector resolves to exactly one expected model, case kind and
 OpenAI credential group. Fail a named run that selects zero cases. Give both
 new tool cases a stable nonempty system prompt. Use each new text case to
@@ -260,8 +277,12 @@ direnv exec . env BAIKAI_PLAN104_PROBE=1 cabal test baikai-openai:baikai-openai-
 ```
 
 Expect one executed probe with separate results for each branch. Repeat with
-`plan104-probe-sol` and save the content-free summaries. Once the model cases and
-compatibility tests exist, build and verify the catalog and the adapter with these commands.
+`plan104-probe-sol` and save the content-free summaries. The baseline probe
+in commit `2847120` uses the marked-prefix path. The corrected probe runs with
+default cache options. Set `BAIKAI_PLAN104_PROBE_CACHE=marked` along with
+`BAIKAI_PLAN104_PROBE=1` to repeat it with the explicit 30-minute breakpoint.
+Once the model cases and compatibility tests exist, build and verify the
+catalog and the adapter with these commands.
 
 ```bash
 candidate_dir=$(mktemp -d "${TMPDIR:-/tmp}/baikai-models.XXXXXX")
@@ -340,3 +361,9 @@ probe exposes a new dependency requirement.
 Revision (2026-11-20). The review added a controlled comparison with provider
 removal diagnostics, a persisted multi-round wire check and model-specific
 smoke assertions so successful requests can demonstrate each promised behavior.
+
+Revision (2026-11-20). Implementation preserved complete text and function
+items after the baseline confirmed the prefix change. The smoke selectors now
+share their model mapping with the runner, and the GPT-6.2 tool cases use high
+effort and a reasoning-intensive prompt to verify continuation on the generated
+bindings.

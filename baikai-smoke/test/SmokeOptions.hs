@@ -1,4 +1,8 @@
-module SmokeOptions (SmokeOptions (..), parseSmokeOptions, missingKeys, keyPresent, caseNames, caseProvider, selectCaseNames, cacheCaseNames, isCacheCase) where
+module SmokeOptions (SmokeOptions (..), parseSmokeOptions, missingKeys, keyPresent, caseNames, caseProvider, selectCaseNames, selectModelCases, keysFor, cacheCaseNames, isCacheCase) where
+
+import Baikai.Model (Model, provider)
+import Baikai.Models.Generated qualified as Models
+import Data.Text qualified as Text
 
 data SmokeOptions = SmokeOptions
   { newModels :: Bool,
@@ -22,18 +26,51 @@ parseSmokeOptions = go (SmokeOptions False False Nothing)
       | otherwise = Left ("unknown case; choose one of " <> show caseNames)
     go _ (arg : _) = Left ("unknown smoke option: " <> arg)
 
+-- Keep each selector beside the model record used by the live runner.
+modelCases :: [(String, Model, Bool)]
+modelCases =
+  [ (stem <> suffix, model, tools)
+  | (stem, model) <-
+      [ ("astra", Models.openai_gpt_6_astra),
+        ("fable", Models.anthropic_claude_fable_5_1),
+        ("sol", Models.openai_gpt_6_sol),
+        ("luna", Models.openai_gpt_6_luna),
+        ("opus55", Models.anthropic_claude_opus_5_5),
+        ("sol61", Models.openai_gpt_6_1_sol),
+        ("sonnet55", Models.anthropic_claude_sonnet_5_5),
+        ("haiku55", Models.anthropic_claude_haiku_5_5),
+        ("terra61", Models.openai_gpt_6_1_terra),
+        ("astra62", Models.openai_gpt_6_2_astra),
+        ("sol62", Models.openai_gpt_6_2_sol)
+      ],
+    (suffix, tools) <- [("-text", False), ("-tools", True)]
+  ]
+
 caseNames :: [String]
-caseNames = ["astra-text", "astra-tools", "fable-text", "fable-tools", "sol-text", "sol-tools", "luna-text", "luna-tools", "opus55-text", "opus55-tools", "sol61-text", "sol61-tools", "sonnet55-text", "sonnet55-tools", "haiku55-text", "haiku55-tools", "terra61-text", "terra61-tools"]
+caseNames = [name | (name, _, _) <- modelCases]
 
 selectCaseNames :: Maybe String -> [String]
-selectCaseNames selected = filter (\name -> maybe True (== name) selected) caseNames
+selectCaseNames selected = filter (matches selected) caseNames
+
+selectModelCases :: Maybe String -> [(String, Model, [String], Bool)]
+selectModelCases selected =
+  [ (name, model, keysFor (Text.unpack (provider model)), tools)
+  | (name, model, tools) <- modelCases,
+    matches selected name
+  ]
+
+matches :: Maybe String -> String -> Bool
+matches selected name = maybe True (== name) selected
 
 caseProvider :: String -> Maybe String
 caseProvider name
   | isCacheCase name = Just "openai"
-  | name `elem` ["astra-text", "astra-tools", "sol-text", "sol-tools", "luna-text", "luna-tools", "sol61-text", "sol61-tools", "terra61-text", "terra61-tools"] = Just "openai"
-  | name `elem` ["fable-text", "fable-tools", "opus55-text", "opus55-tools", "sonnet55-text", "sonnet55-tools", "haiku55-text", "haiku55-tools"] = Just "anthropic"
-  | otherwise = Nothing
+  | otherwise = lookup name [(key, Text.unpack (provider model)) | (key, model, _) <- modelCases]
+
+keysFor :: String -> [String]
+keysFor "openai" = ["OPENAI_KEY", "OPENAI_API_KEY"]
+keysFor "anthropic" = ["ANTHROPIC_KEY", "ANTHROPIC_API_KEY"]
+keysFor _ = []
 
 -- Empty values cannot authenticate. Keep this pure so missing-key tests never
 -- consult the process environment or expose credential values.

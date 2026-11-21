@@ -68,3 +68,24 @@ minimum item contract as the next-request mapper. A completed response missing
 required continuation is an error, rather than a successful response that the
 next turn cannot replay. Output item IDs and function `call_id` values must each
 be unique across their respective output items.
+
+## Preserve the items that precede reasoning (2026-11-20)
+
+Responses can drop a reasoning item if an earlier output item changes on
+replay. [Plan 104](../plans/104-preserve-responses-conversation-prefixes-and-replay-for-gpt-6-2-astra-and-sol.md)
+verified this for GPT-6.2 Astra and Sol.
+
+A completed Responses text or function block carries its original item
+alongside its existing public projection. The item travels with that block
+through saved histories. It preserves the message phase and content parts,
+the output item ID and the original argument string wherever those fields
+occur. The adapter verifies the replay API, originating model and consistency
+with visible text or the parsed tool invocation before dispatch. Histories
+saved without this field use the existing projections. Response commitments
+include the stored item when present.
+
+The catalog controls whether a model receives a reusable system prompt as
+the first developer item. An explicit cache marker can decorate that item.
+Keep earlier entries and request configuration stable across continuations
+so OpenAI can match the prefix.
+[OpenAI prefix rules](https://developers.openai.com/api/docs/guides/keep-prefix-unchanged)

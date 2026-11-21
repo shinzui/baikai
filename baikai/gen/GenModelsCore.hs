@@ -130,7 +130,8 @@ parseResponsesCompat o = do
   long <- o .:? "supportsLongCacheRetention" .!= d.supportsLongCacheRetention
   native <- o .:? "nativeCachePolicy"
   modern <- o .:? "supportsPromptCacheOptions" .!= d.supportsPromptCacheOptions
-  pure d {nativeCachePolicy = native, supportedReasoningEfforts = efforts, supportsSamplingParameters = sampling, supportsLongCacheRetention = long, supportsPromptCacheOptions = modern}
+  prefix <- o .:? "systemPromptInInput" .!= d.systemPromptInInput
+  pure d {systemPromptInInput = prefix, nativeCachePolicy = native, supportedReasoningEfforts = efforts, supportsSamplingParameters = sampling, supportsLongCacheRetention = long, supportsPromptCacheOptions = modern}
 
 parseOpenAICompat :: Aeson.Object -> Parser OpenAICompletionsCompat
 parseOpenAICompat o = do
@@ -693,9 +694,10 @@ renderCompat = \case
       "              supportsSamplingParameters = " <> renderBool c.supportsSamplingParameters <> ",",
       "              supportsLongCacheRetention = " <> renderBool c.supportsLongCacheRetention <> ",",
       "              supportsPromptCacheOptions = " <> renderBool c.supportsPromptCacheOptions <> ",",
-      "              nativeCachePolicy = " <> renderNativeCache c.nativeCachePolicy,
-      "            }"
+      "              nativeCachePolicy = " <> renderNativeCache c.nativeCachePolicy <> if c.systemPromptInInput then "," else ""
     ]
+      <> ["              systemPromptInInput = True" | c.systemPromptInInput]
+      <> ["            }"]
   CatalogCompatAnthropic c ->
     [ "      compat =",
       "        CompatAnthropicMessages",
