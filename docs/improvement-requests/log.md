@@ -1,5 +1,12 @@
 # Bundle Update Log
 
+## 2026-11-21
+* **Addition**: [IR-14](carry-caller-supplied-tool-policy-and-refusal-evidence-on-unattended-runs.md)
+  requests typed caller policy inputs (a Claude settings file, Codex hooks and rules) and
+  refusal evidence on unattended runs, so Seihou and Shikigami stop rendering vendor policy
+  flags and parsing refusal output themselves. Three provider behaviours it depends on are
+  unobserved and are probed by Seihou's plan 127.
+
 ## 2026-11-03
 * **Completion**: [IR-13](deliver-aborted-call-evidence-through-the-effectful-binding.md) is completed by plan 102 and the tagged Hackage releases baikai 0.10.1.0 and baikai-effectful 0.5.0.0, including Haddock, isolated archive tests and a consumer resolving both from Hackage. Downstream adoption remains separate.
 * **Addition**: [IR-13](deliver-aborted-call-evidence-through-the-effectful-binding.md)
