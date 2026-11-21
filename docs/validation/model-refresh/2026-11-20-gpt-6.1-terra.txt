@@ -1,0 +1,4 @@
+[baikai-smoke] gpt-6.1-terra text: passed (ok)
+Test suite baikai-smoke: PASS
+[baikai-smoke] gpt-6.1-terra tools: passed (ok)
+Test suite baikai-smoke: PASS

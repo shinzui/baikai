@@ -89,7 +89,7 @@ anthropic_claude_fable_5 =
             cacheWriteCost = 25 % 2
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (20 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -163,7 +163,7 @@ anthropic_claude_haiku_4_5 =
             cacheWriteCost = 5 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (2 % 1))),
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
@@ -237,7 +237,7 @@ anthropic_claude_opus_4_5 =
             cacheWriteCost = 25 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (10 % 1))),
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
@@ -274,7 +274,7 @@ anthropic_claude_opus_4_6 =
             cacheWriteCost = 25 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (10 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -311,7 +311,7 @@ anthropic_claude_opus_4_7 =
             cacheWriteCost = 25 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (10 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -483,7 +483,7 @@ anthropic_claude_sonnet_4_5 =
             cacheWriteCost = 15 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (6 % 1))),
       contextWindow = 200000,
       maxOutputTokens = 64000,
       headers = Map.empty,
@@ -520,7 +520,7 @@ anthropic_claude_sonnet_4_6 =
             cacheWriteCost = 15 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (6 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -557,7 +557,7 @@ anthropic_claude_sonnet_5 =
             cacheWriteCost = 5 % 2
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [] (Just (4 % 1))),
       contextWindow = 1000000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1037,7 +1037,7 @@ openai_gpt_5_6 =
             cacheWriteCost = 5 % 1
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (8 % 1) (30 % 1) (4 % 5) (10 % 1)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1077,7 +1077,7 @@ openai_gpt_5_6_luna =
             cacheWriteCost = 1 % 4
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (2 % 5) (9 % 5) (1 % 25) (1 % 2)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1103,7 +1103,7 @@ openai_gpt_5_6_sol =
             cacheWriteCost = 5 % 1
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (8 % 1) (30 % 1) (4 % 5) (10 % 1)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1129,7 +1129,7 @@ openai_gpt_5_6_terra =
             cacheWriteCost = 5 % 2
           },
       fastModeCost = Nothing,
-      pricingPolicy = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (4 % 1) (18 % 1) (2 % 5) (5 % 1)) Nothing] Nothing),
       contextWindow = 1050000,
       maxOutputTokens = 128000,
       headers = Map.empty,
@@ -1247,6 +1247,40 @@ openai_gpt_6_1_sol =
               supportsLongCacheRetention = False,
               supportsPromptCacheOptions = True,
               nativeCachePolicy = Just (NativeCacheModern False True)
+            }
+    }
+
+openai_gpt_6_1_terra :: Model
+openai_gpt_6_1_terra =
+  emptyModel
+    { modelId = "gpt-6.1-terra",
+      name = "GPT-6.1 Terra",
+      api = OpenAIResponses,
+      provider = "openai",
+      baseUrl = "https://api.openai.com",
+      reasoning = True,
+      input = [InputText, InputImage],
+      outputKind = GenerativeOutput,
+      cost =
+        ModelCost
+          { inputCost = 1 % 1,
+            outputCost = 5 % 1,
+            cacheReadCost = 1 % 20,
+            cacheWriteCost = 5 % 4
+          },
+      fastModeCost = Nothing,
+      pricingPolicy = Just (PricingPolicy [InputPriceTier 272000 (ModelCost (2 % 1) (15 % 2) (1 % 10) (5 % 2)) (Just (5 % 1))] (Just (5 % 2))),
+      contextWindow = 1050000,
+      maxOutputTokens = 128000,
+      headers = Map.empty,
+      compat =
+        CompatOpenAIResponses
+          defaultOpenAIResponsesCompat
+            { supportedReasoningEfforts = Just [ThinkingNone, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax],
+              supportsSamplingParameters = False,
+              supportsLongCacheRetention = True,
+              supportsPromptCacheOptions = True,
+              nativeCachePolicy = Just (NativeCacheModern True True)
             }
     }
 
@@ -1654,6 +1688,7 @@ allModels =
     openai_gpt_5_mini,
     openai_gpt_5_nano,
     openai_gpt_6_1_sol,
+    openai_gpt_6_1_terra,
     openai_gpt_6_astra,
     openai_gpt_6_luna,
     openai_gpt_6_sol,

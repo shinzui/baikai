@@ -36,6 +36,7 @@ Models.deepseek_deepseek_reasoner
 Models.openai_gpt_5_5
 Models.openai_gpt_6_astra
 Models.openai_gpt_6_1_sol
+Models.openai_gpt_6_1_terra
 Models.openai_gpt_5_mini
 Models.openai_gpt_4o_mini
 Models.openai_o3
@@ -203,8 +204,8 @@ on 2026-09-30 and retires it on 2026-11-30, after which requests through
 to `anthropic_claude_sonnet_5_5`, which uses adaptive thinking, drops sampling
 options and rejects forced tool choice locally (see above).
 [Plan 89](../plans/89-carry-the-claude-sonnet-4-5-binding-through-its-retirement-without-silent-catalog-removal.md)
-proposes a deprecation warning and removal in a future release. The model
-remains available without a deprecation warning in baikai 0.8.0.0.
+proposes a compile-time deprecation warning and later removal. The current
+binding still compiles without a warning.
 
 Claude Mythos 5 and Mythos 5.1 are not in the catalog: Anthropic offers them only
 to approved [Project Glasswing](https://anthropic.com/glasswing) customers, and
@@ -240,8 +241,9 @@ separately (see below). It also corrected two shipped values:
   [Sonnet 4.5 page](https://platform.claude.com/docs/en/models/sonnet-4-5/overview)
   lists 200K.
 
-OpenAI's model list has no ID newer than GPT-6.1 Sol. The GPT-6 Luna Decisions API
-beta (2026-10-06) is a separate endpoint that baikai does not implement.
+At the October 10 refresh GPT-6.1 Sol was the newest OpenAI catalog entry.
+The GPT-6 Luna Decisions API beta (2026-10-06) uses a separate endpoint from
+the supported Responses route.
 
 [Claude Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview)
 (`claude-haiku-5-5`, released 2026-10-07) was added on 2026-10-10 as
@@ -276,6 +278,58 @@ valid only for the producing account and an unchanged conversation prefix, so
 replay them unchanged and keep history append-only. See the
 [migration guide](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).
 
+### November 20 catalog refresh
+
+`openai_gpt_6_1_terra` selects `OpenAIResponses` for function tools. It takes
+text and images, has a 1,050,000-token combined context, a 922,000-token input
+limit, and a 128,000-token output limit. The provider accepts reasoning off and
+low through max. Baikai omits sampling options and records the adjustment
+across all efforts for this binding. [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
+
+On 2026-11-20, the focused text and tool cases passed on `/v1/responses`.
+All three calls reported `gpt-6.1-terra` with standard token rates. The tool
+case used two calls and one dispatch. These calls returned no reasoning
+blocks and did not request extended cache retention.
+[Redacted smoke results](../validation/model-refresh/2026-11-20-gpt-6.1-terra.json)
+
+Terra's standard prices per million input, output, cache-read and 30-minute
+cache-write tokens are $1, $5, $0.05 and $1.25. The 12-hour write price is
+$2.50. Above 272,000 total input tokens, including reads and writes, the
+policy doubles input and cache rates and multiplies output by 1.5 for the
+whole request. Fast, Flex and Batch are separate service products. The
+Responses adapter uses the standard rate as an estimate when it observes an
+uncurated service tier. [OpenAI prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
+
+The refresh also adds the 272,000-token pricing tier for GPT-5.6 Sol and
+its `gpt-5.6` alias, GPT-5.6 Terra, and GPT-5.6 Luna. The Sol and alias rates
+reflect OpenAI's promotion through 2026-11-30. Messages estimates now use
+the published one-hour cache-write prices for Fable 5, Haiku 4.5, Opus 4.5
+through 4.7, and Sonnet 4.5, 4.6 and 5. [GPT-5.6 Sol pricing](https://developers.openai.com/api/docs/models/gpt-5.6-sol)
+[GPT-5.6 Terra pricing](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+[GPT-5.6 Luna pricing](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+[Claude pricing](https://platform.claude.com/docs/en/about-claude/pricing)
+
+GPT-6.2 Astra and Sol require Responses for tools. [Plan 104](../plans/104-preserve-responses-conversation-prefixes-and-replay-for-gpt-6-2-astra-and-sol.md)
+tracks catalog availability after the adapter preserves stable system prompts
+as leading developer messages and verifies stateless tool replay.
+[OpenAI migration guidance](https://developers.openai.com/api/docs/guides/latest-model)
+
+Claude Fable 5.2 uses Messages. [Plan 105](../plans/105-guard-unsupported-assistant-prefills-on-claude-messages-and-enable-fable-5-2.md)
+tracks catalog availability after the binding can reject a final assistant
+prefill locally. A prefill is a partial assistant answer placed at the end
+of the request for the model to complete. The shipped Fable 5.1 and Haiku 5.5
+bindings also let that request reach the API, which rejects it with HTTP 400.
+For ordinary tools, append the tool result and preserve the signed history.
+[Anthropic migration guidance](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)
+
+OpenAI shut down `gpt-4.1-nano`, `o1`, `o3-mini` and `o4-mini` on 2026-10-23.
+Their bindings compile and still appear in the catalog. Requests to the
+standard OpenAI API fail. OpenAI schedules `gpt-5`, `gpt-5-mini`, `gpt-5-nano`
+and `o3` for shutdown on 2026-12-11.
+[Plan 89](../plans/89-carry-the-claude-sonnet-4-5-binding-through-its-retirement-without-silent-catalog-removal.md)
+tracks compile-time warnings and compatibility through removal.
+[OpenAI deprecations](https://developers.openai.com/api/docs/deprecations)
+
 ### Focused compatibility checks
 
 Run the offline gate before making paid requests:
@@ -285,7 +339,7 @@ cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-claude:bai
 cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys'
 ```
 
-The focused command selects Astra, Sol, Luna, and GPT-6.1 Sol through
+The focused command selects Astra, Sol, Luna, GPT-6.1 Sol and GPT-6.1 Terra through
 Responses and Fable 5.1, Opus 5.5, Sonnet 5.5, and Haiku 5.5 through Messages. Each model gets one text case and a
 deterministic tool conversation,
 with low reasoning, 4096 output tokens per request, a 120-second request timeout,
@@ -299,7 +353,8 @@ To reproduce only a diagnosed failing case, append `--case` and one of
 `astra-text`, `astra-tools`, `fable-text`, `fable-tools`, `sol-text`,
 `sol-tools`, `luna-text`, `luna-tools`, `opus55-text`, `opus55-tools`,
 `sol61-text`, `sol61-tools`, `sonnet55-text`, `sonnet55-tools`, `haiku55-text`,
-or `haiku55-tools` inside `--test-options`. Only the selected provider's credentials are required. Preserve
+`haiku55-tools`, `terra61-text`, or `terra61-tools` inside `--test-options`.
+Only the selected provider's credentials are required. Preserve
 each run's output separately: rerunning a live case can incur another charge.
 Passing offline tests or a keyless skip does not establish live model access.
 An HTTP 401 or workspace-selection HTTP 400 occurs before model execution and
@@ -346,7 +401,7 @@ parameters — is a fact of the generation:
       "name": "Claude Sonnet 5",
       "reasoning": true,
       "input": ["text", "image"],
-      "cost": { "input": 3.0, "output": 15.0 },
+      "cost": { "input": 2.0, "output": 10.0 },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
       "compat": {
@@ -359,8 +414,9 @@ parameters — is a fact of the generation:
 ```
 
 `baikai-gen-models` **refuses** an `anthropic-messages` entry that arrives
-without one, rather than falling back to auto-detection. The OpenAI side
-needs no per-model block; `"compat": "auto"` covers every shipped host.
+without one. OpenAI models with endpoint-specific restrictions use a per-model
+`api` override alongside a `compat` block. Models without an override inherit
+the file-level API.
 
 The facts come from `anthropicInclude` in
 `baikai/fetch/FetchModelsCore.hs`, the one place a human vets an Anthropic

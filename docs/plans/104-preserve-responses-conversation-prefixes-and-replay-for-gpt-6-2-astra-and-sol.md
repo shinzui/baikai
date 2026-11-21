@@ -1,0 +1,242 @@
+---
+id: 104
+slug: preserve-responses-conversation-prefixes-and-replay-for-gpt-6-2-astra-and-sol
+title: "Preserve Responses conversation prefixes and replay for GPT-6.2 Astra and Sol"
+kind: exec-plan
+created_at: 2026-11-21T02:55:14Z
+intention: "intention_01m7y0dmj9e24sy65vggbvqpf6"
+provenance:
+  created_by:
+    model: "gpt-6.2-sol"
+    harness: "codex-cli"
+    at: 2026-11-21T02:55:14Z
+---
+
+# Preserve Responses conversation prefixes and replay for GPT-6.2 Astra and Sol
+
+This ExecPlan is a living document. The sections Progress, Surprises & Discoveries,
+Decision Log, and Outcomes & Retrospective must be kept up to date as work proceeds.
+If durable project context changes, update or create ADRs in docs/adr/ in the same change.
+Record friction met while implementing in the friction-log bundle as it occurs (see FRICTION.md).
+
+
+## Purpose / Big Picture
+
+Enable GPT-6.2 Astra and Sol for streamed text, structured output, and ordinary
+function tools through OpenAI Responses. A Baikai system prompt should stay at
+the head of the conversation on every turn. When a tool runs, the next request
+should carry the preceding response items and tool result in the form OpenAI
+needs to continue reasoning and reuse the prefix.
+
+
+## Progress
+
+- [ ] Confirm stateless replay against both GPT-6.2 models with a bounded
+  function-tool conversation. Record whether Baikai's existing projections
+  preserve reasoning and a reusable prefix, and capture the decisive wire facts.
+- [ ] Preserve the system prefix and required output item identities through
+  the registered Responses adapter. Pass offline request, replay, terminal,
+  evidence, storage and legacy catalog checks.
+- [ ] Curate both bindings with their standard prices and prove the generated
+  Responses route through named text and function-tool smoke cases.
+
+
+## Surprises & Discoveries
+
+On 2026-11-20 the audit found that an ordinary request with
+`Context.systemPrompt = Just prompt` and default cache options serializes the
+prompt as top-level `instructions`. GPT-6.2 places that field after input and
+outside cache breakpoints. The existing move to a leading developer message
+only runs when a cache breakpoint is requested.
+
+The adapter already replays whole encrypted reasoning items in item order.
+It projects a completed function call to its `call_id`, name and parsed
+arguments, then reconstructs the outbound item without its original item ID.
+It also projects assistant message output to text. OpenAI's migration guide
+calls for passing prior output items back in order when using stateless history.
+Whether GPT-6.2 accepts the existing reconstruction and retains its reasoning
+under the prefix checks needs a live check. The migration guide does not specify
+an HTTP failure for this projection.
+
+
+## Decision Log
+
+- On 2026-11-20, defer the generated GPT-6.2 bindings until stable system-prefix
+  placement and stateless tool replay are verified. Both models require
+  Responses for tool calling, and the same adapter and catalog policy will
+  cover both.
+
+
+## Outcomes & Retrospective
+
+The binding audit is complete. Implementation and live acceptance are pending.
+
+
+## Context and Orientation
+
+OpenAI released `gpt-6.2-astra` and `gpt-6.2-sol` on 2026-11-17. Both accept
+text and images, generate text, and support reasoning, function tools and
+structured output on Responses. Both publish a combined 1,050,000-token
+context, a 922,000-token input limit and a 128,000-token output limit. The
+existing catalog stores the combined and output limits. Set low through max
+(including xhigh) as the supported effort list. The model rejects none, and the
+migration guidance maps none and minimal to low. Omit temperature and top-p.
+Sources verified 2026-11-20. [Release notes](https://developers.openai.com/api/docs/changelog)
+[Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra)
+[Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+[Migration guide](https://developers.openai.com/api/docs/guides/latest-model#migration-quickstart)
+
+The `OpenAIResponses` tag in `baikai/src/Baikai/Api.hs` selects the registration
+in `baikai-openai/src/Baikai/Provider/OpenAI/Responses.hs` through
+`baikai/src/Baikai/Provider/Registry.hs`. The adapter sends `store=false` and
+requests `reasoning.encrypted_content`. Its request mapper is
+`baikai-openai/src/Baikai/Provider/OpenAI/Responses/Request.hs`. The assembler
+and stream modules beside it handle ordered SSE events, refusals, errors and
+incomplete output. `Baikai.Context.appendToolResult` appends the Baikai
+assistant message and tool result without changing the existing messages or the
+tool declarations. `baikai/src/Baikai/Content.hs` carries model-scoped reasoning
+items in `ThinkingReplay`; a tool result uses the call ID independently of the
+output item's ID. OpenAI documents that changes to previously sent prefixes,
+certain model changes, and changes to user or organization can drop reasoning.
+The adapter owns the conversation it produces itself. Callers rebuilding past
+turns need clear documentation of the provider's prefix rules.
+[Keep the prefix unchanged](https://developers.openai.com/api/docs/guides/keep-prefix-unchanged)
+
+[ADR 0009](../adr/0009-provider-capability-facts-live-in-the-generated-catalog-record.md)
+keeps endpoint restrictions and new generation facts in catalog records.
+[ADR 0019](../adr/0019-reasoning-continuation-is-scoped-to-its-provider-and-model.md)
+requires API/model-scoped, lossless opaque reasoning and protects legacy JSON.
+[ADR 0002](../adr/0002-requested-translated-observed-are-never-collapsed.md)
+keeps the requested effort, the outbound value and provider observations
+distinct. [ADR 0020](../adr/0020-pricing-policies-and-calculation-bases-are-explicit.md)
+uses a complete rate record for each context tier and records estimate reasons
+when billing facts are missing. This plan extends the existing Responses
+adapter from [plan 74](74-add-an-openai-responses-provider-with-tool-and-reasoning-replay.md)
+and uses the cache and usage contracts from
+[plan 101](101-cache-shared-openai-prompt-prefixes-with-catalog-gated-controls-and-truthful-accounting.md).
+
+
+## Plan of Work
+
+First, drive the public Responses worker with a test-only model record through
+a fixed two-turn function conversation. Use synthetic text, a stable system
+prompt and unchanged tools. Compare the replay Baikai builds with an ordered
+pass-through of the original output. Capture content-free evidence about
+terminal status, item kinds, item and call identity matches, encrypted reasoning
+presence, and reported cache counters. Probe a sufficiently long stable prefix
+to cross OpenAI's cache minimum when testing reads. Reuse the documented
+stateless request shape and record an unresolved result if credentials, access
+or response shape prevent a decisive observation.
+
+Next, give `OpenAIResponsesCompat` in `baikai/src/Baikai/Compat.hs` an explicit
+catalog flag or policy for putting a stable system prompt in the first developer
+item. Its JSON decoder and default record should preserve the existing behavior
+for callers with older catalog records. Teach the fetch renderer and
+`baikai/gen/GenModelsCore.hs` to carry it through to generated bindings. In
+`Responses/Request.hs`, make placement independent of whether a cache
+breakpoint is active and attach the marker to the same developer content part
+when requested. In `Responses/Assembler.hs` and `Responses/Request.hs`,
+preserve the output item identity, order and required wire fields established by
+the first milestone. If additional replay state must cross the public content
+boundary, define it in `baikai/src/Baikai/Content.hs` with API/model validation,
+backward-compatible JSON and redacted display. Annotate the evidence for the
+actual shaped prefix. Verify older reasoning items still replay through their
+existing paths. Test ordinary calls and malformed or cross-model continuation
+before dispatch, with at least one text-and-tool response and two consecutive
+tool rounds. A terminal refusal, incomplete call or provider error should keep
+its existing classification and leave any partial function call undispatched.
+
+Finally, add the two IDs to `openaiInclude` with explicit Responses compat and
+the corresponding per-model API override. For Astra the base rates per million
+input, output, cache-read and 30-minute cache-write tokens are
+$8, $40, $0.40 and $10. For Sol they are $2, $10, $0.10 and $2.50. The standard
+12-hour writes are $20 and $5 respectively. Above 272,000 total input tokens,
+including reads and writes, double input and cache rates and multiply output
+by 1.5 for the whole request. Use `pricingPolicies` in
+`baikai/fetch/FetchModelsCore.hs` and exercise both cache durations at and above
+the threshold. Use `OpenAI/Internal/Usage.hs` to check that writes and reads are
+subsets of input, missing counters remain unobserved, and usage duration
+counters can flag contradictions. Batch, Fast and Ultrafast remain separate
+service products priced as explicit standard-rate estimates when observed and
+unsupported locally. [Astra rates](https://developers.openai.com/api/docs/models/gpt-6.2-astra)
+[Sol rates](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+[Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
+
+Update `baikai-smoke/test/NewModelsSmoke.hs`, `SmokeOptions.hs` and
+`SmokeOptionsSpec.hs` under the same test directory with the case names below.
+Update `docs/user/models-and-providers.md` and `CHANGELOG.md` after the
+catalog, adapter and tests agree.
+
+
+## Concrete Steps
+
+Run from the repository root. Once the model cases and compatibility tests
+exist, build and verify the catalog and the adapter with these commands.
+
+```bash
+candidate_dir=$(mktemp -d "${TMPDIR:-/tmp}/baikai-models.XXXXXX")
+cabal run baikai-fetch-models -- --out-dir "$candidate_dir"
+diff -u baikai/data/models/openai.json "$candidate_dir/openai.json"
+```
+
+Review the candidate and copy the two verified entries into the OpenAI JSON.
+The diff should show both IDs selecting Responses with explicit compatibility
+and pricing, and leave other bindings intact. Then run:
+
+```bash
+cabal run baikai-gen-models
+cabal test baikai:baikai-test baikai-openai:baikai-openai-test baikai-smoke:doc-shapes baikai-smoke:smoke-options
+git diff --check
+```
+
+Run each needed paid case with the configured OpenAI credentials. Rerun only
+the selected failing case after diagnosis.
+
+```bash
+for case_name in astra62-text astra62-tools sol62-text sol62-tools; do
+  direnv exec . cabal test baikai-smoke:baikai-smoke \
+    --test-options="--new-models --require-keys --case $case_name"
+done
+```
+
+
+## Validation and Acceptance
+
+A no-cache request with a nonempty system prompt serializes the developer item
+first and omits top-level `instructions`; a cache-marked request keeps its
+marker on that same first item. The recorded wire shows the same prefix on
+both calls. Sampling is omitted with adjustment evidence. None and minimal
+become low with adjustment evidence and are refused under strict evidence.
+A streamed function call uses a matching call ID for its result, losslessly
+replays necessary output items in the original order and receives the expected
+synthetic answer on the next call. Usage tests show $10/$20 and $2.50/$5
+short-context short/long writes, the exclusive tier boundary and explicit
+missing usage. Live summaries identify the exact model, endpoint and cost
+basis. The tool cases show at least two calls and one dispatch. If no reasoning
+block arrives, run a reasoning-bearing selected case before closing replay
+acceptance. Save redacted readable output and `baikai.new-model-smoke/1` JSON
+under `docs/validation/plan-104/`. A skipped or uncredentialed case leaves
+the corresponding acceptance outstanding.
+
+
+## Idempotence and Recovery
+
+Keep probe models out of the committed catalog until the acceptance criteria
+are met. Regeneration uses the checked-in JSON and can be repeated. Save each
+live result separately, so retrying a failed account or protocol case keeps the
+evidence from successful paid calls.
+
+
+## Interfaces and Dependencies
+
+This plan owns the Responses-specific request and replay extension as well as
+its generated facts. A shared content or evidence change must preserve the
+existing Claude Messages, Chat Completions and persisted JSON contracts.
+Mori located the Responses types at
+`mori://MercuryTechnologies/openai/packages/openai`. Hackage listed 2.5.4 as
+the current release on 2026-11-20, and its upstream repository advertised no
+matching release tag. The adapter already adds raw JSON request fields and
+decodes raw SSE frames, so no SDK version change is required for the known
+prefix change. Check the released source and upstream tags again if the
+probe exposes a new dependency requirement.
+[Hackage openai](https://hackage.haskell.org/package/openai)

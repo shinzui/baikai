@@ -73,19 +73,19 @@ tests =
             c.supportsSamplingParameters @?= False
             c.supportedReasoningEfforts @?= Just [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax]
           _ -> assertFailure "Astra needs explicit OpenAI endpoint facts",
-      testCase "Sol, Luna, and GPT-6.1 Sol select Responses with explicit endpoint facts" $
+      testCase "Sol, Luna, and Terra select Responses with explicit endpoint facts" $
         mapM_
           ( \mid -> do
               [api m | m <- allModels, modelId m == mid] @?= [OpenAIResponses]
               case [compat m | m <- allModels, modelId m == mid] of
                 [CompatOpenAIResponses c] -> do
                   c.supportsPromptCacheOptions @?= True
-                  c.supportsLongCacheRetention @?= (mid == "gpt-6-luna")
+                  c.supportsLongCacheRetention @?= (mid `elem` ["gpt-6-luna", "gpt-6.1-terra"])
                   c.supportsSamplingParameters @?= False
                   c.supportedReasoningEfforts @?= Just ([ThinkingNone | mid /= "gpt-6.1-sol"] <> [ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax])
-                _ -> assertFailure "GPT-6 Sol/Luna need explicit OpenAI Responses facts"
+                _ -> assertFailure "model needs explicit OpenAI Responses facts"
           )
-          ["gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"],
+          ["gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"],
       testCase "regenerating from data/models produces no diff" $
         withSystemTempDirectory "baikai-catalog-spec" $ \tmpDir -> do
           let regenPath = tmpDir <> "/Generated.hs"

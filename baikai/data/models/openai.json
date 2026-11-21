@@ -247,6 +247,7 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 8.0, "output": 30.0, "cacheRead": 0.8, "cacheWrite": 10.0}}]},
       "enabled": true,
       "compat": {
         "kind": "openai-completions",
@@ -266,6 +267,7 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 0.4, "output": 1.8, "cacheRead": 0.04, "cacheWrite": 0.5}}]},
       "enabled": true
     },
     {
@@ -281,6 +283,7 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 8.0, "output": 30.0, "cacheRead": 0.8, "cacheWrite": 10.0}}]},
       "enabled": true
     },
     {
@@ -296,6 +299,7 @@
       },
       "contextWindow": 1050000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 4.0, "output": 18.0, "cacheRead": 0.4, "cacheWrite": 5.0}}]},
       "enabled": true
     },
     {
@@ -395,6 +399,31 @@
         "supportsLongCacheRetention": false,
         "supportsPromptCacheOptions": true,
         "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+      },
+      "enabled": true
+    },
+    {
+      "id": "gpt-6.1-terra",
+      "name": "GPT-6.1 Terra",
+      "reasoning": true,
+      "input": ["text", "image"],
+      "cost": {
+        "input": 1.0,
+        "output": 5.0,
+        "cacheRead": 0.05,
+        "cacheWrite": 1.25
+      },
+      "contextWindow": 1050000,
+      "maxOutputTokens": 128000,
+      "api": "openai-responses",
+      "pricingPolicy": {"inputTiers": [{"inputAbove": 272000, "rates": {"input": 2.0, "output": 7.5, "cacheRead": 0.1, "cacheWrite": 2.5}, "longCacheWriteCost": 5.0}], "longCacheWriteCost": 2.5},
+      "compat": {
+        "kind": "openai-responses",
+        "supportsSamplingParameters": false,
+        "supportsLongCacheRetention": true,
+        "supportsPromptCacheOptions": true,
+        "nativeCachePolicy": {"contents":[true,true],"tag":"NativeCacheModern"},
+        "supportedReasoningEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
       },
       "enabled": true
     },

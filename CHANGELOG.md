@@ -7,6 +7,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai`: add `openai_gpt_6_1_terra` on OpenAI Responses with explicit
+  reasoning and cache compatibility, 30-minute and 12-hour cache-write
+  prices, and whole-request pricing above 272,000 input tokens.
+
+### Fixed
+
+- `baikai`: apply the published long-context tier for GPT-5.6 Sol, its
+  `gpt-5.6` alias, GPT-5.6 Terra, and GPT-5.6 Luna. Use the published one-hour
+  write rates for eight Claude bindings that used the five-minute rate.
+
 ## [baikai-openai 0.7.3.1] - 2026-11-14
 
 ### Fixed

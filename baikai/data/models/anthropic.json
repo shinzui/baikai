@@ -17,6 +17,7 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 20.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
@@ -64,6 +65,7 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 64000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 2.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
@@ -111,6 +113,7 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 64000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 10.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
@@ -134,6 +137,7 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 10.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
@@ -157,6 +161,7 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 10.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
@@ -255,6 +260,7 @@
       },
       "contextWindow": 200000,
       "maxOutputTokens": 64000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 6.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "budget",
@@ -278,6 +284,7 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 6.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",
@@ -301,6 +308,7 @@
       },
       "contextWindow": 1000000,
       "maxOutputTokens": 128000,
+      "pricingPolicy": {"inputTiers": [], "longCacheWriteCost": 4.0},
       "compat": {
         "kind": "anthropic-messages",
         "thinkingStyle": "adaptive",

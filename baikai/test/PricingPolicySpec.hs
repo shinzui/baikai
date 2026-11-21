@@ -29,6 +29,14 @@ tests =
             let u = U.zeroUsage & #inputTokens .~ (n - 2000) & #cacheReadTokens .~ 1000 & #cacheWriteTokens .~ 1000 & #outputTokens .~ 100
             resolveRates Nothing m u @?= Right expected
             (computeCost m u).usd @?= (fromIntegral (n - 2000) * expected.inputCost + 1000 * expected.cacheReadCost + 1000 * expected.cacheWriteCost + 100 * expected.outputCost) / 1000000,
+      testCase "GPT-6.1 Terra selects the published cache duration and prompt-length rates" $ do
+        let m = Models.openai_gpt_6_1_terra
+            atThreshold = U.zeroUsage & #inputTokens .~ 270000 & #cacheReadTokens .~ 1000 & #cacheWriteTokens .~ 1000
+            aboveThreshold = atThreshold & #cacheWriteTokens .~ 1001
+        resolveRates (Just CacheRetentionShort) m atThreshold @?= Right (M.ModelCost 1 5 (1 / 20) (5 / 4))
+        resolveRates (Just CacheRetentionLong) m atThreshold @?= Right (M.ModelCost 1 5 (1 / 20) (5 / 2))
+        resolveRates (Just CacheRetentionShort) m aboveThreshold @?= Right (M.ModelCost 2 (15 / 2) (1 / 10) (5 / 2))
+        resolveRates (Just CacheRetentionLong) m aboveThreshold @?= Right (M.ModelCost 2 (15 / 2) (1 / 10) 5),
       testCase "Opus 5.5 prices short, long, and observed fast cache writes" $ do
         let m = Models.anthropic_claude_opus_5_5
             u = U.zeroUsage & #cacheWriteTokens .~ 1000000

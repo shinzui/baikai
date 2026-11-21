@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Control.Monad (forM_, unless)
+import Data.List (nub)
 import SmokeOptions
 
 main :: IO ()
@@ -11,7 +12,8 @@ main = do
   check "required ordinary mode" (parseSmokeOptions ["--require-keys"] == Right (SmokeOptions False True Nothing))
   check "reject unknown option" (case parseSmokeOptions ["--new-model"] of Left _ -> True; _ -> False)
   check "named case" (parseSmokeOptions ["--new-models", "--case", "astra-tools"] == Right (SmokeOptions True False (Just "astra-tools")))
-  check "sixteen unique cases" (length caseNames == 16 && length (filter (`elem` caseNames) ["sol-text", "sol-tools", "luna-text", "luna-tools", "opus55-text", "opus55-tools", "sol61-text", "sol61-tools", "sonnet55-text", "sonnet55-tools", "haiku55-text", "haiku55-tools"]) == 12)
+  check "eighteen unique cases" (length caseNames == 18 && nub caseNames == caseNames)
+  check "Terra cases are available" (all (`elem` caseNames) ["terra61-text", "terra61-tools"])
   forM_ caseNames $ \name -> do
     check (name <> " selected alone") (parseSmokeOptions ["--new-models", "--require-keys", "--case", name] == Right (SmokeOptions True True (Just name)))
     check (name <> " excludes other cases") (selectCaseNames (Just name) == [name])

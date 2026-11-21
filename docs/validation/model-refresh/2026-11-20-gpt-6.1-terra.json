@@ -1,0 +1,177 @@
+{
+  "schema": "baikai.new-model-smoke/1",
+  "results": [
+    {
+      "api": "OpenAIResponses",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6.1-terra",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 1.3e-05,
+              "output_usd": 2.5e-05
+            },
+            "usd": 3.8e-05
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.10.1.1",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.3.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6.1-terra"
+          },
+          "provider_request_id": {
+            "observed": "req_c523a84a7b414f40811a6e28fe453c3e"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_089c36f45160033a016b010a56755487d08b149f987ac45346",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 0
+    },
+    {
+      "api": "OpenAIResponses",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "gpt-6.1-terra",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 6.2e-05,
+              "output_usd": 7e-05
+            },
+            "usd": 0.000132
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.10.1.1",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.3.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6.1-terra"
+          },
+          "provider_request_id": {
+            "observed": "req_8b82b611b74342c994be55c1c130c815"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_0d2758ec0e78e681016b010a5fc4e887d0acea0a63705a84f9",
+          "stop_reason": "ToolUse",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.0001,
+              "output_usd": 8.5e-05
+            },
+            "usd": 0.000185
+          },
+          "endpoint": {
+            "api": "openai-responses",
+            "baikai_version": "0.10.1.1",
+            "endpoint": "https://api.openai.com/v1/responses",
+            "implementation_version": "0.7.3.1",
+            "provider": "openai",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "gpt-6.1-terra"
+          },
+          "provider_request_id": {
+            "observed": "req_4259ed8b59fe4b0eb9d377bf6d0248d8"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "resp_01ed83f5f995bb88016b010a619ab887d0ad092ba8b614919d",
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "reasoning.effort"
+          }
+        }
+      ],
+      "status": "passed",
+      "tool_dispatch_count": 1
+    }
+  ],
+  "missing_environment_alternatives": []
+}

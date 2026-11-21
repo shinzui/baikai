@@ -281,6 +281,7 @@ openaiInclude =
           ("o4-mini", Just (CatalogOpenAICompat oSeriesFacts)),
           ("gpt-6-astra", Just (CatalogResponsesCompat astraResponsesFacts)),
           ("gpt-6.1-sol", Just (CatalogResponsesCompat gpt61ResponsesFacts)),
+          ("gpt-6.1-terra", Just (CatalogResponsesCompat terraResponsesFacts)),
           ("gpt-6-sol", Just (CatalogResponsesCompat gpt6ResponsesFacts)),
           ("gpt-6-luna", Just (CatalogResponsesCompat lunaResponsesFacts))
         ]
@@ -337,6 +338,12 @@ openaiInclude =
     -- https://developers.openai.com/api/docs/models/gpt-6.1-sol
     -- https://developers.openai.com/api/docs/guides/latest-model
     gpt61ResponsesFacts = astraResponsesFacts
+    -- 2026-11-20: Terra requires Responses for tool calling, accepts none
+    -- and low through max, and supports 30m and 12h cache retention. Keep
+    -- the conservative sampling policy while reasoning can be enabled.
+    -- https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    -- https://developers.openai.com/api/docs/guides/prompt-caching
+    terraResponsesFacts = gpt6ResponsesFacts & #nativeCachePolicy .~ Just (NativeCacheModern True True) & #supportsLongCacheRetention .~ True
     -- 2026-09-07: native tools require Responses; only modern 30m cache TTL.
     -- https://developers.openai.com/api/docs/guides/latest-model
     astraResponsesFacts =
@@ -731,8 +738,34 @@ pricingPolicies =
       -- guide's total 2.5x uncached-input rate (not an added surcharge).
       (("openai", "gpt-6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.2 0.75 0.02 0.25) (Just 0.5)] (Just 0.25)),
       (("anthropic", "claude-fable-5-1"), Model.PricingPolicy [] (Just 20)),
+      -- 2026-11-20: Terra doubles input and cache rates and charges 1.5x
+      -- output above 272K. The 12h write rate also doubles in that tier.
+      -- https://developers.openai.com/api/docs/models/gpt-6.1-terra
+      (("openai", "gpt-6.1-terra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 2 7.5 0.1 2.5) (Just 5)] (Just 2.5)),
+      -- 2026-11-20: GPT-5.6 uses Sol's prices. These are the active
+      -- promotional Sol rates through November 30, 2026. The whole-request
+      -- threshold also applies to the Terra and Luna GPT-5.6 models.
+      -- https://developers.openai.com/api/docs/models/gpt-5.6-sol
+      -- https://developers.openai.com/api/docs/models/gpt-5.6-terra
+      -- https://developers.openai.com/api/docs/models/gpt-5.6-luna
+      (("openai", "gpt-5.6"), gpt56SolPricing),
+      (("openai", "gpt-5.6-sol"), gpt56SolPricing),
+      (("openai", "gpt-5.6-terra"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 4 18 0.4 5) Nothing] Nothing),
+      (("openai", "gpt-5.6-luna"), Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 0.4 1.8 0.04 0.5) Nothing] Nothing),
+      -- 2026-11-20: Messages accepts 1h cache writes on these models.
+      -- https://platform.claude.com/docs/en/about-claude/pricing#model-pricing
+      (("anthropic", "claude-fable-5"), Model.PricingPolicy [] (Just 20)),
+      (("anthropic", "claude-haiku-4-5"), Model.PricingPolicy [] (Just 2)),
+      (("anthropic", "claude-opus-4-5"), Model.PricingPolicy [] (Just 10)),
+      (("anthropic", "claude-opus-4-6"), Model.PricingPolicy [] (Just 10)),
+      (("anthropic", "claude-opus-4-7"), Model.PricingPolicy [] (Just 10)),
+      (("anthropic", "claude-sonnet-4-5"), Model.PricingPolicy [] (Just 6)),
+      (("anthropic", "claude-sonnet-4-6"), Model.PricingPolicy [] (Just 6)),
+      (("anthropic", "claude-sonnet-5"), Model.PricingPolicy [] (Just 4)),
       (("anthropic", "claude-haiku-5-5"), Model.PricingPolicy [Model.InputPriceTier 100000 (Model.ModelCost 0.5 2.5 0.05 0.625) (Just 1)] (Just 0.2))
     ]
+  where
+    gpt56SolPricing = Model.PricingPolicy [Model.InputPriceTier 272000 (Model.ModelCost 8 30 0.8 10) Nothing] Nothing
 
 renderPricingPolicy :: Model.PricingPolicy -> Text
 renderPricingPolicy p = "{\"inputTiers\": [" <> Text.intercalate ", " (map tier (Model.inputTiers p)) <> "]" <> long policyLong <> "}"
