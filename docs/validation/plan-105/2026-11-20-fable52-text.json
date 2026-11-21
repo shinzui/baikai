@@ -1,0 +1,73 @@
+{
+  "missing_environment_alternatives": [],
+  "results": [
+    {
+      "api": "AnthropicMessages",
+      "call_count": 1,
+      "case": "text",
+      "detail": "ok",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 1,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-fable-5-2",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.000144,
+              "output_usd": 0.00016
+            },
+            "usd": 0.000304
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.10.1.1",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.3.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-fable-5-2"
+          },
+          "provider_request_id": {
+            "observed": "<redacted>"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "<redacted>",
+          "signed_reasoning_blocks": 0,
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        }
+      ],
+      "signed_replay_checks": [],
+      "status": "passed",
+      "tool_dispatch_count": 0,
+      "verified_test_timestamp": null
+    }
+  ],
+  "schema": "baikai.new-model-smoke/1"
+}

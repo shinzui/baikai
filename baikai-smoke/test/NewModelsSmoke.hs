@@ -99,7 +99,7 @@ runCase model keys workspace toolsCase = do
         | toolsCase =
             let prompt = "Call get_time to read the test clock. Reply with its exact timestamp, unchanged. Do not guess the time."
                 puzzle = "Before calling the clock, solve this synthetic check and give the count in a short progress message. Count the length-12 strings of digits 0, 1, and 2 with exactly five 1s, no equal neighbors, and a digit sum divisible by 7. "
-                base = if gpt62 then systemUser "Use the synthetic test clock as the source of truth." (puzzle <> prompt) else contextOf [user prompt]
+                base = if gpt62 || checkClaudeReplay then systemUser "Use the synthetic test clock as the source of truth." (puzzle <> prompt) else contextOf [user prompt]
              in base & #tools .~ Vector.singleton timeTool
         | gpt62 = contextOf [user "Return a JSON object with answer set to pong."]
         | otherwise = contextOf [user "Reply with the single word pong."]
@@ -159,7 +159,7 @@ isGPT62 model = model ^. #modelId `elem` ["gpt-6.2-astra", "gpt-6.2-sol"]
 
 smokeEffort :: Model -> Bool -> ThinkingLevel
 smokeEffort model toolsCase
-  | isGPT62 model && toolsCase = ThinkingHigh
+  | toolsCase && (isGPT62 model || model ^. #modelId == "claude-fable-5-2") = ThinkingHigh
   | otherwise = ThinkingLow
 
 pongFormat :: ResponseFormat

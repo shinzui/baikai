@@ -1,0 +1,125 @@
+{
+  "missing_environment_alternatives": [],
+  "results": [
+    {
+      "api": "AnthropicMessages",
+      "call_count": 2,
+      "case": "tools",
+      "detail": "signed_replay_missing",
+      "options": {
+        "max_tokens": 4096,
+        "max_turns": 4,
+        "thinking": "low",
+        "timeout_ms": 120000
+      },
+      "ran": true,
+      "requested_model": "claude-fable-5-2",
+      "responses": [
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00316,
+              "output_usd": 0.00104
+            },
+            "usd": 0.0042
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.10.1.1",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.3.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-fable-5-2"
+          },
+          "provider_request_id": {
+            "observed": "<redacted>"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "<redacted>",
+          "signed_reasoning_blocks": 0,
+          "stop_reason": "ToolUse",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        },
+        {
+          "cost": {
+            "basis": {
+              "estimate_reasons": [],
+              "sources": [
+                "standard_token_rates"
+              ]
+            },
+            "breakdown": {
+              "cached_input_usd": 0,
+              "cached_write_usd": 0,
+              "input_usd": 0.00352,
+              "output_usd": 0.00064
+            },
+            "usd": 0.00416
+          },
+          "endpoint": {
+            "api": "anthropic-messages",
+            "baikai_version": "0.10.1.1",
+            "endpoint": "https://api.anthropic.com/v1/messages",
+            "implementation_version": "0.7.3.0",
+            "provider": "anthropic",
+            "transport": "http_api"
+          },
+          "error_category": null,
+          "http_status": null,
+          "observed_model": {
+            "observed": "claude-fable-5-2"
+          },
+          "provider_request_id": {
+            "observed": "<redacted>"
+          },
+          "reasoning_blocks": 0,
+          "reasoning_continuation_valid": true,
+          "response_id": "<redacted>",
+          "signed_reasoning_blocks": 0,
+          "stop_reason": "Stop",
+          "thinking_translation": {
+            "adjustments": [],
+            "budget_tokens": null,
+            "display_text": "summarized",
+            "effort_text": "low",
+            "mode": "adaptive",
+            "requested": "low",
+            "wire_field": "thinking"
+          }
+        }
+      ],
+      "signed_replay_checks": [
+        {
+          "equal": true,
+          "signed_block_count": 0
+        }
+      ],
+      "status": "failed",
+      "tool_dispatch_count": 1,
+      "verified_test_timestamp": "2041-03-17T09:26:53Z"
+    }
+  ],
+  "schema": "baikai.new-model-smoke/1"
+}

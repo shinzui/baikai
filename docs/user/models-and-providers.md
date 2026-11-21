@@ -312,8 +312,8 @@ through 4.7, and Sonnet 4.5, 4.6 and 5. [GPT-5.6 Sol pricing](https://developers
 
 `anthropic_claude_fable_5_2` selects Claude Fable 5.2 through Messages. It
 supports streaming, `JsonSchema` output, and client function tools with
-`ToolChoiceAuto` or `ToolChoiceNone`. Thinking is always on and defaults to
-high effort when the caller leaves it unset. Baikai maps a request to disable
+`ToolChoiceAuto`. Use `ToolChoiceNone` to disable tool use. Thinking is always
+on and defaults to high effort when the caller leaves it unset. Baikai maps a request to disable
 thinking to low effort and records the adjustment. It drops sampling settings
 and rejects required or named tool choice locally. The binding has a 1M-token
 context and a 128K-token output cap. Anthropic requires a workspace with
@@ -346,6 +346,9 @@ account. On the direct Claude API, a move from Fable 5.1 to 5.2 preserves
 5.1 thinking. Rolling back to Fable 5.1 can continue the conversation after
 the API drops the 5.2 thinking blocks.
 [Migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide#breaking-changes)
+
+The focused live smoke verified text completion and a tool follow-up with
+an unchanged signed thinking block. [Redacted results](../validation/plan-105/smoke.md)
 
 OpenAI shut down `gpt-4.1-nano`, `o1`, `o3-mini` and `o4-mini` on 2026-10-23.
 Their bindings compile and still appear in the catalog. Requests to the
@@ -399,9 +402,10 @@ cabal test baikai-smoke:baikai-smoke --test-options='--new-models --require-keys
 
 The focused command selects Astra, Sol, Luna, GPT-6.1 Sol and Terra, and GPT-6.2 Astra and Sol through
 Responses and Fable 5.1, Fable 5.2, Opus 5.5, Sonnet 5.5, and Haiku 5.5 through Messages. Each model gets one text case and a
-deterministic tool conversation,
-with low reasoning, 4096 output tokens per request, a 120-second request timeout,
-and at most four requests in the tool case. It prints readable results and a
+deterministic tool conversation, with 4096 output tokens per request, a
+120-second timeout, and at most four requests in the tool case. GPT-6.2 and
+Fable 5.2 use high effort for their tool cases to exercise reasoning replay.
+Other cases use low effort. The runner prints readable results and a
 `baikai.new-model-smoke/1` JSON summary containing observed endpoint/model facts,
 identifiers, cost bases, and actual call and tool-dispatch counts. It does not
 print conversations or opaque thinking state. Missing required credentials fail

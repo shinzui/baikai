@@ -80,9 +80,10 @@ at the very end of the request for the model to complete.
   terminal fixtures verified observed speed, cache duration, missing counters,
   refusal category, and output limits. The 859 core tests, 501 Claude tests,
   documentation shapes, and smoke-option checks passed.
-- [ ] Pass focused live Fable 5.2 text and tool cases, including a successful
-  follow-up whose outbound assistant turn contains the same signed blocks in
-  order as the tool response. Save redacted evidence.
+- [x] On 2026-11-20, passed the focused live Fable 5.2 text and tool cases.
+  The accepted tool follow-up replayed one signed thinking block in its
+  original position and returned the test timestamp after one dispatch.
+  [Redacted smoke results](../validation/plan-105/smoke.md)
 
 
 ## Surprises & Discoveries
@@ -111,6 +112,12 @@ The core embedding fixtures share environment variables. The offline gate
 clears both OpenAI credentials and runs Tasty serially to isolate those
 fixtures. [FRIC-10](../friction-log/10-inherited-openai-key-causes-an-offline-embedding-test-to-print-its-value.md)
 
+The 2026-11-20 low-effort tool run completed in two calls and returned the
+test clock's timestamp. Its tool response had zero signed blocks. The retry
+used high effort and the existing synthetic counting problem before the
+clock call and returned one signed block on the tool turn.
+[Low-effort result](../validation/plan-105/2026-11-20-fable52-tools.json)
+
 
 ## Decision Log
 
@@ -121,12 +128,18 @@ fixtures. [FRIC-10](../friction-log/10-inherited-openai-key-causes-an-offline-em
 - On 2026-11-20, use an optional catalog policy so shipped 4.5 models can
   enforce their thinking-dependent rule and older serialized bindings can
   retain their existing behavior.
+- On 2026-11-20, set the Fable 5.2 tool smoke case to high effort with a
+  small counting problem. This exercises signed continuation within the
+  same token, timeout, and tool-loop bounds.
 
 
 ## Outcomes & Retrospective
 
-The prefill guard and Fable 5.2 offline acceptance are complete. The focused
-live checks are pending.
+The catalog includes Fable 5.2 with local prefill and forced-tool validation,
+structured completion, and standard and fast pricing. All four offline suites
+passed. Live text and tool continuation succeeded at standard speed. The
+redacted report retains the initial low-effort tool attempt and the accepted
+high-effort replay. [Live evidence](../validation/plan-105/smoke.md)
 
 FRIC-10 was accepted with a credential-free, serialized offline invocation.
 
@@ -276,9 +289,10 @@ Add the `fable52` stem and generated model to the case table in
 `fable52-tools` for `baikai-smoke/test/NewModelsSmoke.hs`. Check the single
 selected result and its requested model, and
 update the case count and Anthropic credential mapping in
-`baikai-smoke/test/SmokeOptionsSpec.hs`. Start both cases with the existing
-low effort, 4,096 output tokens and 120-second per-request timeout. Preserve
-the four-request tool-loop limit. Add a per-response count of non-redacted
+`baikai-smoke/test/SmokeOptionsSpec.hs`. Both cases initially used low effort.
+The tool case now uses high effort to exercise signed replay. Both use 4,096
+output tokens and a 120-second per-request timeout, with a four-request
+tool-loop limit. Add a per-response count of non-redacted
 thinking blocks with a nonempty signature to the redacted summary.
 `reasoning_blocks` includes redacted blocks and `reasoning_continuation_valid`
 is true for an empty list, so neither establishes a signed replay alone.
