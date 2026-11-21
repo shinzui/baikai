@@ -60,6 +60,7 @@ library
     Baikai.Provider.OpenAI.Agent
     Baikai.Provider.OpenAI.Api
     Baikai.Provider.OpenAI.Cli
+    Baikai.Provider.OpenAI.HookEvidence
     Baikai.Provider.OpenAI.Interactive
     Baikai.Provider.OpenAI.Internal.Cache
     Baikai.Provider.OpenAI.Internal.ErrorClass
@@ -116,6 +117,7 @@ test-suite baikai-openai-test
     EndpointModels
     ErrorClassSpec
     EvidenceSpec
+    HookEvidenceSpec
     LifecycleSpec
     MidStreamSpec
     NativeCacheSpec

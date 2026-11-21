@@ -1,6 +1,7 @@
 # Bundle Update Log
 
 ## 2026-11-21
+* IR-14 now records the app-server probe, scoped review behavior and limits on attributing a blocked call. Baikai owns the shared integration.
 * **Update**: IR-14 records live Claude 2.1.330 and Codex 0.171.0 probe results, including the missing Codex JSON denial evidence.
 * **Addition**: [IR-14](carry-caller-supplied-tool-policy-and-refusal-evidence-on-unattended-runs.md)
   requests typed caller policy inputs (a Claude settings file, Codex hooks and rules) and

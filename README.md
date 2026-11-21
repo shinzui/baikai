@@ -99,6 +99,17 @@ flow regardless of which provider is on the other side.
 - **Custom providers.** Register your own handler under a `Custom` tag
   for any API baikai doesn't ship.
 
+### Codex hook evidence
+
+Codex app-server clients can use the source version of
+`Baikai.Provider.OpenAI.HookEvidence` in `baikai-openai`. Before a turn, pass the
+thread's `hooks/list` result and each reviewed handler's key and hash to
+`requireReviewedPreToolUseHook`. During the turn, `parsePreToolUseCompletion`
+distinguishes a blocked hook from an ordinary command failure. Run
+`python3 scripts/probe-codex-hook-policy.py` to exercise the installed server with
+a local model fixture.
+[Integration evidence and limits](docs/improvement-requests/carry-caller-supplied-tool-policy-and-refusal-evidence-on-unattended-runs.md#codex-app-server-integration)
+
 ## Packages
 
 This is a multi-package project. Depend on `baikai` plus whichever vendor

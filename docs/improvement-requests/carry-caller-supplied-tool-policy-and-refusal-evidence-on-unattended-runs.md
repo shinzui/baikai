@@ -16,10 +16,11 @@ origin: mori://shinzui/seihou
 
 ## Status
 
-Proposed. Not a blocker.
-`mori://shinzui/seihou/plans/127-let-callers-supply-tool-policy-for-batch-blueprint-runs-and-migrations`
-ships without it by rendering the provider arguments and reading the provider output in Seihou.
-The two provider probes are recorded below.
+Proposed. Baikai owns the shared provider integration. The source tree includes a Codex
+app-server inventory verifier, a notification decoder and a repeatable transport probe. The public unattended-run
+and batch completion entry points still need the policy input and evidence contract.
+The Claude consumer already works in the Seihou source tree.
+[Consumer plan](mori://shinzui/seihou/plans/127-let-callers-supply-tool-policy-for-batch-blueprint-runs-and-migrations)
 
 ## Context
 
@@ -57,13 +58,6 @@ The two vendors differ, and a single neutral field would misstate what the calle
   hook can block a command and cannot approve one. Codex skips a hook nobody has reviewed
   unless the run passes `--dangerously-bypass-hook-trust`.
 
-Three points are unobserved and decide the design:
-
-- whether Claude lists a command in `permission_denials` when a hook denies it;
-- whether a Codex hooks or rules file can be loaded for one `codex exec` run without writing
-  into the project or `$CODEX_HOME`, and whether hooks run under `codex exec` at all;
-- whether Codex's `--json` event stream tells a blocked command from one that ran and failed.
-
 ## Native provider observations (2026-11-21)
 
 Claude Code 2.1.330 ran a local marker command when a supplied settings
@@ -86,6 +80,55 @@ These observations come from
 `mori://shinzui/seihou/plans/127-let-callers-supply-tool-policy-for-batch-blueprint-runs-and-migrations`
 and `mori://shinzui/seihou/okf/friction-log/concepts/FRIC-21`.
 
+## Codex app-server integration
+
+From this checkout on POSIX, run the following with Python 3 and Codex on PATH. The probe
+uses the installed app-server, a loopback Responses fixture, two temporary configurations
+and a disposable workspace. It needs no account or live model. The positive fixture contains
+a pre-existing review of a fixed, literal deny handler. It exercises enforcement after review.
+Operator enrollment through the normal Baikai interface remains an open deliverable.
+
+```bash
+python3 scripts/probe-codex-hook-policy.py
+```
+
+On 0.171.0 the v2 protocol worked without experimental options. A thread-specific
+`thread/start.config.hooks.PreToolUse` populated the `sessionFlags` layer. Before
+`turn/start`, `hooks/list` for that thread distinguished an unreviewed handler, the exact
+reviewed handler, and a modified handler at the same key. The probe withheld the model
+request in both cases needing review. The reviewed user hook still ran and the unrelated
+unreviewed user hook stayed untrusted. A second thread in the same process had no caller
+hook. The test compared the fixture configuration before and after each process.
+
+A synchronous deny produced `hook/completed` with `eventName=preToolUse` and
+`status=blocked`. The marker stayed absent even though the turn completed successfully.
+The control wrote the marker and exited 7. The control's command item reported failure
+and only the operator's ordinary hook completion appeared. In `Baikai.Provider.OpenAI.HookEvidence`, use `requireReviewedPreToolUseHook` on the
+active thread's inventory for each expected key and reviewed hash. Use
+`parsePreToolUseCompletion` to decode individual
+notifications with Aeson's `parseEither`. Its result carries the thread, turn, opaque
+hook run ID and provider outcome. A missing event alone cannot attest to enforcement.
+
+The stable completion carries no command, arguments or separate tool-call ID. In a
+separate probe, opting into experimental raw items exposed the model's function call,
+its arguments and its call ID. The release source appends that ID to the hook run ID.
+That spelling is an implementation detail. Keep a denial actionable even when its call
+cannot be attributed and never persist the raw model transcript as policy evidence.
+
+Codex's normal review binds the handler key to a hash of its normalized configuration.
+The hash identifies the command declaration and does not fingerprint an external script
+it invokes. Provide a first-use review workflow that presents the exact native handler
+and preserves the operator's authority. Reject unreviewed, modified, disabled, asynchronous
+or missing required gates before the turn. Constrain accepted caller input to supported
+hook declarations. Treat a failed hook, lost stream or malformed evidence as incomplete
+coverage. Keep provider trust state out of ordinary runs. Prove concurrent threads,
+cancellation and retry through both Baikai entry points before promoting a Seihou flag.
+
+The released execpolicy loader discovers rules under enabled configuration layers that
+have a directory. Session flags have none. Defer a caller-owned rules file until Codex
+can load it for one invocation while preserving inherited policy. The standalone
+`execpolicy check` only evaluates a file for a supplied command.
+
 ## Requested contract
 
 Two additions. Their public shape may follow Baikai conventions.
@@ -97,16 +140,13 @@ run, distinct per provider, equivalent to:
 data AgentPolicyInput
   = ClaudeSettingsFile FilePath
   | CodexHooksFile FilePath
-  | CodexRulesFile FilePath
 ```
 
 carried by the unattended-run request and accepted by the batch CLI provider configurations.
-Each renderer emits the vendor's own arguments for its inputs and refuses another provider's
-input with an `AgentRenderError`, as it already refuses a safety policy it cannot express.
-Baikai passes the path the caller named and does not copy the file, because a Claude settings
-file's location has permission meaning. The Codex hook-trust bypass is rendered only when a
-hooks file is supplied. An operator ceiling gates these inputs explicitly, since a Codex
-`allow` rule and a hook that approves requests both widen authority.
+Claude passes the named settings path because its location has permission meaning.
+Codex uses a reviewed app-server hook for this path. Refuse unsupported inputs before
+launch. An operator ceiling gates the requested inputs. Ordinary runs never grant trust
+or enable the invocation-wide bypass.
 
 **Refusal evidence.** The result of an unattended run, and the response of a batch CLI
 completion, report the tool calls the provider refused: the tool name and its command or file
@@ -117,9 +157,9 @@ Baikai reports the evidence and leaves the decision to fail the run with the cal
 
 This request is complete when:
 
-1. A caller can attach a Claude settings file to an unattended Claude run, and Codex hooks and
-   rules files to an unattended Codex run, without raw provider arguments. Tests pin the
-   rendered argument vector for each input on each renderer.
+1. A caller can attach a Claude settings file to an unattended Claude run, and reviewed Codex hooks
+   to an unattended Codex run without raw provider arguments. Tests pin the Claude argv
+   and exercise the Codex preflight and event stream against the real app-server.
 2. An input for the other provider is refused before a process starts, with an error naming
    the provider and the input.
 3. A run whose provider refused a tool call returns evidence naming that call, on both the
@@ -130,8 +170,8 @@ This request is complete when:
 5. Seihou can replace `registerValidatedCli` with the stock providers and keep its two rules:
    an ordinary batch run fails on any reported refusal, and a migration requires positive
    completion evidence.
-6. The user documentation states, per provider, what each input can do, including that a
-   Codex `allow` rule leaves the sandbox and that a Codex hook can block but not approve.
+6. The user documentation states, per provider, what each input can do, including the review
+   required for a synchronous Codex PreToolUse hook and the limits on command attribution.
 
 ## Non-goals
 
@@ -150,10 +190,9 @@ That would be a request to Codex.
 ## Related observation
 
 `allowedToolArgs` in `Baikai.Provider.Claude.Agent` joins tool grants with commas into one
-`--allowedTools` value. Seihou's `claudeAccessArgs` does the same. Whether a rule that
-contains a comma, such as a Bash rule over a format string, survives that join has not been
-tested. Seihou's plan 127 tests it. If the join breaks such a rule, the same correction
-applies here.
+`--allowedTools` value. Seihou now passes
+one argument per grant and verified a rule containing a comma with Claude 2.1.330.
+Preserve the same argument boundaries when adopting the shared path.
 
 ## References
 

@@ -44,6 +44,7 @@ import Data.Vector qualified as Vector
 import DataInputSpec qualified
 import ErrorClassSpec qualified
 import EvidenceSpec qualified
+import HookEvidenceSpec qualified
 import LifecycleSpec qualified
 import MidStreamSpec qualified
 import NativeCacheSpec qualified
@@ -110,6 +111,7 @@ main =
         CliEvidenceSpec.tests,
         ErrorClassSpec.tests,
         EvidenceSpec.tests,
+        HookEvidenceSpec.tests,
         LifecycleSpec.tests,
         MidStreamSpec.tests,
         PublicSurfaceSpec.tests,
