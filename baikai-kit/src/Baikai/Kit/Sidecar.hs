@@ -49,7 +49,9 @@ data SidecarMeta = SidecarMeta
     visibility :: !(Maybe Text),
     visibilitySource :: !(Maybe Text),
     sharedLinks :: !(Maybe [Text]),
-    codexDisabledSkills :: !(Maybe [Text])
+    codexDisabledSkills :: !(Maybe [Text]),
+    codexRuleFile :: !(Maybe FilePath),
+    codexRuleHash :: !(Maybe Text)
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (FromJSON, ToJSON)
@@ -134,5 +136,7 @@ newSidecarMeta item hashStr writtenFiles writtenHash visibility visibilitySource
         visibility,
         visibilitySource,
         sharedLinks = Just sharedLinks,
-        codexDisabledSkills = Just codexDisabledSkills
+        codexDisabledSkills = Just codexDisabledSkills,
+        codexRuleFile = Nothing,
+        codexRuleHash = Nothing
       }

@@ -7,6 +7,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `baikai-kit` skills can ship a native `codex.rules` file. Install with
+  `--with-codex-rules` to activate its command rules at project or user
+  scope and manage them through status, update, and uninstall.
+
 ## [baikai 0.11.0.0] - 2026-11-23
 
 ### Added

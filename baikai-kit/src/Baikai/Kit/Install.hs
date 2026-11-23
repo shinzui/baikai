@@ -84,13 +84,20 @@ import System.Directory
     renameFile,
   )
 import System.Directory qualified
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
+import System.Process (readProcessWithExitCode)
 
-data InstallOptions = InstallOptions
-  { visibility :: !(Maybe KitVisibility),
-    acceptSharedCodex :: !Bool
-  }
+data InstallOptions
+  = InstallOptions
+      { visibility :: !(Maybe KitVisibility),
+        acceptSharedCodex :: !Bool
+      }
+  | InstallWithCodexRules
+      { visibility :: !(Maybe KitVisibility),
+        acceptSharedCodex :: !Bool
+      }
   deriving stock (Eq, Generic, Show)
 
 defaultInstallOptions :: InstallOptions
@@ -107,6 +114,7 @@ data PlannedWrite = PlannedWrite
 data WriteContent
   = CopyFrom !FilePath
   | WriteBytes !LBS.ByteString
+  | DeleteFile
   deriving stock (Show)
 
 data RemovalOutcome = RemovalOutcome
@@ -175,6 +183,17 @@ installFrom config repoDir manifest itemN scope options =
 uninstallItem :: KitConfig -> Text -> KitScope -> IO (Either KitError [RemovalOutcome])
 uninstallItem config n scope = kitTry $ do
   safeName <- orThrow (KitUnsafeName n) (safeItemName n)
+  when (InteractiveCodex `elem` (config ^. #providers)) $ do
+    base <- providerAgentsBase config InteractiveCodex scope
+    meta <- readSidecar (sidecarPath InteractiveCodex SkillKind n base (sidecarFileName config))
+    forM_ (meta >>= (^. #codexRuleFile)) $ \recorded -> do
+      (path, _) <- ruleDestination config scope base n (Just recorded)
+      exists <- pathExists path
+      when exists $ do
+        digest <- readRuleHash path
+        unless (has _Just digest && digest == (meta >>= (^. #codexRuleHash))) $
+          throwIO (KitCodexConfigUnusable path "installed rule was edited; move it aside before uninstalling")
+        removeFile path
   forM (config ^. #providers) $ \provider -> do
     providerBase <- providerAgentsBase config provider scope
     old <- traverse (\kind -> readSidecar (sidecarPath provider kind n providerBase (sidecarFileName config))) [SkillKind, AgentKind]
@@ -355,10 +374,12 @@ executePlanWith renameInto writes = do
           pure (Left (writeFailed (Text.pack (show e))))
         Right pair -> stage (pair : staged) rest
 
-    stageOne planned = do
-      let dest = planned ^. #destination
-          dir = takeDirectory dest
-      bytes <- payload (planned ^. #content)
+    stageOne (PlannedWrite dest DeleteFile) = pure (Nothing, dest)
+    stageOne (PlannedWrite dest (CopyFrom src)) = LBS.readFile src >>= stageBytes dest
+    stageOne (PlannedWrite dest (WriteBytes bytes)) = stageBytes dest bytes
+
+    stageBytes dest bytes = do
+      let dir = takeDirectory dest
       createDirectoryIfMissing True dir
       -- 'openTempFile' splits the template at its last extension, so the
       -- file is named <dest><random>.baikai-kit-tmp: unique, and still
@@ -366,10 +387,7 @@ executePlanWith renameInto writes = do
       (temp, handle) <- openTempFile dir (takeFileName dest <> ".baikai-kit-tmp")
       (LBS.hPut handle bytes >> hClose handle)
         `onException` (hClose handle >> ignoring (removeFile temp))
-      pure (temp, dest)
-
-    payload (CopyFrom src) = LBS.readFile src
-    payload (WriteBytes bytes) = pure bytes
+      pure (Just temp, dest)
 
     -- Phase two. Every entry that changed anything is journalled with the
     -- backup it displaced and whether its rename completed.
@@ -381,10 +399,10 @@ executePlanWith renameInto writes = do
       case backed of
         Left e -> unwind journal (entry : rest) e
         Right mBackup -> do
-          renamed <- try @IOException (renameInto temp dest)
+          renamed <- try @IOException (forM_ temp (\path -> renameInto path dest))
           case renamed of
             Left e -> unwind ((dest, mBackup, False) : journal) (entry : rest) e
-            Right () -> commit ((dest, mBackup, True) : journal) rest
+            Right () -> commit ((dest, mBackup, has _Just temp) : journal) rest
 
     backupExisting dest = do
       exists <- doesFileExist dest
@@ -413,7 +431,7 @@ executePlanWith renameInto writes = do
     restoreEntry dest Nothing True = removeFile dest
     restoreEntry _ Nothing False = pure ()
 
-    removeTemps entries = forM_ entries $ \(temp, _) -> ignoring (removeFile temp)
+    removeTemps entries = forM_ entries $ \(temp, _) -> forM_ temp (ignoring . removeFile)
 
     ignoring action = do
       _ <- try @IOException action
@@ -440,6 +458,12 @@ installFromIO config repoDir manifest itemN scope options =
   case lookupItem itemN manifest of
     Nothing -> throwIO (KitItemNotFound itemN)
     Just item -> do
+      case options of
+        InstallWithCodexRules {} -> do
+          sources <- either throwIO pure (itemSources item)
+          unless (kitItemKind item == SkillKind && InteractiveCodex `elem` (config ^. #providers) && "codex.rules" `elem` (sources ^. #files)) $
+            throwIO (KitManifestInvalid (repoDir </> "kit.json") "--with-codex-rules requires a skill listing codex.rules and the Codex provider")
+        InstallOptions {} -> pure ()
       choices <- prepareVisibility config item scope (Just options)
       doInstall config repoDir item scope choices
       pure item
@@ -520,10 +544,16 @@ localEditsIO config provider scope kind n = do
           entries <- forM recorded $ \rel -> do
             bytes <- try @IOException (BS.readFile (root </> Text.unpack rel))
             pure (either (const Nothing) (Just . (Text.unpack rel,)) (bytes :: Either IOException BS.ByteString))
+          ruleEdited <- case sidecar ^. #codexRuleFile of
+            Just recordedPath | provider == InteractiveCodex && kind == SkillKind -> do
+              (path, _) <- ruleDestination config scope providerBase n (Just recordedPath)
+              actual <- readRuleHash path
+              pure (actual == Nothing || actual /= sidecar ^. #codexRuleHash)
+            _ -> pure False
           pure $ case sequence entries of
             Nothing -> Edited
             Just pairs
-              | hashEntries pairs /= expected -> Edited
+              | ruleEdited || hashEntries pairs /= expected -> Edited
               | otherwise -> Unedited
         _ -> pure EditsUnknown
 
@@ -613,6 +643,7 @@ data ProviderVisibility = ProviderVisibility
     configFile :: !FilePath,
     disablePaths :: ![FilePath],
     trackedDisabled :: ![Text],
+    activateRules :: !Bool,
     oldDisabled :: ![Text]
   }
   deriving stock (Generic)
@@ -709,6 +740,9 @@ prepareVisibility config item scope options = do
           configFile,
           disablePaths,
           trackedDisabled,
+          activateRules = case options of
+            Just InstallWithCodexRules {} -> True
+            _ -> has _Just (previous >>= (^. #codexRuleFile)),
           oldDisabled
         }
 
@@ -802,7 +836,7 @@ data PlannedAsset = PlannedAsset
   deriving stock (Generic)
 
 planInstall :: KitConfig -> FilePath -> KitItem -> KitScope -> [ProviderVisibility] -> IO [PlannedWrite]
-planInstall config repoDir item _scope choices = do
+planInstall config repoDir item scope choices = do
   safeName <- orThrow (KitUnsafeName (itemName item)) (safeItemName (itemName item))
   sources <- either throwIO pure (itemSources item)
   resolved <- resolveSources repoDir sources
@@ -830,7 +864,9 @@ planInstall config repoDir item _scope choices = do
           (choice ^. #source)
           (nub (map (Text.pack . view #location) (choice ^. #links ++ choice ^. #oldLinks)))
           (nub (choice ^. #trackedDisabled ++ choice ^. #oldDisabled))
-      let assetWrites =
+      (ruleWrites, ruleFile, ruleHash) <- planRules config scope choice item contents
+      let finalMeta = meta & #codexRuleFile .~ ruleFile & #codexRuleHash .~ ruleHash
+          assetWrites =
             [ PlannedWrite {destination = asset ^. #target, content = WriteBytes (asset ^. #bytes)}
             | asset <- assets
             ]
@@ -838,9 +874,70 @@ planInstall config repoDir item _scope choices = do
             PlannedWrite
               { destination =
                   sidecarPath provider (kitItemKind item) (Text.pack safeName) targetBase (sidecarFileName config),
-                content = WriteBytes (encode meta)
+                content = WriteBytes (encode finalMeta)
               }
-      pure (assetWrites ++ [sidecarWrite])
+      pure (assetWrites ++ ruleWrites ++ [sidecarWrite])
+
+-- Codex scans regular files directly below each active config layer's rules
+-- directory. A project's recorded location is relative so a clone can move.
+ruleDestination :: KitConfig -> KitScope -> FilePath -> Text -> Maybe FilePath -> IO (FilePath, FilePath)
+ruleDestination config scope base n recorded = do
+  layer <- case scope of
+    ProjectScope -> pure (base </> ".codex")
+    UserScope -> codexConfigPath >>= System.Directory.makeAbsolute . takeDirectory
+  name <- orThrow (KitUnsafeName n) (safeItemName n)
+  tool <- orThrow (KitUnsafeName (config ^. #toolName)) (safeItemName (config ^. #toolName))
+  let relative = "rules" </> (tool <> "-" <> name <> ".rules")
+      path = layer </> relative
+      key = case scope of
+        UserScope -> path
+        ProjectScope -> ".codex" </> relative
+  forM_ recorded $ \old ->
+    unless (old == key) $
+      throwIO (KitCodexConfigUnusable path "rule location changed; use the original CODEX_HOME to uninstall first")
+  forM_ ([layer | scope == ProjectScope] ++ [takeDirectory path, path]) $ \component -> do
+    exists <- pathExists component
+    when exists $ do
+      linked <- System.Directory.pathIsSymbolicLink component
+      when linked (throwIO (KitCodexConfigUnusable component "rule destination is a symbolic link"))
+  exists <- pathExists path
+  when exists $ do
+    regular <- doesFileExist path
+    unless regular (throwIO (KitCodexConfigUnusable path "expected a regular rule file"))
+  pure (path, key)
+
+readRuleHash :: FilePath -> IO (Maybe Text)
+readRuleHash path = do
+  result <- try @IOException (BS.readFile path)
+  pure (either (const Nothing) (Just . ruleDigest) result)
+
+ruleDigest :: BS.ByteString -> Text
+ruleDigest bytes = hashEntries [("codex.rules", bytes)]
+
+planRules ::
+  KitConfig ->
+  KitScope ->
+  ProviderVisibility ->
+  KitItem ->
+  [(FilePath, FilePath, BS.ByteString)] ->
+  IO ([PlannedWrite], Maybe FilePath, Maybe Text)
+planRules config scope choice item contents
+  | choice ^. #provider /= InteractiveCodex || kitItemKind item /= SkillKind || not (choice ^. #activateRules) =
+      pure ([], Nothing, Nothing)
+  | otherwise = do
+      let previous = choice ^. #previous >>= (^. #codexRuleFile)
+      (dest, key) <- ruleDestination config scope (choice ^. #baseDir) (itemName item) previous
+      exists <- pathExists dest
+      when (exists && previous == Nothing) (throwIO (KitSharedNameTaken dest Nothing))
+      case find (\(rel, _, _) -> rel == "codex.rules") contents of
+        Nothing -> pure ([PlannedWrite dest DeleteFile | exists], Nothing, Nothing)
+        Just (_, src, bytes) -> do
+          result <- try @IOException (readProcessWithExitCode "codex" ["execpolicy", "check", "--rules", src, "--", "true"] "")
+          case result of
+            Left err -> throwIO (KitCodexConfigUnusable src (Text.pack (show err)))
+            Right (ExitFailure _, _, err) -> throwIO (KitCodexConfigUnusable src (Text.pack err))
+            Right (ExitSuccess, _, _) -> pure ()
+          pure ([PlannedWrite dest (WriteBytes (LBS.fromStrict bytes))], Just key, Just (ruleDigest bytes))
 
 -- | Turn an item's sources into what one provider gets. A skill's files
 --   keep their names below the skill directory. An agent's first file

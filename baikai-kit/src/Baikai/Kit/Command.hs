@@ -110,7 +110,16 @@ runKitCommand config = \case
     installNamed repo manifest n scope options =
       installFrom config (repo ^. #dir) manifest n scope options `thenE` \item ->
         printed $
-          "Installed " <> itemKind item <> " '" <> itemName item <> "' to " <> scopeLabel scope <> " scope."
+          "Installed "
+            <> itemKind item
+            <> " '"
+            <> itemName item
+            <> "' to "
+            <> scopeLabel scope
+            <> " scope."
+            <> case options of
+              InstallWithCodexRules {} -> " Restart Codex to load the command rules for this scope."
+              InstallOptions {} -> ""
 
     -- List and install need the manifest, so a repository they cannot
     -- reach is an error; a stale cache is a warning and the work goes on.
@@ -217,13 +226,16 @@ installParser config =
           )
       )
     <*> scopeParser ("Install to project scope (" <> projectDirLabel config <> " under the project root) instead of user scope")
-    <*> ( InstallOptions
+    <*> ( makeOptions
             <$> optional
               ( flag' SharedVisibility (long "shared" <> help "Make the item visible in every Claude Code and Codex session")
                   <|> flag' ToolOnlyVisibility (long "tool-only" <> help "Make the item visible only in sessions this tool launches")
               )
             <*> switch (long "accept-shared-codex" <> help "Accept shared visibility when Codex cannot isolate an agent")
+            <*> switch (long "with-codex-rules" <> help "Activate the skill's codex.rules for every Codex session in the selected scope")
         )
+  where
+    makeOptions visibility accept rules = (if rules then InstallWithCodexRules else InstallOptions) visibility accept
 
 updateParser :: Parser KitCommand
 updateParser =

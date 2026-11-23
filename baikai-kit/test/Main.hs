@@ -37,6 +37,7 @@ import Baikai.Kit
     enableSkillsArgs,
     executePlanWith,
     findProjectRoot,
+    installFrom,
     installItem,
     installedCopies,
     kitCommandParser,
@@ -102,6 +103,7 @@ import System.Directory
     doesDirectoryExist,
     doesFileExist,
     doesPathExist,
+    findExecutable,
     getCurrentDirectory,
     getSymbolicLinkTarget,
     listDirectory,
@@ -144,6 +146,7 @@ main =
           jsonTests,
           visibilityTests,
           codexVisibilityTests,
+          codexRuleTests,
           visibilityStatusTests,
           visibilityRecoveryTests
         ]
@@ -664,7 +667,9 @@ mkSidecar mVersion h =
       visibility = Nothing,
       visibilitySource = Nothing,
       sharedLinks = Nothing,
-      codexDisabledSkills = Nothing
+      codexDisabledSkills = Nothing,
+      codexRuleFile = Nothing,
+      codexRuleHash = Nothing
     }
 
 mkSkillItem :: Text -> Maybe Text -> KitItem
@@ -1507,6 +1512,83 @@ updateDemo :: FilePath -> IO ()
 updateDemo cache = do
   manifest <- assertRight =<< loadManifest cache
   void (assertRight =<< reinstallPresent testConfig cache manifest (Just "demo") KeepLocalEdits)
+
+codexRuleTests :: TestTree
+codexRuleTests =
+  testGroup
+    "Codex command rules"
+    [ testCase "CLI activates rules only by explicit request" $ do
+        let parse = getParseResult . execParserPure defaultPrefs (info (kitCommandParser testConfig) mempty)
+        parse ["install", "demo", "--with-codex-rules", "--project"]
+          @?= Just (KitInstall (Just "demo") ProjectScope (InstallWithCodexRules Nothing False)),
+      testCase "regular files follow project and user lifecycle" $
+        withPreparedKitHome $ \home cache -> withRuleChecker home $ do
+          let project = home </> "checkout"
+              config = testConfig & #projectRoot .~ pure project
+              userLayer = home </> "codex-custom"
+              rule layer = layer </> "rules/testkit-demo.rules"
+              userRule = rule userLayer
+              projectRule = rule (project </> ".codex")
+              source = cache </> "skills/demo/codex.rules"
+              bytes = "prefix_rule(pattern=[\"mori\", \"registry\", \"show\"], decision=\"allow\", match=[\"mori registry show demo\"], not_match=[\"mori registry list\"])\n"
+              optIn = InstallWithCodexRules Nothing False
+          setEnv "CODEX_HOME" userLayer
+          BS.writeFile source bytes
+          BS.writeFile (cache </> "kit.json") $
+            Text.Encoding.encodeUtf8 $
+              Text.replace "[\"SKILL.md\"]" "[\"SKILL.md\",\"codex.rules\"]" (Text.Encoding.decodeUtf8 manifestJson)
+          manifest <- assertRight =<< loadManifest cache
+          let install scope options = installFrom config cache manifest "demo" scope options
+              update current policy = reinstallPresent config cache current (Just "demo") policy
+          _ <- assertRight =<< install UserScope defaultInstallOptions
+          assertFileMissing userRule
+          createDirectoryIfMissing True (takeDirectory userRule)
+          BS.writeFile userRule "foreign"
+          assertKitError "existing user rule" (== KitSharedNameTaken userRule Nothing) =<< install UserScope optIn
+          BS.readFile userRule >>= (@?= "foreign")
+          removeFile userRule
+          _ <- assertRight =<< install UserScope optIn
+          _ <- assertRight =<< install ProjectScope optIn
+          BS.readFile userRule >>= (@?= bytes)
+          BS.readFile projectRule >>= (@?= bytes)
+          BS.writeFile projectRule "# edited\n"
+          denied <- uninstallItem config "demo" ProjectScope
+          assertKitError "preserve edited rule" (\case KitCodexConfigUnusable {} -> True; _ -> False) denied
+          BS.readFile projectRule >>= (@?= "# edited\n")
+          let revised = bytes <> "# revised\n"
+          BS.writeFile source revised
+          rows <- collectStatus config cache [(ProjectScope, "project")]
+          assertBool "status detects external edit" (any (elem KitLocallyModified . view #conditions) rows)
+          report <- assertRight =<< update manifest KeepLocalEdits
+          report ^. #skipped @?= [("demo", ProjectScope)]
+          BS.readFile userRule >>= (@?= revised)
+          BS.readFile projectRule >>= (@?= "# edited\n")
+          _ <- assertRight =<< update manifest OverwriteLocalEdits
+          BS.readFile projectRule >>= (@?= revised)
+          _ <- assertRight =<< uninstallItem config "demo" ProjectScope
+          assertFileMissing projectRule
+          BS.readFile userRule >>= (@?= revised)
+          BS.writeFile (cache </> "kit.json") manifestJson
+          dropped <- assertRight =<< loadManifest cache
+          _ <- assertRight =<< update dropped KeepLocalEdits
+          assertFileMissing userRule
+    ]
+
+-- The installed engine validates the example's positive and negative cases
+-- when available. The Kit lifecycle also runs on CI without Codex installed.
+withRuleChecker :: FilePath -> IO a -> IO a
+withRuleChecker home action = do
+  available <- findExecutable "codex"
+  case available of
+    Just _ -> action
+    Nothing -> do
+      let bin = home </> "bin"
+      createDirectoryIfMissing True bin
+      BS.writeFile (bin </> "codex") "#!/bin/sh\ntest \"$1 $2 $3\" = 'execpolicy check --rules' && test -f \"$4\"\n"
+      Posix.setFileMode (bin </> "codex") 0o700
+      original <- lookupEnv "PATH"
+      setEnv "PATH" (bin <> maybe "" (':' :) original)
+      action `finally` maybe (unsetEnv "PATH") (setEnv "PATH") original
 
 codexVisibilityTests :: TestTree
 codexVisibilityTests =

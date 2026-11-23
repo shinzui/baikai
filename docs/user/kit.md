@@ -146,6 +146,51 @@ legacy Codex skills as shared and suggests an explicit reinstall with
 `--tool-only`. For new installs, update follows changes to the manifest's
 default; an explicit install flag persists across updates.
 
+## Codex command approvals
+
+A skill can ship a native Codex rules file alongside its instructions. List
+both in the skill's `kit.json` entry:
+
+```json
+"files": ["SKILL.md", "codex.rules"]
+```
+
+For example, this `codex.rules` allows a read-only CLI subcommand and tests
+that a neighboring subcommand falls outside its prefix:
+
+```python
+prefix_rule(
+    pattern = ["mori", "registry", "show"],
+    decision = "allow",
+    match = ["mori registry show example/project --full"],
+    not_match = ["mori registry list"],
+)
+```
+
+Run `mytool kit install review --project --with-codex-rules` and start a new
+Codex session in the trusted project. Omit `--project` for user scope. An
+initial install without `--with-codex-rules` simply bundles the file with
+the skill. Claude Code skill authors can separately declare `allowed-tools`
+in the frontmatter of the same `SKILL.md`.
+
+Activation uses the installed `codex execpolicy check` to validate the rules
+and their examples. Kit installs a regular `<tool>-<skill>.rules` file under
+`<project root>/.codex/rules/` or `$CODEX_HOME/rules/` (default
+`~/.codex/rules/`). The rules apply to **all Codex sessions loading that
+layer**, including sessions in which a tool-only skill is hidden. An
+`allow` prefix can authorize a matching command to run outside the sandbox.
+Codex applies the strictest matching rule.
+
+After activation, `kit update` refreshes the rules along with the skill.
+Removing `codex.rules` from the manifest revokes activation on update.
+Status and update check the active file for local edits. Uninstall removes
+the owned rule file, and asks you to move an edited file aside first.
+Restart Codex to pick up rule changes. To check a specific command directly:
+
+```sh
+codex execpolicy check --rules .codex/rules/mytool-review.rules -- mori registry show example/project
+```
+
 ## Project Scope
 
 `--project` installs into the project rather than the user's home. Which
