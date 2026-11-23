@@ -1,5 +1,8 @@
 # Bundle Update Log
 
+## 2026-11-23
+* **Progress**: IR-14 added the native Codex review command and reviewed app-server transport for unattended runs and scoped batch completions.
+
 ## 2026-11-21
 * IR-14 now records the app-server probe, scoped review behavior and limits on attributing a blocked call. Baikai owns the shared integration.
 * **Update**: IR-14 records live Claude 2.1.330 and Codex 0.171.0 probe results, including the missing Codex JSON denial evidence.

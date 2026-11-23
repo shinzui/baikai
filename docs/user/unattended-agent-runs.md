@@ -146,6 +146,30 @@ Then run it:
 printf 'reconcile the grammar with the lexer' | baikai agent run reconcile --prompt-stdin
 ```
 
+### Use reviewed Codex hooks
+
+From the workspace where a Codex job will run, review the native hooks file once,
+then pass it on each invocation.
+
+```bash
+baikai agent review-codex-hooks ./caller-hooks.json
+baikai agent run reconcile --prompt "Reconcile the grammar" --codex-hooks ./caller-hooks.json --json
+```
+
+The file uses Codex's native JSON format and must contain synchronous
+`PreToolUse` command handlers. The review prints each declaration and requires
+terminal confirmation. Codex associates the review with the normalized declaration.
+Keep any scripts the handler invokes under your control. Changed declarations
+require another review.
+
+Each run checks the effective hook inventory before sending a prompt. Under
+`--json`, `blockedHooks` lists the native thread, turn and hook run IDs for
+reported denials. An empty list means the completed turn reported no denials.
+Codex 0.171.0 does not give this event a command or tool-call ID. An incomplete
+turn or failed gate returns an error. An ordinary command exit is separate from
+a provider refusal. The reviewed transport uses one thread for attributed
+evidence and disables delegation. Use `--json` for this evidence.
+
 ### `baikai agent list`
 
 Prints one line per configured job — the name and the scope whose definition

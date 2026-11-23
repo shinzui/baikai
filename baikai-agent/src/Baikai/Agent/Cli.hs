@@ -33,7 +33,8 @@ module Baikai.Agent.Cli
         jsonOutput,
         evidenceFile,
         runId,
-        requiredEvidence
+        requiredEvidence,
+        codexHooks
       ),
     agentCliOptions,
     agentCliParser,
@@ -94,7 +95,7 @@ import Baikai.Agent.Config
     repositoryScopeViolations,
     resolveAgentJob,
   )
-import Baikai.Agent.Run (runAgentCommand)
+import Baikai.Agent.Run (missingEnvironment, runAgentCommand, timeoutMicros)
 import Baikai.Evidence
   ( EvidenceRequest (..),
     EvidenceStrength (..),
@@ -113,6 +114,14 @@ import Baikai.Provider.OpenAI.Agent
   ( CodexAgentConfig,
     codexAgentCommand,
     defaultCodexAgentConfig,
+    runCodexAgentWithHooks,
+  )
+import Baikai.Provider.OpenAI.HookEvidence (CodexPreToolUse (..))
+import Baikai.Provider.OpenAI.ReviewedHooks
+  ( CodexHookTurn (..),
+    CodexHooks,
+    parseCodexHooks,
+    reviewCodexHooksInTerminal,
   )
 import Control.Applicative ((<|>))
 import Control.Exception (IOException, bracketOnError, displayException, try)
@@ -146,6 +155,7 @@ import Settei.Value (RawValue (..))
 import System.Directory
   ( doesFileExist,
     getCurrentDirectory,
+    makeAbsolute,
     removeFile,
     renameFile,
   )
@@ -158,8 +168,9 @@ import System.FilePath
     (</>),
   )
 import System.IO (hClose, openBinaryTempFileWithDefaultPermissions, stdin)
+import System.Timeout (timeout)
 
--- | Which of the three commands was asked for.
+-- | Which command was requested.
 data AgentCliCommand
   = -- | Run a named job, taking the prompt from the given source.
     AgentRun !Text !PromptSource
@@ -167,6 +178,7 @@ data AgentCliCommand
     AgentShow !Text
   | -- | Enumerate the configured jobs.
     AgentList
+  | AgentReviewCodexHooks !FilePath
   deriving stock (Eq, Show, Generic)
 
 -- | Where the prompt comes from. The three are mutually exclusive on
@@ -206,7 +218,9 @@ data AgentCliOptions = AgentCliOptions
     -- @--require-evidence@. Setting it turns recording on and makes the
     -- run refuse rather than start when the configuration cannot
     -- produce it.
-    requiredEvidence :: !(Maybe EvidenceStrength)
+    requiredEvidence :: !(Maybe EvidenceStrength),
+    -- | Invocation-only Codex policy selected by the operator.
+    codexHooks :: !(Maybe FilePath)
   }
   deriving stock (Generic)
 
@@ -286,7 +300,8 @@ agentCliOptions cliCommand =
       jsonOutput = False,
       evidenceFile = Nothing,
       runId = Nothing,
-      requiredEvidence = Nothing
+      requiredEvidence = Nothing,
+      codexHooks = Nothing
     }
 
 -- | A run result carrying an exit code and no output on either stream.
@@ -332,6 +347,12 @@ agentGroupParser =
               listOptionsParser
               (Options.progDesc "List the configured jobs and the scope each came from")
           )
+        <> Options.command
+          "review-codex-hooks"
+          ( Options.info
+              (agentCliOptions . AgentReviewCodexHooks <$> Options.strArgument (Options.metavar "FILE"))
+              (Options.progDesc "Review the native Codex PreToolUse commands in FILE")
+          )
     )
 
 runOptionsParser :: Parser AgentCliOptions
@@ -346,6 +367,8 @@ runOptionsParser =
     <*> Options.optional evidenceFileOption
     <*> Options.optional runIdOption
     <*> Options.optional requireEvidenceOption
+    <*> Options.optional
+      (Options.strOption (Options.long "codex-hooks" <> Options.metavar "FILE" <> Options.help "Use reviewed Codex PreToolUse hooks for this run"))
   where
     assemble
       jobName
@@ -356,7 +379,8 @@ runOptionsParser =
       jsonOutput
       evidenceFile
       runId
-      requiredEvidence =
+      requiredEvidence
+      codexHooks =
         AgentCliOptions
           { command = AgentRun jobName promptSource,
             overrides,
@@ -365,7 +389,8 @@ runOptionsParser =
             jsonOutput,
             evidenceFile,
             runId,
-            requiredEvidence
+            requiredEvidence,
+            codexHooks
           }
 
 showOptionsParser :: Parser AgentCliOptions
@@ -386,7 +411,8 @@ showOptionsParser =
           jsonOutput,
           evidenceFile = Nothing,
           runId = Nothing,
-          requiredEvidence = Nothing
+          requiredEvidence = Nothing,
+          codexHooks = Nothing
         }
 
 listOptionsParser :: Parser AgentCliOptions
@@ -405,7 +431,8 @@ listOptionsParser =
           jsonOutput,
           evidenceFile = Nothing,
           runId = Nothing,
-          requiredEvidence = Nothing
+          requiredEvidence = Nothing,
+          codexHooks = Nothing
         }
 
 jobArgument :: Parser Text
@@ -600,9 +627,29 @@ runAgentCliWithPaths ::
   AgentConfigPaths -> EnvSnapshot -> AgentCliOptions -> IO AgentCliRun
 runAgentCliWithPaths paths snapshot options = case options ^. #command of
   AgentList -> listCommand paths options
+  AgentReviewCodexHooks path -> reviewCodexHooksCommand path
   AgentShow jobName -> showCommand paths snapshot options jobName
   AgentRun jobName promptSource ->
     runCommand paths snapshot options jobName promptSource
+
+-- The terminal confirmation is deliberately separate from policy-bearing runs.
+reviewCodexHooksCommand :: FilePath -> IO AgentCliRun
+reviewCodexHooksCommand path = do
+  cwd <- getCurrentDirectory
+  result <- reviewCodexHooksInTerminal "codex" cwd path
+  pure $ case result of
+    Left err -> failedRun refusedExitCode (err <> "\n")
+    Right False -> failedRun refusedExitCode "Codex hook review cancelled.\n"
+    Right True -> successfulRun "Codex has reviewed the current hook declarations.\n" ""
+
+readCodexHooksFile :: FilePath -> IO (Either Text (BS.ByteString, CodexHooks))
+readCodexHooksFile path = do
+  bytes <- try @IOException $ do
+    exists <- doesFileExist path
+    if exists then BS.readFile path else ioError (userError "expected a file")
+  pure $ do
+    original <- either (const (Left ("Cannot read Codex hooks file " <> "'" <> Text.replace "'" "'\\''" (Text.pack path) <> "'."))) Right bytes
+    (original,) <$> parseCodexHooks original
 
 -- | Discovery, with explicit paths winning per scope. When both scopes
 -- are explicit nothing is discovered at all, so a fully specified
@@ -1122,32 +1169,83 @@ execute :: AgentCliOptions -> StagedJob -> Text -> IO AgentCliRun
 execute options staged promptBody =
   case prepared of
     Left refusal -> pure (refusedRun (renderAgentRenderError refusal))
-    Right (request, command, translation) -> do
-      ran <- runAgentCommand (evidenceRequestFor options) translation request command
-      written <- writeEvidenceFile (options ^. #evidenceFile) (ran ^. #evidence)
-      pure (interpret options staged request (ran ^. #outcome) (ran ^. #evidence) written)
+    Right (request, command, translation) -> case options ^. #codexHooks of
+      Just path
+        | request ^. #provider /= AgentCodex ->
+            pure (refusedRun "--codex-hooks requires a Codex job.")
+        | isJust (evidenceRequestFor options) ->
+            pure (refusedRun "Reviewed Codex runs provide hook evidence through --json. Omit --evidence-file, --run-id and --require-evidence.")
+        | otherwise -> reviewedRun request command path
+      Nothing -> do
+        ran <- runAgentCommand (evidenceRequestFor options) translation request command
+        written <- writeEvidenceFile (options ^. #evidenceFile) (ran ^. #evidence)
+        pure (interpret options staged request (ran ^. #outcome) (ran ^. #evidence) written)
   where
     request0 = agentJobRequest (staged ^. #job) promptBody
     prepared = do
       ceilingGuard staged request0
       (command, translation) <- renderJobCommand (staged ^. #job) request0
       pure (request0, command, translation)
-    refusedRun message
+    reviewedRun request command path = do
+      missing <- missingEnvironment (request ^. #envRequires)
+      if not (null missing)
+        then pure (refusedRun ("Required environment variables are missing: " <> Text.intercalate ", " missing))
+        else do
+          absolute <- makeAbsolute path
+          readCodexHooksFile absolute >>= \case
+            Left err -> pure (reviewedFailure "failed" configExitCode err)
+            Right (_, hooks) -> do
+              let cfg = defaultCodexAgentConfig & #executable .~ (command ^. #executable)
+                  launch = runCodexAgentWithHooks cfg request hooks
+              result <- maybe (Just <$> launch) (\limit -> timeout limit launch) (timeoutMicros (request ^. #timeout))
+              case result of
+                Nothing -> pure (reviewedFailure "failed" timeoutExitCode "Reviewed Codex run timed out. Inspect the workspace before retrying.")
+                Just (Left err)
+                  | err == "Codex requires review for the current hooks." ->
+                      pure (refusedRun (err <> " In the job workspace, run baikai agent review-codex-hooks " <> "'" <> Text.replace "'" "'\\''" (Text.pack absolute) <> "'."))
+                  | otherwise -> pure (refusedRun err)
+                Just (Right turn) -> do
+                  let answerBytes = Text.encodeUtf8 (answer turn <> "\n")
+                      retained = maybe answerBytes (\limit -> BS.take limit answerBytes) (request ^. #outputLimit)
+                      rendered = Text.decodeUtf8Lenient retained
+                      denied = blockedHooks turn
+                      truncation = if BS.length retained < BS.length answerBytes then "Codex output exceeded the configured limit.\n" else ""
+                      warnings =
+                        staged ^. #warnings
+                          <> Text.concat ["Codex PreToolUse blocked a call (" <> runIdOf blocked <> ").\n" | blocked <- denied]
+                          <> truncation
+                      reviewedJson =
+                        Aeson.object
+                          [ "outcome" Aeson..= ("completed" :: Text),
+                            "exitCode" Aeson..= (0 :: Int),
+                            "stdout" Aeson..= rendered,
+                            "blockedHooks" Aeson..= map hookJson denied
+                          ]
+                  pure (successfulRun (if options ^. #jsonOutput then encodeEnvelope reviewedJson else rendered) warnings)
+    runIdOf = \CodexPreToolUse {runId = identifier} -> identifier
+    hookJson event =
+      Aeson.object
+        [ "threadId" Aeson..= threadId event,
+          "turnId" Aeson..= turnId event,
+          "runId" Aeson..= runIdOf event
+        ]
+    refusedRun message = reviewedFailure "refused" refusedExitCode message
+    reviewedFailure status code message
       | options ^. #jsonOutput =
           AgentCliRun
-            { exitCode = refusedExitCode,
+            { exitCode = code,
               standardOutput =
                 encodeEnvelope
                   ( Aeson.object
-                      [ "outcome" Aeson..= ("refused" :: Text),
-                        "exitCode" Aeson..= refusedExitCode,
+                      [ "outcome" Aeson..= (status :: Text),
+                        "exitCode" Aeson..= code,
                         "message" Aeson..= message
                       ]
                   ),
               standardError = staged ^. #warnings
             }
       | otherwise =
-          failedRun refusedExitCode (staged ^. #warnings <> "refused: " <> message <> "\n")
+          failedRun code (staged ^. #warnings <> status <> ": " <> message <> "\n")
 
 interpret ::
   AgentCliOptions ->
@@ -1289,6 +1387,7 @@ evidenceRequestFor options =
       AgentRun name _ -> name
       AgentShow name -> name
       AgentList -> "agent"
+      AgentReviewCodexHooks _ -> "agent review-codex-hooks"
 
 -- | Write one evidence record to the operator's chosen path, returning
 -- whatever went wrong.

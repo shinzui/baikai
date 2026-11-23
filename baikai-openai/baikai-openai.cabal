@@ -71,6 +71,7 @@ library
     Baikai.Provider.OpenAI.Responses.Assembler
     Baikai.Provider.OpenAI.Responses.Request
     Baikai.Provider.OpenAI.Responses.Stream
+    Baikai.Provider.OpenAI.ReviewedHooks
     Baikai.Provider.OpenAI.Shape
     Baikai.Provider.OpenAI.Sse
     Baikai.Provider.OpenAI.Transport

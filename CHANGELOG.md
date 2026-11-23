@@ -12,6 +12,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `baikai-openai` exposes `Baikai.Provider.OpenAI.HookEvidence` for Codex app-server
   clients to verify a reviewed pre-tool handler and decode its completion outcome.
 
+- Reviewed Codex PreToolUse hooks for one unattended run or batch completion.
+  `baikai agent review-codex-hooks` presents exact native declarations for
+  approval. `baikai agent run --codex-hooks` and the scoped completion API
+  report denials from the checked app-server thread.
+
 - `baikai`: add `anthropic_claude_fable_5_2` on Claude Messages with
   adaptive thinking, client function tools, and structured output for
   eligible organizations. Standard rates per million tokens are $8 input,

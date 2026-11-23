@@ -19,6 +19,7 @@ module Baikai.Provider.OpenAI.Agent
     defaultCodexAgentConfig,
     codexAgentCommand,
     codexAgentThinking,
+    runCodexAgentWithHooks,
   )
 where
 
@@ -38,6 +39,12 @@ import Baikai.Evidence
     noThinkingRequested,
   )
 import Baikai.Prelude
+import Baikai.Provider.OpenAI.ReviewedHooks
+  ( CodexHookTurn,
+    CodexHooks,
+    runReviewedCodexTurn,
+    withReviewedCodexHooks,
+  )
 import Baikai.ThinkingLevel (ThinkingLevel, renderThinkingLevel)
 import Data.Generics.Labels ()
 import Data.Text qualified as Text
@@ -114,6 +121,22 @@ codexAgentCommand cfg req
             },
           codexAgentThinking req
         )
+
+-- | Use an ephemeral app-server thread for a caller's reviewed hooks.
+-- Apply the operator's ceiling before calling, as with 'codexAgentCommand'.
+-- The caller owns printing and timeout. This transport produces one final
+-- answer and native hook evidence.
+runCodexAgentWithHooks :: CodexAgentConfig -> AgentRunRequest -> CodexHooks -> IO (Either Text CodexHookTurn)
+runCodexAgentWithHooks cfg req hooks
+  | req ^. #provider /= AgentCodex = pure (Left "Reviewed Codex hooks require a Codex request.")
+  | not (null (req ^. #safety . #allowedTools)) = pure (Left "Codex does not support a tool allow-list.")
+  | not (null (cfg ^. #extraArgs <> req ^. #safety . #providerArgs)) = pure (Left "A reviewed Codex run does not accept raw exec flags.")
+  | not (cfg ^. #ephemeral) = pure (Left "A reviewed Codex run must be ephemeral.")
+  | otherwise = do
+      result <-
+        withReviewedCodexHooks (cfg ^. #executable) (req ^. #workingDir) (req ^. #safety . #capability) (req ^. #modelId) (req ^. #extraDirs) Nothing hooks $ \session ->
+          runReviewedCodexTurn session (req ^. #prompt) (renderThinkingLevel <$> req ^. #effort) Nothing
+      pure (result >>= id)
 
 -- | What the request's reasoning effort became on the @codex exec@
 -- command line.

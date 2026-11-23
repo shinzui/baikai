@@ -34,6 +34,19 @@ Options-as-data, the event stream, the registry, the trace bridge)
 works uniformly across "API call" and "CLI subprocess." They're
 not a tool-equivalent feature path — see [Limitations](#limitations).
 
+## Codex batch completion with reviewed hooks
+
+Use `Baikai.Provider.OpenAI.ReviewedHooks.parseCodexHooks` to validate a caller
+file and `Baikai.Provider.OpenAI.Cli.withReviewedCodexCli` to preflight a native
+ephemeral thread. Run `completeReviewedCodexCli` inside that scope. The result
+includes the final assistant answer and native PreToolUse denials. The application
+decides whether a reported denial fails its operation. Keep the callback inside
+the scope so it shares the thread whose hooks were checked.
+
+An operator reviews changed declarations separately with
+`baikai agent review-codex-hooks FILE` in the working directory. See
+[Use reviewed Codex hooks](unattended-agent-runs.md#use-reviewed-codex-hooks).
+
 ## Batch subprocesses vs interactive launches vs unattended runs
 
 The providers described on this page are batch subprocess providers.

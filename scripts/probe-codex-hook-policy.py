@@ -4,11 +4,19 @@ Run with python3 scripts/probe-codex-hook-policy.py. Requires codex on PATH.
 Each server gets a fresh config directory, no credentials and a fixed local model.
 """
 
+import argparse
 import asyncio
+import errno
 import json
 import os
+import pty
+import select
+import shutil
+import sys
 import subprocess
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -34,11 +42,20 @@ class Model(BaseHTTPRequestHandler):
         if self.path != "/v1/responses":
             self.send_error(404)
             return
-        self.rfile.read(int(self.headers["Content-Length"]))
+        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if getattr(self.server, "require_single_thread", False):
+            names = {tool.get("name") for tool in request.get("tools", [])}
+            if names & {"spawn_agent", "send_input", "wait_agent"}:
+                self.send_error(500, "policy turn exposed delegation tools")
+                return
         self.server.requests += 1
         number = self.server.requests
+        time.sleep(getattr(self.server, "delay", 0))
         response_id = f"response-{number}"
-        if number % 2:
+        had_tool_result = any(part.get("type") == "function_call_output"
+                              and part.get("call_id") == "fixture-call"
+                              for part in request.get("input", []) if isinstance(part, dict))
+        if not had_tool_result:
             item = {"type": "function_call", "call_id": "fixture-call", "name": "exec_command",
                     "arguments": json.dumps({"cmd": COMMAND, "login": False})}
         else:
@@ -55,7 +72,10 @@ class Model(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
 class AppServer:
@@ -213,7 +233,162 @@ trusted_hash = "sha256:bdc318cee0a3f6676683353dcfece8ff27b1c0732338f93048dd239d8
         check(config_file.read_text() == contents, "probe changed the fixture's trust configuration")
 
 
+def confirm_review(binary, work, hooks, env, reply):
+    master, slave = pty.openpty()
+    spec = [binary, "agent", "review-codex-hooks", str(hooks)]
+    with subprocess.Popen(spec, cwd=work, env=env, stdin=slave, stdout=slave, stderr=slave) as process:
+        os.close(slave)
+        output = bytearray()
+        deadline = time.monotonic() + 15
+        try:
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([master], [], [], 0.25)
+                if not ready:
+                    continue
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError as error:
+                    if error.errno == errno.EIO:
+                        break
+                    raise
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if reply is not None and b"Type yes" in output:
+                    os.write(master, reply + b"\n")
+                    reply = None
+            else:
+                raise TimeoutError("Baikai Codex hook review exceeded 15 seconds")
+            return process.wait(timeout=5), output.decode()
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            os.close(master)
+
+
+def exercise_cli(binary, root, model):
+    model.requests = 0
+    model.require_single_thread = True
+    work, user_config = root / "workspace", root / "codex"
+    work.mkdir()
+    user_config.mkdir()
+    config = user_config / "config.toml"
+    initial = f'''model = "gpt-5.4"
+model_provider = "fixture"
+[model_providers.fixture]
+name = "loopback"
+base_url = "http://127.0.0.1:{model.server_port}/v1"
+wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
+'''
+    config.write_text(initial)
+    env = {"PATH": os.environ["PATH"], "CODEX_HOME": str(user_config),
+           "HOME": str(root), "TMPDIR": str(root)}
+    jobs = root / "agents.kdl"
+    jobs.write_text('''jobs {
+  policy {
+    provider "codex"
+    working-dir "."
+    safety {
+      capability "edit-workspace"
+    }
+  }
+}
+''')
+    hooks = work / "caller hooks.json"
+
+    def set_hook(command):
+        hooks.write_text(json.dumps({"hooks": {"PreToolUse": [
+            {"matcher": "^Bash$", "hooks": [{"type": "command", "command": command}]}]}}))
+
+    def run_job(*extra):
+        args = ["agent", "run", "policy", "--config", str(jobs), "--prompt", "Run the fixture.",
+                "--codex-hooks", str(hooks), "--json", *extra]
+        return subprocess.run([binary, *args], cwd=work, env=env, check=False,
+                              text=True, capture_output=True, timeout=15)
+
+    set_hook(GATE)
+    blocked = run_job()
+    check(blocked.returncode == 77 and "review-codex-hooks" in blocked.stdout
+          and model.requests == 0 and config.read_text() == initial,
+          f"fresh policy should require review: {blocked.stdout} {blocked.stderr}")
+    refused, preview = confirm_review(binary, work, hooks, env, b"no")
+    check(refused == 77 and "Command" in preview and config.read_text() == initial,
+          f"review decline did not preserve trust state: {preview}")
+    reviewed, preview = confirm_review(binary, work, hooks, env, b"yes")
+    check(reviewed == 0 and "Command" in preview and "trusted_hash" in config.read_text()
+          and model.requests == 0, f"first review failed: {preview}")
+    saved = config.read_bytes()
+
+    for requests in (2, 4):
+        result = run_job()
+        check(result.returncode == 0, f"reviewed run failed: {result.stdout} {result.stderr}")
+        envelope = json.loads(result.stdout)
+        check(envelope["stdout"] == "Finished.\n" and len(envelope["blockedHooks"]) == 1
+              and model.requests == requests and not (work / "marker").exists()
+              and config.read_bytes() == saved, "reviewed run lost enforcement or evidence")
+    set_hook(GATE + " ")
+    changed = run_job()
+    check(changed.returncode == 77 and "review-codex-hooks" in changed.stdout
+          and model.requests == 4 and config.read_bytes() == saved,
+          "changed policy should require review again")
+
+    set_hook(GATE)
+    codex = shutil.which("codex")
+    proxy = root / "codex-missing-evidence"
+    proxy.write_text(f'''#!{sys.executable}
+import json
+import subprocess
+import sys
+
+with subprocess.Popen([{codex!r}, *sys.argv[1:]], stdin=sys.stdin,
+                      stdout=subprocess.PIPE, stderr=sys.stderr) as app:
+    for frame in app.stdout:
+        if json.loads(frame).get("method") != "hook/completed":
+            sys.stdout.buffer.write(frame)
+            sys.stdout.buffer.flush()
+    sys.exit(app.wait())
+''')
+    proxy.chmod(0o755)
+    incomplete = run_job("--set", f"executable={proxy}")
+    check(incomplete.returncode == 77 and "without complete hook evidence" in incomplete.stdout
+          and model.requests == 6 and not (work / "marker").exists()
+          and config.read_bytes() == saved,
+          f"missing completion event was treated as success: {incomplete.stdout} {incomplete.stderr}")
+
+    with ThreadPoolExecutor(max_workers=2) as concurrent:
+        results = [concurrent.submit(run_job) for _ in range(2)]
+        parallel = [future.result() for future in results]
+    check(all(result.returncode == 0 for result in parallel), "concurrent reviewed runs failed")
+    streams = [json.loads(result.stdout)["blockedHooks"] for result in parallel]
+    check(all(len(stream) == 1 for stream in streams)
+          and len({stream[0]["threadId"] for stream in streams}) == 2
+          and config.read_bytes() == saved and not (work / "marker").exists(),
+          "concurrent reviewed runs lost thread attribution")
+
+    set_hook(":")
+    reviewed, preview = confirm_review(binary, work, hooks, env, b"yes")
+    check(reviewed == 0, f"control review failed: {preview}")
+    result = run_job()
+    check(result.returncode == 0 and json.loads(result.stdout)["blockedHooks"] == []
+          and (work / "marker").read_text() == "ran",
+          f"ordinary command exit was confused with refusal: {result.stdout} {result.stderr}")
+    model.delay = 3
+    try:
+        timed = run_job("--set", "timeout=1s")
+    finally:
+        model.delay = 0
+    check(timed.returncode == 75 and "timed out" in timed.stdout,
+          f"reviewed run did not preserve the job timeout: {timed.stdout} {timed.stderr}")
+    check(json.loads(timed.stdout)["outcome"] == "failed", "timeout was represented as success")
+    print("Baikai CLI passed review, repeat, modified hook rejection, incomplete evidence, concurrent attribution, exit-7 control and timeout.")
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--baikai", type=Path, help="also exercise this Baikai executable")
+    args = parser.parse_args()
     subprocess.run(["codex", "--version"], check=True)
     with ThreadingHTTPServer(("127.0.0.1", 0), Model) as server:
         server.requests = 0
@@ -223,6 +398,9 @@ if __name__ == "__main__":
             for reviewed in (False, True):
                 with tempfile.TemporaryDirectory() as directory:
                     asyncio.run(asyncio.wait_for(exercise(Path(directory), server, reviewed), 45))
+            if args.baikai:
+                with tempfile.TemporaryDirectory() as directory:
+                    exercise_cli(str(args.baikai.resolve()), Path(directory).resolve(), server)
         finally:
             server.shutdown()
             worker.join()

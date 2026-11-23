@@ -6,9 +6,9 @@ description: >-
   settings file, Codex hooks and rules) through a typed field, and report the tool calls the
   provider refused, so consumers stop rendering vendor policy flags and parsing vendor
   refusal output themselves.
-timestamp: 2026-11-21T15:49:46Z
+timestamp: 2026-11-23T14:30:00Z
 requestId: IR-14
-status: proposed
+status: in-progress
 origin: mori://shinzui/seihou
 ---
 
@@ -16,10 +16,11 @@ origin: mori://shinzui/seihou
 
 ## Status
 
-Proposed. Baikai owns the shared provider integration. The source tree includes a Codex
-app-server inventory verifier, a notification decoder and a repeatable transport probe. The public unattended-run
-and batch completion entry points still need the policy input and evidence contract.
-The Claude consumer already works in the Seihou source tree.
+The Baikai source tree has a native standalone review command, a policy-bearing
+unattended command and a scoped batch completion API for reviewed Codex hooks.
+The local Codex 0.171.0 fixture exercises first-use confirmation, a repeated
+denial, changed-policy rejection and a command exiting 7. Claude adoption and
+publication of the provider API remain open.
 [Consumer plan](mori://shinzui/seihou/plans/127-let-callers-supply-tool-policy-for-batch-blueprint-runs-and-migrations)
 
 ## Context

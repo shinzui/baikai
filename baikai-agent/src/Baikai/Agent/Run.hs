@@ -18,6 +18,7 @@
 -- happened\"; a coding agent that attempts its task and fails has run.
 module Baikai.Agent.Run
   ( runAgentCommand,
+    missingEnvironment,
 
     -- * Evidence envelopes
     agentRequestEnvelope,

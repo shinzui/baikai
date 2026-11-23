@@ -43,10 +43,13 @@ module Baikai.Provider.OpenAI.Cli
     codexCliThinking,
     defaultCodexCliConfig,
     codexCliProvider,
+    withReviewedCodexCli,
+    completeReviewedCodexCli,
     register,
   )
 where
 
+import Baikai.Agent (AgentCapability (AgentEditWorkspace))
 import Baikai.Api (Api (..))
 import Baikai.Content (AssistantContent (..), TextContent (..))
 import Baikai.Context (Context)
@@ -59,6 +62,13 @@ import Baikai.Model (Model)
 import Baikai.Options (Options)
 import Baikai.Provider.Cli.Internal qualified as Internal
 import Baikai.Provider.Cli.Process.Internal (withOwnedProcess, withOwnedWorker)
+import Baikai.Provider.OpenAI.ReviewedHooks
+  ( CodexHookTurn,
+    CodexHooks,
+    ReviewedCodexThread,
+    runReviewedCodexTurn,
+    withReviewedCodexHooks,
+  )
 import Baikai.Provider.Registry
   ( ApiProvider (..),
     apiProviderWith,
@@ -86,7 +96,7 @@ import Data.Vector qualified as Vector
 import GHC.Generics (Generic)
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
-import System.Directory (getTemporaryDirectory, removeFile)
+import System.Directory (getCurrentDirectory, getTemporaryDirectory, removeFile)
 import System.Exit (ExitCode (..))
 import System.IO (Handle, hClose, openBinaryTempFile)
 import System.Process qualified as P
@@ -134,6 +144,41 @@ codexCliProvider cfg =
     & #describeThinking .~ (\_ opts -> codexCliThinking opts)
     & #strengthCeiling .~ Ev.declaredStrength OpenAICompletionsCli
     & #structuredOutput .~ declaredStructuredOutput OpenAICompletionsCli
+
+-- | Open a reviewed, workspace-write Codex batch session. Callers with a
+-- preparatory mutation can perform it inside the callback, after native
+-- hook review has been checked and before sending the completion prompt.
+-- Raw exec flags are specific to the legacy transport.
+withReviewedCodexCli ::
+  CodexCliConfig ->
+  Model ->
+  [FilePath] ->
+  CodexHooks ->
+  (ReviewedCodexThread -> IO a) ->
+  IO (Either Text a)
+withReviewedCodexCli cfg model dirs hooks use
+  | not (cfg ^. #ephemeral) = pure (Left "A reviewed Codex batch session must be ephemeral.")
+  | otherwise = case cfg ^. #extraArgs of
+      [] -> launch Nothing
+      ["-c", option] | Just skills <- Text.stripPrefix "skills.config=" option -> launch (Just skills)
+      _ -> pure (Left "A reviewed Codex batch session accepts only the skills.config override.")
+  where
+    launch skills = do
+      cwd <- maybe getCurrentDirectory pure (cfg ^. #workingDir)
+      let selected = Text.strip (model ^. #modelId)
+      withReviewedCodexHooks (cfg ^. #executable) cwd AgentEditWorkspace (if Text.null selected then Nothing else Just selected) dirs skills hooks use
+
+-- | Complete a request in a reviewed session and preserve native denial
+-- evidence alongside the final answer. The caller decides how a reported
+-- denial affects the result of its own operation.
+completeReviewedCodexCli ::
+  ReviewedCodexThread ->
+  Context ->
+  Options ->
+  IO (Either Text CodexHookTurn)
+completeReviewedCodexCli session ctx opts = do
+  either Control.Exception.throwIO pure (Context.refuseAssistantDataHistory ctx)
+  runReviewedCodexTurn session (codexCliPrompt ctx) (renderThinkingLevel <$> opts ^. #thinking) (requestedSchema opts)
 
 modelArgs :: Model -> [String]
 modelArgs m = case Text.strip (m ^. #modelId) of
