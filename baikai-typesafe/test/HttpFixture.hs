@@ -20,7 +20,7 @@ data Captured = Captured {path :: ByteString, headers :: RequestHeaders, body ::
 
 data Body = Reply BL.ByteString | Stalled
 
-data Fixture = Fixture {base :: Text, captures :: IO [Captured], requested :: MVar (), closed :: MVar ()}
+data Fixture = Fixture {base :: Text, captures :: IO [Captured], responding :: MVar (), closed :: MVar ()}
 
 withFixture :: Int -> ResponseHeaders -> Body -> (Fixture -> IO a) -> IO a
 withFixture code responseHeaders responseBody action = do
@@ -30,7 +30,6 @@ withFixture code responseHeaders responseBody action = do
   let app request respond = do
         bytes <- Wai.strictRequestBody request
         modifyIORef' ref (<> [Captured (Wai.rawPathInfo request) (Wai.requestHeaders request) bytes])
-        void (tryPutMVar started ())
         case responseBody of
           Reply response -> respond (Wai.responseLBS (mkStatus code "fixture") responseHeaders response)
           Stalled ->
@@ -38,8 +37,9 @@ withFixture code responseHeaders responseBody action = do
               ( Wai.responseStream
                   status200
                   responseHeaders
-                  ( \write flush ->
-                      (flush >> forever (write (Builder.byteString (BS.replicate 65536 120)) >> flush >> threadDelay 10000))
+                  ( \write flush -> do
+                      let writeChunk = write (Builder.byteString (BS.replicate 65536 120)) >> flush
+                      (writeChunk >> void (tryPutMVar started ()) >> forever (threadDelay 10000 >> writeChunk))
                         `finally` void (tryPutMVar ended ())
                   )
               )

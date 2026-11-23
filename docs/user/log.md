@@ -1,5 +1,12 @@
 # Bundle Update Log
 
+## 2026-11-23
+
+* **Release**: [CLI Providers](cli-providers.md) and
+  [Unattended Agent Runs](unattended-agent-runs.md) identify the first releases
+  with reviewed Codex hooks. [Models & Providers](models-and-providers.md)
+  identifies the releases for the new model bindings and Responses replay.
+
 ## 2026-11-14
 
 * **Release**: CLI Providers: prepared core 0.10.1.1 and adapter 0.7.3.1 guidance now describes published packages and documentation.

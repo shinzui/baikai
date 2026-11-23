@@ -10,9 +10,9 @@ import Baikai.Provider.TypeSafe.Internal.Response qualified as D
 import Baikai.Trace qualified as Trace
 import Baikai.Trace.Event qualified as Tr
 import Baikai.Trace.Sink qualified as Sink
-import Control.Concurrent (forkIO, threadDelay, throwTo)
+import Control.Concurrent (forkFinally, killThread)
 import Control.Concurrent.MVar
-import Control.Exception (AsyncException (ThreadKilled), SomeException, try)
+import Control.Exception (AsyncException (ThreadKilled), bracket, fromException)
 import Control.Lens ((&), (.~), (^.))
 import Control.Monad (forM_)
 import Data.Aeson qualified as A
@@ -292,19 +292,22 @@ httpTests =
         s <- fixture "schema"
         forM_ [False, True] $ \streaming -> F.withFixture 200 [("x-typesafe-request-id", "stalled")] F.Stalled $ \server -> do
           reg <- registry
-          r <- call streaming reg (fixtureModel server) validContext (fixtureOptions s & #timeoutMs .~ Just 100)
+          let opts = fixtureOptions s & #timeoutMs .~ Just 1000 & #evidence .~ Just (evidenceRequest "stalled")
+          r <- call streaming reg (fixtureModel server) validContext opts
           fmap (^. #category) (responseError r) @?= Just TransientError
+          assertBool "the whole-call deadline fired" (maybe False (Data.Text.isInfixOf "timeoutMs=1000" . (^. #message)) (responseError r))
+          fmap (^. #providerRequestId) (r ^. #evidence) @?= Just (Observed "stalled")
           timeout 2000000 (readMVar (F.closed server)) >>= (@?= Just ())
         F.withFixture 200 [] F.Stalled $ \server -> do
           reg <- registry
           done <- newEmptyMVar
-          tid <- forkIO $ (try (call True reg (fixtureModel server) validContext (fixtureOptions s)) :: IO (Either SomeException Response)) >>= putMVar done
-          timeout 2000000 (readMVar (F.requested server)) >>= (@?= Just ())
-          threadDelay 50000
-          throwTo tid ThreadKilled
-          result <- timeout 2000000 (takeMVar done)
-          assertBool "cancellation propagates" (case result of Just (Left _) -> True; _ -> False)
-          timeout 2000000 (readMVar (F.closed server)) >>= (@?= Just ())
+          let request = call True reg (fixtureModel server) validContext (fixtureOptions s)
+          bracket (forkFinally request (putMVar done)) killThread $ \consumer -> do
+            timeout 2000000 (readMVar (F.responding server)) >>= (@?= Just ())
+            killThread consumer
+            result <- timeout 2000000 (takeMVar done)
+            fmap (either fromException (const Nothing)) result @?= Just (Just ThreadKilled)
+            timeout 2000000 (readMVar (F.closed server)) >>= (@?= Just ())
     ]
 
 malformed :: A.Value -> [A.Value]

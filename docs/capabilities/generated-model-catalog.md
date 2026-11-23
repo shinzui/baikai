@@ -54,6 +54,11 @@ This supplies `Model` values to [CAP-1 — provider-neutral model calls with
 registry dispatch](unified-provider-calls.md); it is not required by it, since a
 hand-rolled `emptyModel` works just as well.
 
+The catalog in `baikai 0.11.0.0` adds GPT-6.1 Terra, GPT-6.2 Astra and Sol,
+and Claude Fable 5.2. The refresh includes context-tiered OpenAI pricing and
+corrected one-hour Claude cache-write rates. Model requirements, rates, and
+verification are listed in [Models & Providers](../user/models-and-providers.md).
+
 ## Shape
 
 ```console

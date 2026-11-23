@@ -36,6 +36,8 @@ not a tool-equivalent feature path — see [Limitations](#limitations).
 
 ## Codex batch completion with reviewed hooks
 
+This API is available starting in `baikai-openai 0.7.4.0`.
+
 Use `Baikai.Provider.OpenAI.ReviewedHooks.parseCodexHooks` to validate a caller
 file and `Baikai.Provider.OpenAI.Cli.withReviewedCodexCli` to preflight a native
 ephemeral thread. Run `completeReviewedCodexCli` inside that scope. The result

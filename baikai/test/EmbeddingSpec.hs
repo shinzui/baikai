@@ -20,6 +20,7 @@ import Baikai.Embedding
   )
 import Baikai.Error (BaikaiError, ErrorCategory (..), decodeError)
 import Baikai.Http qualified as Http
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception qualified as Exception
 import Control.Lens ((&), (.~), (^.))
 import Data.Generics.Labels ()
@@ -31,11 +32,14 @@ import OpenAI.V1.Models qualified as OpenAIModels
 import Servant.Client qualified as Client
 import System.Environment (lookupEnv)
 import System.Environment qualified as Environment
-import Test.Tasty (TestTree, testGroup)
+import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 tests :: TestTree
-tests =
+tests = withResource (newMVar ()) (const (pure ())) embeddingTests
+
+embeddingTests :: IO (MVar ()) -> TestTree
+embeddingTests getKeyLock =
   testGroup
     "Baikai.Embedding"
     [ testCase "mkEmbeddingRequest maps input, model id, and dimensions" $ do
@@ -58,7 +62,7 @@ tests =
         -- The defect: whatever the base URL said, the default key was
         -- OPENAI_API_KEY. Pointing an EmbeddingModel at DeepSeek sent an
         -- OpenAI key to DeepSeek.
-        withEnv "OPENAI_API_KEY" (Just "openai-secret") $
+        withFixtureKey $
           withEnv "DEEPSEEK_API_KEY" Nothing $ do
             err <-
               expectAuthError
@@ -67,7 +71,7 @@ tests =
               ("names the host's own variable: " <> Text.unpack (err ^. #message))
               ("DEEPSEEK_API_KEY" `Text.isInfixOf` (err ^. #message)),
       testCase "an unknown embedding host refuses rather than sending OpenAI's key" $
-        withEnv "OPENAI_API_KEY" (Just "openai-secret") $ do
+        withFixtureKey $ do
           err <-
             expectAuthError
               (emptyEmbeddingModel & #baseUrl .~ "https://vectors.example")
@@ -75,18 +79,18 @@ tests =
             ("says what to set: " <> Text.unpack (err ^. #message))
             ("EmbeddingModel.apiKey" `Text.isInfixOf` (err ^. #message)),
       testCase "the OpenAI default still resolves OPENAI_API_KEY" $
-        withEnv "OPENAI_API_KEY" (Just "openai-secret") $ do
+        withFixtureKey $ do
           resolved <- resolveEmbeddingKey (openAIEmbeddingModel "text-embedding-3-small")
-          resolved @?= "openai-secret",
+          assertBool "selected the fixture API key" (resolved == "openai-secret"),
       testCase "an explicit key source wins over the per-host table" $
-        withEnv "OPENAI_API_KEY" (Just "openai-secret") $ do
+        withFixtureKey $ do
           resolved <-
             resolveEmbeddingKey
               ( openAIEmbeddingModel "m"
                   & #apiKey
                     .~ Just (ApiKeyLiteral "explicit-key")
               )
-          resolved @?= "explicit-key",
+          assertBool "selected the explicit API key" (resolved == "explicit-key"),
       testCase "embeddings share the connection cache with the chat providers" $ do
         -- One TLS manager per host, not one per call: the SDK's own
         -- getClientEnv allocated a fresh manager every time embed ran.
@@ -106,17 +110,25 @@ tests =
         live <- lookupEnv "BAIKAI_EMBEDDING_LIVE"
         case live of
           Just "1" -> do
-            v <- embedOne (openAIEmbeddingModel "text-embedding-3-small") "hello"
-            V.length v @?= 1536
+            lock <- getKeyLock
+            withMVar lock $ \() -> do
+              v <- embedOne (openAIEmbeddingModel "text-embedding-3-small") "hello"
+              V.length v @?= 1536
           _ -> putStrLn "BAIKAI_EMBEDDING_LIVE not set; skipping live test"
     ]
+  where
+    withFixtureKey action = do
+      lock <- getKeyLock
+      withMVar lock $ \() ->
+        withEnv "OPENAI_KEY" Nothing $
+          withEnv "OPENAI_API_KEY" (Just "openai-secret") action
 
 -- | Resolve a model's key, expecting it to refuse.
 expectAuthError :: EmbeddingModel -> IO BaikaiError
 expectAuthError m = do
   thrown <- Exception.try (resolveEmbeddingKey m) :: IO (Either BaikaiError Text)
   case thrown of
-    Right key -> assertFailure ("expected an AuthError, got a key: " <> Text.unpack key)
+    Right _ -> assertFailure "expected an AuthError, got a key"
     Left err -> do
       err ^. #category @?= AuthError
       pure err

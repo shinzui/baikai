@@ -1,5 +1,14 @@
 # Bundle Update Log
 
+## 2026-11-23
+
+* **Release**: Add [CAP-33](responses-output-item-replay.md) and
+  [CAP-34](reviewed-codex-batch-hooks.md) for `baikai-openai 0.7.4.0` and
+  [CAP-35](reviewed-codex-agent-hooks.md) for `baikai-agent 0.3.0.0`.
+  [CAP-3](generated-model-catalog.md) covers the new bindings in
+  `baikai 0.11.0.0`. [CAP-13](anthropic-messages-backend.md) describes the
+  Messages transport and assistant prefill rules in `baikai-claude 0.7.3.1`.
+
 ## 2026-11-14
 
 * **Release**: CAP-15: core 0.10.1.1 and adapter 0.7.3.1, with documentation, are now published. Isolated core and adapter archive tests pass; the adapter resolves the fixed core from signed Hackage sources.

@@ -35,7 +35,10 @@ evidence:
     proves: "The provider-level contract, including that an image tool-result block is rejected rather than dropped and that responseFormat maps onto Anthropic's native output_config."
   - kind: test
     resource: baikai-claude/test/ThinkingSpec.hs
-    proves: "The counts and stop reasons claude 1.5 reports: a thinking-token breakdown at message_start reaches Usage.reasoningTokens, a message_delta's prompt-side counts replace the message_start figures while an absent field keeps them, and a paused turn ends the stream as a stop rather than an error."
+    proves: "A thinking-token breakdown at message_start reaches Usage.reasoningTokens, a message_delta's prompt-side counts replace the message_start figures while an absent field keeps them, and a paused turn ends the stream as a stop."
+  - kind: test
+    resource: baikai-claude/test/FableContractsSpec.hs
+    proves: "Fable 5.2 preserves signed thinking across tool results and rejects unsupported assistant prefills before dispatch."
   - kind: module
     resource: baikai-claude/src/Baikai/Provider/Claude/Api.hs
     proves: "The three public entry points: register, claudeMessagesProvider and claudeMessagesStream."
@@ -52,11 +55,8 @@ Anthropic's Messages API. The provider streams over SSE and reassembles into
 baikai's event algebra, so blocking and streaming callers see the same types they
 would against any other backend.
 
-It is built on the `MercuryTechnologies/claude` SDK for the wire types and a
-baikai-owned `http-client` SSE transport, which is where the typed error
-classification comes from: a non-2xx is classified from its status, `Retry-After`
-and body, and a transport failure mid-stream through
-`Baikai.Provider.Transport.Classify`, the one rule both HTTP providers share.
+Baikai classifies non-2xx responses from status, `Retry-After`, and body.
+Mid-stream transport failures use `Baikai.Provider.Transport.Classify`.
 
 Response-header capture is an **allow-list** — `request-id`, `x-request-id`,
 `cf-ray`, in that preference order — not a denylist, so a header a future gateway
@@ -65,8 +65,11 @@ Anthropic reports in `message_start`, are what let this transport reach
 `model_observed` in [CAP-19 — verifiable model-call
 evidence](model-call-evidence.md).
 
-The HTTP provider uses `mori://shinzui/claude-hs/packages/claude-hs` for
-Messages request encoding, scoped HTTP and typed stream observations.
+Starting in `baikai-claude 0.7.3.1`, the HTTP provider uses
+`mori://shinzui/claude-hs/packages/claude-hs` for Messages request encoding,
+scoped HTTP, and typed stream observations. It rejects unsupported assistant
+prefills before dispatch. Tool continuations preserve Fable 5.2 signed
+thinking, including empty signed blocks.
 A thinking-token breakdown fills `Usage.reasoningTokens` as an informational
 subset of output tokens. Final cumulative prompt-side counts account for
 server-side tool activity. An absent field keeps the earlier observation and

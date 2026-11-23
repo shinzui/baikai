@@ -148,6 +148,8 @@ printf 'reconcile the grammar with the lexer' | baikai agent run reconcile --pro
 
 ### Use reviewed Codex hooks
 
+This workflow is available starting in `baikai-agent 0.3.0.0`.
+
 From the workspace where a Codex job will run, review the native hooks file once,
 then pass it on each invocation.
 

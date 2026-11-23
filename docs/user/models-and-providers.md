@@ -281,6 +281,9 @@ replay them unchanged and keep history append-only. See the
 
 ### November 20 catalog refresh
 
+The catalog bindings in this section ship in `baikai 0.11.0.0`. Use
+`baikai-claude 0.7.3.1` for Claude Fable 5.2.
+
 `openai_gpt_6_1_terra` selects `OpenAIResponses` for function tools. It takes
 text and images, has a 1,050,000-token combined context, a 922,000-token input
 limit, and a 128,000-token output limit. The provider accepts reasoning off and
@@ -359,6 +362,9 @@ tracks compile-time warnings and compatibility through removal.
 [OpenAI deprecations](https://developers.openai.com/api/docs/deprecations)
 
 ### GPT-6.2 Astra and Sol
+
+Use `baikai 0.11.0.0` and `baikai-openai 0.7.4.0` for these bindings and
+stateless tool-turn replay.
 
 `openai_gpt_6_2_astra` and `openai_gpt_6_2_sol` select OpenAI Responses
 for streaming text, JSON schema output and function tools. Both accept text

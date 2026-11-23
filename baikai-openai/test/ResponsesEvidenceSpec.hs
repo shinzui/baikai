@@ -11,8 +11,9 @@ import Baikai.Provider.OpenAI.Sse (sseFromResponse)
 import Baikai.Trace (withTraceStreamWith)
 import Baikai.Trace.Event qualified as Trace
 import Baikai.Trace.Sink (TraceSink (..))
+import Control.Concurrent (forkFinally, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (bracket, finally)
+import Control.Exception (AsyncException (ThreadKilled), bracket, finally, fromException)
 import Control.Lens ((&), (.~))
 import Control.Monad (forM_)
 import Data.Aeson (Value (..), object, (.=))
@@ -115,18 +116,26 @@ tests =
         ev.responseId @?= Unobserved
         ev.usage @?= Unobserved,
       testCase "strict trace cancellation records one abort and releases the worker" $ do
+        ready <- newEmptyMVar
         closed <- newEmptyMVar
         forever <- newEmptyMVar
         captured <- newIORef ([] :: [Trace.TraceEvent])
         recorded <- newEmptyMVar
-        let blocked _ _ _ _ emit = (emit (Right added) >> emit (Right deltaFrame) >> takeMVar forever) `finally` putMVar closed ()
+        outcome <- newEmptyMVar
+        let blocked _ _ _ _ emit =
+              (emit (Right added) >> emit (Right deltaFrame) >> putMVar ready () >> takeMVar forever)
+                `finally` putMVar closed ()
             save () e = do
               atomicModifyIORef' captured (\xs -> (e : xs, ()))
               case e of Trace.CallEvidence {} -> putMVar recorded (); _ -> pure ()
             sink = TraceSink (Fold.foldlM' save (pure ()))
         reg <- registryFor blocked
-        result <- timeout 100000 (Stream.toList (withTraceStreamWith reg sink openai_gpt_6_astra emptyContext strictOptions))
-        assertBool "consumer was cancelled" (case result of Nothing -> True; _ -> False)
+        let collect = Stream.toList (withTraceStreamWith reg sink openai_gpt_6_astra emptyContext strictOptions)
+        bracket (forkFinally collect (putMVar outcome)) killThread $ \consumer -> do
+          timeout 2000000 (takeMVar ready) >>= (@?= Just ())
+          killThread consumer
+          result <- timeout 2000000 (takeMVar outcome)
+          fmap (either fromException (const Nothing)) result @?= Just (Just ThreadKilled)
         timeout 1000000 (takeMVar closed) >>= (@?= Just ())
         timeout 1000000 (takeMVar recorded) >>= (@?= Just ())
         events <- readIORef captured

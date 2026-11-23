@@ -67,6 +67,9 @@ server-side conversation ID. The replay state travels in the request. That keeps
 the provider usable against a host that has retention disabled, and it keeps the
 `Context` the single source of truth for what the model has seen.
 
+For complete message and function-call item replay across stateless turns, use
+[CAP-33](responses-output-item-replay.md) starting in `baikai-openai 0.7.4.0`.
+
 ## Registration is explicit
 
 `Baikai.Provider.OpenAI.Responses.register` is a separate call from the Chat

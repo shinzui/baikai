@@ -69,6 +69,9 @@ documented as outside the PVP contract, and the OpenAI Responses backend
 | [Structured answer export through OpenTelemetry](structured-answer-span-export.md) | CAP-30 | `baikai-trace-otel`, `baikai` | 0.4.1.0 | Export structured answer values and probability evidence as canonical JSON on successful and failed provider spans. |
 | [Explicit reasoning off with truthful fallback evidence](explicit-reasoning-off.md) | CAP-31 | `baikai`, `baikai-claude`, `baikai-openai` | 0.10.0.0 | Request off distinctly from provider defaults, with catalog-gated translation and strict refusal of substitutions. |
 | [Traced effectful collection with abort acknowledgement](traced-effectful-collection.md) | CAP-32 | `baikai-effectful`, `baikai` | 0.5.0.0 | Collect with a sink and confirm bounded abort delivery before handling cancellation. |
+| [Persisted Responses output-item replay](responses-output-item-replay.md) | CAP-33 | `baikai-openai`, `baikai` | 0.7.4.0 | Preserve complete assistant and function-call items across stateless tool turns. |
+| [Codex batch completion with reviewed hooks](reviewed-codex-batch-hooks.md) | CAP-34 | `baikai-openai` | 0.7.4.0 | Check the effective hook inventory and return native pre-tool denials with the result. |
+| [Reviewed Codex hooks for unattended jobs](reviewed-codex-agent-hooks.md) | CAP-35 | `baikai-agent`, `baikai-openai` | 0.3.0.0 | Review a native hooks file and collect reported denials from a named Codex job. |
 
 ## Deliberately excluded
 
